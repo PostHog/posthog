@@ -27,13 +27,12 @@ import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } fr
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion } from './utils'
+import { isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
     survey: Survey | NewSurvey
     setSelectedPageIndex: (index: number) => void
-    setSurveyValue: (key: string, value: any) => void
     translationValidationErrors?: Array<{ language: string; questionIndex: number; field: string; error: string }>
     translationErrorsByQuestion?: (
         questionIndex: number
@@ -55,11 +54,10 @@ export function SurveyEditQuestionHeader({
     index,
     survey,
     setSelectedPageIndex,
-    setSurveyValue,
     translationErrorsByQuestion,
 }: SurveyQuestionHeaderProps): JSX.Element {
-    const { hasBranchingLogic, editingLanguage } = useValues(surveyLogic)
-    const { deleteBranchingLogic } = useActions(surveyLogic)
+    const { editingLanguage } = useValues(surveyLogic)
+    const { removeQuestion } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -104,39 +102,9 @@ export function SurveyEditQuestionHeader({
                         size="xsmall"
                         data-attr={`delete-survey-question-${index}`}
                         onClick={(e) => {
-                            const deleteQuestion = (): void => {
-                                e.stopPropagation()
-                                setSelectedPageIndex(index <= 0 ? 0 : index - 1)
-                                setSurveyValue(
-                                    'questions',
-                                    survey.questions.filter((_, i) => i !== index)
-                                )
-                            }
-
-                            if (hasBranchingLogic) {
-                                LemonDialog.open({
-                                    title: 'Your survey has active branching logic',
-                                    description: (
-                                        <p className="py-2">
-                                            Deleting the question will remove your branching logic. Are you sure you
-                                            want to continue?
-                                        </p>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Continue',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            deleteBranchingLogic()
-                                            deleteQuestion()
-                                        },
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            } else {
-                                deleteQuestion()
-                            }
+                            e.stopPropagation()
+                            setSelectedPageIndex(index <= 0 ? 0 : index - 1)
+                            removeQuestion(index)
                         }}
                         tooltipPlacement="top-end"
                     />
@@ -156,9 +124,15 @@ function canQuestionSkipSubmitButton(
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
-    const { survey, descriptionContentType, editingLanguage, translationErrorsForField } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
-        useActions(surveyLogic)
+    const { survey, descriptionContentType, editingLanguage, translationErrorsForField, aiGeneratedTranslationFields } =
+        useValues(surveyLogic)
+    const {
+        setDefaultForQuestionType,
+        setSurveyValue,
+        resetBranchingForQuestion,
+        setMultipleSurveyQuestion,
+        clearAiGeneratedTranslationField,
+    } = useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -187,6 +161,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 return q
             })
             setSurveyValue('questions', updatedQuestion)
+            clearAiGeneratedTranslationField(`questions.${index}.translations.${editingLanguage}.${key}`)
         } else {
             const updatedQuestion = survey.questions.map((question, idx) => {
                 if (index === idx) {
@@ -222,13 +197,45 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     const getFieldErrorClass = (fieldKey: string): string => {
         const fieldError = getFieldError(fieldKey)
-        return fieldError ? 'border border-warning hover:border-primary' : ''
+        const aiGenerated = isAiGeneratedField(fieldKey)
+        return [
+            fieldError ? 'border border-warning hover:border-primary' : '',
+            aiGenerated ? 'border border-dashed border-accent bg-accent-highlight-secondary' : '',
+        ]
+            .filter(Boolean)
+            .join(' ')
     }
 
     const getChoiceErrorClass = (choiceIndex: number): string => {
         const choiceError = getChoiceError(choiceIndex)
-        return choiceError ? 'border border-warning hover:border-primary' : ''
+        const aiGenerated = isAiGeneratedChoice(choiceIndex)
+        return [
+            choiceError ? 'border border-warning hover:border-primary' : '',
+            aiGenerated ? 'border border-dashed border-accent bg-accent-highlight-secondary' : '',
+        ]
+            .filter(Boolean)
+            .join(' ')
     }
+
+    const isAiGeneratedField = (fieldKey: string): boolean =>
+        !!editingLanguage &&
+        aiGeneratedTranslationFields.includes(`questions.${index}.translations.${editingLanguage}.${fieldKey}`)
+
+    const isAiGeneratedChoice = (choiceIndex: number): boolean =>
+        !!editingLanguage &&
+        aiGeneratedTranslationFields.includes(
+            `questions.${index}.translations.${editingLanguage}.choices.${choiceIndex}`
+        )
+
+    const getFieldLabel = (label: string, fieldKey: string): JSX.Element | string =>
+        isAiGeneratedField(fieldKey) ? (
+            <span className="flex items-center gap-1">
+                <span>{label}</span>
+                <LemonTag type="highlight">AI draft</LemonTag>
+            </span>
+        ) : (
+            label
+        )
 
     const displayQuestion = editingLanguage
         ? {
@@ -417,7 +424,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         />
                     )}
                 </LemonField>
-                <LemonField name={getFieldName('question')} label="Label">
+                <LemonField name={getFieldName('question')} label={getFieldLabel('Label', 'question')}>
                     {(() => {
                         const fieldError = getFieldError('question')
                         return (
@@ -433,7 +440,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         )
                     })()}
                 </LemonField>
-                <LemonField name={getFieldName('description')} label="Description (optional)">
+                <LemonField
+                    name={getFieldName('description')}
+                    label={getFieldLabel('Description (optional)', 'description')}
+                >
                     {(() => {
                         const fieldError = getFieldError('description')
                         return (
@@ -496,7 +506,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 {isLinkQuestion(question) && (
                     <LemonField
                         name={getFieldName('link')}
-                        label="Link"
+                        label={getFieldLabel('Link', 'link')}
                         info="Only https:// or mailto: links are supported."
                     >
                         {(() => {
@@ -573,7 +583,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             <div className="flex flex-row gap-4">
                                 <LemonField
                                     name={getFieldName('lowerBoundLabel')}
-                                    label="Lower bound label"
+                                    label={getFieldLabel('Lower bound label', 'lowerBoundLabel')}
                                     className="w-1/2"
                                 >
                                     {(() => {
@@ -596,7 +606,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 </LemonField>
                                 <LemonField
                                     name={getFieldName('upperBoundLabel')}
-                                    label="Upper bound label"
+                                    label={getFieldLabel('Upper bound label', 'upperBoundLabel')}
                                     className="w-1/2"
                                 >
                                     {(() => {
@@ -643,13 +653,44 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name={getFieldName('choices')} label="Choices">
+                                <LemonField
+                                    name={getFieldName('choices')}
+                                    label="Choices"
+                                    info="Tip: paste a list of options separated by new lines (or from a spreadsheet column) to add them all at once."
+                                >
                                     {({ value, onChange }) => {
                                         const handleChoicesChange = (newChoices: string[]): void => {
                                             onChange(newChoices)
+                                            if (editingLanguage) {
+                                                newChoices.forEach((_, choiceIndex) =>
+                                                    clearAiGeneratedTranslationField(
+                                                        `questions.${index}.translations.${editingLanguage}.choices.${choiceIndex}`
+                                                    )
+                                                )
+                                            }
                                             if (!editingLanguage) {
                                                 syncChoicesInTranslations(newChoices)
                                             }
+                                        }
+
+                                        const handlePasteIntoChoice = (
+                                            event: React.ClipboardEvent<HTMLInputElement>,
+                                            choiceIndex: number
+                                        ): void => {
+                                            if (editingLanguage) {
+                                                return
+                                            }
+                                            const merged = splitChoicesOnPaste(
+                                                event.clipboardData.getData('text'),
+                                                value || [],
+                                                choiceIndex,
+                                                hasOpenChoice
+                                            )
+                                            if (!merged) {
+                                                return
+                                            }
+                                            event.preventDefault()
+                                            handleChoicesChange(merged)
                                         }
 
                                         return (
@@ -669,6 +710,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                         newChoices[index] = val
                                                                         handleChoicesChange(newChoices)
                                                                     }}
+                                                                    onPaste={(event) =>
+                                                                        handlePasteIntoChoice(event, index)
+                                                                    }
                                                                     placeholder={
                                                                         editingLanguage
                                                                             ? originalChoices[index]
@@ -676,11 +720,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                     }
                                                                     className={getChoiceErrorClass(index)}
                                                                     suffix={
-                                                                        isOpenChoice && (
+                                                                        isOpenChoice ? (
                                                                             <LemonTag type="highlight">
                                                                                 open-ended
                                                                             </LemonTag>
-                                                                        )
+                                                                        ) : null
                                                                     }
                                                                 />
                                                             </Tooltip>

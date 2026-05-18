@@ -19,7 +19,9 @@ from django.utils.text import slugify
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -211,6 +213,14 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
 
+    def test_users_me_includes_active_realtime_notification_types(self):
+        self.client.force_login(self.user)
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        body = response.json()
+        assert "active_realtime_notification_types" in body
+        assert "comment_mention" in body["active_realtime_notification_types"]
+
     def test_can_only_list_yourself(self):
         """
         At this moment only the current user can be retrieved from this endpoint.
@@ -294,9 +304,8 @@ class TestUserAPI(APIBaseTest):
 
     # UPDATING USER
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_update_current_user(self, mock_capture, mock_identify_task):
+    def test_update_current_user(self, mock_capture):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("old@posthog.com", password="12345678")
@@ -338,7 +347,10 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
         self.assertEqual(user.role_at_organization, "engineering")
 
-        mock_capture.assert_called_once_with(
+        # UserSerializer.to_representation also fires posthoganalytics.capture
+        # for the "update user properties" identify, so use assert_any_call to
+        # find the "user updated" event we actually care about here.
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={
@@ -359,9 +371,8 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_cancel_own_email_change_request(self, _mock_capture, _mock_identify_task):
+    def test_user_can_cancel_own_email_change_request(self, _mock_capture):
         self.user.pending_email = "another@email.com"
         self.user.save()
 
@@ -371,20 +382,16 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response_data["pending_email"] is None
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_cannot_cancel_email_change_request_if_it_doesnt_exist(self, _mock_capture, _mock_identify_task):
+    def test_user_cannot_cancel_email_change_request_if_it_doesnt_exist(self, _mock_capture):
         # Fire a call to the endpoint without priming the User with a pending_email field
 
         response = self.client.patch("/api/users/cancel_email_change_request")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(
-        self, _mock_capture, _mock_identify_task
-    ):
+    def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(self, _mock_capture):
         a_third_team = Team.objects.create(name="A Third Team", organization=self.organization)
 
         dashboard_one = Dashboard.objects.create(team=a_third_team, name="Dashboard 1")
@@ -401,9 +408,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
@@ -411,9 +417,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
@@ -421,9 +426,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_must_send_scene(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_must_send_scene(self, _mock_capture):
         dashboard_one = Dashboard.objects.create(team=self.team, name="Dashboard 1")
 
         response = self.client.post(
@@ -437,9 +441,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user(self, _mock_capture):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("the-user@posthog.com", password="12345678")
@@ -582,6 +585,122 @@ class TestUserAPI(APIBaseTest):
                 "beta@example.com",
             )
 
+    @parameterized.expand(
+        [
+            ("single_google", [("google-oauth2", "google-sub-1")]),
+            (
+                "multiple_providers",
+                [
+                    ("google-oauth2", "google-sub-1"),
+                    ("google-oauth2", "google-sub-2"),
+                    ("github", "octocat"),
+                    ("gitlab", "12345"),
+                ],
+            ),
+        ]
+    )
+    def test_verified_email_change_removes_social_auth_connections(self, _, social_auths: list[tuple[str, str]]):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        social_auth_ids = [
+            UserSocialAuth.objects.create(user=self.user, provider=provider, uid=uid).id
+            for provider, uid in social_auths
+        ]
+        other_user = User.objects.create_user("other@example.com", "pwd1234*", "Other")
+        other_user_social_auth_id = UserSocialAuth.objects.create(
+            user=other_user, provider="google-oauth2", uid="other-google-sub"
+        ).id
+
+        with (
+            patch("posthog.api.user.is_email_available", return_value=True) as mock_is_email_available,
+            patch("posthog.tasks.email.send_email_change_emails.delay") as mock_send_email_change_emails,
+            patch("posthog.api.email_verification.send_email_verification") as mock_send_email_verification,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch(
+                    "/api/users/@me/",
+                    {
+                        "email": "beta@example.com",
+                    },
+                )
+
+            assert response.status_code == status.HTTP_200_OK
+            mock_is_email_available.assert_called_once()
+            mock_send_email_verification.assert_called_once()
+
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post(
+                "/api/users/verify_email/",
+                {"uuid": self.user.uuid, "token": token},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            self.user.refresh_from_db()
+            assert self.user.email == "beta@example.com"
+            assert self.user.pending_email is None
+            for social_auth_id in social_auth_ids:
+                assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
+            assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
+            mock_send_email_change_emails.assert_called_once_with(
+                ANY,
+                self.user.first_name,
+                "alpha@example.com",
+                "beta@example.com",
+            )
+
+    @parameterized.expand(
+        [
+            ("current_email_enforced", "alpha@example.com", "sso_enforced_current_email"),
+            ("new_email_enforced", "beta@example.com", "sso_enforced_new_email"),
+        ]
+    )
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_blocked_when_sso_is_enforced(
+        self,
+        _,
+        enforced_email: str,
+        expected_code: str,
+        mock_send_email_change_emails,
+        mock_is_email_available,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == enforced_email else None,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+        mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
+        social_auth = UserSocialAuth.objects.create(
+            user=self.user,
+            provider="google-oauth2",
+            uid="google-sub-1",
+        )
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "token": token},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
+        mock_send_email_change_emails.assert_not_called()
+
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
@@ -617,9 +736,8 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_staff, False)
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_organization(self, mock_capture, mock_identify):
+    def test_can_update_current_organization(self, mock_capture):
         response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -634,7 +752,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_organization, self.new_org)
         self.assertEqual(self.user.current_team, self.new_project)
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
@@ -645,9 +763,8 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_project(self, mock_capture, mock_identify):
+    def test_can_update_current_project(self, mock_capture):
         team = Team.objects.create(name="Local Team", organization=self.new_org)
         response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -662,7 +779,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_organization, self.new_org)
         self.assertEqual(self.user.current_team, team)
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
@@ -879,10 +996,9 @@ class TestUserAPI(APIBaseTest):
             self.assertIn(result_organization, [self.organization, new_org])
             self.assertEqual(self.user.current_organization, result_organization)
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.email.send_password_changed_email.delay")
-    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture, mock_identify):
+    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -904,7 +1020,7 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
@@ -922,12 +1038,9 @@ class TestUserAPI(APIBaseTest):
         # Assert password changed email was sent
         mock_send_password_changed_email.assert_called_once_with(user.id)
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.email.send_password_changed_email.delay")
-    def test_user_with_no_password_set_can_set_password(
-        self, mock_send_password_changed_email, mock_capture, mock_identify
-    ):
+    def test_user_with_no_password_set_can_set_password(self, mock_send_password_changed_email, mock_capture):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
@@ -949,7 +1062,7 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
@@ -988,9 +1101,8 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_cannot_update_to_insecure_password(self, mock_capture, mock_identify):
+    def test_cannot_update_to_insecure_password(self, mock_capture):
         response = self.client.patch(
             "/api/users/@me/",
             {"current_password": self.CONFIG_PASSWORD, "password": "123"},
@@ -1013,7 +1125,11 @@ class TestUserAPI(APIBaseTest):
         # Password was not changed
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
-        mock_capture.assert_not_called()
+        # The GET on /api/users/@me/ fires the inline identify ("update user properties")
+        # via UserSerializer.to_representation. The 4xx PATCH must NOT fire "user updated"
+        # because the update was rejected.
+        update_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user updated"]
+        assert update_calls == []
 
     def test_user_cannot_update_password_without_current_password(self):
         response = self.client.patch("/api/users/@me/", {"password": "12345678"})
@@ -1490,6 +1606,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
+                "realtime_notifications_disabled": {},
             },
         )
 
@@ -1508,6 +1625,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
+                "realtime_notifications_disabled": {},
             },
         )
 
@@ -1561,6 +1679,129 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    def test_notification_settings_default_includes_realtime_disabled_empty_dict(self):
+        user = self._create_user("rt-defaults@test.com")
+        assert user.notification_settings["realtime_notifications_disabled"] == {}
+
+    def test_realtime_notifications_disabled_accepts_valid_payload(self):
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "realtime_notifications_disabled": {"comment_mention": {str(self.team.id): True}}
+                }
+            },
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        assert self.user.partial_notification_settings["realtime_notifications_disabled"] == {
+            "comment_mention": {str(self.team.id): True}
+        }
+
+    @parameterized.expand(
+        [
+            ("unknown_type", {"made_up_type": {"1": True}}, "Unknown notification type"),
+            ("non_bool_value", {"comment_mention": {"1": "yes"}}, "must be boolean"),
+            ("non_dict_top_level", "not_a_dict", "must be a dict"),
+            ("non_dict_inner", {"comment_mention": "not_a_dict"}, "must be a dict of team_id"),
+        ]
+    )
+    def test_realtime_notifications_disabled_rejects_invalid_payload(self, _name, payload, expected_message_substr):
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"realtime_notifications_disabled": payload}},
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert expected_message_substr in response.json()["detail"], response.json()
+
+    def test_realtime_notifications_disabled_false_overwrites_true_for_same_pair(self):
+        self.user.partial_notification_settings = {"realtime_notifications_disabled": {"comment_mention": {"1": True}}}
+        self.user.save()
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"realtime_notifications_disabled": {"comment_mention": {"1": False}}}},
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        assert self.user.partial_notification_settings["realtime_notifications_disabled"] == {
+            "comment_mention": {"1": False}
+        }
+
+    def test_realtime_notifications_disabled_two_level_merge_preserves_other_pairs(self):
+        self.user.partial_notification_settings = {
+            "realtime_notifications_disabled": {
+                "comment_mention": {"7": True, "8": True},
+                "alert_firing": {"7": True},
+            }
+        }
+        self.user.save()
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"realtime_notifications_disabled": {"comment_mention": {"9": True}}}},
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        assert self.user.partial_notification_settings["realtime_notifications_disabled"] == {
+            "comment_mention": {"7": True, "8": True, "9": True},
+            "alert_firing": {"7": True},
+        }
+
+    @parameterized.expand(
+        [
+            ("bool_scalar", "all_weekly_digest_disabled", False),
+            ("plugin_disabled_bool", "plugin_disabled", True),
+            ("project_dict", "project_weekly_digest_disabled", {"99": True}),
+            ("org_dict", "organization_member_join_email_disabled", {"00000000-0000-0000-0000-000000000099": True}),
+            ("realtime_two_level_dict", "realtime_notifications_disabled", {"comment_mention": {"99": True}}),
+            ("float_threshold", "data_pipeline_error_threshold", 0.99),
+        ]
+    )
+    def test_partial_notification_settings_patch_preserves_unrelated_keys(self, _name, patched_key, patched_value):
+        # Pre-seed every key with a non-default value so any clobber is visible.
+        pre_seeded = {
+            "plugin_disabled": False,
+            "error_tracking_issue_assigned": False,
+            "discussions_mentioned": False,
+            "project_weekly_digest_disabled": {"1": True, "2": True},
+            "all_weekly_digest_disabled": True,
+            "data_pipeline_error_threshold": 0.42,
+            "project_api_key_exposed": False,
+            "materialized_view_sync_failed": True,
+            "web_analytics_weekly_digest": False,
+            "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000001": True},
+            "realtime_notifications_disabled": {"comment_mention": {"1": True}},
+        }
+        self.user.partial_notification_settings = pre_seeded
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {patched_key: patched_value}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        for unrelated_key, original_value in pre_seeded.items():
+            if unrelated_key == patched_key:
+                continue
+            assert self.user.partial_notification_settings[unrelated_key] == original_value, (
+                f"Patching {patched_key!r} clobbered {unrelated_key!r}"
+            )
+
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1612,6 +1853,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
+                "realtime_notifications_disabled": {},  # Default value
             },
         )
 
@@ -1992,6 +2234,57 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == "new@posthog.com"
         assert self.user.pending_email is None
+
+    def test_email_verification_does_not_log_in_user_with_2fa_totp(self):
+        # If the user has a TOTP device configured, verifying their email must
+        # NOT silently establish an authenticated session — otherwise an
+        # attacker with access to the email inbox could bypass 2FA entirely.
+        TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+
+        token = email_verification_token_generator.make_token(self.user)
+        self.client.logout()
+        assert self.client.session.get("_auth_user_id") is None
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True, "token": token, "requires_2fa": True}
+
+        # Email should still be marked verified, but the session must remain unauthenticated.
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.client.session.get("_auth_user_id") is None
+
+    def test_cant_request_verification_for_already_verified_email(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "already_verified",
+                "detail": "Email is already verified.",
+                "attr": None,
+            },
+        )
+        # No email should have been sent for an already-verified address.
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_can_request_verification_for_pending_email_change(self):
+        # An already-verified user who initiated an email change still needs to
+        # verify the new address — re-requesting the verification link must work.
+        self.user.is_email_verified = True
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
 
 
 class TestUserTwoFactor(APIBaseTest):

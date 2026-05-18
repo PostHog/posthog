@@ -93,6 +93,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -113,6 +114,7 @@ from posthog.hogql.database.schema.session_replay_events import (
     join_replay_table_to_sessions_table_v2,
     join_replay_table_to_sessions_table_v3,
 )
+from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
     RawSessionsTableV2,
@@ -275,6 +277,16 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                    "session_replay_features": TableNode(
+                        name="session_replay_features", table=SessionReplayFeaturesTable()
+                    ),
+                    "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+                    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
+                    "error_tracking_fingerprint_issue_state": TableNode(
+                        name="error_tracking_fingerprint_issue_state",
+                        table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
                 },
             ),
             "system": SystemTables(),
@@ -356,7 +368,39 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if table_name in self._denied_tables:
                 raise QueryError(f"You don't have access to table `{table_name}`.") from e
-            raise QueryError(f"Unknown table `{table_name}`.") from e
+            suggestions = self._suggest_table_names(table_name)
+            suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
+
+    def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
+        """Return up to `limit` close matches for a mistyped table name.
+
+        Uses a relatively strict cutoff so common exact-text assertions on
+        'Unknown table `...`.' stay stable when the mistyped name has no
+        realistic neighbor in the catalog.
+
+        Builds the candidate list from the raw name caches rather than from
+        `get_all_table_names()` — the latter verifies each warehouse entry by
+        calling `get_table()`, which would recurse back into this helper when
+        a warehouse table fails to resolve.
+        """
+        import difflib
+
+        try:
+            candidates = set(self.get_posthog_table_names())
+            candidates.update(self._warehouse_table_names)
+            candidates.update(self._warehouse_self_managed_table_names)
+            candidates.update(self._view_table_names)
+        except Exception:
+            return []
+        # Drop any candidate that matches the input — suggesting `persons` for `persons`
+        # is noise, and on a direct connection the same name can exist in the broader
+        # catalog without being available on the source we actually queried.
+        lowered = name.casefold()
+        candidates = {c for c in candidates if c.casefold() != lowered}
+        if not candidates:
+            return []
+        return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []
@@ -382,7 +426,13 @@ class Database(BaseModel):
     # These are the tables exposed via SQL editor autocomplete and data management
     def get_posthog_table_names(self, include_hidden: bool = False) -> list[str]:
         if include_hidden:
-            return sorted(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+            root_keys = set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+            posthog_node = self.tables.children.get("posthog")
+            if posthog_node and posthog_node.children:
+                posthog_only_keys = {f"posthog.{k}" for k in posthog_node.children.keys() if k not in root_keys}
+            else:
+                posthog_only_keys = set()
+            return sorted(root_keys | posthog_only_keys)
 
         return [
             "events",
@@ -796,7 +846,7 @@ class Database(BaseModel):
 
         from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
-        with timings.measure("team"):
+        with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
                 raise ValueError("Either team_id or team must be provided")
 
@@ -813,7 +863,7 @@ class Database(BaseModel):
             span = trace.get_current_span()
             span.set_attribute("team_id", team.pk)
 
-        with timings.measure("feature_flags"):
+        with timings.measure("feature_flags", emit_span=True):
             is_managed_viewset_enabled = posthoganalytics.feature_enabled(
                 "managed-viewsets",
                 str(team.uuid),
@@ -832,7 +882,7 @@ class Database(BaseModel):
                 send_feature_flag_events=False,
             )
 
-        with timings.measure("database"):
+        with timings.measure("database", emit_span=True):
             database = Database(
                 timezone=team.timezone,
                 week_start_day=team.week_start_day,
@@ -853,7 +903,7 @@ class Database(BaseModel):
                 if direct_source is not None:
                     database._direct_connection_metadata = direct_source.connection_metadata
 
-        with timings.measure("filter_system_tables_for_user"):
+        with timings.measure("filter_system_tables_for_user", emit_span=True):
             if team is not None:
                 is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
                     "hogql-access-control",
@@ -871,7 +921,7 @@ class Database(BaseModel):
                     else:
                         database._filter_all_scoped_system_tables()
 
-        with timings.measure("modifiers"):
+        with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
 
             if not database._is_direct_query():
@@ -902,7 +952,7 @@ class Database(BaseModel):
 
                 _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
-        with timings.measure("session_table"):
+        with timings.measure("session_table", emit_span=True):
             if not database._is_direct_query() and (
                 modifiers.sessionTableVersion == SessionTableVersion.V2
                 or modifiers.sessionTableVersion == SessionTableVersion.AUTO
@@ -964,11 +1014,11 @@ class Database(BaseModel):
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
-        with timings.measure("virtual_fields"):
+        with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
                 _use_virtual_fields(database, modifiers, timings)
 
-        with timings.measure("group_type_mapping"):
+        with timings.measure("group_type_mapping", emit_span=True):
             if not database._is_direct_query():
                 group_types = get_group_types_for_project(team.project_id)
                 _setup_group_key_fields(database, group_types)
@@ -984,7 +1034,7 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
-        with timings.measure("data_warehouse_saved_query"):
+        with timings.measure("data_warehouse_saved_query", emit_span=True):
             if database._is_direct_query():
                 queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
                 if not is_managed_viewset_enabled:
@@ -1012,7 +1062,7 @@ class Database(BaseModel):
                             table_conflict_mode="ignore",
                         )
 
-        with timings.measure("endpoint_saved_query"):
+        with timings.measure("endpoint_saved_query", emit_span=True):
             if not database._is_direct_query():
                 endpoint_saved_queries = []
                 try:
@@ -1034,7 +1084,7 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
-        with timings.measure("revenue_analytics_views"):
+        with timings.measure("revenue_analytics_views", emit_span=True):
             if not database._is_direct_query():
                 revenue_views: list[RevenueAnalyticsBaseView] = []
                 try:
@@ -1055,7 +1105,7 @@ class Database(BaseModel):
                         capture_exception(e)
                         continue
 
-        with timings.measure("data_warehouse_tables"):
+        with timings.measure("data_warehouse_tables", emit_span=True):
 
             class WarehousePropertiesVirtualTable(VirtualTable):
                 fields: dict[str, FieldOrTable]
@@ -1231,7 +1281,7 @@ class Database(BaseModel):
             return root_node
 
         if modifiers.dataWarehouseEventsModifiers:
-            with timings.measure("data_warehouse_event_modifiers"):
+            with timings.measure("data_warehouse_event_modifiers", emit_span=True):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                     with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
                         # Apply mappings to every matching namespace. A saved query and a warehouse table can share a
@@ -1266,7 +1316,7 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
-        with timings.measure("warehouse_foreign_keys"):
+        with timings.measure("warehouse_foreign_keys", emit_span=True):
             for hogql_table, warehouse_table_model in warehouse_tables_to_process:
                 add_postgres_foreign_key_lazy_joins(
                     hogql_table=hogql_table,
@@ -1275,7 +1325,7 @@ class Database(BaseModel):
                     schemas=_get_active_external_data_schemas(warehouse_table_model),
                 )
 
-        with timings.measure("data_warehouse_joins"):
+        with timings.measure("data_warehouse_joins", emit_span=True):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
                 # User will be prompted on UI to resolve missing tables underlying the JOIN

@@ -1,16 +1,14 @@
 import { randomUUID } from 'crypto'
 
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '../outputs'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {
-    constructor(
-        private producer: KafkaProducerWrapper,
-        private kafkaTopic: string
-    ) {
+    constructor(private outputs: IngestionOutputs<ReplayEventsOutput>) {
         logger.debug('🔍', 'session_metadata_store_created')
     }
 
@@ -44,15 +42,15 @@ export class SessionMetadataStore {
             is_deleted: metadata.isDeleted ? 1 : 0,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        // queueMessages awaits delivery acks for every message, so no separate flush is needed
+        // to guarantee messages are on Kafka before the batch offset is committed.
+        await this.outputs.queueMessages(
+            REPLAY_EVENTS_OUTPUT,
+            events.map((event) => ({
                 key: event.session_id,
-                value: JSON.stringify(event),
-            })),
-        })
-
-        await this.producer.flush()
+                value: Buffer.from(JSON.stringify(event)),
+            }))
+        )
 
         logger.info('🔍', 'session_metadata_store_blocks_stored', { count: events.length })
     }

@@ -1,10 +1,25 @@
 import json
+from typing import Any
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.callbacks.posthog import PostHogCallback, _replace_binary_content, _truncate_for_capture
+from llm_gateway.callbacks.posthog import (
+    PostHogCallback,
+    _normalize_trace_id,
+    _replace_binary_content,
+    _truncate_for_capture,
+)
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _run_sync(executor, fn, *args):
@@ -139,7 +154,8 @@ class TestPostHogCallback:
             assert call_kwargs["distinct_id"] == "end-user-123"
 
             props = call_kwargs["properties"]
-            assert props["$ai_trace_id"] == "trace-id-123"
+            assert props["$ai_trace_id"] == _normalize_trace_id("trace-id-123")
+            assert _is_uuid(props["$ai_trace_id"])
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
@@ -312,7 +328,8 @@ class TestPostHogCallback:
             assert call_kwargs["groups"] == {"project": 456}
 
             props = call_kwargs["properties"]
-            assert props["$ai_trace_id"] == "metadata-user-id"
+            assert props["$ai_trace_id"] == _normalize_trace_id("metadata-user-id")
+            assert _is_uuid(props["$ai_trace_id"])
 
     @pytest.mark.asyncio
     async def test_on_failure_uses_passed_end_user_id(
@@ -336,7 +353,40 @@ class TestPostHogCallback:
 
             call_kwargs = mock_client.capture.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
-            assert call_kwargs["properties"]["$ai_trace_id"] == "trace-id-from-metadata"
+            assert call_kwargs["properties"]["$ai_trace_id"] == _normalize_trace_id("trace-id-from-metadata")
+            assert _is_uuid(call_kwargs["properties"]["$ai_trace_id"])
+
+
+class TestNormalizeTraceId:
+    def test_returns_fresh_uuid_when_value_is_falsy(self) -> None:
+        falsy_inputs: list[Any] = [None, "", 0, []]
+        for raw in falsy_inputs:
+            value = _normalize_trace_id(raw)
+            assert _is_uuid(value)
+
+    def test_returns_fresh_uuids_each_call_when_value_is_falsy(self) -> None:
+        assert _normalize_trace_id(None) != _normalize_trace_id(None)
+
+    def test_passes_through_existing_uuid(self) -> None:
+        existing = "550e8400-e29b-41d4-a716-446655440000"
+        assert _normalize_trace_id(existing) == existing
+
+    def test_hashes_non_uuid_string_deterministically(self) -> None:
+        raw = '{"session_id": "abc", "thread_ts": "1.234"}'
+        first = _normalize_trace_id(raw)
+        second = _normalize_trace_id(raw)
+        assert first == second
+        assert _is_uuid(first)
+        assert first != raw
+
+    def test_distinct_inputs_produce_distinct_uuids(self) -> None:
+        assert _normalize_trace_id("trace-a") != _normalize_trace_id("trace-b")
+
+    def test_serializes_dict_input_with_stable_key_order(self) -> None:
+        first = _normalize_trace_id({"a": 1, "b": 2})
+        second = _normalize_trace_id({"b": 2, "a": 1})
+        assert first == second
+        assert _is_uuid(first)
 
 
 class TestReplaceBinaryContent:

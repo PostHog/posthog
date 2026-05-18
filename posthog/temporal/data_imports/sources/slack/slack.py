@@ -3,6 +3,8 @@ import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
+from django.core.cache import cache
+
 import orjson
 import pyarrow as pa
 import requests
@@ -13,6 +15,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
@@ -53,7 +56,7 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    response = requests.get(url, **kwargs)
+    response = make_tracked_session().get(url, **kwargs)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
@@ -87,23 +90,6 @@ class SlackCursorPaginator(BasePaginator):
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
-    if name == "$channels":
-        return {
-            "name": "$channels",
-            "table_name": "$channels",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "channels",
-                "path": "conversations.list",
-                "params": {
-                    "types": "public_channel,private_channel",
-                    "limit": 999,
-                    "exclude_archived": "false",
-                },
-            },
-            "table_format": "delta",
-        }
-
     if name == "$users":
         return {
             "name": "$users",
@@ -122,35 +108,105 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     raise ValueError(f"Unknown Slack resource: {name}")
 
 
-def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
-    channels: list[dict[str, Any]] = []
-    has_more = True
-    cursor: str | None = None
-    url = "https://slack.com/api/conversations.list"
-    headers = {"Authorization": f"Bearer {access_token}"}
+_CHANNELS_PAGE_SIZE = 200
+_CHANNELS_MAX_PAGES = 50
 
-    while has_more:
+
+def _fetch_channels_page(
+    url: str, access_token: str, params: dict[str, Any]
+) -> tuple[list[dict[str, Any]], str | None]:
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = _slack_get(url, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+
+    if not data.get("ok"):
+        error = data.get("error", "unknown_error")
+        raise Exception(f"Slack API error fetching channels: {error}")
+
+    next_cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
+    return data.get("channels", []), next_cursor
+
+
+def _fetch_channels_by_type(
+    access_token: str, channel_type: str, authed_user: str | None = None
+) -> list[dict[str, Any]]:
+    # For private channels, use users.conversations scoped to the installer so we only
+    # surface channels the installer is in.
+    use_users_conversations = channel_type == "private_channel"
+    url = (
+        "https://slack.com/api/users.conversations"
+        if use_users_conversations
+        else "https://slack.com/api/conversations.list"
+    )
+    channels: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    for _ in range(_CHANNELS_MAX_PAGES):
         params: dict[str, Any] = {
-            "types": "public_channel,private_channel",
-            "limit": 999,
+            "types": channel_type,
+            "limit": _CHANNELS_PAGE_SIZE,
             "exclude_archived": "false",
         }
+        if use_users_conversations and authed_user:
+            params["user"] = authed_user
         if cursor:
             params["cursor"] = cursor
 
-        response = _slack_get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        page, cursor = _fetch_channels_page(url, access_token, params)
+        channels.extend(page)
+        if cursor is None:
+            break
+    else:
+        logger.warning(
+            "Slack channel page cap reached; some channels may be missing",
+            channel_type=channel_type,
+            max_pages=_CHANNELS_MAX_PAGES,
+        )
 
-        if not data.get("ok"):
-            error = data.get("error", "unknown_error")
-            raise Exception(f"Slack API error fetching channels: {error}")
+    return channels
 
-        channels.extend(data.get("channels", []))
 
-        cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
-        has_more = cursor is not None
+def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, Any]]:
+    # Fetch public and private separately — Slack's conversations.list pagination is buggy
+    # when public and private types are requested in a single call.
+    public = _fetch_channels_by_type(access_token, "public_channel")
+    private = _fetch_channels_by_type(access_token, "private_channel", authed_user)
+    return public + private
 
+
+_CHANNELS_CACHE_TTL_SECONDS = 300
+
+
+def _channels_cache_key(integration_id: int) -> str:
+    # Keyed on the Integration row PK (unique per PostHog team × Slack workspace), matching
+    # the convention used by the HogFunctions Slack channel-list cache in posthog.api.integration.
+    return f"@dwh/slack/{integration_id}/channels"
+
+
+def _fetch_all_channels_cached(
+    integration_id: int,
+    access_token: str,
+    authed_user: str | None = None,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """Cached wrapper around `_fetch_all_channels`.
+
+    Slack's `conversations.list` is Tier 2 (~20 req/min). Workspaces with thousands of
+    channels exhaust that budget in a single discovery pass, so callers that don't
+    strictly need fresh data should go through this wrapper. Callers that need fresh
+    data (e.g. the user-triggered `refresh_schemas` action) should pass
+    ``force_refresh=True`` — the upstream call still happens, but the previous value
+    stays in cache until the new one is written, so concurrent readers don't pile up
+    on a missing key.
+    """
+    cache_key = _channels_cache_key(integration_id)
+    if not force_refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+    channels = _fetch_all_channels(access_token, authed_user)
+    cache.set(cache_key, channels, _CHANNELS_CACHE_TTL_SECONDS)
     return channels
 
 
@@ -231,9 +287,17 @@ def _fetch_thread_replies(
         has_more = cursor is not None
 
 
-def get_channels(access_token: str) -> list[dict[str, str]]:
+def get_channels(
+    integration_id: int,
+    access_token: str,
+    authed_user: str | None = None,
+    force_refresh: bool = False,
+) -> list[dict[str, str]]:
     """Return channel id + name pairs for all accessible channels."""
-    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token)]
+    return [
+        {"id": ch["id"], "name": ch["name"]}
+        for ch in _fetch_all_channels_cached(integration_id, access_token, authed_user, force_refresh=force_refresh)
+    ]
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +382,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
 def slack_source(
     access_token: str,
+    integration_id: int,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -327,12 +392,19 @@ def slack_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     channel_id: str | None = None,
+    authed_user: str | None = None,
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     sort_mode: SortMode = "asc"
 
-    if endpoint in ENDPOINTS:
-        # Metadata endpoints ($channels, $users) — served via REST, no webhook support
+    if endpoint == "$channels":
+        # Bypass rest_api_resource: Slack's conversations.list pagination is buggy when
+        # public+private types are mixed, so we walk public and private separately and
+        # scope private channels to the installer (matches get_schemas behavior).
+        endpoint_config = ENDPOINTS[endpoint]
+        items = lambda: iter(_fetch_all_channels_cached(integration_id, access_token, authed_user))
+    elif endpoint in ENDPOINTS:
+        # $users — served via the generic REST framework
         endpoint_config = ENDPOINTS[endpoint]
         config: RESTAPIConfig = {
             "client": {

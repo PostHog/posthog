@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -26,6 +27,16 @@ from posthog.models.group_usage_metric import GroupUsageMetric
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+
+DW_TEST_BUCKET = "test_storage_bucket-customer_analytics.usage_metrics"
+DW_DATA_PATH = Path(__file__).parent / "data" / "usage_metrics_dw_data.csv"
+DW_TABLE_COLUMNS = {
+    "id": "String",
+    "customer_id": "String",
+    "created": "DateTime64(3, 'UTC')",
+    "amount": "Float64",
+}
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -931,3 +942,244 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         sparkline_result = results_by_name["Sparkline metric"]
         self.assertEqual(sparkline_result["value"], 1.0)
         self.assertIsNotNone(sparkline_result["timeseries"])
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest):
+    group_key = "acme"
+    test_metric_id = "19bda517-7081-4004-8c1d-30d0b2b11bf5"
+
+    def setUp(self):
+        super().setUp()
+        self._cleanup_dw = None
+
+    def tearDown(self):
+        if self._cleanup_dw is not None:
+            self._cleanup_dw()
+        super().tearDown()
+
+    def _setup_dw_table(self) -> str:
+        table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            csv_path=DW_DATA_PATH,
+            table_name="usage_metrics",
+            table_columns=DW_TABLE_COLUMNS,
+            test_bucket=DW_TEST_BUCKET,
+            team=self.team,
+        )
+        self._cleanup_dw = cleanup
+        return table.name
+
+    def _setup_group(self, group_key: str | None = None) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_key=group_key or self.group_key,
+            group_type_index=0,
+            properties={"name": "Test Group"},
+        )
+
+    def _calculate(self, group_key: str | None = None, person_id: str | None = None):
+        return (
+            UsageMetricsQueryRunner(
+                team=self.team,
+                query=UsageMetricsQuery(
+                    kind="UsageMetricsQuery",
+                    person_id=person_id,
+                    group_key=group_key,
+                    group_type_index=0 if group_key else None,
+                ),
+            )
+            .calculate()
+            .model_dump()
+        )
+
+    def test_data_warehouse_count_metric(self):
+        self._setup_group()
+        table_name = self._setup_dw_table()
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="DW signups",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "source": "data_warehouse",
+                "table_name": table_name,
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+            math=GroupUsageMetric.Math.COUNT,
+        )
+
+        with freeze_time("2025-10-09T12:11:00"):
+            results = self._calculate(group_key=self.group_key)["results"]
+
+        assert len(results) == 1
+        assert results[0]["name"] == "DW signups"
+        assert results[0]["value"] == 3.0
+        assert results[0]["previous"] == 1.0
+
+    def test_data_warehouse_sum_metric(self):
+        self._setup_group()
+        table_name = self._setup_dw_table()
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="DW revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "source": "data_warehouse",
+                "table_name": table_name,
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+            math=GroupUsageMetric.Math.SUM,
+            math_property="amount",
+        )
+
+        with freeze_time("2025-10-09T12:11:00"):
+            results = self._calculate(group_key=self.group_key)["results"]
+
+        assert len(results) == 1
+        assert results[0]["value"] == 425.5
+        assert results[0]["previous"] == 500.0
+
+    def test_data_warehouse_group_key_mismatch_returns_zero(self):
+        self._setup_group(group_key="nobody")
+        table_name = self._setup_dw_table()
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="DW signups",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "source": "data_warehouse",
+                "table_name": table_name,
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        )
+
+        with freeze_time("2025-10-09T12:11:00"):
+            results = self._calculate(group_key="nobody")["results"]
+
+        assert len(results) == 1
+        assert results[0]["value"] == 0.0
+        assert results[0]["previous"] == 0.0
+
+    def test_mixed_events_and_data_warehouse_metrics(self):
+        person = _create_person(
+            distinct_ids=["dw-mixed-test-person"], team=self.team, properties={"email": "x@example.com"}
+        )
+        self._setup_group()
+        table_name = self._setup_dw_table()
+        GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="Events count",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="DW count",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "source": "data_warehouse",
+                "table_name": table_name,
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        )
+        with freeze_time("2025-10-09T12:11:00"):
+            for _ in range(2):
+                _create_event(
+                    event="metric_event",
+                    team=self.team,
+                    person_id=str(person.uuid),
+                    distinct_id="dw-mixed-test-person",
+                    properties={"$group_0": self.group_key},
+                )
+            flush_persons_and_events()
+
+            results = self._calculate(group_key=self.group_key)["results"]
+
+        by_name = {r["name"]: r for r in results}
+        assert by_name["Events count"]["value"] == 2.0
+        assert by_name["DW count"]["value"] == 3.0
+
+    def test_data_warehouse_metric_skipped_on_person_query(self):
+        person = _create_person(distinct_ids=["dw-person"], team=self.team, properties={})
+        flush_persons_and_events()
+        table_name = self._setup_dw_table()
+        GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="DW signups",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "source": "data_warehouse",
+                "table_name": table_name,
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        )
+
+        with freeze_time("2025-10-09T12:11:00"):
+            results = self._calculate(person_id=str(person.uuid))["results"]
+
+        assert results == []
+
+    def test_cache_invalidates_when_data_warehouse_field_edited(self):
+        self._setup_group()
+        table_name = self._setup_dw_table()
+        metric = GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="DW signups",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "source": "data_warehouse",
+                "table_name": table_name,
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        )
+        runner1 = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", group_key=self.group_key, group_type_index=0),
+        )
+        key1 = runner1.get_cache_payload()["usage_metric_fingerprints"]
+
+        metric.filters["timestamp_field"] = "toDateTime(created)"
+        metric.save(update_fields=["filters"])
+
+        runner2 = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", group_key=self.group_key, group_type_index=0),
+        )
+        key2 = runner2.get_cache_payload()["usage_metric_fingerprints"]
+
+        assert key1 != key2

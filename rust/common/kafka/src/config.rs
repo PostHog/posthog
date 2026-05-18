@@ -28,6 +28,22 @@ pub struct KafkaConfig {
 
     #[envconfig(default = "")]
     pub kafka_client_id: String,
+
+    // WarpStream producer tuning — None means "let librdkafka pick its default".
+    // Reference: https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance
+    pub kafka_producer_batch_size: Option<u32>,
+
+    pub kafka_producer_batch_num_messages: Option<u32>,
+
+    pub kafka_producer_enable_idempotence: Option<bool>,
+
+    pub kafka_producer_max_in_flight_requests_per_connection: Option<u32>,
+
+    pub kafka_producer_topic_metadata_refresh_interval_ms: Option<u32>,
+
+    pub kafka_producer_message_max_bytes: Option<u32>,
+
+    pub kafka_producer_sticky_partitioning_linger_ms: Option<u32>,
 }
 
 #[derive(Envconfig, Clone)]

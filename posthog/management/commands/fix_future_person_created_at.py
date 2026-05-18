@@ -41,7 +41,7 @@ def run(options):
     future_date = now() + timedelta(days=2)
 
     # Get all persons with future created_at value
-    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)
+    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)  # nosemgrep: no-direct-persons-db-orm
 
     logger.info(
         f"Found {len(persons)} persons with future created_at value, updating them to {new_date.strftime('%Y-%m-%d %H:%M:%S.%f')}"
@@ -51,7 +51,9 @@ def run(options):
     for person in persons:
         logger.info(f"Updating person {person.uuid} created_at to {new_date.strftime('%Y-%m-%d %H:%M:%S.%f')}")
         if live_run:
-            Person.objects.filter(pk=person.id).update(version=F("version") + 1, created_at=new_date)
+            Person.objects.filter(pk=person.id).update(  # nosemgrep: no-direct-persons-db-orm
+                version=F("version") + 1, created_at=new_date
+            )  # nosemgrep: no-direct-persons-db-orm
             create_person(
                 uuid=str(person.uuid),
                 team_id=team_id,

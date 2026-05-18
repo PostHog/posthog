@@ -1,5 +1,7 @@
 import datetime as dt
 
+from structlog.types import FilteringBoundLogger
+
 from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -7,7 +9,7 @@ from products.data_warehouse.backend.models.external_data_schema import External
 
 
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJob.Status, latest_error: str | None
+    job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
 ) -> ExternalDataJob:
     model = ExternalDataJob.objects.get(id=job_id, team_id=team_id)
     model.status = status
@@ -18,10 +20,15 @@ def update_external_job_status(
     # Kafka message can land here with the job already in a terminal state, and
     # re-emitting would inflate the counters.
     is_first_terminal_transition = status in TERMINAL_JOB_STATUSES and model.finished_at is None
+    update_fields = ["status", "latest_error", "updated_at"]
     if is_first_terminal_transition:
         model.finished_at = dt.datetime.now(dt.UTC)
+        update_fields.append("finished_at")
 
-    model.save()
+    # Scope the save to the fields we mutated so a concurrent F-update from
+    # `update_job_row_count` (V3 activity) isn't clobbered by writing back the
+    # in-memory `rows_synced` we read at the top of this function.
+    model.save(update_fields=update_fields)
 
     if status == ExternalDataJob.Status.FAILED:
         schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
@@ -39,6 +46,7 @@ def update_external_job_status(
     model.refresh_from_db()
 
     if is_first_terminal_transition:
+        logger.debug("Emitting app metrics")
         emit_data_import_app_metrics(model)
 
     return model

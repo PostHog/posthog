@@ -4,18 +4,41 @@ import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AlertsRecommendationCard } from './AlertsRecommendationCard'
-import { CrossSellRecommendationCard } from './CrossSellRecommendationCard'
-import { isAlertsRecommendation, isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
+import { LongRunningIssuesRecommendationCard } from './LongRunningIssuesRecommendationCard'
+import {
+    isAlertsRecommendation,
+    isLongRunningIssuesRecommendation,
+    recommendationsTabLogic,
+} from './recommendationsTabLogic'
+import type { ErrorTrackingRecommendation } from './types'
+
+function RecommendationCardForType({
+    recommendation,
+    dismissed,
+}: {
+    recommendation: ErrorTrackingRecommendation
+    dismissed?: boolean
+}): JSX.Element | null {
+    if (isAlertsRecommendation(recommendation)) {
+        return <AlertsRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    if (isLongRunningIssuesRecommendation(recommendation)) {
+        return <LongRunningIssuesRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    return null
+}
 
 export function RecommendationsTab(): JSX.Element {
     const {
         recommendations,
         recommendationsLoading,
         activeRecommendations,
+        completedRecommendations,
         ignoredRecommendations,
         dismissedExpanded,
+        completedExpanded,
     } = useValues(recommendationsTabLogic)
-    const { toggleDismissedExpanded } = useActions(recommendationsTabLogic)
+    const { toggleDismissedExpanded, toggleCompletedExpanded } = useActions(recommendationsTabLogic)
 
     if (recommendationsLoading && recommendations.length === 0) {
         return (
@@ -37,29 +60,41 @@ export function RecommendationsTab(): JSX.Element {
         <div className="flex flex-col gap-4">
             {activeRecommendations.length > 0 && (
                 <div className="columns-1 md:columns-2 xl:columns-3 gap-4">
-                    {activeRecommendations.map((recommendation) => {
-                        if (isCrossSellRecommendation(recommendation)) {
-                            return (
-                                <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                    <CrossSellRecommendationCard recommendation={recommendation} />
-                                </div>
-                            )
-                        }
-                        if (isAlertsRecommendation(recommendation)) {
-                            return (
-                                <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                    <AlertsRecommendationCard recommendation={recommendation} />
-                                </div>
-                            )
-                        }
-                        return null
-                    })}
+                    {activeRecommendations.map((recommendation) => (
+                        <div key={recommendation.id} className="break-inside-avoid mb-4">
+                            <RecommendationCardForType recommendation={recommendation} />
+                        </div>
+                    ))}
                 </div>
             )}
 
-            {activeRecommendations.length === 0 && ignoredRecommendations.length > 0 && (
-                <div className="border rounded-lg bg-surface-primary p-4 text-secondary text-sm">
-                    No active recommendations — everything's looking good!
+            {activeRecommendations.length === 0 &&
+                (completedRecommendations.length > 0 || ignoredRecommendations.length > 0) && (
+                    <div className="border rounded-lg bg-surface-primary p-4 text-secondary text-sm">
+                        No active recommendations — everything's looking good!
+                    </div>
+                )}
+
+            {completedRecommendations.length > 0 && (
+                <div>
+                    <button
+                        type="button"
+                        className="flex items-center gap-1 text-xs text-muted hover:text-primary cursor-pointer bg-transparent border-0 p-0"
+                        onClick={toggleCompletedExpanded}
+                        aria-expanded={completedExpanded}
+                    >
+                        <IconChevronRight className={`text-sm ${completedExpanded ? 'rotate-90' : ''}`} />
+                        {completedRecommendations.length} completed
+                    </button>
+                    {completedExpanded && (
+                        <div className="columns-1 md:columns-2 xl:columns-3 gap-4 mt-2 opacity-60">
+                            {completedRecommendations.map((recommendation) => (
+                                <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                    <RecommendationCardForType recommendation={recommendation} />
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -76,23 +111,11 @@ export function RecommendationsTab(): JSX.Element {
                     </button>
                     {dismissedExpanded && (
                         <div className="columns-1 md:columns-2 xl:columns-3 gap-4 mt-2 opacity-60">
-                            {ignoredRecommendations.map((recommendation) => {
-                                if (isCrossSellRecommendation(recommendation)) {
-                                    return (
-                                        <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                            <CrossSellRecommendationCard recommendation={recommendation} dismissed />
-                                        </div>
-                                    )
-                                }
-                                if (isAlertsRecommendation(recommendation)) {
-                                    return (
-                                        <div key={recommendation.id} className="break-inside-avoid mb-4">
-                                            <AlertsRecommendationCard recommendation={recommendation} dismissed />
-                                        </div>
-                                    )
-                                }
-                                return null
-                            })}
+                            {ignoredRecommendations.map((recommendation) => (
+                                <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                    <RecommendationCardForType recommendation={recommendation} dismissed />
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>

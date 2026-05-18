@@ -47,9 +47,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Override list to include global templates from files alongside team templates from DB.
- */
 export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -66,6 +63,9 @@ export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTe
         : `/api/projects/${projectId}/hog_flow_templates/`
 }
 
+/**
+ * Override list to include global templates from files alongside team templates from DB.
+ */
 export const hogFlowTemplatesList = async (
     projectId: string,
     params?: HogFlowTemplatesListParams,
@@ -94,14 +94,14 @@ export const hogFlowTemplatesCreate = async (
     })
 }
 
-/**
- * Check file-based global templates first, then DB team templates.
-The queryset excludes all global templates from DB, so this only returns team templates from DB.
- */
 export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
+/**
+ * Check file-based global templates first, then DB team templates.
+The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
     id: string,
@@ -138,7 +138,7 @@ export const getHogFlowTemplatesPartialUpdateUrl = (projectId: string, id: strin
 export const hogFlowTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowTemplateApi: NonReadonly<PatchedHogFlowTemplateApi>,
+    patchedHogFlowTemplateApi?: NonReadonly<PatchedHogFlowTemplateApi>,
     options?: RequestInit
 ): Promise<HogFlowTemplateApi> => {
     return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesPartialUpdateUrl(projectId, id), {
@@ -272,7 +272,7 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
@@ -508,7 +508,7 @@ export const hogFlowsSchedulesPartialUpdate = async (
     projectId: string,
     id: string,
     scheduleId: string,
-    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {

@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumn, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -18,6 +18,10 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
  */
 export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
+}
+
+export function isSubscriptionEnabled(sub: { enabled?: boolean | null }): boolean {
+    return sub.enabled !== false
 }
 
 export function subscriptionEditHref(sub: SubscriptionApi): string | null {
@@ -94,7 +98,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         <div className="min-w-0 w-full overflow-hidden">
                             <Link
                                 to={urls.subscription(sub.id)}
-                                className="font-medium block truncate"
+                                className={`font-medium block truncate ${isSubscriptionEnabled(sub) ? '' : 'text-muted'}`}
                                 data-attr="subscription-name-link"
                             >
                                 {name}
@@ -184,6 +188,17 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 keyof SubscriptionApi | undefined
             >),
             sorter: true,
+        },
+        {
+            title: 'Status',
+            key: 'enabled',
+            dataIndex: 'enabled',
+            render: (_value: unknown, sub: SubscriptionApi) =>
+                isSubscriptionEnabled(sub) ? (
+                    <LemonTag type="success">Enabled</LemonTag>
+                ) : (
+                    <LemonTag type="danger">Disabled</LemonTag>
+                ),
         },
         {
             width: 56,

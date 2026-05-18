@@ -1,7 +1,7 @@
 {
     "compilerOptions": {
-        "target": "ES2022",
-        "module": "ESNext",
+        "target": "es2022",
+        "module": "esnext",
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": true,
         "verbatimModuleSyntax": true,
@@ -10,7 +10,6 @@
         "jsx": "react-jsx",
         "strict": true,
         "skipLibCheck": true,
-        "baseUrl": ".",
         "paths": {
             "@/*": ["../../packages/primitives/src/*"]
         }

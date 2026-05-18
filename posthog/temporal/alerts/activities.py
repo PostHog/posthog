@@ -18,6 +18,7 @@ from posthog.models.alert import AlertCheck
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.checks import AlertCheckException, add_alert_check, check_alert_for_insight
+from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     disable_invalid_alert,
@@ -27,6 +28,7 @@ from posthog.tasks.alerts.utils import (
     skip_because_of_weekend,
     validate_alert_config,
 )
+from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -38,6 +40,15 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+    create_notification,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -190,6 +201,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # CH workload management keys off this tag to isolate alert queries from other tenants.
         tag_queries(alert_config_id=str(alert.id))
 
+        # Snapshot before add_alert_check mutates alert.state — needed to detect the
+        # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
+        previous_state = alert.state
+
         value: float | None = None
         breaches: list[str] | None = None
         error: dict | None = None
@@ -219,6 +234,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         interval = alert_evaluation_result.interval if alert_evaluation_result else None
         triggered_metadata = alert_evaluation_result.triggered_metadata if alert_evaluation_result else None
 
+        should_start_investigation = False
+        should_gate_notification = False
         with transaction.atomic():
             alert_check, should_notify = add_alert_check(
                 alert,
@@ -232,15 +249,60 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 triggered_metadata,
             )
 
+            if should_trigger_investigation(
+                alert,
+                previous_state=previous_state,
+                new_state=alert_check.state,
+            ):
+                if claim_investigation_slot(alert, alert_check):
+                    should_start_investigation = True
+                    should_gate_notification = bool(alert.investigation_gates_notifications)
+
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
             should_notify=should_notify,
             new_state=AlertState(alert_check.state),
             breaches=breaches,
+            should_start_investigation=should_start_investigation,
+            should_gate_notification=should_gate_notification,
+            investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
     async with Heartbeater():
         return await _evaluate()
+
+
+def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
+    """Fan out one realtime in-app notification per subscribed user when an alert fires.
+
+    Exceptions are caught and logged internally so a realtime delivery failure does not
+    poison the email path or the alert-check transaction.
+    """
+    try:
+        body = "; ".join(breaches[:3])
+        if len(breaches) > 3:
+            body += f" (+{len(breaches) - 3} more)"
+        title = f"Alert firing: {alert.name}"[:100]
+        source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
+        for user_id in alert.subscribed_users.values_list("id", flat=True):
+            create_notification(
+                NotificationData(
+                    team_id=alert.team_id,
+                    notification_type=NotificationType.ALERT_FIRING,
+                    priority=Priority.NORMAL,
+                    title=title,
+                    body=body,
+                    target_type=TargetType.USER,
+                    target_id=str(user_id),
+                    resource_type="insight",
+                    resource_id=str(alert.insight.short_id),
+                    source_url=source_url,
+                    source_type=SourceType.INSIGHT,
+                    source_id=str(alert.insight.short_id),
+                )
+            )
+    except Exception:
+        logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
 
 
 # Idempotency: empty targets_notified = not yet delivered; non-empty = already delivered.
@@ -274,6 +336,30 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
 
         with transaction.atomic():
             record_alert_delivery(alert, alert_check, targets)
+            # Stamp notification_sent_at in lock-step with delivery — the investigation
+            # workflow and safety-net both read this column to decide whether they still
+            # need to dispatch, and the gating path relies on it for idempotency.
+            AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
+
+        # Realtime in-app dispatch sits AFTER record_alert_delivery so a Temporal retry
+        # past this point sees `targets_notified` populated and skips the whole _notify.
+        if alert_check.state == AlertState.FIRING.value and inputs.breaches:
+            dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
 
     async with Heartbeater():
         await _notify()
+
+
+@temporalio.activity.defn
+async def run_investigation_safety_net() -> int:
+    """Force-dispatch notifications for gated AlertChecks whose investigation stalled.
+
+    Returns the number of checks that were force-notified (for metrics / tests).
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _sweep() -> int:
+        return run_investigation_notification_safety_net()
+
+    async with Heartbeater():
+        return await _sweep()

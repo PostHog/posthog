@@ -169,13 +169,13 @@ export const dataModelingNodesCreate = async (
     })
 }
 
-/**
- * Get all distinct DAGs for the team.
- */
 export const getDataModelingNodesDagIdsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/data_modeling_nodes/dag_ids/`
 }
 
+/**
+ * Get all distinct DAGs for the team.
+ */
 export const dataModelingNodesDagIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<NodeApi> => {
     return apiMutator<NodeApi>(getDataModelingNodesDagIdsRetrieveUrl(projectId), {
         ...options,

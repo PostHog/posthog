@@ -2,6 +2,37 @@ import './storybook.css'
 
 import React, { useEffect } from 'react'
 import type { Preview } from '@storybook/react'
+import { themes } from '@storybook/theming'
+import { DocsContainer } from '@storybook/addon-docs'
+import { useDarkMode } from 'storybook-dark-mode'
+
+/**
+ * Reads the addon's dark-mode signal and syncs it to:
+ *  - `<html>` class/attribute (so quill's `--background` etc. resolve to dark)
+ *  - the inline story canvas wrapper.
+ *
+ * Works for both Story and Docs views — DocsContainer below covers the
+ * surrounding `.sbdocs-wrapper` chrome via Storybook's official theming.
+ */
+function ThemeSync({ children }: { children: React.ReactNode }): React.ReactElement {
+    const isDark = useDarkMode()
+
+    useEffect(() => {
+        document.documentElement.classList.toggle('dark', isDark)
+        if (isDark) {
+            document.documentElement.setAttribute('theme', 'dark')
+        } else {
+            document.documentElement.removeAttribute('theme')
+        }
+    }, [isDark])
+
+    return <>{children}</>
+}
+
+function ThemedDocsContainer(props: React.ComponentProps<typeof DocsContainer>): React.ReactElement {
+    const isDark = useDarkMode()
+    return <DocsContainer {...props} theme={isDark ? themes.dark : themes.light} />
+}
 
 const preview: Preview = {
     parameters: {
@@ -11,45 +42,33 @@ const preview: Preview = {
                 date: /Date$/i,
             },
         },
-    },
-    globalTypes: {
-        theme: {
-            description: 'Toggle light/dark theme',
-            defaultValue: 'light',
-            toolbar: {
-                title: 'Theme',
-                icon: 'paintbrush',
-                items: [
-                    { value: 'light', title: 'Light', icon: 'sun' },
-                    { value: 'dark', title: 'Dark', icon: 'moon' },
-                ],
-                dynamicTitle: true,
+        // storybook-dark-mode: drives the toolbar toggle + autodocs container.
+        // `appBg` paints the inline story canvas behind the decorator wrapper
+        // so the entire iframe matches the active theme without per-element
+        // !important hacks.
+        darkMode: {
+            stylePreview: true,
+            light: {
+                ...themes.light,
+                appBg: '#ffffff',
             },
+            dark: {
+                ...themes.dark,
+                appBg: '#0a0a0a',
+            },
+        },
+        docs: {
+            container: ThemedDocsContainer,
         },
     },
     decorators: [
-        (Story, context) => {
-            const theme = context.globals.theme || 'light'
-            const isDark = theme === 'dark'
-
-            useEffect(() => {
-                // Set both .dark class and theme="dark" attribute so the
-                // toolbar toggle validates both dark mode selectors at once.
-                document.documentElement.classList.toggle('dark', isDark)
-                if (isDark) {
-                    document.documentElement.setAttribute('theme', 'dark')
-                } else {
-                    document.documentElement.removeAttribute('theme')
-                }
-                document.body.style.backgroundColor = ''
-            }, [isDark])
-
-            return (
+        (Story) => (
+            <ThemeSync>
                 <div className="bg-background text-foreground" style={{ padding: '1rem' }}>
                     <Story />
                 </div>
-            )
-        },
+            </ThemeSync>
+        ),
     ],
 }
 

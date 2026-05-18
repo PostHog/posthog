@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     filter_redshift_incremental_fields,
+    get_leading_sortkey_columns_for_schemas as get_redshift_leading_sortkey_columns_for_schemas,
     get_primary_keys_for_schemas as get_redshift_primary_keys_for_schemas,
     get_redshift_row_count,
     get_schemas as get_redshift_schemas,
@@ -145,7 +146,12 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
         }
 
     def get_schemas(
-        self, config: RedshiftSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: RedshiftSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -173,6 +179,16 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                 structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
                 detected_pks = {}
 
+            indexed_columns_by_table = get_redshift_leading_sortkey_columns_for_schemas(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+                table_names=list(db_schemas.keys()),
+            )
+
             if with_counts:
                 row_counts = get_redshift_row_count(
                     host=host,
@@ -188,6 +204,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_redshift_incremental_fields(columns)
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -195,6 +212,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]

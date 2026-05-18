@@ -9,8 +9,6 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
-
 from posthog.schema import ProductKey
 
 from posthog.hogql import ast
@@ -97,6 +95,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     This allows users to execute specific versions or track query evolution over time.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     team = models.ForeignKey(
@@ -116,15 +115,6 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         related_name="endpoint_versions_created",
     )
 
-    # Deprecated: superseded by data_freshness_seconds. Kept for rollback safety until
-    # migration 0028 (state-only) and 0029 (physical drop) land.
-    cache_age_seconds = deprecate_field(
-        models.IntegerField(
-            null=True,
-            blank=True,
-            help_text="Cache age in seconds. If null, uses default interval-based caching.",
-        )
-    )
     data_freshness_seconds = models.IntegerField(
         default=86400,
         help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",

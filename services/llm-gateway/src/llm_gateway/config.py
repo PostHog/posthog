@@ -29,7 +29,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
-    "django": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
+    "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
-    plan_cache_ttl: int = 300  # 5 minutes
+    plan_cache_ttl: int = 900  # 15 minutes
     billing_period_days: int = 30
 
     @field_validator("product_cost_limits", mode="before")

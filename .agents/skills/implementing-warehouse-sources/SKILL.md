@@ -13,6 +13,7 @@ Before coding, read:
 
 - `posthog/temporal/data_imports/sources/source.template` (use the top-of-file TODOs as a starting reference, but verify target files against the current source implementations — the template can drift, e.g. it currently still points at the old `posthog/warehouse/types.py` path instead of `products/data_warehouse/backend/types.py`)
 - `posthog/temporal/data_imports/sources/README.md`
+- `posthog/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
 - `posthog/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `posthog/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `posthog/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
@@ -118,7 +119,11 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
+**Don't import or instantiate `Batcher` at the source layer.** The pipeline already runs one (`pipelines/pipeline/pipeline.py`) at the same 5000-row / 200 MiB thresholds. Yielding raw `dict` / `list[dict]` from your generator is the canonical path — reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g., a ClickHouse adapter). Source-level batching results in double-buffering with no behavioral win.
+
 For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`.
+
+**URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
 ### Resumable source pattern
 
@@ -167,6 +172,46 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 - In `source_for_pipeline`, call `self.get_webhook_source_manager(inputs)` and pass its iterator alongside the pull iterator so a single sync pulls historical + webhook-delivered rows.
 - Populate `SourceSchema.supports_webhooks=True` only for endpoints where webhooks are actually viable (usually incremental/append-only ones).
 
+## Outbound HTTP must go through the tracked transport
+
+Every HTTP call from `posthog/temporal/data_imports/sources/**` must go through `make_tracked_session()` (from
+`posthog.temporal.data_imports.sources.common.http`). The tracked session attaches `team_id`, `source_type`,
+`external_data_source_id`, `external_data_schema_id`, and `external_data_job_id` to every outbound request's
+log line and OTel metric, and participates in opt-in sample capture.
+
+- For raw `requests` usage: `make_tracked_session(headers=..., retry=...)` returns a `requests.Session`. Use
+  `session.get/post/...` instead of the module-level `requests.get/...` shortcuts.
+- For sources that already go through `rest_source.RESTClient`: it defaults to a tracked session
+  automatically; no change needed.
+- For vendor SDKs that accept a session/HTTP-client hook (Stripe `RequestsClient(session=...)`,
+  gspread `authorize(credentials, session=...)`, BigQuery via `AuthorizedSession` + `TrackedHTTPAdapter`),
+  inject one. Reference patterns live in `stripe/stripe.py`, `google_sheets/google_sheets.py`, and
+  `bigquery/bigquery.py`.
+- For vendor SDKs with no injection seam (today: `bingads`, `linkedin-api`'s `RestliClient`, anything
+  pure-gRPC), add a `# nosemgrep: data-imports-http-transport-...` pragma with a one-line reason and record
+  the source as `⚠️ Vendor SDK` in `SOURCES.md`.
+
+CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
+`requests.<verb>(...)`, and `httpx.Client/AsyncClient/<verb>` inside `sources/**`. Type-only imports
+(`from requests import Response`, `from requests.exceptions import HTTPError`) remain allowed.
+
+## Updating SOURCES.md
+
+`posthog/temporal/data_imports/sources/SOURCES.md` is the inventory of every registered source, its
+communication method, and whether its outbound traffic is tracked. Update it as part of the same PR
+whenever you:
+
+- **Add a new source** — initially as a Scaffolded entry; move it into the Implemented table once you
+  ship working sync logic.
+- **Implement a previously scaffolded source** — move the row into the Implemented table and fill in
+  comm method, primary library, and tracked-transport state.
+- **Migrate a vendor SDK** to inject a tracked session — flip the source from `⚠️ Vendor SDK` to `✅`.
+- **Switch a source's protocol** — e.g. swap REST for gRPC, add webhook support alongside the pull API,
+  or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
+
+Keep the entries alphabetical within each table. If you add a partially-tracked source, also append a
+short "Notes on partially-tracked sources" entry explaining what blocks tracking (no SDK seam, gRPC, etc.).
+
 ## Required coding conventions
 
 - Register with `@SourceRegistry.register`.
@@ -183,7 +228,11 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 
 ## Incremental sync guidance
 
+- **Only set `supports_incremental=True` when the API exposes a server-side timestamp filter** (`<field>_gte`, `since`, `modified_after`, etc.). A "client-side cursor" that fetches every page and skips already-seen rows in Python is **not** incremental — every run still hits every page, so the API cost of an "incremental" sync ends up identical to a full refresh. If the API has no server filter, ship full refresh only.
 - If the API supports server-side time filtering, use it and map from `db_incremental_field_last_value`.
+- **Honor `inputs.incremental_field`** — that's the user's chosen cursor field from the schema settings. `INCREMENTAL_FIELDS` per-endpoint is the menu of _advertised options_; don't reach into `INCREMENTAL_FIELDS[endpoint][0]` to pick a default and silently override the user's selection.
+- **Per-endpoint sort enums vary.** Don't hardcode `?sorting=created_at` (or whatever) globally. Verify each list endpoint's allowed sort values against the API spec **and** with a curl smoke-test against the live API — APIs frequently document one set of options and silently reject another, or use a different timestamp column on certain resources.
+- **Pass `?sorting=` explicitly on a stable monotonic field when paginating.** For incremental sources, the request sort must match `SourceResponse.sort_mode` (`"asc"` typically; `"desc"` only when forced by the API — see `stripe/stripe.py`, `github/settings.py`) so the pipeline's cursor watermark advances correctly. For full-refresh sources, an explicit sort prevents page-boundary skips/duplicates if the API's implicit default is unstable or shifts as rows are inserted during the sync.
 - If the API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
 - `sort_mode="desc"` only if the endpoint truly cannot return ascending. For descending sources, handle `db_incremental_field_earliest_value` to scroll earlier rows before newer ones (see Stripe).
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
@@ -191,11 +240,13 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 
 ## API behavior verification checklist
 
-Before finalizing endpoint logic, verify from docs (or reliable API examples):
+Before finalizing endpoint logic, verify from docs **and** with curl against the live API (not just docs — APIs frequently silently ignore unknown params or document outdated enums):
 
 - Response shape: list vs object vs wrapped data (`{"data": [...]}`).
 - Pagination: Link header vs body cursor vs offset/page; how next-page termination is signaled.
-- Ordering guarantees: ascending/descending/undefined for time fields.
+- Ordering guarantees: ascending/descending/undefined for time fields, and the API's _default_ sort if you don't pass one.
+- **Sort enum per endpoint:** which `sorting=` values does each list endpoint accept? Some APIs vary the allowed enum per resource. Confirm with curl that the value you intend to pass returns 200, and probe with a future-date cutoff to confirm whether timestamp filters are honored or silently ignored.
+- **Server-side timestamp filter:** does `<field>_gte` / `since` / `modified_after` actually filter, or does the API accept it and ignore it? Test by passing a future date and checking whether the row drops out.
 - Rate-limit headers (window reset timestamp, concurrent limits).
 - Field stability: whether candidate incremental/partition fields can change over time.
 
@@ -278,6 +329,19 @@ def get_non_retryable_errors(self) -> dict[str, str | None]:
 ```
 
 Common cases: 401 Unauthorized, 403 Forbidden, invalid/expired tokens, OAuth tokens needing re-auth.
+
+## `validate_credentials`
+
+Called with `schema_name=None` at source-create (one cheap probe to confirm the token is genuine) and with `schema_name=<name>` from the per-schema `incremental_fields` action (confirm scope for that specific endpoint).
+
+If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), **accept 403 at source-create** — users may legitimately only grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set. Sync-time 403s are handled separately by `get_non_retryable_errors()`.
+
+## Document required token scopes
+
+If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so users know what to grant — don't make them grant the full set defensively.
+
+- **OAuth sources:** set `requiredScopes` on `SourceFieldOauthConfig` (space-separated string, matches the OAuth `scope` parameter format). The frontend diffs it against the integration's granted scopes and warns the user with a Reconnect action when any are missing.
+- **Non-OAuth sources (PAT, API key):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work.
 
 ## Mixins
 

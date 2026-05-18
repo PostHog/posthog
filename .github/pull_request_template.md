@@ -1,3 +1,11 @@
+<!-- Authoring rules (agents: read).
+     Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
+       ✅ feat(insights): add retention graph export
+       ❌ feat: Added retention export.   (capitalized, period, no scope)
+     Description: high-level rationale, not a step-by-step replay.
+     Public OSS repo: no internal customers, incidents, or operational metrics.
+-->
+
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
@@ -33,7 +41,13 @@
 ## 🤖 Agent context
 
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
-<!-- Include: tools/agent used, link to session, key decisions made, and anything that helps reviewers. -->
+<!-- Include:
+     - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
+     - decisions made along the way (what was tried, rejected, chosen, and why)
+     - anything else that helps reviewers
+     Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session.
+-->
 <!-- Rules for agent-authored PRs:
      - All PRs must be attributable to a human author, even if agent-assisted.
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.

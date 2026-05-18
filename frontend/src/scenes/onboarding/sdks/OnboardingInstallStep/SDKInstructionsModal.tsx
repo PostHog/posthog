@@ -17,6 +17,7 @@ interface SDKInstructionsModalProps {
     adblockResult: AdblockDetectionResult
     verifyingProperty?: string
     verifyingName?: string
+    hideInstallationCheck?: boolean
 }
 
 export function SDKInstructionsModal({
@@ -27,15 +28,17 @@ export function SDKInstructionsModal({
     adblockResult,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
+    hideInstallationCheck = false,
 }: SDKInstructionsModalProps): JSX.Element {
-    const installationComplete = useInstallationComplete(verifyingProperty)
+    const installationCompleteFromTeam = useInstallationComplete(verifyingProperty)
+    const installationComplete = hideInstallationCheck || installationCompleteFromTeam
 
     const sdkInstructions = sdkInstructionMap[sdk?.key as keyof typeof sdkInstructionMap] as
         | (() => JSX.Element)
         | undefined
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} simple title="">
+        <LemonModal isOpen={isOpen} onClose={onClose} simple title={sdk?.name ? `Install ${sdk.name}` : 'Install SDK'}>
             {!sdk?.key || !sdkInstructions ? (
                 <SpinnerOverlay />
             ) : (
@@ -48,16 +51,20 @@ export function SDKInstructionsModal({
                     <div className="flex-grow overflow-y-auto px-4 py-2">
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
-                    {!installationComplete && (
+                    {!hideInstallationCheck && !installationComplete && (
                         <div className="px-4 py-2">
                             <AdblockWarning adblockResult={adblockResult} />
                         </div>
                     )}
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
-                        <RealtimeCheckIndicator
-                            teamPropertyToVerify={verifyingProperty}
-                            listeningForName={verifyingName}
-                        />
+                        {!hideInstallationCheck ? (
+                            <RealtimeCheckIndicator
+                                teamPropertyToVerify={verifyingProperty}
+                                listeningForName={verifyingName}
+                            />
+                        ) : (
+                            <span />
+                        )}
                         <NextButton installationComplete={installationComplete} />
                     </footer>
                 </div>

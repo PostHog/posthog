@@ -18,7 +18,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -83,6 +83,43 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
         } is visible and can be used in filters and other selection components.`,
     },
 })
+
+function PrimaryPropertyDetail({ definition }: { definition: EventDefinition }): JSX.Element {
+    const taxonomyPrimary = getPrimaryPropertyForEvent(definition.name)
+    const teamOverride = definition.primary_property
+    const effective = taxonomyPrimary ?? teamOverride
+    const isBuiltIn = !!taxonomyPrimary
+
+    return (
+        <div className="flex flex-col flex-1 basis-48 min-w-48">
+            <h5>Primary property</h5>
+            <b>
+                {effective ? (
+                    <span className="flex items-center gap-1">
+                        <PropertyKeyInfo
+                            value={effective}
+                            type={TaxonomicFilterGroupType.EventProperties}
+                            disableIcon
+                        />
+                        {isBuiltIn && (
+                            <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in primary property.">
+                                <LemonTag type="muted" size="small">
+                                    Built-in
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </span>
+                ) : (
+                    '-'
+                )}
+            </b>
+            <p className="italic text-secondary text-xs mt-1 mb-0">
+                If set, this property's value is shown alongside the event name in surfaces like the session replay
+                inspector.
+            </p>
+        </div>
+    )
+}
 
 export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
@@ -284,9 +321,9 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             <SceneDivider />
 
-            <div className="flex flex-wrap">
+            <div className="flex flex-wrap gap-4">
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             First seen{' '}
                             <Tooltip title="This is the first time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the earliest event.">
@@ -297,7 +334,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             Last seen{' '}
                             <Tooltip title="This is the last time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the latest event.">
@@ -308,7 +345,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
                             <Tooltip title="Number of times this event has been queried in the last 30 days">
@@ -326,65 +363,32 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 )}
 
                 {definitionStatus && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>Verification status</h5>
                         <div>
-                            <Tooltip title={statusProps[definitionStatus].tooltip}>
-                                <LemonTag type={statusProps[definitionStatus].tagType}>
-                                    {statusProps[definitionStatus].icon}
-                                    {statusProps[definitionStatus].label}
-                                </LemonTag>
-                            </Tooltip>
+                            <LemonTag type={statusProps[definitionStatus].tagType}>
+                                {statusProps[definitionStatus].icon}
+                                {statusProps[definitionStatus].label}
+                            </LemonTag>
                         </div>
+                        <p className="italic text-secondary text-xs mt-1 mb-0">
+                            {statusProps[definitionStatus].tooltip}
+                        </p>
                     </div>
                 )}
 
                 {isProperty && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>Property type</h5>
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
                 )}
 
-                {isEvent &&
-                    (() => {
-                        const taxonomyPromoted = getPromotedPropertyForEvent(definition.name)
-                        const teamOverride = (definition as EventDefinition).promoted_property
-                        const effective = taxonomyPromoted ?? teamOverride
-                        const isBuiltIn = !!taxonomyPromoted
-                        return (
-                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
-                                <div className="flex flex-col flex-1">
-                                    <h5>
-                                        Promoted property{' '}
-                                        <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
-                                            <IconInfo className="text-sm" />
-                                        </Tooltip>
-                                    </h5>
-                                    <b>
-                                        {effective ? (
-                                            <span className="flex items-center gap-1">
-                                                <PropertyKeyInfo
-                                                    value={effective}
-                                                    type={TaxonomicFilterGroupType.EventProperties}
-                                                    disableIcon
-                                                />
-                                                {isBuiltIn && (
-                                                    <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in promoted property.">
-                                                        <LemonTag type="muted" size="small">
-                                                            Built-in
-                                                        </LemonTag>
-                                                    </Tooltip>
-                                                )}
-                                            </span>
-                                        ) : (
-                                            '-'
-                                        )}
-                                    </b>
-                                </div>
-                            </FlaggedFeature>
-                        )
-                    })()}
+                {isEvent && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                        <PrimaryPropertyDetail definition={definition as EventDefinition} />
+                    </FlaggedFeature>
+                )}
             </div>
 
             <SceneDivider />

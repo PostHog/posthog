@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -21,6 +21,7 @@ import {
     getGeminiInlineData,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
+    isEmptyJSONStructure,
     isGeminiAudioMessage,
     isGeminiDocumentMessage,
     isGeminiImageMessage,
@@ -29,6 +30,7 @@ import {
     isOpenAIImageURLMessage,
     looksLikeXml,
     parsePartialJSON,
+    parseToolArgumentsForDisplay,
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
@@ -484,6 +486,48 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         )
     }
 
+    if (
+        item.type === 'function' &&
+        item.function &&
+        typeof item.function === 'object' &&
+        typeof item.function.name === 'string'
+    ) {
+        const { name, arguments: rawArgs } = item.function
+        const callId = 'id' in item && typeof item.id === 'string' ? item.id : undefined
+        const args = parseToolArgumentsForDisplay(rawArgs)
+        const displayName = name || '(unnamed function)'
+        const hasSearch = !!searchQuery?.trim()
+
+        return (
+            <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs">
+                    <IconWrench className="text-muted shrink-0" />
+                    <span className="font-mono font-semibold">
+                        {hasSearch ? <SearchHighlight string={displayName} substring={searchQuery!} /> : displayName}
+                    </span>
+                    {callId && (
+                        <span className="font-mono text-muted truncate">
+                            {hasSearch ? <SearchHighlight string={callId} substring={searchQuery!} /> : callId}
+                        </span>
+                    )}
+                </div>
+                {args.kind === 'parsed' && (
+                    <HighlightedJSONViewer src={args.value} name={null} collapsed={5} searchQuery={searchQuery} />
+                )}
+                {args.kind === 'raw' &&
+                    (hasSearch ? (
+                        <SearchHighlight
+                            string={args.value}
+                            substring={searchQuery!}
+                            className="font-mono whitespace-pre-wrap text-xs"
+                        />
+                    ) : (
+                        <pre className="font-mono whitespace-pre-wrap text-xs m-0">{args.value}</pre>
+                    ))}
+            </div>
+        )
+    }
+
     return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
 }
 
@@ -617,10 +661,7 @@ export const LLMMessageDisplay = React.memo(
                     const parsed = typeof content === 'string' ? parsePartialJSON(content) : content
                     // If the partial parser returned an empty container, the input wasn't
                     // actually JSON (e.g. "[Thinking: ...]" starts with "[" but is plain text)
-                    const isParsedEmpty =
-                        (Array.isArray(parsed) && parsed.length === 0) ||
-                        (isObject(parsed) && Object.keys(parsed as Record<string, unknown>).length === 0)
-                    if (isParsedEmpty) {
+                    if (isEmptyJSONStructure(parsed)) {
                         throw new Error('not JSON')
                     }
                     if (isObject(parsed) && parsed.type === 'image') {
