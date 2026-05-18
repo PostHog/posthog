@@ -154,3 +154,112 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 400
+
+    def test_update_service_auto_adds_provisioned_team_in_same_org_to_scope(self):
+        from posthog.models.oauth import OAuthAccessToken
+        from posthog.models.team.team import Team
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        # Team that was provisioned earlier by this partner but isn't in this
+        # access token's scope (e.g. customer re-OAuth'd, dropping it).
+        existing_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Pre-existing project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=existing_team, defaults={"stripe_project_id": "proj_existing"}
+        )
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert existing_team.id not in (access_token.scoped_teams or [])
+
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{existing_team.id}/update_service",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200, res.json()
+        access_token.refresh_from_db()
+        assert existing_team.id in access_token.scoped_teams
+
+    def test_update_service_rejects_team_in_other_org(self):
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_org = Organization.objects.create(name="Other org")
+        foreign_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=other_org,
+            name="Foreign project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=foreign_team, defaults={"stripe_project_id": "proj_foreign"}
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{foreign_team.id}/update_service",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 403
+
+    def test_update_service_rejects_team_without_provisioning_config(self):
+        from posthog.models.team.team import Team
+
+        # Same-org team that was NOT provisioned through this partner flow — no
+        # TeamProvisioningConfig means the partner has no claim on it.
+        unprovisioned_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Hand-rolled project",
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{unprovisioned_team.id}/update_service",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 403
+
+    def test_update_service_rejects_when_user_lacks_team_access(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.team.team import Team
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        restricted_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Restricted project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=restricted_team, defaults={"stripe_project_id": "proj_restricted"}
+        )
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{restricted_team.id}/update_service",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 403

@@ -1337,6 +1337,67 @@ def _ensure_team_in_token_scopes(
     return team, [*scoped_teams, team.id]
 
 
+def _resolve_provisioning_resource(
+    resource_id: str,
+    access_token: OAuthAccessToken,
+    user: User,
+) -> tuple[Team | None, list[int], str | None]:
+    """Resolve ``resource_id`` (a team id string) to a Team for endpoints that operate on existing resources.
+
+    Returns ``(team, scoped_teams, error_code)``:
+    - ``(team, scoped_teams, None)`` on success. If the team_id was not yet in the
+      token's ``scoped_teams``, it has been backfilled into both the access token
+      and any matching refresh tokens.
+    - ``(None, scoped_teams, "invalid_resource_id")`` if ``resource_id`` is not a valid integer.
+    - ``(None, scoped_teams, "forbidden")`` if the team cannot be auto-added to scope.
+
+    A team is eligible for auto-add when the customer has previously consented to
+    this partner provisioning it (a ``TeamProvisioningConfig`` row exists, in the
+    same org as a currently-scoped team) and the user still has access. This
+    closes the gap where a customer re-OAuths the partner and gets a fresh access
+    token scoped only to their default team, leaving previously-provisioned teams
+    inaccessible on `update_service` / `rotate_credentials` / `resolve` /
+    `remove` until they retrigger the project-resolution flow.
+    """
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return None, scoped_teams, "invalid_resource_id"
+
+    if team_id in scoped_teams:
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return None, scoped_teams, "forbidden"
+        return team, scoped_teams, None
+
+    if not scoped_teams:
+        return None, scoped_teams, "forbidden"
+
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+    except Team.DoesNotExist:
+        # Treat as forbidden to avoid leaking which team ids exist.
+        return None, scoped_teams, "forbidden"
+
+    scoped_org_ids = set(Team.objects.filter(id__in=scoped_teams).values_list("organization_id", flat=True))
+    if team.organization_id not in scoped_org_ids:
+        return None, scoped_teams, "forbidden"
+
+    if not TeamProvisioningConfig.objects.filter(team_id=team_id).exists():
+        return None, scoped_teams, "forbidden"
+
+    if not _user_can_access_team(user, team):
+        return None, scoped_teams, "forbidden"
+
+    team, scoped_teams = _ensure_team_in_token_scopes(access_token, scoped_teams, team)
+    return team, scoped_teams, None
+
+
 def _user_can_access_team(user: User, team: Team) -> bool:
     """Verify the user has at least member-level access to the team.
 
@@ -1566,22 +1627,14 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         _capture_provisioning_event("credential_rotation", "error", error_code="invalid_label_prefix")
         return _error_response("invalid_label_prefix", str(exc), resource_id=resource_id)
 
-    scoped_teams = access_token.scoped_teams or []
-
-    try:
-        team_id = int(resource_id)
-    except (ValueError, TypeError):
+    team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
+    if error_code == "invalid_resource_id":
         return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
-
-    if team_id not in scoped_teams:
+    if error_code == "forbidden" or team is None:
         return _error_response(
             "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
         )
-
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+    team_id = team.id
 
     try:
         team.reset_token_and_save(user=user, is_impersonated_session=False)
@@ -1637,22 +1690,14 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     if error := verify_api_version(request):
         return error
 
-    scoped_teams = access_token.scoped_teams or []
-
-    try:
-        team_id = int(resource_id)
-    except (ValueError, TypeError):
+    team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
+    if error_code == "invalid_resource_id":
         return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
-
-    if team_id not in scoped_teams:
+    if error_code == "forbidden" or team is None:
         return _error_response(
             "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
         )
-
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+    team_id = team.id
 
     service_id = request.data.get("service_id", "")
     if not service_id:
@@ -1738,9 +1783,8 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
     if error := verify_api_version(request):
         return error
 
-    try:
-        team_id = int(resource_id)
-    except (ValueError, TypeError):
+    team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
+    if error_code == "invalid_resource_id":
         return Response(
             {
                 "status": "error",
@@ -1749,9 +1793,7 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
             },
             status=400,
         )
-
-    scoped_teams = access_token.scoped_teams or []
-    if team_id not in scoped_teams:
+    if error_code == "forbidden" or team is None:
         return Response(
             {
                 "status": "error",
@@ -1760,6 +1802,7 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
             },
             status=403,
         )
+    team_id = team.id
 
     from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -1816,11 +1859,8 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
     if error := verify_api_version(request):
         return error
 
-    scoped_teams = access_token.scoped_teams or []
-
-    try:
-        team_id = int(resource_id)
-    except (ValueError, TypeError):
+    team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
+    if error_code == "invalid_resource_id":
         return Response(
             {
                 "status": "error",
@@ -1829,8 +1869,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             },
             status=400,
         )
-
-    if team_id not in scoped_teams:
+    if error_code == "forbidden" or team is None:
         return Response(
             {
                 "status": "error",
@@ -1838,14 +1877,6 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
                 "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
             },
             status=403,
-        )
-
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        return Response(
-            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
-            status=404,
         )
 
     service_id = _get_provisioning_service_id(team)
