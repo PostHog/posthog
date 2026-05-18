@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
@@ -119,24 +120,31 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return queryset
 
     def _apply_filters(self, queryset: QuerySet, request: Request) -> QuerySet:
+        # Explicit per-field filters (no dict-unpack) so semgrep's no-request-param-orm-filter
+        # taint analysis is satisfied — every field name is hard-coded at the call site.
         params = request.query_params
-        for field in ("notification_type", "target_type", "target_id", "resource_type", "resource_id"):
-            value = params.get(field)
-            if value:
-                queryset = queryset.filter(
-                    **{field: value}
-                )  # nosemgrep: orm-field-injection -- field comes from a fixed tuple
-        for field, lookup in (("created_after", "created_at__gte"), ("created_before", "created_at__lt")):
-            raw = params.get(field)
-            if not raw:
-                continue
+        if value := params.get("notification_type"):
+            queryset = queryset.filter(notification_type=value)
+        if value := params.get("target_type"):
+            queryset = queryset.filter(target_type=value)
+        if value := params.get("target_id"):
+            queryset = queryset.filter(target_id=value)
+        if value := params.get("resource_type"):
+            queryset = queryset.filter(resource_type=value)
+        if value := params.get("resource_id"):
+            queryset = queryset.filter(resource_id=value)
+
+        def _parse_iso(raw: str, field: str) -> datetime:
             # Django decodes "+" timezone offsets in query strings as " "; restore before parsing.
             parsed = parse_datetime(raw.replace(" ", "+"))
             if parsed is None:
                 raise ValidationError({field: f"Invalid ISO 8601 timestamp: {raw}"})
-            queryset = queryset.filter(
-                **{lookup: parsed}
-            )  # nosemgrep: orm-field-injection -- lookup comes from a fixed tuple
+            return parsed
+
+        if raw := params.get("created_after"):
+            queryset = queryset.filter(created_at__gte=_parse_iso(raw, "created_after"))
+        if raw := params.get("created_before"):
+            queryset = queryset.filter(created_at__lt=_parse_iso(raw, "created_before"))
         return queryset
 
     @extend_schema(
@@ -273,9 +281,13 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if not ids:
             return Response({"updated": 0})
 
+        # NotificationEvent is org-scoped + user-targeted (notifications can span teams within an org),
+        # not team-scoped. The (organization_id, resolved_user_ids__contains=[user.id]) pair already
+        # ensures the caller can only touch notifications they were a recipient of — adding team_id
+        # would silently drop notifications addressed to this user but with a different team_id.
         eligible_ids = list(
-            NotificationEvent.objects.filter(
-                id__in=ids,
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
                 organization_id=self.team.organization_id,
                 resolved_user_ids__contains=[user.id],
             ).values_list("id", flat=True)
@@ -297,9 +309,13 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if not ids:
             return Response({"updated": 0})
 
+        # NotificationEvent is org-scoped + user-targeted (notifications can span teams within an org),
+        # not team-scoped. The (organization_id, resolved_user_ids__contains=[user.id]) pair already
+        # ensures the caller can only touch notifications they were a recipient of — adding team_id
+        # would silently drop notifications addressed to this user but with a different team_id.
         eligible_ids = list(
-            NotificationEvent.objects.filter(
-                id__in=ids,
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
                 organization_id=self.team.organization_id,
                 resolved_user_ids__contains=[user.id],
             ).values_list("id", flat=True)
