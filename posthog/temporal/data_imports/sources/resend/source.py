@@ -65,7 +65,12 @@ Grant the key **full access** or a read-enabled access token so the following re
         )
 
     def get_schemas(
-        self, config: ResendSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ResendSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Resend's API does not expose server-side filters on created_at; sync as
         # full-refresh only. Within-sync resumption is handled by ResumableSource.
