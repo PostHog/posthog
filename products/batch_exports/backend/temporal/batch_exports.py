@@ -73,8 +73,10 @@ def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
 
     Both channels swallow their own exceptions, so this helper itself never raises.
     """
+    email_sent = False
     try:
         send_batch_export_run_failure(batch_export_run_id)
+        email_sent = True
     except Exception:
         LOGGER.exception(
             "send_batch_export_run_failure.email_failed",
@@ -82,7 +84,12 @@ def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
         )
 
     _dispatch_batch_export_failure_realtime(batch_export_run_id)
-    EXTERNAL_LOGGER.info("Failure notifications for run '%s' have been dispatched", batch_export_run_id)
+
+    # Only emit the customer-visible success line when the email actually went out — the
+    # realtime path is best-effort and not surfaced here. Matches the pre-refactor behaviour
+    # where this log only ran in the else-branch of the email try/except.
+    if email_sent:
+        EXTERNAL_LOGGER.info("Failure notification email for run '%s' has been sent", batch_export_run_id)
 
 
 def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) -> None:
