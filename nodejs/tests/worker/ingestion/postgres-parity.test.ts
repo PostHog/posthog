@@ -111,6 +111,7 @@ describe('postgres parity', () => {
 
         server = new IngestionGeneralServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+            INGESTION_PIPELINE: 'analytics',
         })
         await server.start()
         postgres = server['postgres']!
