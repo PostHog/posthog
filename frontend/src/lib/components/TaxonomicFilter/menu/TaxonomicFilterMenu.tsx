@@ -74,6 +74,19 @@ export interface TaxonomicFilterMenuProps {
     dataWarehousePopoverFields?: import('../types').DataWarehousePopoverField[]
     /** Insight context for the DWH config — when set, the aggregation-target tab reads `funnelDataLogic` for funnel-aware copy. */
     insightProps?: import('~/types').InsightLogicProps
+    /**
+     * Stretch the trigger to its parent's full width. When false (default)
+     * the trigger sizes to its content and caps at the parent — matching a
+     * plain inline button so it truncates instead of overflowing a shared
+     * flex row. Set true for dedicated full-width trigger columns.
+     */
+    fullWidthTrigger?: boolean
+    /**
+     * Extra node rendered inside the trigger wrapper (which is `relative`),
+     * e.g. an absolutely-positioned corner badge. Kept inside the wrapper so
+     * callers don't need to add another positioned ancestor of their own.
+     */
+    triggerAccessory?: import('react').ReactNode
 }
 
 export interface TriggerState {
@@ -91,6 +104,8 @@ export function TaxonomicFilterMenu({
     comboboxTitle,
     dataWarehousePopoverFields,
     insightProps,
+    fullWidthTrigger = false,
+    triggerAccessory,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const { groups, selectItem, inputProps, searchQuery } = useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>({ kind: 'closed' })
@@ -403,11 +418,15 @@ export function TaxonomicFilterMenu({
                  * names then bleed past the parity wrapper instead of
                  * truncating like the legacy trigger.
                  */}
-                <span ref={triggerWrapRef} className="relative flex min-w-0 w-full">
+                <span
+                    ref={triggerWrapRef}
+                    className={cn('relative flex min-w-0', fullWidthTrigger ? 'w-full' : 'max-w-full')}
+                >
                     <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     <PopoverTrigger
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
+                    {triggerAccessory}
                 </span>
                 <PopoverContent
                     align="start"

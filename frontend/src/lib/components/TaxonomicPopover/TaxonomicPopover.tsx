@@ -204,41 +204,47 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     // visible toggle (persisted per-user via `taxonomicMenuPreferenceLogic`)
     // lets the user swap back to the classic filter and forward again.
     // Gated by `taxonomic-filter-menu-rebuild`.
+    //
+    // The rebuilt menu carries its own toggle (inside its trigger wrapper),
+    // so it's rendered with no extra DOM around it — the trigger inherits
+    // the call site's layout exactly. The legacy path needs a thin
+    // positioned wrapper to host the floating toggle.
+    if (useNewMenu) {
+        return (
+            <TaxonomicPopoverMenu<ValueType>
+                groupType={groupType}
+                value={value}
+                groupTypes={groupTypes}
+                onChange={onChange}
+                renderValue={renderValue}
+                placeholder={placeholder}
+                placeholderClass={placeholderClass}
+                eventNames={eventNames}
+                schemaColumns={schemaColumns}
+                metadataSource={metadataSource}
+                excludedProperties={excludedProperties}
+                selectedProperties={selectedProperties}
+                showNumericalPropsOnly={showNumericalPropsOnly}
+                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                maxContextOptions={maxContextOptions}
+                allowNonCapturedEvents={allowNonCapturedEvents}
+                suggestedFiltersLabel={suggestedFiltersLabel}
+                enableKeywordShortcuts={enableKeywordShortcuts}
+                triggerButtonProps={{
+                    icon: buttonPropsRest.icon,
+                    sideIcon: sideIcon,
+                    fullWidth: buttonPropsRest.fullWidth,
+                    size: buttonPropsRest.size,
+                    type: buttonPropsRest.type ?? 'secondary',
+                    className: buttonPropsRest.className,
+                    disabledReason: buttonPropsRest.disabledReason,
+                }}
+            />
+        )
+    }
     return (
-        <span className="relative inline-flex min-w-0">
-            {useNewMenu ? (
-                <TaxonomicPopoverMenu<ValueType>
-                    groupType={groupType}
-                    value={value}
-                    groupTypes={groupTypes}
-                    onChange={onChange}
-                    renderValue={renderValue}
-                    placeholder={placeholder}
-                    placeholderClass={placeholderClass}
-                    eventNames={eventNames}
-                    schemaColumns={schemaColumns}
-                    metadataSource={metadataSource}
-                    excludedProperties={excludedProperties}
-                    selectedProperties={selectedProperties}
-                    showNumericalPropsOnly={showNumericalPropsOnly}
-                    dataWarehousePopoverFields={dataWarehousePopoverFields}
-                    maxContextOptions={maxContextOptions}
-                    allowNonCapturedEvents={allowNonCapturedEvents}
-                    suggestedFiltersLabel={suggestedFiltersLabel}
-                    enableKeywordShortcuts={enableKeywordShortcuts}
-                    triggerButtonProps={{
-                        icon: buttonPropsRest.icon,
-                        sideIcon: sideIcon,
-                        fullWidth: buttonPropsRest.fullWidth,
-                        size: buttonPropsRest.size,
-                        type: buttonPropsRest.type ?? 'secondary',
-                        className: buttonPropsRest.className,
-                        disabledReason: buttonPropsRest.disabledReason,
-                    }}
-                />
-            ) : (
-                legacyEl
-            )}
+        <span className="relative inline-flex max-w-full min-w-0">
+            {legacyEl}
             <TaxonomicMenuToggle />
         </span>
     )

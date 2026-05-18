@@ -36,6 +36,8 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
+import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
+
 /**
  * Shortcut/aggregator groups that have no real items of their own — a
  * selection never genuinely "belongs" to one. `TaxonomicPopover.groupType`
@@ -155,6 +157,9 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
 
     return (
         <TaxonomicFilterHeadless.Root
+            // `display: contents` — the Root wrapper div must not affect
+            // layout, so the trigger sizes exactly as a bare button would.
+            className="contents"
             // Skip the legacy rootProps keydown handler — it intercepts
             // Tab/Arrow for the old list UI we don't render here.
             bindRootProps={false}
@@ -181,35 +186,35 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
             <TaxonomicFilterMenu
                 selected={selected}
                 dataWarehousePopoverFields={dataWarehousePopoverFields}
+                fullWidthTrigger={!!triggerButtonProps?.fullWidth}
+                triggerAccessory={<TaxonomicMenuToggle />}
+                // The trigger is a bare LemonButton — base-ui's
+                // DropdownMenuTrigger renders onto it directly, so the DOM
+                // matches a plain button and inherits the call site's layout.
                 trigger={({ open }) => (
-                    // base-ui's DropdownMenuTrigger spreads its props onto
-                    // this wrapper; the LemonButton inside is presentational.
-                    // Mirrors the proven ActionFilterRow series-picker trigger.
-                    <div className="relative inline-flex min-w-0">
-                        <LemonButton
-                            type="secondary"
-                            {...triggerButtonProps}
-                            // LemonButton only auto-adds the dropdown chevron
-                            // inside a LemonDropdown; this trigger isn't, so
-                            // default it explicitly (legacy parity). A caller
-                            // passing `sideIcon={null}` still suppresses it.
-                            sideIcon={
-                                triggerButtonProps?.sideIcon === undefined ? (
-                                    <IconChevronDown />
-                                ) : (
-                                    triggerButtonProps.sideIcon
-                                )
-                            }
-                            active={open}
-                            data-attr="taxonomic-popover-menu-trigger"
-                        >
-                            {value ? (
-                                (renderValue?.(value) ?? <span>{String(value)}</span>)
+                    <LemonButton
+                        type="secondary"
+                        {...triggerButtonProps}
+                        // LemonButton only auto-adds the dropdown chevron
+                        // inside a LemonDropdown; this trigger isn't, so
+                        // default it explicitly (legacy parity). A caller
+                        // passing `sideIcon={null}` still suppresses it.
+                        sideIcon={
+                            triggerButtonProps?.sideIcon === undefined ? (
+                                <IconChevronDown />
                             ) : (
-                                <span className={placeholderClass ?? 'text-secondary'}>{placeholder}</span>
-                            )}
-                        </LemonButton>
-                    </div>
+                                triggerButtonProps.sideIcon
+                            )
+                        }
+                        active={open}
+                        data-attr="taxonomic-popover-menu-trigger"
+                    >
+                        {value ? (
+                            (renderValue?.(value) ?? <span>{String(value)}</span>)
+                        ) : (
+                            <span className={placeholderClass ?? 'text-secondary'}>{placeholder}</span>
+                        )}
+                    </LemonButton>
                 )}
             />
         </TaxonomicFilterHeadless.Root>
