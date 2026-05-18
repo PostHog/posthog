@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPerson } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -53,7 +52,6 @@ type NotebookNodePersonPropertiesAttributes = {
 export const NotebookNodePersonProperties = createPostHogWidgetNode({
     nodeType: NotebookNodeType.PersonProperties,
     titlePlaceholder: 'Properties',
-    icon: <IconPerson />,
     Component,
     resizeable: false,
     expandable: true,

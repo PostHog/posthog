@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPerson, IconRewindPlay } from '@posthog/icons'
+import { IconPerson } from '@posthog/icons'
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -153,7 +153,6 @@ type NotebookNodeRecordingAttributes = {
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
     titlePlaceholder: 'Session recording',
-    icon: <IconRewindPlay />,
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,

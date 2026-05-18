@@ -147,7 +147,6 @@ type NotebookNodeFlagAttributes = {
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
     titlePlaceholder: 'Feature flag',
-    icon: <IconFlag />,
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),

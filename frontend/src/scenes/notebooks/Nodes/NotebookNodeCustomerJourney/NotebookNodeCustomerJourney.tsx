@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconPencil, IconUserPaths, IconX } from '@posthog/icons'
+import { IconPencil, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -112,7 +112,6 @@ const Settings = ({
 export const NotebookNodeCustomerJourney = createPostHogWidgetNode<NotebookNodeCustomerJourneyAttributes>({
     nodeType: NotebookNodeType.CustomerJourney,
     titlePlaceholder: 'Customer journey',
-    icon: <IconUserPaths />,
     Component,
     Settings,
     resizeable: false,

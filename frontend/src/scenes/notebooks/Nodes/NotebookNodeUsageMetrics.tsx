@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPieChart, IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -162,7 +162,6 @@ type NotebookNodeUsageMetricsAttributes = {
 export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsageMetricsAttributes>({
     nodeType: NotebookNodeType.UsageMetrics,
     titlePlaceholder: 'Usage',
-    icon: <IconPieChart />,
     Component,
     Settings,
     resizeable: false,

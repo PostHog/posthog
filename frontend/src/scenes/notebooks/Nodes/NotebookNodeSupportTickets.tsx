@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconChat, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -68,7 +68,6 @@ type NotebookNodeSupportTicketsAttributes = {
 export const NotebookNodeSupportTickets = createPostHogWidgetNode<NotebookNodeSupportTicketsAttributes>({
     nodeType: NotebookNodeType.SupportTickets,
     titlePlaceholder: 'Support tickets',
-    icon: <IconChat />,
     Component,
     Settings,
     resizeable: false,

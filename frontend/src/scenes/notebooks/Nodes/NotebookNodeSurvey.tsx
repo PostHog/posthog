@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconChat } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -116,7 +115,6 @@ type NotebookNodeSurveyAttributes = {
 export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttributes>({
     nodeType: NotebookNodeType.Survey,
     titlePlaceholder: 'Survey',
-    icon: <IconChat />,
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.survey(attrs.id),

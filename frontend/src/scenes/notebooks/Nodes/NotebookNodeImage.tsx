@@ -1,7 +1,5 @@
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 
-import { IconImage } from '@posthog/icons'
-
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
@@ -86,7 +84,6 @@ type NotebookNodeImageAttributes = {
 export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
     titlePlaceholder: 'Image',
-    icon: <IconImage />,
     Component,
     serializedText: (attrs) => {
         // TODO file is null when this runs... should it be?

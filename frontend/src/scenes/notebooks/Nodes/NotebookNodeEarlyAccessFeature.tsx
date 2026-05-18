@@ -130,7 +130,6 @@ type NotebookNodeEarlyAccessAttributes = {
 export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNodeEarlyAccessAttributes>({
     nodeType: NotebookNodeType.EarlyAccessFeature,
     titlePlaceholder: 'Early Access Management',
-    icon: <IconRocket />,
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.earlyAccessFeature(attrs.id),

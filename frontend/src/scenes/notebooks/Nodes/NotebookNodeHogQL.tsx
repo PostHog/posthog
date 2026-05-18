@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconCornerDownRight, IconHogQL } from '@posthog/icons'
+import { IconCornerDownRight } from '@posthog/icons'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
@@ -304,7 +304,6 @@ const Settings = ({
 export const NotebookNodeHogQL = createPostHogWidgetNode<NotebookNodeHogQLAttributes>({
     nodeType: NotebookNodeType.HogQLSQL,
     titlePlaceholder: 'SQL (HogQL)',
-    icon: <IconHogQL />,
     Component,
     heightEstimate: 120,
     minHeight: 80,

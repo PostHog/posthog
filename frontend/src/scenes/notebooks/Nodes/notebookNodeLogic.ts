@@ -897,8 +897,6 @@ export type NotebookNodeLogicProps = {
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
-    /** Canonical icon for this node type — read from `KNOWN_NODES` by previews, slash menu, etc. */
-    icon: JSX.Element
     settingsPlacement?: NotebookNodeSettingsPlacement
 } & NotebookNodeAttributeProperties<any>
 

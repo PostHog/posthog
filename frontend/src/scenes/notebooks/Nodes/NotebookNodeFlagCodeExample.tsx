@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCode } from '@posthog/icons'
-
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
@@ -40,7 +38,6 @@ type NotebookNodeFlagCodeExampleAttributes = {
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
     nodeType: NotebookNodeType.FeatureFlagCodeExample,
     titlePlaceholder: 'Feature flag code example',
-    icon: <IconCode />,
     Component,
     heightEstimate: '3rem',
     startExpanded: true,

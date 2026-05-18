@@ -1,7 +1,6 @@
 import { useActions } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -129,7 +128,6 @@ const Settings = ({
 export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttributes>({
     nodeType: NotebookNodeType.Embed,
     titlePlaceholder: 'Embed',
-    icon: <IconCode />,
     Component,
     Settings,
     serializedText: (attrs) => `(embedded iframe:${attrs.src})`,

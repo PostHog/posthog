@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 
-import { IconGroups } from '@posthog/icons'
-
 import { RelatedGroups, RelatedGroupsProps } from 'scenes/groups/RelatedGroups'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +29,6 @@ const href = ({ id, groupTypeIndex }: NotebookNodeRelatedGroupsAttributes): stri
 export const NotebookNodeRelatedGroups = createPostHogWidgetNode<NotebookNodeRelatedGroupsAttributes>({
     nodeType: NotebookNodeType.RelatedGroups,
     titlePlaceholder: 'Related groups',
-    icon: <IconGroups />,
     Component,
     resizeable: false,
     expandable: true,

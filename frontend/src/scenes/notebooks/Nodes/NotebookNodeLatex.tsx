@@ -5,7 +5,6 @@ import { mathjax } from '@mathjax/src/mjs/mathjax.js'
 import { SVG } from '@mathjax/src/mjs/output/svg.js'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconSquareRoot } from '@posthog/icons'
 import { LemonTextArea } from '@posthog/lemon-ui'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -125,7 +124,6 @@ const DEFAULT_ATTRIBUTES_WITH_DEFAULTS = {
 export const NotebookNodeLatex = createPostHogWidgetNode<NotebookNodeLatexAttributes>({
     nodeType: NotebookNodeType.Latex,
     titlePlaceholder: 'LaTeX',
-    icon: <IconSquareRoot />,
     Component: LatexComponent,
     heightEstimate: 'auto', // Adjust height estimate as input can grow
     minHeight: '3rem',

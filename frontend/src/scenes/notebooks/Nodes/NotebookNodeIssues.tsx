@@ -1,7 +1,7 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { PropsWithChildren } from 'react'
 
-import { IconWarning, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -151,7 +151,6 @@ type NotebookNodeIssuesAttributes = {
 export const NotebookNodeIssues = createPostHogWidgetNode<NotebookNodeIssuesAttributes>({
     nodeType: NotebookNodeType.Issues,
     titlePlaceholder: 'Issues',
-    icon: <IconWarning />,
     Component,
     Settings,
     resizeable: false,
