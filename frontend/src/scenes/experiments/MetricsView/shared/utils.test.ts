@@ -46,6 +46,14 @@ describe('getMetricTag', () => {
         expect(getMetricTag(funnelMetric)).toBe('Funnel')
         expect(getMetricTag(trendMetric)).toBe('Trend')
     })
+
+    it('falls back to a generic label when metric_type is missing', () => {
+        const malformedMetric = {
+            kind: NodeKind.ExperimentMetric,
+        } as unknown as ExperimentMetric
+
+        expect(getMetricTag(malformedMetric)).toBe('Metric')
+    })
 })
 
 describe('getDefaultMetricTitle', () => {

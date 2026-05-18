@@ -25,6 +25,9 @@ export type ExperimentVariantResult = ExperimentVariantResultFrequentist | Exper
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
+        if (!metric.metric_type) {
+            return 'Metric'
+        }
         return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return 'Funnel'
