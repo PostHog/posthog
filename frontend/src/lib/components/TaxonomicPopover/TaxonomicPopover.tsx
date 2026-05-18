@@ -1,4 +1,5 @@
 import { Placement } from '@floating-ui/react'
+import { useValues } from 'kea'
 import { Ref, forwardRef, useEffect, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -12,12 +13,16 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+
+import { TaxonomicPopoverMenu } from './TaxonomicPopoverMenu'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> extends Omit<
     LemonButtonProps,
@@ -101,6 +106,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
 ): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showMenuParity = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
+
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
@@ -126,7 +134,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         }
     }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    return (
+    const legacyEl = (
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
@@ -183,6 +191,39 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                 <LemonButton {...buttonPropsFinal} {...(sideIcon !== undefined && { sideIcon })} ref={ref} />
             )}
         </LemonDropdown>
+    )
+
+    if (!showMenuParity) {
+        return legacyEl
+    }
+
+    // Parity mode — render the legacy popover next to the rebuilt
+    // TaxonomicFilterMenu so the new picker can be verified against the old
+    // one at every call site. Gated by `taxonomic-filter-menu-rebuild`.
+    return (
+        <span className="inline-flex items-center gap-1 min-w-0">
+            {legacyEl}
+            <TaxonomicPopoverMenu<ValueType>
+                groupType={groupType}
+                value={value}
+                groupTypes={groupTypes}
+                onChange={onChange}
+                renderValue={renderValue}
+                placeholder={placeholder}
+                eventNames={eventNames}
+                schemaColumns={schemaColumns}
+                metadataSource={metadataSource}
+                excludedProperties={excludedProperties}
+                selectedProperties={selectedProperties}
+                showNumericalPropsOnly={showNumericalPropsOnly}
+                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                maxContextOptions={maxContextOptions}
+                allowNonCapturedEvents={allowNonCapturedEvents}
+                suggestedFiltersLabel={suggestedFiltersLabel}
+                enableKeywordShortcuts={enableKeywordShortcuts}
+                disabledReason={buttonPropsRest.disabledReason}
+            />
+        </span>
     )
 }) as <ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
     props: TaxonomicPopoverProps<ValueType> & { ref?: Ref<HTMLButtonElement> }
