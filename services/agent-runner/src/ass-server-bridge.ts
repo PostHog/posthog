@@ -1,6 +1,6 @@
 import { SessionRegistry } from '@repo/ass-server/sse'
 
-import { SessionBus, SessionEvent, logger } from '@posthog/agent-core'
+import { SessionBus, SessionEvent, SessionLogStore, logger } from '@posthog/agent-core'
 
 /**
  * Bridges ass-server's in-process event sink onto PostHog's SessionBus.
@@ -31,7 +31,10 @@ export class BusBridgingRegistry extends SessionRegistry {
 
     constructor(
         private readonly bus: SessionBus,
-        private readonly busSessionId: string
+        private readonly busSessionId: string,
+        /** Optional log buffer — when present, every mapped SessionEvent is
+         *  also persisted for the UI's live tail / replay. */
+        private readonly logStore?: SessionLogStore
     ) {
         super()
     }
@@ -47,6 +50,17 @@ export class BusBridgingRegistry extends SessionRegistry {
                     error: String(err),
                 })
             })
+            // Persist for the UI's session-log endpoint. Best-effort —
+            // failure here shouldn't break the run.
+            if (this.logStore) {
+                void this.logStore.append(this.busSessionId, { kind: 'event', ...mapped }).catch((err) => {
+                    logger.warn('runner bridge log append failed', {
+                        sessionId: this.busSessionId,
+                        event,
+                        error: String(err),
+                    })
+                })
+            }
         }
         // Track terminal signals regardless of whether we forwarded them.
         if (event === 'error') {

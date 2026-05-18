@@ -3,9 +3,12 @@ import {
     BundleStore,
     EncryptedFields,
     InMemorySessionBus,
+    NullSessionLogStore,
     PosthogDbClient,
     RedisSessionBus,
+    RedisSessionLogStore,
     SessionBus,
+    SessionLogStore,
     bundleStoreConfigFromEnv,
     logger,
 } from '@posthog/agent-core'
@@ -27,17 +30,29 @@ async function main(): Promise<void> {
         logger.warn('REDIS_URL not set; using in-memory bus (single-process only — not safe for production)')
     }
 
+    // HACK: per-session log buffer for the management UI. See
+    // `agent-core/src/session-logs/`. Real implementation will be loki/clickhouse.
+    const logStore: SessionLogStore = config.redisUrl
+        ? new RedisSessionLogStore({ url: config.redisUrl })
+        : new NullSessionLogStore()
+    if (config.redisUrl) {
+        logger.info('agent-runner session log buffer wired (Redis)', { redisUrl: config.redisUrl })
+    } else {
+        logger.warn('agent-runner session log buffer DISABLED (no REDIS_URL — UI tail will be empty)')
+    }
+
     // Reads OBJECT_STORAGE_* env vars (defaults match Django's local MinIO config),
     // so a dev stack with `bin/start` already has a usable bundle store.
     const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
 
-    const executor = new AssServerExecutor({ bundleStore, repository, bus })
+    const executor = new AssServerExecutor({ bundleStore, repository, bus, logStore })
 
     const worker = new RunnerWorker({
         pool: { dbUrl: config.queueDbUrl },
         queueName: config.queueName,
         executor,
         bus,
+        logStore,
         loadSecrets: async (applicationId) => {
             if (!applicationId) {
                 return {}
@@ -55,6 +70,7 @@ async function main(): Promise<void> {
         logger.info('agent-runner shutting down', { signal })
         await worker.stop()
         await bus.disconnect()
+        await logStore.disconnect()
         await posthogDb.disconnect()
         bundleStore.destroy()
         process.exit(0)

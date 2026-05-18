@@ -1,4 +1,11 @@
-import { SessionQuery, SessionQueueJanitor, logger } from '@posthog/agent-core'
+import {
+    NullSessionLogStore,
+    RedisSessionLogStore,
+    SessionLogStore,
+    SessionQuery,
+    SessionQueueJanitor,
+    logger,
+} from '@posthog/agent-core'
 
 import { loadConfig } from './config'
 import { buildServer } from './server'
@@ -24,7 +31,17 @@ async function main(): Promise<void> {
     })
     await janitor.start()
 
-    const app = buildServer({ query, internalApiSharedKey: config.internalApiSharedKey })
+    // HACK: per-session log buffer for the UI. See agent-core/src/session-logs/.
+    const logStore: SessionLogStore = config.redisUrl
+        ? new RedisSessionLogStore({ url: config.redisUrl })
+        : new NullSessionLogStore()
+    if (config.redisUrl) {
+        logger.info('agent-janitor session log buffer wired (Redis)', { redisUrl: config.redisUrl })
+    } else {
+        logger.warn('agent-janitor session log buffer DISABLED (no REDIS_URL — /logs route will always be empty)')
+    }
+
+    const app = buildServer({ query, logStore, internalApiSharedKey: config.internalApiSharedKey })
 
     const server = app.listen(config.port, () => {
         logger.info('agent-janitor listening', { port: config.port })
@@ -34,6 +51,7 @@ async function main(): Promise<void> {
         logger.info('agent-janitor shutting down', { signal })
         server.close()
         await janitor.stop()
+        await logStore.disconnect()
         await query.disconnect()
         process.exit(0)
     }

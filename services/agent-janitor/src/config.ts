@@ -9,6 +9,9 @@ const ConfigSchema = z.object({
      * service operable in dev by setting it explicitly.
      */
     internalApiSharedKey: z.string().min(1).optional(),
+    /** ioredis URL — required for the session-logs SSE endpoint. When unset
+     *  that endpoint just streams an empty buffer (a `NullSessionLogStore`). */
+    redisUrl: z.string().optional(),
     janitorIntervalMs: z.coerce.number().int().min(0).default(10_000),
     janitorStallTimeoutMs: z.coerce.number().int().min(0).default(30_000),
     janitorMaxTouchCount: z.coerce.number().int().min(1).default(3),
@@ -22,6 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): JanitorService
         port: env.PORT,
         queueDbUrl: env.AGENT_RUNTIME_QUEUE_DATABASE_URL,
         internalApiSharedKey: env.AGENT_INTERNAL_API_SHARED_KEY,
+        redisUrl: env.REDIS_URL,
         janitorIntervalMs: env.JANITOR_INTERVAL_MS,
         janitorStallTimeoutMs: env.JANITOR_STALL_TIMEOUT_MS,
         janitorMaxTouchCount: env.JANITOR_MAX_TOUCH_COUNT,

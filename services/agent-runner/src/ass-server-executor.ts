@@ -6,6 +6,7 @@ import {
     BundleStore,
     ResolvedRevision,
     SessionBus,
+    SessionLogStore,
     extractBundleToTempDir,
     logger,
 } from '@posthog/agent-core'
@@ -17,6 +18,9 @@ export interface AssServerExecutorOptions {
     bundleStore: BundleStore
     repository: ApplicationsRepository
     bus: SessionBus
+    /** Optional — when set, every bus event + raw runner log line is persisted
+     *  for the UI's live-tail endpoint (`/internal/sessions/:id/logs`). */
+    logStore?: SessionLogStore
 }
 
 /**
@@ -102,16 +106,32 @@ export class AssServerExecutor implements SessionExecutor {
         const { project, agent } = await loadCompiledAgent(bundleDir)
 
         const triggerPayload = input.state.initialInput ?? null
-        const bridge = new BusBridgingRegistry(this.options.bus, input.job.sessionId)
+        const bridge = new BusBridgingRegistry(this.options.bus, input.job.sessionId, this.options.logStore)
+        const logStore = this.options.logStore
+        const sessionId = input.job.sessionId
 
         const handle = runSession({
             project,
             agent,
             registry: bridge,
-            sessionId: input.job.sessionId,
+            sessionId,
             triggerPayload,
             env: input.job.secrets,
-            onLog: (line: string) => logger.debug('runSession', { sessionId: input.job.sessionId, line }),
+            onLog: (line: string) => {
+                logger.debug('runSession', { sessionId, line })
+                // Also persist the raw SDK runner log line for the UI tail.
+                // Best-effort — drop failures so the run isn't impacted.
+                if (logStore) {
+                    void logStore
+                        .append(sessionId, {
+                            kind: 'log',
+                            level: 'debug',
+                            at: new Date().toISOString(),
+                            message: line,
+                        })
+                        .catch(() => {})
+                }
+            },
         })
         await handle.done
 

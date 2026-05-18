@@ -2,6 +2,7 @@ import {
     DequeuedSessionJob,
     SessionBus,
     SessionEvent,
+    SessionLogStore,
     SessionQueueWorker,
     WorkerConfig,
     logger,
@@ -15,6 +16,11 @@ import { ToolContext } from './tools/types'
 export interface RunnerWorkerConfig extends WorkerConfig {
     executor: SessionExecutor
     bus: SessionBus
+    /** Optional — when set, terminal envelopes (`turn_started`, `turn_completed`,
+     *  `session_completed`, `session_failed`) are also persisted for the UI's
+     *  live-tail endpoint. The executor handles the in-turn events itself via
+     *  the bridge. */
+    logStore?: SessionLogStore
     /** Lookup that returns the per-application secrets dictionary. Hooked to the internal-API client in prod. */
     loadSecrets: (applicationId: string | null) => Promise<Record<string, string>>
     /** Optional turn-level heartbeat interval. Defaults to 5s. */
@@ -29,6 +35,7 @@ export class RunnerWorker {
     private readonly queue: SessionQueueWorker
     private readonly executor: SessionExecutor
     private readonly bus: SessionBus
+    private readonly logStore: SessionLogStore | undefined
     private readonly loadSecrets: RunnerWorkerConfig['loadSecrets']
     private readonly heartbeatIntervalMs: number
 
@@ -43,6 +50,7 @@ export class RunnerWorker {
         })
         this.executor = config.executor
         this.bus = config.bus
+        this.logStore = config.logStore
         this.loadSecrets = config.loadSecrets
         this.heartbeatIntervalMs = config.heartbeatIntervalMs ?? 5_000
     }
@@ -185,6 +193,14 @@ export class RunnerWorker {
             await this.bus.publishEvent(sessionId, event)
         } catch (err) {
             logger.error('runner publish failed', { sessionId, error: String(err) })
+        }
+        // Persist for the UI's tail. Best-effort.
+        if (this.logStore) {
+            try {
+                await this.logStore.append(sessionId, { kind: 'event', ...event })
+            } catch (err) {
+                logger.warn('runner log-store append failed', { sessionId, error: String(err) })
+            }
         }
     }
 }

@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { agentApplicationLogic, type AgentSession } from '../agentApplicationLogic'
 import type { AgentApplicationRevisionApi } from '../generated/api.schemas'
 import { AgentConfigPanel } from './AgentConfigPanel'
+import { SessionLogsPanel } from './SessionLogsPanel'
 
 const REVISION_STATE_CLASS: Record<string, string> = {
     pending_upload: 'as-pill as-pill-muted',
@@ -117,7 +118,7 @@ const SESSION_STATUS_ICON: Record<string, JSX.Element | null> = {
 }
 
 function SessionsTable(): JSX.Element {
-    const { sessions, sessionsLoading } = useValues(agentApplicationLogic)
+    const { sessions, sessionsLoading, application } = useValues(agentApplicationLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -138,6 +139,13 @@ function SessionsTable(): JSX.Element {
                             // no sessions yet — trigger one via the ingress
                         </div>
                     }
+                    expandable={{
+                        expandedRowRender: (session: AgentSession) =>
+                            application ? (
+                                <SessionLogsPanel applicationSlug={application.slug} sessionId={session.id} />
+                            ) : null,
+                        noIndent: true,
+                    }}
                     columns={[
                         {
                             title: 'Status',

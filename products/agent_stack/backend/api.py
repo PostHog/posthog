@@ -285,7 +285,7 @@ class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     """
 
     scope_object = "agent_application"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "logs"]
     scope_object_write_actions = ["cancel"]
 
     def _janitor_url(self, path: str) -> str:
@@ -351,3 +351,23 @@ class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(resp.json(), status=resp.status_code)
+
+    @action(detail=True, methods=["get"], url_path="logs")
+    def logs(self, request: Request, pk: str, **kwargs) -> Response:
+        """HACK — return the per-session log buffer (assistant messages, tool
+        calls, raw runner output) as a flat JSON list. The UI polls this.
+        Backed by a 1h Redis buffer in the janitor — replaced once loki /
+        clickhouse is wired.
+        """
+        try:
+            upstream = http_requests.get(
+                self._janitor_url(f"/internal/sessions/{pk}/logs"),
+                headers=self._janitor_headers(),
+                timeout=10,
+            )
+        except http_requests.ConnectionError:
+            return Response(
+                {"detail": "agent-janitor service is not reachable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(upstream.json(), status=upstream.status_code)
