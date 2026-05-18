@@ -164,6 +164,23 @@ def test_restore_schema_if_fresh_recreates_empty_db(monkeypatch: pytest.MonkeyPa
     assert restore_calls == [{"target_db": "posthog", "recreate": True, "ensure_defaults": True}]
 
 
+def test_restore_schema_if_fresh_skips_when_db_populated_after_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If another process writes to the DB during the artifact download, the
+    post-download re-check must abort before DROP/CREATE."""
+    empty_responses = iter([True, False])
+    monkeypatch.setattr(db_schema, "is_database_empty", lambda target_db: next(empty_responses))
+    monkeypatch.setattr(db_schema, "download_latest_compatible_schema", lambda **kwargs: None)
+    monkeypatch.setattr(
+        db_schema,
+        "restore_schema_dump",
+        lambda **kwargs: pytest.fail("restore must not run when DB stopped being empty"),
+    )
+
+    assert db_schema.restore_schema_if_fresh(target_db="posthog", mode="auto") is False
+
+
 def test_run_psql_with_gzip_input_uses_transactional_error_stopping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

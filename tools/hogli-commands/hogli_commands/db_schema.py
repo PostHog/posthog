@@ -452,6 +452,13 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
 
     click.echo(f"Database {target_db} is empty; restoring latest compatible schema before migrations")
     download_latest_compatible_schema(base_branch=_effective_base_branch(None))
+
+    # Re-check emptiness after the download. The artifact fetch takes seconds;
+    # if a parallel process populated the DB in that window we must not DROP it.
+    if not is_database_empty(target_db):
+        click.echo(f"Database {target_db} is no longer empty; running migrations normally")
+        return False
+
     restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
     return True
 
