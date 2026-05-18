@@ -2313,7 +2313,7 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
 
 class BulkKeysRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
+        child=serializers.JSONField(),
         required=False,
         allow_empty=True,
         help_text=(
@@ -2337,9 +2337,10 @@ class BulkKeysResponseSerializer(serializers.Serializer):
 class BulkDeleteFiltersSerializer(serializers.Serializer):
     """Allowed filter keys for bulk_delete — same shape as the list endpoint's query params."""
 
-    active = serializers.CharField(
+    active = serializers.ChoiceField(
+        choices=["true", "false", "STALE"],
         required=False,
-        help_text="Filter by active state. Accepts 'true', 'false', or 'STALE'.",
+        help_text="Filter by active state.",
     )
     created_by_id = serializers.IntegerField(
         required=False,
@@ -2349,13 +2350,15 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="Search by feature flag key or name (case-insensitive).",
     )
-    type = serializers.CharField(
+    type = serializers.ChoiceField(
+        choices=["boolean", "multivariant", "experiment", "remote_config"],
         required=False,
-        help_text="Filter by flag type. One of 'boolean', 'multivariate', 'experiment', 'remote_config'.",
+        help_text="Filter by flag type.",
     )
-    evaluation_runtime = serializers.CharField(
+    evaluation_runtime = serializers.ChoiceField(
+        choices=["server", "client", "all"],
         required=False,
-        help_text="Filter by evaluation runtime. One of 'server', 'client', 'both', or 'all'.",
+        help_text="Filter by evaluation runtime.",
     )
     excluded_properties = serializers.CharField(
         required=False,
@@ -2990,16 +2993,7 @@ class FeatureFlagViewSet(
 
         # Validate filter keys against allowlist to prevent accidental mass deletion
         if filters:
-            valid_filter_keys = {
-                "active",
-                "created_by_id",
-                "search",
-                "type",
-                "evaluation_runtime",
-                "excluded_properties",
-                "tags",
-                "has_evaluation_contexts",
-            }
+            valid_filter_keys = set(BulkDeleteFiltersSerializer().fields.keys())
             unknown_keys = set(filters.keys()) - valid_filter_keys
             if unknown_keys:
                 return Response(

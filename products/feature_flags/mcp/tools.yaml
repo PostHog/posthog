@@ -132,11 +132,13 @@ tools:
         annotations:
             readOnly: false
             destructive: true
-            idempotent: true
+            idempotent: false
         title: Bulk delete feature flags
         description: >
             Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR
-            `filters` (same shape as the list endpoint — e.g., search, active, type, tags), but not both. Flags linked
+            `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING:
+            `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling
+            this with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked
             to active experiments, early access features, or that other flags depend on are skipped and reported in
             `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.
     feature-flags-bulk-keys-create:
@@ -160,8 +162,8 @@ tools:
             - feature_flag:write
         annotations:
             readOnly: false
-            destructive: false
-            idempotent: false
+            destructive: true
+            idempotent: true
         title: Bulk update tags on feature flags
         description: >
             Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action`
