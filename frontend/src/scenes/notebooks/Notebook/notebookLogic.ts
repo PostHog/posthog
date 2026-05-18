@@ -1198,9 +1198,7 @@ export const notebookLogic = kea<notebookLogicType>([
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) =>
             shouldWarnBeforeLeavingNotebook({
-                mode: logic.values.mode,
                 isLocalOnly: logic.values.isLocalOnly,
-                isShared: logic.values.isShared,
                 isEditable: logic.values.isEditable,
                 syncStatus: logic.values.syncStatus,
                 currentPathname: router.values.location.pathname,

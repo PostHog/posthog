@@ -2,9 +2,7 @@ import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 
 describe('shouldWarnBeforeLeavingNotebook', () => {
     const baseInput = {
-        mode: 'notebook' as const,
         isLocalOnly: false,
-        isShared: false,
         isEditable: true,
         syncStatus: 'unsaved' as const,
         currentPathname: '/project/1/notebooks/abc',
@@ -19,19 +17,11 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
         expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, syncStatus })).toBe(expected)
     })
 
-    it('does not warn for canvas mode', () => {
-        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, mode: 'canvas' })).toBe(false)
-    })
-
-    it('does not warn for local-only notebooks (scratchpad / template)', () => {
+    it('does not warn for local-only notebooks (scratchpad / canvas / template)', () => {
         expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, isLocalOnly: true })).toBe(false)
     })
 
-    it('does not warn for shared / read-only views', () => {
-        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, isShared: true })).toBe(false)
-    })
-
-    it('does not warn when the notebook is not editable for the current user', () => {
+    it('does not warn when the notebook is not editable (viewer access, history preview, shared/exported view)', () => {
         expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, isEditable: false })).toBe(false)
     })
 
