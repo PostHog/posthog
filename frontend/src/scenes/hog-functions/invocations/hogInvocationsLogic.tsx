@@ -156,7 +156,10 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
 const AUTO_REFRESH_INTERVAL_MS = 5000
 
 const scheduleAutoRefresh = (
-    cache: { disposables: { add: (setup: () => () => void, key?: string) => void; dispose?: (key: string) => void } },
+    // Kea types `cache` as `Record<string, any>` upstream — that's where the
+    // `disposables` plugin attaches its handle, but the registration is
+    // dynamic so the narrow type isn't visible at this call site.
+    cache: Record<string, any>,
     actions: { loadRuns: (payload: null) => void },
     values: { hasRunningRows: boolean }
 ): void => {
@@ -170,17 +173,44 @@ const scheduleAutoRefresh = (
 }
 
 /**
- * Bucket-by helper for the sparkline. Picks an aggregation interval based on
- * the date filter so a 1h window doesn't render as a single bar and a 30d
- * window doesn't render 30 * 24 hourly bars. Returns the HogQL function name
- * to call on `first_scheduled_at`.
+ * Convert a relative date-picker string (`-1h`, `-7d`, `-3w`) to its duration
+ * in hours. Can't reuse `dateStringToDayJs` for this — that one anchors
+ * relative strings against `startOf('day')`, so `-1h` resolves to "yesterday
+ * 23:00", not "1 hour ago". Returns `null` for absolute / unknown shapes.
  */
+const RELATIVE_DATE_REGEX = /^-(\d+)([hdwmqy])$/
+const parseRelativeHours = (value: string | undefined): number | null => {
+    if (!value) {
+        return null
+    }
+    const match = RELATIVE_DATE_REGEX.exec(value)
+    if (!match) {
+        return null
+    }
+    const n = parseInt(match[1], 10)
+    const hoursPerUnit: Record<string, number> = {
+        h: 1,
+        d: 24,
+        w: 24 * 7,
+        m: 24 * 30,
+        q: 24 * 90,
+        y: 24 * 365,
+    }
+    return n * (hoursPerUnit[match[2]] ?? 0)
+}
+
 const pickSparklineBucketFn = (
     filters: HogInvocationsFilters
 ): 'toStartOfMinute' | 'toStartOfHour' | 'toStartOfDay' => {
-    const from = dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')
-    const to = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
-    const hours = to.diff(from, 'hour')
+    // Relative `-Nh / -Nd` strings have a known duration without needing to
+    // anchor them; use that directly. Falls back to parsing both endpoints
+    // when the filter uses absolute ISO timestamps.
+    let hours = parseRelativeHours(filters.date_from)
+    if (hours === null) {
+        const from = dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')
+        const to = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
+        hours = to.diff(from, 'hour')
+    }
     if (hours <= 6) {
         return 'toStartOfMinute'
     }
