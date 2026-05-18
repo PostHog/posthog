@@ -619,14 +619,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
         for membership in memberships:
             mid = str(membership.id)
             is_org_admin = membership.level >= OrganizationMembership.Level.ADMIN
-            member_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
+            # Role memberships only contribute when ROLE_BASED_ACCESS is enabled.
+            member_role_ids = (
+                [str(rm.role_id) for rm in membership.role_memberships.all()] if role_based_access_supported else []
+            )
 
             project_member_level = member_project_overrides.get(mid)
-            project_role_levels: list[AccessControlLevel] = (
-                [role_project_overrides[rid] for rid in member_role_ids if rid in role_project_overrides]
-                if role_based_access_supported
-                else []
-            )
+            project_role_levels: list[AccessControlLevel] = [
+                role_project_overrides[rid] for rid in member_role_ids if rid in role_project_overrides
+            ]
             project_result = get_effective_access_level_for_member(
                 resource="project",
                 default_level=project_default_level,
@@ -639,15 +640,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             for resource in ACCESS_CONTROL_RESOURCES:
                 resource_member_level = member_resource_overrides.get((mid, resource))
                 resource_default = resource_default_levels.get(resource)
-                resource_role_levels: list[AccessControlLevel] = (
-                    [
-                        role_resource_overrides[(rid, resource)]
-                        for rid in member_role_ids
-                        if (rid, resource) in role_resource_overrides
-                    ]
-                    if role_based_access_supported
-                    else []
-                )
+                resource_role_levels: list[AccessControlLevel] = [
+                    role_resource_overrides[(rid, resource)]
+                    for rid in member_role_ids
+                    if (rid, resource) in role_resource_overrides
+                ]
                 resource_result = get_effective_access_level_for_member(
                     resource=resource,
                     default_level=resource_default,

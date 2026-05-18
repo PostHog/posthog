@@ -1061,7 +1061,6 @@ class Team(UUIDTClassicModel):
 
             # Role-backed access only contributes when the org has ROLE_BASED_ACCESS —
             # same gate as the UI's "Roles" block on the project access settings page.
-            role_user_ids: QuerySet[Any] | list[Any] = []
             if self.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
                 roles_with_access = AccessControl.objects.filter(
                     team_id=self.id,
@@ -1076,6 +1075,9 @@ class Team(UUIDTClassicModel):
                     .values_list("organization_member__user_id", flat=True)
                     .distinct()
                 )
+            else:
+                # Empty queryset (not a list) so `.union()` keeps working.
+                role_user_ids = RoleMembership.objects.none().values_list("organization_member__user_id", flat=True)
 
             # Union all sets of user IDs
             user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)
