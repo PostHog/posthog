@@ -65,9 +65,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     onClickOutside={() => setShowPopover(false)}
                     overlay={
                         <div className="p-4 max-w-160">
-                            <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold flex items-center gap-2">About the New Query Engine</h3>
-                            </div>
+                            <h3 className="font-semibold mb-2">About the new query engine</h3>
                             <p className="mb-3">
                                 Our new Web Analytics Query Engine powers faster queries using pre-aggregated data,
                                 giving you quicker access to insights and it's much better at handling large datasets.
