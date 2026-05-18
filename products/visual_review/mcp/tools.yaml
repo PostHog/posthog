@@ -88,10 +88,10 @@ tools:
         title: Approve visual review snapshots
         description: >
             Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new
-            snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being
-            `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval
-            updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR
-            branch. Confirm with the user before approving — this is the action that ships the visual change.
+            snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}`
+            — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML
+            in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user
+            before approving — this is the action that ships the visual change.
         feature_flag: visual-review
     visual-review-runs-complete-create:
         operation: visual_review_runs_complete_create
@@ -200,9 +200,9 @@ tools:
         description: >
             Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded
             alongside the existing baseline so future runs producing the same alternate are not flagged as changes —
-            useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` —
-            the UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the
-            baseline image.
+            useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the
+            UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline
+            image.
         feature_flag: visual-review
     visual-review-runs-tolerated-hashes-list:
         operation: visual_review_runs_tolerated_hashes_list
