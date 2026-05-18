@@ -6,6 +6,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
@@ -33,14 +34,19 @@ export function ItemLog({ item, groupCount }: ItemLogProps): JSX.Element {
 
     return (
         <div className="w-full font-light flex items-center" data-attr="item-log">
-            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1 flex items-center gap-2">
-                <span
-                    className={clsx('uppercase font-semibold text-xxs', levelColors[item.data.level] || 'text-primary')}
-                >
-                    {item.data.level}
-                </span>
-                <span className="truncate">{item.data.body}</span>
-            </div>
+            <Tooltip title={item.data.body} placement="top">
+                <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1 flex items-center gap-2">
+                    <span
+                        className={clsx(
+                            'uppercase font-semibold text-xxs',
+                            levelColors[item.data.level] || 'text-primary'
+                        )}
+                    >
+                        {item.data.level}
+                    </span>
+                    <span className="truncate">{item.data.body}</span>
+                </div>
+            </Tooltip>
             {showBadge ? (
                 <span
                     className={clsx(
