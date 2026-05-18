@@ -1,5 +1,6 @@
 import os
 import json
+from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -275,3 +276,40 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             trace_id_index, brokers_id_index, "trace_id should appear before brokers.0.id when searching for 'id'"
         )
         self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")
+
+    def test_log_values_query_with_empty_filter_group_object(self):
+        """An empty filterGroup ({}) must succeed and must not capture a server exception.
+
+        Mirrors the real frontend call from `loadServiceNames` for the service filter,
+        where filterGroup is serialized as `{}` when no filters are applied.
+        """
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "service.name",
+            "attribute_type": "resource",
+            "filterGroup": "{}",
+        }
+
+        with patch("posthog.exceptions_capture.capture_exception") as mock_capture:
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_capture.assert_not_called()
+
+    def test_log_values_query_with_list_filter_group_does_not_capture_exception(self):
+        """A filterGroup shaped as a list cannot validate as PropertyGroupFilter, but the
+        endpoint already falls back to filterGroup=None — the parse failure must not pollute
+        error tracking.
+        """
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "service.name",
+            "attribute_type": "resource",
+            "filterGroup": "[]",
+        }
+
+        with patch("posthog.exceptions_capture.capture_exception") as mock_capture:
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_capture.assert_not_called()

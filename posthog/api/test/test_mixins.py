@@ -5,10 +5,12 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel
 from rest_framework import serializers, status
+from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import PydanticModelMixin, validated_request
 
 
 class EventCaptureRequestSerializer(serializers.Serializer):
@@ -929,3 +931,38 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 2
         assert response.data[0]["name"] == "first"
+
+
+class _ExampleModel(BaseModel):
+    name: str
+    count: int
+
+
+class TestPydanticModelMixin:
+    """Pydantic validation failures in `get_model` must surface as 400-class ParseError
+    without reporting the exception to error tracking — these are user-input parse errors,
+    not server faults.
+    """
+
+    def test_get_model_returns_validated_model_on_valid_input(self):
+        mixin = PydanticModelMixin()
+        result = mixin.get_model({"name": "ok", "count": 1}, _ExampleModel)
+        assert isinstance(result, _ExampleModel)
+        assert result.name == "ok"
+        assert result.count == 1
+
+    def test_get_model_raises_parse_error_on_invalid_input(self):
+        mixin = PydanticModelMixin()
+        with pytest.raises(ParseError):
+            mixin.get_model({"name": "ok"}, _ExampleModel)
+
+    def test_get_model_does_not_capture_exception_on_invalid_input(self):
+        """Regression for the logs `values` endpoint: a benign filterGroup parse failure
+        was being reported as a server exception, contributing thousands of bogus issues
+        to error tracking.
+        """
+        mixin = PydanticModelMixin()
+        with patch("posthog.exceptions_capture.capture_exception") as mock_capture:
+            with pytest.raises(ParseError):
+                mixin.get_model({"name": "ok"}, _ExampleModel)
+            mock_capture.assert_not_called()

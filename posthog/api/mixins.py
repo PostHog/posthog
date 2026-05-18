@@ -13,7 +13,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
-from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +54,6 @@ class PydanticModelMixin:
         try:
             return model.model_validate(data)
         except ValidationError as exc:
-            capture_exception(exc)
             raise ParseError("JSON parse error - {}".format(str(exc)))
 
 
