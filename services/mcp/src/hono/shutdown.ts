@@ -1,5 +1,5 @@
+import type { ServerType } from '@hono/node-server'
 import type Redis from 'ioredis'
-import type { Server } from 'node:http'
 
 import type { Lifecycle } from './app'
 import { shuttingDown as shuttingDownMetric } from './metrics'
@@ -9,7 +9,11 @@ const SHUTDOWN_PRESTOP_DELAY_MS = parseInt(process.env.SHUTDOWN_PRESTOP_DELAY_MS
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-export function registerShutdownHandlers(opts: { server: Server; lifecycle: Lifecycle; redis: Redis }): void {
+export function registerShutdownHandlers(opts: {
+    server: ServerType
+    lifecycle: Lifecycle
+    redis: InstanceType<typeof Redis>
+}): void {
     const { server, lifecycle, redis } = opts
     let shuttingDown = false
 

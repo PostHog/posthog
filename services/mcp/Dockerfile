@@ -37,23 +37,21 @@ COPY patches/ patches/
 # do this in two passes: manifests first (cache-friendly install layer), then
 # source after, so source edits don't bust the install cache.
 COPY services/mcp/package.json services/mcp/package.json
-COPY common/mosaic/package.json common/mosaic/package.json
 COPY tools/openapi-codegen/package.json tools/openapi-codegen/package.json
+# UI apps depend on @posthog/quill — copy all its workspace manifests so pnpm
+# can resolve the full dependency graph during install.
+COPY packages/ packages/
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @posthog/mcp...
 
 COPY services/mcp/ services/mcp/
-COPY common/mosaic/ common/mosaic/
 COPY tools/openapi-codegen/ tools/openapi-codegen/
 # `scripts/build-ui-apps.ts` imports React components from `products/<x>/mcp/apps/`
 # (the generator scans `products/*/mcp/tools.yaml` and synthesizes entry points),
 # so the whole `products/` tree needs to be in the build context.
 COPY products/ products/
 WORKDIR /code/services/mcp
-# Build the bundled Hono entry and the MCP UI apps. The latter writes per-app
-# bundles (main.js, styles.css) into `public/ui-apps/<app>/` for the runtime
-# stage to serve via the static-assets route in `src/hono/app.ts`.
 RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
 
 #
