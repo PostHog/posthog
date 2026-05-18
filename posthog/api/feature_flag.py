@@ -2412,9 +2412,11 @@ class BulkDeleteErrorItemSerializer(serializers.Serializer):
 
 class BulkDeleteResponseSerializer(serializers.Serializer):
     deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
-    # Shadows the inherited Serializer.errors property — mypy complains about the type mismatch.
-    errors: serializers.ListSerializer = BulkDeleteErrorItemSerializer(  # type: ignore[assignment]
-        many=True, help_text="Flags that could not be deleted, with reasons."
+    # Shadows the inherited Serializer.errors ReturnDict property; explicit ListSerializer
+    # avoids the many=True descriptor magic that confuses type checkers.
+    errors: serializers.ListSerializer = serializers.ListSerializer(
+        child=BulkDeleteErrorItemSerializer(),
+        help_text="Flags that could not be deleted, with reasons.",
     )
 
 
