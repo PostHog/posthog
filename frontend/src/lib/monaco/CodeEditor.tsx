@@ -485,6 +485,19 @@ export function CodeEditor({
                 })
             )
         }
+        if (editorProps.language === 'hogQL' || editorProps.language === 'hogQLExpr') {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'formatHogQL',
+                    label: 'Format SQL',
+                    contextMenuGroupId: '1_modification',
+                    keybindings: [monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyF],
+                    run: () => {
+                        editor.getAction('editor.action.formatDocument')?.run()
+                    },
+                })
+            )
+        }
         if (autoFocus) {
             editor.focus()
             const model = editor.getModel()

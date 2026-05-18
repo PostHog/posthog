@@ -2,6 +2,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
+import { formatHogQL } from 'lib/monaco/formatHogQL'
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 
@@ -878,5 +879,11 @@ export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguag
         monaco.languages.setMonarchTokensProvider(lang, language())
         monaco.languages.registerCompletionItemProvider(lang, hogQLAutocompleteProvider(lang))
         monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider())
+        monaco.languages.registerDocumentFormattingEditProvider(lang, {
+            provideDocumentFormattingEdits(model) {
+                const formatted = formatHogQL(model.getValue())
+                return [{ range: model.getFullModelRange(), text: formatted }]
+            },
+        })
     }
 }
