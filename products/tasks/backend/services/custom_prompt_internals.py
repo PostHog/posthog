@@ -77,6 +77,8 @@ async def create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        sandbox_environment_id=context.sandbox_environment_id,
+        posthog_mcp_scopes=context.posthog_mcp_scopes or "read_only",
         model=context.model,
         internal=internal,
     )

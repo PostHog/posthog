@@ -57,12 +57,41 @@ class MultiTurnSession:
         signal_report_id: str | None = None,
         internal: bool = False,
     ) -> tuple[MultiTurnSession, _ModelT]:
-        """Start a multi-turn sandbox session and wait for the first response."""
+        """Start a multi-turn sandbox session and wait for the first structured response."""
+        session, last_message = await cls.start_raw(
+            prompt=prompt,
+            context=context,
+            branch=branch,
+            step_name=step_name,
+            verbose=verbose,
+            output_fn=output_fn,
+            origin_product=origin_product,
+            signal_report_id=signal_report_id,
+            internal=internal,
+        )
+        parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        return session, parsed
+
+    @classmethod
+    async def start_raw(
+        cls,
+        prompt: str,
+        context: CustomPromptSandboxContext,
+        *,
+        branch: str | None = None,
+        step_name: str = "",
+        verbose: bool = False,
+        output_fn: OutputFn = None,
+        origin_product: Task.OriginProduct | None = None,
+        signal_report_id: str | None = None,
+        internal: bool = False,
+    ) -> tuple[MultiTurnSession, str]:
+        """Start a multi-turn sandbox session and return the first raw agent response."""
         task, task_run = await create_task_and_trigger(
             prompt,
             context,
-            branch,
-            step_name,
+            branch=branch,
+            step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
             internal=internal,
@@ -88,8 +117,7 @@ class MultiTurnSession:
             task_run.id,
             time.monotonic() - started_at,
         )
-        parsed = cls._parse_and_validate(last_message, model, label="initial turn")
-        return session, parsed
+        return session, last_message
 
     async def send_followup(
         self,
@@ -98,7 +126,18 @@ class MultiTurnSession:
         *,
         label: str = "",
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next response."""
+        """Send a follow-up message and wait for the agent's next structured response."""
+        last_message = await self.send_followup_raw(message, label=label)
+        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
+        return parsed
+
+    async def send_followup_raw(
+        self,
+        message: str,
+        *,
+        label: str = "",
+    ) -> str:
+        """Send a follow-up message and return the agent's raw response text."""
         if not self._workflow_handle:
             raise RuntimeError("Workflow handle is not available in this session.")
         started_at = time.monotonic()
@@ -120,8 +159,7 @@ class MultiTurnSession:
             label,
             time.monotonic() - started_at,
         )
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
-        return parsed
+        return last_message
 
     async def _send_and_poll(self, message: str, *, label: str, attempt: int) -> str | None:
         """Signal the followup and poll for the next turn. Returns None on empty end_turn."""

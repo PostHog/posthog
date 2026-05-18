@@ -1,0 +1,122 @@
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
+
+from products.signals.backend.report_generation.research import ActionabilityAssessment, PriorityAssessment
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+
+_IDENTIFIER_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+class CustomAgentIdentifierError(ValueError):
+    """Raised when a custom agent product/type/run identifier is not safe for routing."""
+
+
+def validate_identifier_part(value: str, *, field_name: str) -> str:
+    """Validate a product/type component used in workflow IDs and routing."""
+    normalized = value.strip()
+    if not normalized:
+        raise CustomAgentIdentifierError(f"{field_name} must not be empty")
+    if not _IDENTIFIER_PART_RE.fullmatch(normalized):
+        raise CustomAgentIdentifierError(
+            f"{field_name} must contain only lowercase letters, numbers, underscores, or hyphens, "
+            "and must start with a lowercase letter or number"
+        )
+    return normalized
+
+
+def validate_identifier(product: str, type_: str) -> tuple[str, str]:
+    return (
+        validate_identifier_part(product, field_name="product"),
+        validate_identifier_part(type_, field_name="type"),
+    )
+
+
+def validate_run_id(value: str) -> str:
+    return validate_identifier_part(value, field_name="id")
+
+
+class CustomAgentRepositorySelectionResult(RepoSelectionResult):
+    """Repository selection result for custom signal agents."""
+
+
+class CustomAgentAssignee(BaseModel):
+    github_login: str = Field(description="GitHub username/login to suggest as reviewer or assignee.")
+    github_name: str | None = Field(default=None, description="Optional display name from GitHub.")
+    relevant_commits: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Optional commit evidence explaining why this assignee is relevant.",
+    )
+
+    @field_validator("github_login")
+    @classmethod
+    def normalize_github_login(cls, value: str) -> str:
+        normalized = value.strip().lower().lstrip("@")
+        if not normalized:
+            raise ValueError("github_login must not be empty")
+        return normalized
+
+
+def coerce_assignees(assignees: Sequence[CustomAgentAssignee | str | dict[str, Any]]) -> list[CustomAgentAssignee]:
+    """Normalize assignee input, deduping by lowercased GitHub login while preserving order."""
+    normalized: list[CustomAgentAssignee] = []
+    seen: set[str] = set()
+    for assignee in assignees:
+        if isinstance(assignee, CustomAgentAssignee):
+            parsed = assignee
+        elif isinstance(assignee, str):
+            parsed = CustomAgentAssignee(github_login=assignee)
+        elif isinstance(assignee, dict):
+            parsed = CustomAgentAssignee.model_validate(assignee)
+        else:
+            raise TypeError(f"Unsupported assignee type: {type(assignee).__name__}")
+        if parsed.github_login in seen:
+            continue
+        seen.add(parsed.github_login)
+        normalized.append(parsed)
+    return normalized
+
+
+@dataclass(frozen=True)
+class CustomAgentRunHandle:
+    workflow_id: str
+    run_id: str
+    product: str
+    type: str
+    team_id: int
+    started: bool
+    already_running: bool
+
+
+@dataclass
+class CustomAgentWorkflowInput:
+    team_id: int
+    agent_path: str
+    product: str
+    type: str
+    run_id: str
+    initial_prompt: str
+    repository: str | None
+    model: str | None = None
+
+
+@dataclass
+class CustomAgentWorkflowOutput:
+    report_id: str | None
+    status: str
+    repository: str | None
+    task_id: str | None
+
+
+@dataclass(frozen=True)
+class CustomAgentFinalReport:
+    title: str
+    description: str
+    actionability: ActionabilityAssessment
+    priority: PriorityAssessment | None
+    assignees: list[CustomAgentAssignee]

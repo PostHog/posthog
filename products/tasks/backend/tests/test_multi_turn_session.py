@@ -14,6 +14,7 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    create_task_and_trigger,
     poll_for_turn,
 )
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
@@ -29,6 +30,58 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 class _Resp(BaseModel):
     value: str
+
+
+class TestCreateTaskAndTriggerContext:
+    @pytest.mark.asyncio
+    async def test_forwards_sandbox_context_to_task_create_and_run(self):
+        fake_task_run = object()
+        fake_task = MagicMock()
+        fake_task.latest_run = fake_task_run
+        fake_team = object()
+        context = CustomPromptSandboxContext(
+            team_id=123,
+            user_id=456,
+            repository="PostHog/PostHog",
+            sandbox_environment_id="sandbox-env-1",
+            posthog_mcp_scopes="read_only",
+        )
+
+        with (
+            patch("products.tasks.backend.services.custom_prompt_internals.Team.objects.get", return_value=fake_team),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+                return_value=fake_task,
+            ) as create_and_run_mock,
+        ):
+            task, task_run = await create_task_and_trigger(
+                "Investigate dashboard flakes",
+                context,
+                step_name="unit",
+            )
+
+        assert task is fake_task
+        assert task_run is fake_task_run
+        call_kwargs = create_and_run_mock.call_args.kwargs
+        assert call_kwargs["sandbox_environment_id"] == "sandbox-env-1"
+        assert call_kwargs["posthog_mcp_scopes"] == "read_only"
+
+    @pytest.mark.asyncio
+    async def test_defaults_missing_mcp_scopes_to_read_only(self):
+        fake_task = MagicMock()
+        fake_task.latest_run = object()
+        context = CustomPromptSandboxContext(team_id=123, user_id=456, repository="posthog/posthog")
+
+        with (
+            patch("products.tasks.backend.services.custom_prompt_internals.Team.objects.get", return_value=object()),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+                return_value=fake_task,
+            ) as create_and_run_mock,
+        ):
+            await create_task_and_trigger("Investigate dashboard flakes", context)
+
+        assert create_and_run_mock.call_args.kwargs["posthog_mcp_scopes"] == "read_only"
 
 
 class TestPollForTurnEmptyEndTurn:
