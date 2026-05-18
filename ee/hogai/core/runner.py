@@ -405,13 +405,9 @@ class BaseAgentRunner(ABC):
                 )
                 return  # Don't run interrupt handling after LLM errors
             except asyncio.CancelledError as e:
-                # The activity hosting this runner was cancelled (for example by a
-                # Temporal heartbeat timeout). asyncio.CancelledError is a BaseException,
-                # so it bypasses the generic `except Exception` below; without this
-                # branch no FailureMessage is yielded and the user sees nothing.
-                # No await calls in this handler: once a task is cancelled, additional
-                # awaits can re-raise CancelledError and we'd skip the yield. State
-                # reset is intentionally left to the next attempt's normal init flow.
+                # asyncio.CancelledError is BaseException, so `except Exception` below
+                # doesn't catch it. No awaits before the yield - in a cancelled task,
+                # additional awaits can re-raise and skip the FailureMessage.
                 agent_mode = getattr(self._state, "agent_mode", None) if self._state else None
                 logger.exception(
                     "Assistant stream cancelled before completion",

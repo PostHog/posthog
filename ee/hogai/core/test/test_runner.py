@@ -426,14 +426,12 @@ class TestRunnerCancellation(BaseTest):
                 "Something went wrong while processing your request. Please try again, and let us know if it keeps happening.",
             )
 
-            # Cancellation is captured to error tracking with a distinct error_type
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "heartbeat_cancellation")
             self.assertEqual(capture_call_args[1]["properties"]["tag"], "max_ai")
             self.assertEqual(capture_call_args[1]["properties"]["thread_id"], str(self.conversation.id))
 
-            # Stack-attached log so we can see where cancellation hit
             mock_logger.exception.assert_called_with(
                 "Assistant stream cancelled before completion",
                 conversation_id=str(self.conversation.id),
@@ -441,20 +439,13 @@ class TestRunnerCancellation(BaseTest):
                 agent_mode=None,
             )
 
-            # State reset is intentionally skipped on cancellation to avoid awaiting in a
-            # cancelled task (which can re-raise CancelledError and skip the yield).
+            # Don't await in the cancel handler; aupdate_state could re-raise
+            # CancelledError and skip the FailureMessage yield.
             mock_graph.aupdate_state.assert_not_called()
 
     async def test_cancellation_via_task_cancel_yields_failure_message(self):
-        """Realistic cancellation: the consumer task is cancelled while the inner
-        async-for is awaiting, mirroring what Temporal's heartbeat timeout does."""
-
         async def slow_generator():
-            try:
-                await asyncio.sleep(60)
-            finally:
-                # Make sure aclose semantics don't accidentally satisfy the test
-                pass
+            await asyncio.sleep(60)
             yield {}  # type: ignore[unreachable]
 
         mock_graph = MagicMock()
