@@ -64,17 +64,302 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     pinned: zod.boolean().optional(),
 })
 
-export const LogsAlertsCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const logsAlertsCreateBodyNameMax = 255
 
-export const LogsAlertsUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const logsAlertsCreateBodyEnabledDefault = true
 
-export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const logsAlertsCreateBodyThresholdCountDefault = 100
+
+export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
+export const logsAlertsCreateBodyWindowMinutesDefault = 5
+export const logsAlertsCreateBodyEvaluationPeriodsDefault = 1
+export const logsAlertsCreateBodyEvaluationPeriodsMax = 10
+
+export const logsAlertsCreateBodyDatapointsToAlarmDefault = 1
+export const logsAlertsCreateBodyDatapointsToAlarmMax = 10
+
+export const logsAlertsCreateBodyCooldownMinutesDefault = 0
+export const logsAlertsCreateBodyCooldownMinutesMin = 0
+
+export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsAlertsCreateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(logsAlertsCreateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
+    filters: zod
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
+        ),
+    threshold_count: zod
+        .number()
+        .min(1)
+        .default(logsAlertsCreateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .default(logsAlertsCreateBodyThresholdOperatorDefault)
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod
+        .number()
+        .default(logsAlertsCreateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(logsAlertsCreateBodyEvaluationPeriodsMax)
+        .default(logsAlertsCreateBodyEvaluationPeriodsDefault)
+        .describe('Total number of check periods in the sliding evaluation window for firing (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(logsAlertsCreateBodyDatapointsToAlarmMax)
+        .default(logsAlertsCreateBodyDatapointsToAlarmDefault)
+        .describe('How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(logsAlertsCreateBodyCooldownMinutesMin)
+        .default(logsAlertsCreateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+export const logsAlertsUpdateBodyNameMax = 255
+
+export const logsAlertsUpdateBodyEnabledDefault = true
+
+export const logsAlertsUpdateBodyThresholdCountDefault = 100
+
+export const logsAlertsUpdateBodyThresholdOperatorDefault = `above`
+export const logsAlertsUpdateBodyWindowMinutesDefault = 5
+export const logsAlertsUpdateBodyEvaluationPeriodsDefault = 1
+export const logsAlertsUpdateBodyEvaluationPeriodsMax = 10
+
+export const logsAlertsUpdateBodyDatapointsToAlarmDefault = 1
+export const logsAlertsUpdateBodyDatapointsToAlarmMax = 10
+
+export const logsAlertsUpdateBodyCooldownMinutesDefault = 0
+export const logsAlertsUpdateBodyCooldownMinutesMin = 0
+
+export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsAlertsUpdateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(logsAlertsUpdateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
+    filters: zod
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
+        ),
+    threshold_count: zod
+        .number()
+        .min(1)
+        .default(logsAlertsUpdateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .default(logsAlertsUpdateBodyThresholdOperatorDefault)
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod
+        .number()
+        .default(logsAlertsUpdateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(logsAlertsUpdateBodyEvaluationPeriodsMax)
+        .default(logsAlertsUpdateBodyEvaluationPeriodsDefault)
+        .describe('Total number of check periods in the sliding evaluation window for firing (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(logsAlertsUpdateBodyDatapointsToAlarmMax)
+        .default(logsAlertsUpdateBodyDatapointsToAlarmDefault)
+        .describe('How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(logsAlertsUpdateBodyCooldownMinutesMin)
+        .default(logsAlertsUpdateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+export const logsAlertsPartialUpdateBodyNameMax = 255
+
+export const logsAlertsPartialUpdateBodyEnabledDefault = true
+
+export const logsAlertsPartialUpdateBodyThresholdCountDefault = 100
+
+export const logsAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
+export const logsAlertsPartialUpdateBodyWindowMinutesDefault = 5
+export const logsAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
+export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
+
+export const logsAlertsPartialUpdateBodyDatapointsToAlarmDefault = 1
+export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
+
+export const logsAlertsPartialUpdateBodyCooldownMinutesDefault = 0
+export const logsAlertsPartialUpdateBodyCooldownMinutesMin = 0
+
+export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsAlertsPartialUpdateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(logsAlertsPartialUpdateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
+    filters: zod
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
+        ),
+    threshold_count: zod
+        .number()
+        .min(1)
+        .default(logsAlertsPartialUpdateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .default(logsAlertsPartialUpdateBodyThresholdOperatorDefault)
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod
+        .number()
+        .default(logsAlertsPartialUpdateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(logsAlertsPartialUpdateBodyEvaluationPeriodsMax)
+        .default(logsAlertsPartialUpdateBodyEvaluationPeriodsDefault)
+        .describe('Total number of check periods in the sliding evaluation window for firing (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(logsAlertsPartialUpdateBodyDatapointsToAlarmMax)
+        .default(logsAlertsPartialUpdateBodyDatapointsToAlarmDefault)
+        .describe('How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
+        .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
 
 /**
  * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
@@ -107,9 +392,81 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
 /**
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
-export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
+
+export const logsAlertsSimulateCreateBodyEvaluationPeriodsDefault = 1
+export const logsAlertsSimulateCreateBodyEvaluationPeriodsMax = 10
+
+export const logsAlertsSimulateCreateBodyDatapointsToAlarmDefault = 1
+export const logsAlertsSimulateCreateBodyDatapointsToAlarmMax = 10
+
+export const logsAlertsSimulateCreateBodyCooldownMinutesDefault = 0
+export const logsAlertsSimulateCreateBodyCooldownMinutesMin = 0
+
+export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
+        .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
+    threshold_count: zod.number().min(1).describe('Threshold count to evaluate against.'),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod.number().describe('Window size in minutes — determines bucket interval.'),
+    check_interval_minutes: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyCheckIntervalMinutesMax)
+        .default(logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault)
+        .describe('How often the alert is evaluated, in minutes.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyEvaluationPeriodsMax)
+        .default(logsAlertsSimulateCreateBodyEvaluationPeriodsDefault)
+        .describe('Total check periods in the N-of-M evaluation window (M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyDatapointsToAlarmMax)
+        .default(logsAlertsSimulateCreateBodyDatapointsToAlarmDefault)
+        .describe('How many periods must breach to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
+        .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
+        .describe('Minutes to wait after firing before sending another notification.'),
+    date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
+})
 
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
     query: zod
