@@ -533,13 +533,14 @@ class TestHogFlowViewSetPersonalAPIKeyScopes(_HogFlowScheduleAPIHelpers, APIBase
         [
             # Each case proves an HogFlowViewSet @action is now reachable
             # by a personal API key with hog_flow:write scope.
-            # (case_name, http_method, url_builder, payload, expected_status)
+            # (case_name, http_method, url_builder, payload, expected_status, seed_schedule)
             (
                 "schedules_post",
                 "post",
                 lambda self, workflow: self._schedules_url(workflow["id"]),
                 SCHEDULE_DATA,
                 status.HTTP_201_CREATED,
+                False,
             ),
             (
                 "schedules_get",
@@ -547,6 +548,7 @@ class TestHogFlowViewSetPersonalAPIKeyScopes(_HogFlowScheduleAPIHelpers, APIBase
                 lambda self, workflow: self._schedules_url(workflow["id"]),
                 None,
                 status.HTTP_200_OK,
+                True,  # GET case needs an existing schedule to list
             ),
             (
                 "user_blast_radius_post",
@@ -554,15 +556,16 @@ class TestHogFlowViewSetPersonalAPIKeyScopes(_HogFlowScheduleAPIHelpers, APIBase
                 lambda self, workflow: f"/api/projects/{self.team.id}/hog_flows/user_blast_radius/",
                 {"filters": {}},
                 status.HTTP_200_OK,
+                False,
             ),
         ]
     )
     def test_write_scope_personal_api_key_can_reach_action(
-        self, case_name, http_method, url_builder, payload, expected_status
+        self, case_name, http_method, url_builder, payload, expected_status, seed_schedule
     ):
         workflow = self._create_batch_workflow()
-        # Seed one schedule via session auth so the GET case has something to list.
-        if case_name == "schedules_get":
+        if seed_schedule:
+            # Seed one schedule via session auth so the GET case has something to list.
             self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
 
         api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
