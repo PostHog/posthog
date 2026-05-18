@@ -477,6 +477,17 @@ class TestInterviewStartCall(APIBaseTest):
         self.assertEqual(overrides["metadata"]["interviewee_identifier"], "alex@example.com")
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_returns_scoped_server_messages(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        overrides = response.json()["assistant_overrides"]
+        # Scoped to the two lifecycle events we act on — keeps Vapi from sending
+        # speech-update / conversation-update / etc that we'd just ignore.
+        self.assertEqual(overrides["serverMessages"], ["status-update", "end-of-call-report"])
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_returns_personalised_first_message(self):
         share = self._create_share()
         self.client.logout()
@@ -626,11 +637,95 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_ignores_non_end_of_call_events(self):
+    def test_webhook_ignores_unknown_message_types(self):
         self.client.logout()
-        response = self._signed_post("topsecret", {"message": {"type": "status-update"}})
+        response = self._signed_post("topsecret", {"message": {"type": "speech-update"}})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "ignored")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_in_progress_captures_started_event(self, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post(
+            "topsecret",
+            {
+                "message": {
+                    "type": "status-update",
+                    "status": "in-progress",
+                    "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_capture.assert_called_once()
+        kwargs = mock_capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "user_interview_conversation_started")
+        # distinct_id is intentionally an opaque interviewee_context UUID — not the
+        # email — so these feature-usage events don't create person profiles for the
+        # third-party interviewees.
+        assert share.interviewee_context is not None
+        self.assertEqual(kwargs["distinct_id"], f"user_interview:{share.interviewee_context.id}")
+        self.assertNotIn("alex@example.com", kwargs["distinct_id"])
+        self.assertEqual(kwargs["properties"]["call_id"], "call_xyz")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_capture):
+        # Vapi re-fires `status-update / in-progress` on transient drops + warm-transfer flows.
+        # We tag every started event with `$insert_id` = "user_interview_conversation_started:<call_id>"
+        # so PostHog dedupes the second delivery at ingest. Both captures fire here (we don't
+        # de-dup client-side); the contract is that they share an insert_id.
+        share = self._create_share()
+        self.client.logout()
+        payload = {
+            "message": {
+                "type": "status-update",
+                "status": "in-progress",
+                "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+            }
+        }
+        self._signed_post("topsecret", payload)
+        self._signed_post("topsecret", payload)
+        self.assertEqual(mock_capture.call_count, 2)
+        for call in mock_capture.call_args_list:
+            self.assertEqual(call.kwargs["properties"]["$insert_id"], "user_interview_conversation_started:call_xyz")
+
+    @parameterized.expand([("ringing",), ("ended",), ("queued",), ("forwarding",), ("scheduled",)])
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post(
+            "topsecret",
+            {
+                "message": {
+                    "type": "status-update",
+                    "status": call_status,
+                    "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_capture.assert_not_called()
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    def test_webhook_end_of_call_report_captures_ended_event(self, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        mock_capture.assert_called_once()
+        kwargs = mock_capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "user_interview_conversation_ended")
+        assert share.interviewee_context is not None
+        self.assertEqual(kwargs["distinct_id"], f"user_interview:{share.interviewee_context.id}")
+        self.assertNotIn("alex@example.com", kwargs["distinct_id"])
+        self.assertTrue(kwargs["properties"]["had_transcript"])
+        self.assertTrue(kwargs["properties"]["had_summary"])
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_webhook_is_idempotent_on_call_id(self):
