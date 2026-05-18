@@ -47,7 +47,7 @@ from posthog.api.oauth.cimd import (
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken, revoke_oauth_session
 from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
@@ -385,8 +385,6 @@ class OAuthValidator(OAuth2Validator):
         expires = timezone.now() + timedelta(
             seconds=token.get("expires_in", oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
         )
-        if request.grant_type == "client_credentials":
-            request.user = None
 
         self._create_access_token(
             expires,
@@ -400,6 +398,26 @@ class OAuthValidator(OAuth2Validator):
             client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
             refresh_token_id=str(refresh_token_instance.pk),
         )
+
+    def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
+        """
+        Sweep the full ``(user, application)`` access-token family when a
+        non-rotating refresh token is revoked via RFC 7009.
+
+        Upstream's ``RefreshToken.revoke()`` only deletes the AT linked via the
+        OneToOne ``RefreshToken.access_token`` FK. Refresh-issued rows from our
+        non-rotating ``_save_bearer_token`` branch carry
+        ``source_refresh_token=None`` so they would survive that path and stay
+        valid until expiry. ``revoke_oauth_session`` deletes by
+        ``(user, application)``, which is the same semantics the UI revoke flow
+        in ``connected_apps`` uses.
+        """
+        if token_type_hint == "refresh_token":
+            rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
+            if rt and self._is_dynamic_client(request):
+                revoke_oauth_session(refresh_token=rt)
+                return
+        return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 
     def get_additional_claims(self, request):
         return {
