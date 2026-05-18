@@ -80,6 +80,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
     [Scene.AccountConnected]: () => import('./authentication/AccountConnected'),
+    [Scene.CredentialReview]: () => import('./authentication/credential-review/CredentialReview'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.TwoFactorReset]: () => import('./authentication/TwoFactorReset'),
     [Scene.Person]: () => import('./persons/PersonScene'),

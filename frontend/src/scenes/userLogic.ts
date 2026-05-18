@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { getCookie } from 'lib/api'
@@ -315,6 +316,16 @@ export const userLogic = kea<userLogicType>([
                             posthog.group('customer', user.organization.customer_id)
                         }
                     }
+                }
+
+                // First-login interstitial: route users with unreviewed pre-existing API keys
+                // to the credential review screen before they enter the app. Gated server-side
+                // by UserSerializer.get_requires_credential_review.
+                if (
+                    user.requires_credential_review &&
+                    !window.location.pathname.startsWith('/account/credential-review')
+                ) {
+                    router.actions.push(urls.credentialReview())
                 }
             }
         },
