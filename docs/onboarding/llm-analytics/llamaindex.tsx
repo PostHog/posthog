@@ -30,7 +30,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install llama-index llama-index-llms-openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-llamaindex
+                            pip install llama-index llama-index-llms-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-llamaindex
                         `}
                     />
                 </>

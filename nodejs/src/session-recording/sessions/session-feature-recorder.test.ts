@@ -1154,6 +1154,352 @@ describe('SessionFeatureRecorder', () => {
             expect(result.clickTargetIds).toEqual([])
             expect(result.visitedUrls).toEqual([])
             expect(result.textSelectionCount).toBe(0)
+            expect(result.scrollToTopCount).toBe(0)
+            expect(result.backspaceCount).toBe(0)
+            expect(result.longIdleGapCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.network4xxCount).toBe(0)
+            expect(result.network5xxCount).toBe(0)
+            expect(result.mutationCount).toBe(0)
+            expect(result.viewportResizeCount).toBe(0)
+            expect(result.touchEventCount).toBe(0)
+            expect(result.formFieldIds).toEqual([])
+            expect(result.selectionCopyCount).toBe(0)
+            for (const value of Object.values(result.pathTokenCounts)) {
+                expect(value).toBe(0)
+            }
+        })
+    })
+
+    describe('Mutation density', () => {
+        const makeMutationEvent = (timestamp: number): SnapshotEvent =>
+            ({
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp,
+                data: { source: RRWebEventSource.Mutation },
+            }) as unknown as SnapshotEvent
+
+        it('should count mutation events from IncrementalSnapshot.Mutation source', () => {
+            const events = [makeMutationEvent(1000), makeMutationEvent(2000), makeMutationEvent(3000)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.mutationCount).toBe(3)
+        })
+
+        it('should not count non-mutation incremental events as mutations', () => {
+            const events = [makeScrollEvent(1000, 0), makeClickEvent(2000), makeKeypressEvent(3000)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.mutationCount).toBe(0)
+        })
+    })
+
+    describe('Touch events', () => {
+        const makeTouchMoveEvent = (timestamp: number): SnapshotEvent =>
+            ({
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp,
+                data: { source: RRWebEventSource.TouchMove },
+            }) as unknown as SnapshotEvent
+
+        const makeTouchInteraction = (timestamp: number, type: MouseInteractions): SnapshotEvent =>
+            ({
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp,
+                data: { source: RRWebEventSource.MouseInteraction, type },
+            }) as unknown as SnapshotEvent
+
+        it('should count TouchMove source events', () => {
+            recorder.recordMessage(createMessage([makeTouchMoveEvent(1000), makeTouchMoveEvent(2000)]))
+            const result = recorder.end()!
+
+            expect(result.touchEventCount).toBe(2)
+        })
+
+        it('should count TouchStart and TouchEnd interactions', () => {
+            const events = [
+                makeTouchInteraction(1000, MouseInteractions.TouchStart),
+                makeTouchInteraction(2000, MouseInteractions.TouchEnd),
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.touchEventCount).toBe(2)
+        })
+
+        it('should not count regular mouse activity as touch events', () => {
+            recorder.recordMessage(createMessage([makeMouseMoveEvent(1000, [{ x: 1, y: 1 }]), makeClickEvent(2000)]))
+            const result = recorder.end()!
+
+            expect(result.touchEventCount).toBe(0)
+        })
+    })
+
+    describe('Network status class split', () => {
+        const makeRRWebNetworkEvent = (
+            timestamp: number,
+            requests: Array<{ duration?: number; status?: number; responseStatus?: number }>
+        ): SnapshotEvent =>
+            ({
+                type: RRWebEventType.Plugin,
+                timestamp,
+                data: { plugin: 'rrweb/network@1', payload: { requests } },
+            }) as unknown as SnapshotEvent
+
+        it('should split 4xx vs 5xx vs 2xx', () => {
+            const events = [
+                makeRRWebNetworkEvent(1000, [
+                    { status: 200 },
+                    { status: 301 },
+                    { status: 401 },
+                    { status: 404 },
+                    { status: 500 },
+                    { status: 503 },
+                ]),
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.network4xxCount).toBe(2)
+            expect(result.network5xxCount).toBe(2)
+            expect(result.networkFailedRequestCount).toBe(4)
+        })
+    })
+
+    describe('Long idle gap count', () => {
+        it('should count gaps over 30s', () => {
+            // gaps: 5s, 35s, 10s, 60s — two long
+            const events = [
+                makeClickEvent(0),
+                makeClickEvent(5_000),
+                makeClickEvent(40_000),
+                makeClickEvent(50_000),
+                makeClickEvent(110_000),
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.longIdleGapCount).toBe(2)
+        })
+
+        it('should not count gaps that are exactly 30s (boundary is strict greater-than)', () => {
+            const events = [makeClickEvent(0), makeClickEvent(30_000)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.longIdleGapCount).toBe(0)
+        })
+    })
+
+    describe('Scroll-to-top events', () => {
+        it('should count transitions from scrollY > 0 back to scrollY === 0', () => {
+            const events = [
+                makeScrollEvent(1000, 0),
+                makeScrollEvent(2000, 200),
+                makeScrollEvent(3000, 0), // scroll-to-top
+                makeScrollEvent(4000, 100),
+                makeScrollEvent(5000, 0), // scroll-to-top
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.scrollToTopCount).toBe(2)
+        })
+
+        it('should not count transitions that already start at 0', () => {
+            const events = [makeScrollEvent(1000, 0), makeScrollEvent(2000, 0)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.scrollToTopCount).toBe(0)
+        })
+
+        it('should reset between distinct scroll element ids', () => {
+            const events = [
+                makeScrollEvent(1000, 100, 1),
+                makeScrollEvent(2000, 0, 2), // first event for element 2 — establishes baseline, no transition
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.scrollToTopCount).toBe(0)
+        })
+    })
+
+    describe('Console warn tracking', () => {
+        it('should count console warn plugin events', () => {
+            const event = {
+                type: RRWebEventType.Plugin,
+                timestamp: 1000,
+                data: { plugin: 'rrweb/console@1', payload: { level: 'warn' } },
+            } as unknown as SnapshotEvent
+            recorder.recordMessage(createMessage([event, event]))
+            const result = recorder.end()!
+
+            expect(result.consoleWarnCount).toBe(2)
+            expect(result.consoleErrorCount).toBe(0)
+        })
+
+        it('should not double-count error events as warns', () => {
+            recorder.recordMessage(createMessage([makeConsoleErrorEvent(1000)]))
+            const result = recorder.end()!
+
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(1)
+        })
+    })
+
+    describe('Backspace heuristic', () => {
+        const makeInputEvent = (timestamp: number, id: number, text: string): SnapshotEvent =>
+            ({
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp,
+                data: { source: RRWebEventSource.Input, id, text },
+            }) as unknown as SnapshotEvent
+
+        it('should count text length decrease as backspaces', () => {
+            const events = [
+                makeInputEvent(1000, 1, 'hello'),
+                makeInputEvent(2000, 1, 'hell'), // -1
+                makeInputEvent(3000, 1, 'hel'), // -1
+                makeInputEvent(4000, 1, 'hello world'), // grows, no backspace
+                makeInputEvent(5000, 1, 'hello'), // -6
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.backspaceCount).toBe(8)
+        })
+
+        it('should track shrinkage independently per element id', () => {
+            const events = [
+                makeInputEvent(1000, 1, 'abc'),
+                makeInputEvent(1100, 2, 'xyz'),
+                makeInputEvent(1200, 1, 'a'), // -2 on field 1
+                makeInputEvent(1300, 2, ''), // -3 on field 2
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.backspaceCount).toBe(5)
+        })
+    })
+
+    describe('Distinct form field interactions', () => {
+        const makeInputEvent = (timestamp: number, id: number): SnapshotEvent =>
+            ({
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp,
+                data: { source: RRWebEventSource.Input, id, text: '' },
+            }) as unknown as SnapshotEvent
+
+        it('should collect unique form field ids', () => {
+            const events = [makeInputEvent(1000, 5), makeInputEvent(2000, 7), makeInputEvent(3000, 5)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.formFieldIds).toEqual(expect.arrayContaining([5, 7]))
+            expect(result.formFieldIds).toHaveLength(2)
+        })
+    })
+
+    describe('Viewport resize tracking', () => {
+        it('should count viewport resize events', () => {
+            const event = {
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp: 1000,
+                data: { source: RRWebEventSource.ViewportResize },
+            } as unknown as SnapshotEvent
+            recorder.recordMessage(createMessage([event, event, event]))
+            const result = recorder.end()!
+
+            expect(result.viewportResizeCount).toBe(3)
+        })
+    })
+
+    describe('Selection-copy heuristic', () => {
+        const makeSelectionEvent = (timestamp: number): SnapshotEvent =>
+            ({
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp,
+                data: { source: RRWebEventSource.Selection },
+            }) as unknown as SnapshotEvent
+
+        it('should count selection followed by keypress within 2s', () => {
+            const events = [makeSelectionEvent(1000), makeKeypressEvent(2500)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.selectionCopyCount).toBe(1)
+        })
+
+        it('should not count keypress further than 2s after selection', () => {
+            const events = [makeSelectionEvent(1000), makeKeypressEvent(3500)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.selectionCopyCount).toBe(0)
+        })
+
+        it('should not double-count multiple keypresses for one selection', () => {
+            // The selection state is consumed by the first qualifying keypress.
+            const events = [makeSelectionEvent(1000), makeKeypressEvent(1500), makeKeypressEvent(2500)]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.selectionCopyCount).toBe(1)
+        })
+    })
+
+    describe('URL path-token counts', () => {
+        it('should count tokens that match an allowlist segment', () => {
+            const events = [
+                makeNavigationEvent(1000, 'https://example.com/login'),
+                makeNavigationEvent(2000, 'https://example.com/checkout/step1'),
+                makeNavigationEvent(3000, 'https://example.com/account/settings'),
+                makeNavigationEvent(4000, 'https://example.com/billing/invoices'),
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
+
+            expect(result.pathTokenCounts.login).toBe(1)
+            expect(result.pathTokenCounts.checkout).toBe(1)
+            expect(result.pathTokenCounts.account).toBe(1)
+            expect(result.pathTokenCounts.settings).toBe(1)
+            expect(result.pathTokenCounts.billing).toBe(1)
+        })
+
+        it('should match case-insensitively', () => {
+            recorder.recordMessage(createMessage([makeNavigationEvent(1000, 'https://example.com/Login')]))
+            const result = recorder.end()!
+
+            expect(result.pathTokenCounts.login).toBe(1)
+        })
+
+        it('should not count non-allowlisted segments', () => {
+            recorder.recordMessage(createMessage([makeNavigationEvent(1000, 'https://example.com/foo/bar/baz')]))
+            const result = recorder.end()!
+
+            for (const value of Object.values(result.pathTokenCounts)) {
+                expect(value).toBe(0)
+            }
+        })
+
+        it('should count 404 token for not_found', () => {
+            recorder.recordMessage(createMessage([makeNavigationEvent(1000, 'https://example.com/error/404')]))
+            const result = recorder.end()!
+
+            expect(result.pathTokenCounts.error).toBe(1)
+            expect(result.pathTokenCounts['404']).toBe(1)
+        })
+
+        it('should only count each token once per URL even if it appears multiple times', () => {
+            recorder.recordMessage(createMessage([makeNavigationEvent(1000, 'https://example.com/login/login/login')]))
+            const result = recorder.end()!
+
+            expect(result.pathTokenCounts.login).toBe(1)
         })
     })
 

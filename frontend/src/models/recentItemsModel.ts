@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -13,6 +14,10 @@ const RECENTS_FETCH_LIMIT = 20
 export const recentItemsModel = kea<recentItemsModelType>([
     path(['models', 'recentItemsModel']),
 
+    connect(() => ({
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+    })),
+
     actions({
         recordView: (type: string, ref: string) => ({ type, ref }),
     }),
@@ -22,6 +27,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
             [] as FileSystemEntry[],
             {
                 loadRecents: async () => {
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return []
+                    }
+
                     const response = await api.fileSystem.list({
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
@@ -35,6 +44,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
             {} as Record<string, string>,
             {
                 loadSceneLogViews: async () => {
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return {}
+                    }
+
                     const results = await api.fileSystemLogView.list({ type: 'scene' })
                     const record: Record<string, string> = {}
                     for (const { ref, viewed_at } of results) {
@@ -90,7 +103,22 @@ export const recentItemsModel = kea<recentItemsModelType>([
         ],
     }),
 
+    listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (!currentTeam) {
+                return
+            }
+
+            actions.loadRecents()
+            actions.loadSceneLogViews()
+        },
+    })),
+
     afterMount(({ actions }) => {
+        if (!ApiConfig.hasCurrentTeamId()) {
+            return
+        }
+
         actions.loadRecents()
         actions.loadSceneLogViews()
     }),

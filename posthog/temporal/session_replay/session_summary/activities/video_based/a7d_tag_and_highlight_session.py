@@ -104,7 +104,7 @@ def _produce_to_kafka(
         "retention_period_days": None,
         "is_deleted": 0,
         "ai_tags_fixed": list(tagging.tags_fixed),
-        "ai_tags_freeform": list(tagging.tags_freeform),
+        "ai_tags_freeform": list(dict.fromkeys([*tagging.tags_freeform, *tagging.tags_custom])),
         "ai_highlighted": int(tagging.highlighted),
     }
 

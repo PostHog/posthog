@@ -408,6 +408,7 @@ class ExperimentQueryRunner(QueryRunner):
         # can exceed memory with the default hash join. grace_hash spills to disk when needed.
         if isinstance(self.metric, ExperimentMeanMetric):
             settings.join_algorithm = "grace_hash"
+            settings.grace_hash_join_initial_buckets = 2
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",

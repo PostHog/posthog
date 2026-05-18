@@ -497,7 +497,32 @@ class Team(UUIDTClassicModel):
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
 
-    test_account_filters = field_access_control(models.JSONField(default=list), "project", "admin")
+    test_account_filters = field_access_control(
+        models.JSONField(
+            default=list,
+            help_text="""Filters used to identify internal/test users. Each entry is a property filter.
+
+            Supported entry types and the exact shape each accepts:
+
+            # Person property — match (or exclude) by a person property
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+            # Event property — match by an event property
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+            # Cohort membership — match (or exclude) members of a cohort.
+            # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+            # `negation` field here — `negation` is specific to cohort *definitions*
+            # (the inner sub-filters that build a cohort) and is rejected by the
+            # property-filter schema.
+            {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+        ),
+        "project",
+        "admin",
+    )
     test_account_filters_default_checked = field_access_control(
         models.BooleanField(null=True, blank=True), "project", "admin"
     )
@@ -1089,6 +1114,18 @@ def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
+
+
+@mutable_receiver(post_save, sender=Team)
+def reevaluate_authorized_urls_health(sender, instance: Team, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "app_urls" not in update_fields:
+        return
+
+    from posthog.tasks.health_checks import evaluate_health_check_for_team
+
+    team_id = instance.id
+    transaction.on_commit(lambda: evaluate_health_check_for_team.delay("authorized_urls", team_id))
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

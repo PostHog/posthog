@@ -81,6 +81,12 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
         has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
 
+        logger.info(
+            "web_analytics_query_started",
+            team_id=self.team.pk,
+            query_kind=query_kind,
+        )
+
         start = perf_counter()
         response: Optional[WAR] = None
         error_type = ""
