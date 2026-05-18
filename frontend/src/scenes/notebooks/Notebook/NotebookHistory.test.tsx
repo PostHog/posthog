@@ -131,82 +131,76 @@ describe('Notebook history revert flow', () => {
         expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
-    it('revert in non-collab mode: clears preview, updates editor, dispatches PATCH save with historical content', async () => {
-        // load the notebook
-        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
-        logic.mount()
-        logic.actions.setEditor(stubEditor())
-        logic.actions.loadNotebook()
-        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+    describe.each([
+        {
+            name: 'non-collab mode dispatches PATCH save with historical content',
+            collab: false,
+            expectedSave: 'patch' as const,
+        },
+        {
+            name: 'collab mode dispatches collab/save POST with historical content',
+            collab: true,
+            expectedSave: 'collab' as const,
+        },
+    ])('reverting to a historical version in $name', ({ collab, expectedSave }) => {
+        it('clears preview, updates editor, and dispatches the right save', async () => {
+            if (collab) {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
+                    [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
+                })
+                // pretend the editor has a pending step ready to send
+                ;(PMCollab.sendableSteps as jest.Mock).mockReturnValue({
+                    version: 1,
+                    steps: [{ toJSON: () => ({ stepType: 'replace', from: 0, to: 0, slice: { content: [] } }) }],
+                    clientID: 'test-client',
+                })
+            }
 
-        // user clicks a history entry
-        logic.actions.setPreviewContent(HISTORICAL_DOC)
-        editorSetContent.mockClear()
+            // load the notebook
+            logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
+            logic.mount()
+            logic.actions.setEditor(stubEditor())
+            if (collab) {
+                notebookCollabLogic({ shortId: SHORT_ID }).actions.bindEditor({
+                    state: { selection: { head: 0 } },
+                } as any)
+            }
+            logic.actions.loadNotebook()
+            await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
-        // user clicks Revert
-        logic.actions.clearPreviewContent()
-        logic.actions.setLocalContent(HISTORICAL_DOC, true)
-        // wait past debounce
-        await expectLogic(logic)
-            .delay(SYNC_DELAY + 100)
-            .toFinishAllListeners()
+            // user clicks a history entry
+            logic.actions.setPreviewContent(HISTORICAL_DOC)
+            editorSetContent.mockClear()
 
-        expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
-        expect(logic.values.previewContent).toBeNull()
-        // localContent is cleared by saveNotebook once the save resolves
-        expect(logic.values.localContent).toBeNull()
-        expect(apiUpdateSpy).toHaveBeenCalledWith(
-            SHORT_ID,
-            expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
-        )
-        expect(apiCreateSpy).not.toHaveBeenCalledWith(
-            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
-            expect.anything()
-        )
-    })
+            // user clicks Revert
+            logic.actions.clearPreviewContent()
+            logic.actions.setLocalContent(HISTORICAL_DOC, true)
+            // wait past debounce
+            await expectLogic(logic)
+                .delay(SYNC_DELAY + 100)
+                .toFinishAllListeners()
 
-    it('revert in collab mode: clears preview, updates editor, dispatches collab/save POST with historical content', async () => {
-        // enable collab mode
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
-            [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
+            expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
+            expect(logic.values.previewContent).toBeNull()
+            // localContent is cleared by saveNotebook once the save resolves
+            expect(logic.values.localContent).toBeNull()
+
+            if (expectedSave === 'collab') {
+                expect(apiCreateSpy).toHaveBeenCalledWith(
+                    `api/projects/@current/notebooks/${SHORT_ID}/collab/save/`,
+                    expect.objectContaining({ content: HISTORICAL_DOC, client_id: 'test-client' })
+                )
+                expect(apiUpdateSpy).not.toHaveBeenCalled()
+            } else {
+                expect(apiUpdateSpy).toHaveBeenCalledWith(
+                    SHORT_ID,
+                    expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
+                )
+                expect(apiCreateSpy).not.toHaveBeenCalledWith(
+                    expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
+                    expect.anything()
+                )
+            }
         })
-        // pretend the editor has a pending step ready to send
-        ;(PMCollab.sendableSteps as jest.Mock).mockReturnValue({
-            version: 1,
-            steps: [{ toJSON: () => ({ stepType: 'replace', from: 0, to: 0, slice: { content: [] } }) }],
-            clientID: 'test-client',
-        })
-
-        // load the notebook with a bound ttEditor
-        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
-        logic.mount()
-        logic.actions.setEditor(stubEditor())
-        notebookCollabLogic({ shortId: SHORT_ID }).actions.bindEditor({
-            state: { selection: { head: 0 } },
-        } as any)
-        logic.actions.loadNotebook()
-        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
-
-        // user clicks a history entry
-        logic.actions.setPreviewContent(HISTORICAL_DOC)
-        editorSetContent.mockClear()
-
-        // user clicks Revert
-        logic.actions.clearPreviewContent()
-        logic.actions.setLocalContent(HISTORICAL_DOC, true)
-        // wait past debounce
-        await expectLogic(logic)
-            .delay(SYNC_DELAY + 100)
-            .toFinishAllListeners()
-
-        expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
-        expect(logic.values.previewContent).toBeNull()
-        // localContent is cleared by saveNotebook once the save resolves
-        expect(logic.values.localContent).toBeNull()
-        expect(apiCreateSpy).toHaveBeenCalledWith(
-            `api/projects/@current/notebooks/${SHORT_ID}/collab/save/`,
-            expect.objectContaining({ content: HISTORICAL_DOC, client_id: 'test-client' })
-        )
-        expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 })
