@@ -17,6 +17,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed
+    cdpReplayWorker: true,
 }
 
 /** CDP + Workflows - full CDP with HogFlow workflow automation */

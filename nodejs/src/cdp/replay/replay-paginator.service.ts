@@ -160,6 +160,24 @@ export class ReplayPaginatorService {
                 }
                 await this.invocationResultsRowsService.flush()
                 counterReplayInvocationsQueued.labels(function_kind).inc(invocationsToEnqueue.length)
+
+                // One debug log per re-enqueued invocation, keyed on its own
+                // `instance_id` so the line shows up on that invocation's
+                // expanded log panel — not on the wrapper's. Makes it obvious
+                // why the run shows up twice when scanning a function's logs.
+                const now = DateTime.now()
+                this.monitoringService.queueLogs(
+                    invocationsToEnqueue.map((inv) => ({
+                        team_id: teamId,
+                        log_source: function_kind,
+                        log_source_id: function_id,
+                        instance_id: inv.id,
+                        timestamp: now,
+                        level: 'debug',
+                        message: `Re-queued by re-run job ${context.jobId}.`,
+                    })),
+                    function_kind
+                )
             }
 
             const nextProgress: ReplayJobProgress = {

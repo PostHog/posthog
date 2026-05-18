@@ -134,27 +134,13 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             ),
         },
         {
+            // Status now strictly reports lifecycle state. Retry / re-run
+            // signal is conveyed via Attempts (count) + the tinted row.
             title: 'Status',
             key: 'status',
             dataIndex: 'status',
             width: 0,
-            render: (_, row) => (
-                <div className="flex items-center gap-1">
-                    <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-                    {isReplayWrapperKind(row.function_kind) ? (
-                        <LemonTag
-                            type="primary"
-                            title="This row tracks a bulk re-run, not an individual invocation. Expand for logs."
-                        >
-                            re-run
-                        </LemonTag>
-                    ) : row.is_retry ? (
-                        <LemonTag type="muted" title="This run was a replay of an earlier invocation">
-                            replay
-                        </LemonTag>
-                    ) : null}
-                </div>
-            ),
+            render: (_, row) => <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>,
         },
         {
             title: 'Attempts',
@@ -164,9 +150,20 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             render: (_, row) => <span className="font-mono">{row.attempts}</span>,
         },
         {
-            title: 'Scheduled',
+            // Click toggles the ORDER BY between this and "Latest". Sort is
+            // server-side via the `order_by` filter — the page is re-fetched
+            // so the order stays correct across "Load more".
+            title: 'First scheduled',
+            key: 'first_scheduled_at',
+            dataIndex: 'first_scheduled_at',
+            sorter: true,
+            render: (_, row) => <TZLabel time={row.first_scheduled_at} />,
+        },
+        {
+            title: 'Latest scheduled',
             key: 'scheduled_at',
             dataIndex: 'scheduled_at',
+            sorter: true,
             render: (_, row) => <TZLabel time={row.scheduled_at} />,
         },
         {
@@ -422,6 +419,25 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 loading={runsLoading && !hasLoadedOnce}
                 rowKey={(row) => row.invocation_id}
                 className="ph-no-capture overflow-y-auto"
+                // Tint the entire row for re-run wrappers so they're
+                // distinguishable at a glance without polluting the Status
+                // column with a chip — the row tint *is* the indicator.
+                rowClassName={(row) => (isReplayWrapperKind(row.function_kind) ? 'bg-primary-highlight' : '')}
+                // Server-side sort: clicking a column header flips the
+                // `order_by` filter and re-fetches. Only DESC is supported
+                // (newest-first matches user expectation for a runs list),
+                // so we ignore the order toggle and just track which column
+                // is currently driving the sort.
+                sorting={{
+                    columnKey: filters.order_by === 'first_scheduled' ? 'first_scheduled_at' : 'scheduled_at',
+                    order: -1,
+                }}
+                onSort={(next) =>
+                    setFilters({
+                        order_by: next?.columnKey === 'first_scheduled_at' ? 'first_scheduled' : 'latest_scheduled',
+                    })
+                }
+                noSortingCancellation
                 expandable={{
                     noIndent: true,
                     isRowExpanded: (record) => expandedIds[record.invocation_id] ?? false,

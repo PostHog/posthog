@@ -53,7 +53,18 @@ export interface HogInvocationRow {
     is_retry: boolean
     error_kind: string
     error_message: string
+    /**
+     * `scheduled_at` from the **latest** lifecycle row for this invocation —
+     * moves on retries because the cyclotron job gets re-scheduled. Use this
+     * to see when the invocation was last touched.
+     */
     scheduled_at: string
+    /**
+     * `scheduled_at` from the **earliest** lifecycle row — the original
+     * cyclotron schedule time, fixed regardless of retries. Use this to see
+     * when the invocation first entered the system.
+     */
+    first_scheduled_at: string
     started_at: string | null
     finished_at: string | null
     duration_ms: number | null
@@ -63,6 +74,9 @@ export interface HogInvocationRow {
     parent_run_id: string
 }
 
+/** Which scheduled timestamp drives the list ordering. */
+export type RunsOrderBy = 'latest_scheduled' | 'first_scheduled'
+
 export interface HogInvocationsFilters {
     date_from: string
     date_to?: string
@@ -70,6 +84,8 @@ export interface HogInvocationsFilters {
     error_kind?: string[]
     is_retry?: 'only_retries' | 'only_originals' | undefined
     search?: string
+    /** Defaults to `latest_scheduled` — newest activity first. */
+    order_by?: RunsOrderBy
 }
 
 export interface HogInvocationsLogicProps {
@@ -175,6 +191,14 @@ async function fetchRunsPage(
     // disable per-row replay. function_kind has to come out of the row so we
     // can branch on it client-side.
     const replayWrapperKind = replayWrapperKindFor(props.functionKind)
+    // ORDER BY references the SELECT aliases (`scheduled_at` = latest activity,
+    // `first_scheduled_at` = original schedule time). Default is latest first,
+    // matching the previous behavior; clicking the column header in the UI
+    // flips the filter and re-runs the query.
+    const orderClause =
+        filters.order_by === 'first_scheduled'
+            ? hogql.raw('ORDER BY first_scheduled_at DESC, invocation_id DESC')
+            : hogql.raw('ORDER BY scheduled_at DESC, invocation_id DESC')
     const query = hogql`
         SELECT
             invocation_id,
@@ -185,6 +209,7 @@ async function fetchRunsPage(
             argMax(error_kind, version)     AS error_kind,
             argMax(error_message, version)  AS error_message,
             max(scheduled_at)               AS scheduled_at,
+            min(scheduled_at)               AS first_scheduled_at,
             argMax(started_at, version)     AS started_at,
             argMax(finished_at, version)    AS finished_at,
             argMax(duration_ms, version)    AS duration_ms,
@@ -201,7 +226,7 @@ async function fetchRunsPage(
            ${optionalErrorKindClause}
            ${optionalRetryClause}
            ${optionalSearchClause}
-        ORDER BY scheduled_at DESC, invocation_id DESC
+        ${orderClause}
         LIMIT ${HOG_INVOCATIONS_PAGE_SIZE}
         OFFSET ${offset}
     `
@@ -228,6 +253,7 @@ async function fetchRunsPage(
             error_kind,
             error_message,
             scheduled_at,
+            first_scheduled_at,
             started_at,
             finished_at,
             duration_ms,
@@ -241,6 +267,7 @@ async function fetchRunsPage(
             RunStatus,
             number,
             number,
+            string,
             string,
             string,
             string,
@@ -261,6 +288,7 @@ async function fetchRunsPage(
             error_kind,
             error_message,
             scheduled_at,
+            first_scheduled_at,
             started_at,
             finished_at,
             duration_ms,

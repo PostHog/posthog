@@ -160,8 +160,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
-        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
+        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: isDevEnv() ? 'postgres-v2' : 'kafka',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: isDevEnv() ? '*:postgres-v2' : '*:kafka',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: '',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: false,
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
@@ -204,7 +204,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         HOG_INVOCATION_RESULTS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
-        HOG_INVOCATION_RESULTS_ENABLED: false,
+        HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
