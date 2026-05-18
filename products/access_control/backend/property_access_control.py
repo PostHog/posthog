@@ -69,7 +69,7 @@ def get_property_access_level(
                 user=user,
                 organization_id=property.team.organization_id,
             )
-            .only("id")
+            .only("id", "level")
             .first()
         )
 
@@ -126,7 +126,7 @@ def get_restricted_properties_for_team(
         membership_qs = OrganizationMembership.objects.filter(
             user=user,
             organization_id=org_id,
-        ).only("id")
+        ).only("id", "level")
         membership = membership_qs.first()
 
         if membership is None:
@@ -160,7 +160,14 @@ def _resolve_access_level(
     """
     Resolves the effective access level from a set of rules for a single property definition,
     following the hierarchy: user-specific > role-specific > default.
+
+    Org admins bypass member- and role-specific overrides and always get the default access level
+    for the property, mirroring the admin bypass in `UserAccessControl.access_level_for_object`.
     """
+    # Org admins bypass all access control rules and get full access
+    if membership is not None and membership.level >= OrganizationMembership.Level.ADMIN:
+        return get_default_access_level()
+
     # 1. user-specific rule
     if membership is not None:
         for rule in rules:
