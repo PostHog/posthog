@@ -231,6 +231,35 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
     const replayWrapperKind = replayWrapperKindFor(props.functionKind)
     const bucketExpr = pickSparklineBucketExpr(filters)
+
+    // Apply the visible filters so the sparkline reflects the same population
+    // as the list — referencing the SELECT aliases (status / error_kind /
+    // is_retry) rather than wrapping in argMax again to dodge the alias
+    // substitution that produces nested aggregates.
+    const optionalStatusClause = filters.status?.length
+        ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(',')})`)
+        : hogql.raw('')
+    const optionalErrorKindClause = filters.error_kind?.length
+        ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(',')})`)
+        : hogql.raw('')
+    const optionalRetryClause =
+        filters.is_retry === 'only_retries'
+            ? hogql.raw('AND is_retry = 1')
+            : filters.is_retry === 'only_originals'
+              ? hogql.raw('AND is_retry = 0')
+              : hogql.raw('')
+    const trimmedSearch = filters.search?.trim()
+    const optionalSearchClause = trimmedSearch
+        ? hogql.raw(
+              `AND (
+                  invocation_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  OR event_uuid = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  OR distinct_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  OR person_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+              )`
+          )
+        : hogql.raw('')
+
     const query = hogql`
         SELECT
             ${hogql.raw(bucketExpr)} AS bucket,
@@ -239,13 +268,22 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         FROM (
             SELECT
                 invocation_id,
-                argMax(status, version)     AS status,
-                min(scheduled_at)           AS first_scheduled_at
+                argMax(status, version)         AS status,
+                argMax(error_kind, version)     AS error_kind,
+                argMax(is_retry, version)       AS is_retry,
+                argMax(event_uuid, version)     AS event_uuid,
+                argMax(distinct_id, version)    AS distinct_id,
+                argMax(person_id, version)      AS person_id,
+                min(scheduled_at)               AS first_scheduled_at
             FROM posthog.hog_invocation_results
             WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
               AND function_id = ${props.id}
             GROUP BY invocation_id, function_kind
             HAVING argMax(is_deleted, version) = 0
+               ${optionalStatusClause}
+               ${optionalErrorKindClause}
+               ${optionalRetryClause}
+               ${optionalSearchClause}
         )
         GROUP BY bucket, status
         ORDER BY bucket
