@@ -178,7 +178,7 @@ const scheduleAutoRefresh = (
  * relative strings against `startOf('day')`, so `-1h` resolves to "yesterday
  * 23:00", not "1 hour ago". Returns `null` for absolute / unknown shapes.
  */
-const RELATIVE_DATE_REGEX = /^-(\d+)([hdwmqy])$/
+const RELATIVE_DATE_REGEX = /^-(\d+)([sMhdwmqy])$/
 const parseRelativeHours = (value: string | undefined): number | null => {
     if (!value) {
         return null
@@ -188,7 +188,11 @@ const parseRelativeHours = (value: string | undefined): number | null => {
         return null
     }
     const n = parseInt(match[1], 10)
+    // PostHog convention: uppercase `M` = minutes (lowercase `m` = month). See
+    // `frontend/src/lib/utils.tsx` for the master mapping.
     const hoursPerUnit: Record<string, number> = {
+        s: 1 / 3600,
+        M: 1 / 60,
         h: 1,
         d: 24,
         w: 24 * 7,
