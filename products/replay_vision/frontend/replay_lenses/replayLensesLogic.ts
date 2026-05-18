@@ -11,7 +11,17 @@ import { urls } from 'scenes/urls'
 
 import { visionLensesCreate, visionLensesDestroy, visionLensesList, visionLensesPartialUpdate } from '../generated/api'
 import type { replayLensesLogicType } from './replayLensesLogicType'
-import { ENABLED_OPTIONS, EnabledFilter, LENS_TYPE_OPTIONS, LensType, ReplayLens, VisionQuota } from './types'
+import {
+    ENABLED_OPTIONS,
+    EnabledFilter,
+    LENS_TYPE_OPTIONS,
+    LensType,
+    ReplayLens,
+    VisionQuota,
+    lensFromApi,
+    lensToApiBody,
+    lensesFromApi,
+} from './types'
 
 export interface ReplayLensesLogicProps {
     tabId: string
@@ -117,7 +127,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
             }
             try {
                 const response = await visionLensesList(String(teamId))
-                actions.loadLensesSuccess((response.results ?? []) as unknown as ReplayLens[])
+                actions.loadLensesSuccess(lensesFromApi(response.results ?? []))
             } catch (error) {
                 lemonToast.error(`Failed to load lenses: ${String(error)}`)
                 actions.loadLensesFailure(String(error))
@@ -146,6 +156,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
             try {
                 await visionLensesDestroy(String(teamId), id)
                 actions.deleteLensSuccess(id)
+                lemonToast.success('Lens deleted')
             } catch (error) {
                 lemonToast.error(`Failed to delete lens: ${String(error)}`)
             }
@@ -175,11 +186,8 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 duplicate.query = original.query
             }
             try {
-                const response = await visionLensesCreate(
-                    String(teamId),
-                    duplicate as Parameters<typeof visionLensesCreate>[1]
-                )
-                actions.duplicateLensSuccess(response as unknown as ReplayLens)
+                const response = await visionLensesCreate(String(teamId), lensToApiBody(duplicate))
+                actions.duplicateLensSuccess(lensFromApi(response))
             } catch (error) {
                 lemonToast.error(`Failed to duplicate lens: ${String(error)}`)
             }

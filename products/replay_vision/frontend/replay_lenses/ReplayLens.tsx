@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { router } from 'kea-router'
 
 import {
     LemonBanner,
@@ -14,9 +13,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -36,17 +36,15 @@ export const scene: SceneExport<ReplayLensSceneLogicProps> = {
     productKey: ProductKey.REPLAY_VISION,
 }
 
-export function ReplayLensSceneComponent(): JSX.Element {
+export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Element {
     const { lensId, activeTab } = useValues(replayLensSceneLogic)
     const { setActiveTab } = useActions(replayLensSceneLogic)
 
-    const lensLogic = replayLensLogic({ id: lensId })
+    const lensLogic = replayLensLogic({ id: lensId, tabId })
     useAttachedLogic(lensLogic, replayLensSceneLogic)
 
-    const { lens, originalLens, lensLoading, isLensSubmitting, isLensValid, hasUnsavedChanges, isNew } =
-        useValues(lensLogic)
-    const { setLensType, submitLens, resetLens } = useActions(lensLogic)
-    const { push } = useActions(router)
+    const { lens, originalLens, lensLoading, isLensSubmitting, hasUnsavedChanges, isNew } = useValues(lensLogic)
+    const { setLensType, submitLens, resetLens, deleteLens } = useActions(lensLogic)
 
     if (lensLoading || !lens) {
         return (
@@ -87,7 +85,7 @@ export function ReplayLensSceneComponent(): JSX.Element {
                         />
                     </Field>
 
-                    <LensTypeConfigEditor lensId={lensId} />
+                    <LensTypeConfigEditor lensId={lensId} tabId={tabId} />
 
                     <Field name="model" label="Model">
                         <LemonSelect value={lens.model} options={MODEL_OPTIONS} />
@@ -113,12 +111,12 @@ export function ReplayLensSceneComponent(): JSX.Element {
         {
             key: 'triggers',
             label: 'Triggers',
-            content: <LensTriggers lensId={lensId} />,
+            content: <LensTriggers lensId={lensId} tabId={tabId} />,
         },
         !isNew && {
             key: 'observations' as EditorTab,
             label: 'Observations',
-            content: <LensObservationsTable lensId={lensId} />,
+            content: <LensObservationsTable lensId={lensId} tabId={tabId} />,
         },
     ]
 
@@ -129,13 +127,35 @@ export function ReplayLensSceneComponent(): JSX.Element {
                 description={lens.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <div className="flex gap-2">
-                        <LemonButton type="tertiary" onClick={() => push(urls.replayVision())}>
-                            Cancel
-                        </LemonButton>
-                        {!isNew && hasUnsavedChanges && originalLens && (
-                            <LemonButton type="secondary" onClick={() => resetLens(originalLens)}>
-                                Reset
+                    <>
+                        {!isNew && (
+                            <More
+                                size="small"
+                                overlay={
+                                    <LemonButton
+                                        status="danger"
+                                        fullWidth
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: `Delete "${lens.name || 'Untitled lens'}"?`,
+                                                description: 'This cannot be undone.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => deleteLens(),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                }
+                            />
+                        )}
+                        {hasUnsavedChanges && originalLens && (
+                            <LemonButton type="secondary" size="small" onClick={() => resetLens(originalLens)}>
+                                Discard changes
                             </LemonButton>
                         )}
                         <AccessControlAction
@@ -144,21 +164,22 @@ export function ReplayLensSceneComponent(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
-                                disabledReason={!isLensValid ? 'Fix the highlighted fields before saving.' : undefined}
+                                size="small"
+                                disabledReason={!isNew && !hasUnsavedChanges ? 'No changes to save' : undefined}
                                 loading={isLensSubmitting}
                                 onClick={() => submitLens()}
                                 data-attr="save-replay-lens"
                             >
-                                {isNew ? 'Create lens' : 'Save changes'}
+                                {isNew ? 'Create' : 'Save'}
                             </LemonButton>
                         </AccessControlAction>
-                    </div>
+                    </>
                 }
             />
 
             {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
 
-            <Form logic={replayLensLogic} props={{ id: lensId }} formKey="lens" enableFormOnSubmit>
+            <Form logic={replayLensLogic} props={{ id: lensId, tabId }} formKey="lens" enableFormOnSubmit>
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as EditorTab)}

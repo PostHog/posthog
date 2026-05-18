@@ -105,8 +105,8 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
     return <span className="text-muted text-sm">—</span>
 }
 
-export function LensObservationsTable({ lensId }: { lensId: string }): JSX.Element {
-    const logic = replayLensLogic({ id: lensId })
+export function LensObservationsTable({ lensId, tabId }: { lensId: string; tabId: string }): JSX.Element {
+    const logic = replayLensLogic({ id: lensId, tabId })
     const { lens, observations, observationsLoading } = useValues(logic)
     const { loadObservations } = useActions(logic)
 

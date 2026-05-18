@@ -14,10 +14,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -79,7 +78,7 @@ export function ReplayLensesScene(): JSX.Element {
         useValues(replayLensesLogic)
     const {
         loadLenses,
-        loadLensesSuccess,
+        deleteLens,
         duplicateLens,
         toggleLensEnabled,
         setSearch,
@@ -87,7 +86,6 @@ export function ReplayLensesScene(): JSX.Element {
         setLensTypeFilter,
         clearFilters,
     } = useActions(replayLensesLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
     const columns: LemonTableColumns<ReplayLens> = [
@@ -186,12 +184,15 @@ export function ReplayLensesScene(): JSX.Element {
                             status="danger"
                             icon={<IconTrash />}
                             onClick={() =>
-                                deleteWithUndo({
-                                    endpoint: `environments/${currentTeamId}/vision/lenses`,
-                                    object: { id: lens.id, name: lens.name },
-                                    callback: () => {
-                                        loadLensesSuccess(lenses.filter((l) => l.id !== lens.id))
+                                LemonDialog.open({
+                                    title: `Delete "${lens.name || 'Untitled lens'}"?`,
+                                    description: 'This cannot be undone.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => deleteLens(lens.id),
                                     },
+                                    secondaryButton: { children: 'Cancel' },
                                 })
                             }
                             tooltip="Delete"

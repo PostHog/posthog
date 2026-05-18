@@ -14,8 +14,8 @@ const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerLensConfig['length']; label:
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
-export function LensTypeConfigEditor({ lensId }: { lensId: string }): JSX.Element {
-    const { lens } = useValues(replayLensLogic({ id: lensId }))
+export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId: string }): JSX.Element {
+    const { lens } = useValues(replayLensLogic({ id: lensId, tabId }))
 
     if (!lens) {
         return <div className="text-muted">Loading…</div>

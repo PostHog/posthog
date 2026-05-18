@@ -1,5 +1,7 @@
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
+import type { PatchedReplayLensApi, ReplayLensApi, ReplayObservationApi } from '../generated/api.schemas'
+
 export type LensType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
 
 export type EnabledFilter = 'enabled' | 'disabled'
@@ -140,6 +142,28 @@ export interface VisionQuota {
     period_end: string
     /** Daily observation counts across the current period. Optional until the backend exposes it. */
     usage_history?: VisionUsagePoint[]
+}
+
+// The API exposes lens_config and query as `unknown`. The client narrows them via
+// the lens_type discriminator, so conversion is contained to this single boundary.
+export function lensFromApi(api: ReplayLensApi): ReplayLens {
+    return api as unknown as ReplayLens
+}
+
+export function lensesFromApi(apis: readonly ReplayLensApi[]): ReplayLens[] {
+    return apis.map(lensFromApi)
+}
+
+export function lensToApiBody(lens: Partial<ReplayLens> | Record<string, unknown>): ReplayLensApi {
+    return lens as unknown as ReplayLensApi
+}
+
+export function lensToPatchedApiBody(lens: Partial<ReplayLens> | Record<string, unknown>): PatchedReplayLensApi {
+    return lens as unknown as PatchedReplayLensApi
+}
+
+export function observationsFromApi(apis: readonly ReplayObservationApi[]): ReplayObservation[] {
+    return apis.map((api) => api as unknown as ReplayObservation)
 }
 
 export interface ReplayObservation {

@@ -10,6 +10,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
         "@types/react": "*",
         "react": "*",
         "typescript": "*"

@@ -6,10 +6,11 @@ import { replayLensLogic } from '../replayLensLogic'
 
 interface Props {
     lensId: string
+    tabId: string
 }
 
-export function LensQuotaForecast({ lensId }: Props): JSX.Element | null {
-    const { lens } = useValues(replayLensLogic({ id: lensId }))
+export function LensQuotaForecast({ lensId, tabId }: Props): JSX.Element | null {
+    const { lens } = useValues(replayLensLogic({ id: lensId, tabId }))
 
     if (!lens) {
         return null

@@ -20,8 +20,8 @@ const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Events,
 ]
 
-export function LensTriggers({ lensId }: { lensId: string }): JSX.Element {
-    const { lens } = useValues(replayLensLogic({ id: lensId }))
+export function LensTriggers({ lensId, tabId }: { lensId: string; tabId: string }): JSX.Element {
+    const { lens } = useValues(replayLensLogic({ id: lensId, tabId }))
 
     if (!lens) {
         return <div className="text-muted">Loading…</div>
@@ -103,7 +103,7 @@ export function LensTriggers({ lensId }: { lensId: string }): JSX.Element {
                 }}
             </Field>
 
-            <LensQuotaForecast lensId={lensId} />
+            <LensQuotaForecast lensId={lensId} tabId={tabId} />
         </div>
     )
 }

@@ -1,10 +1,12 @@
-import { actions, kea, path, props, reducers } from 'kea'
+import { actions, kea, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
 
 import type { replayLensSceneLogicType } from './replayLensSceneLogicType'
 import { ALL_EDITOR_TABS, EditorTab } from './types'
@@ -35,6 +37,25 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
             {
                 setActiveTab: (_, { tab }) => tab,
             },
+        ],
+    }),
+
+    selectors({
+        breadcrumbs: [
+            (s) => [s.lensId],
+            (lensId: string): Breadcrumb[] => [
+                {
+                    key: 'replay-vision',
+                    name: 'Replay vision',
+                    path: urls.replayVision(),
+                    iconType: 'replay_vision',
+                },
+                {
+                    key: lensId === 'new' ? 'new-lens' : `lens-${lensId}`,
+                    name: lensId === 'new' ? 'New lens' : 'Lens',
+                    path: urls.replayVision(lensId),
+                },
+            ],
         ],
     }),
 
