@@ -98,7 +98,7 @@ export type IdentityProvider = {
     getMcpConversationId: () => Promise<string | undefined>
 }
 
-export type PostHogMcpAnalyticsOptions = {
+type McpAnalyticsOptions = {
     contextEnabled: boolean
     // Gate `get_more_tools` registration on non-single-exec mode. With the full
     // tool roster registered, a missing-tool report maps to a real gap in the
@@ -220,7 +220,7 @@ function redactSensitiveInformation(text: string): string {
 export async function initMcpAnalytics(
     server: McpServer,
     identity: IdentityProvider,
-    options: PostHogMcpAnalyticsOptions = { contextEnabled: false, reportMissingEnabled: false }
+    options: McpAnalyticsOptions = { contextEnabled: false, reportMissingEnabled: false }
 ): Promise<McpAnalyticsInitResult> {
     const { POSTHOG_ANALYTICS_API_KEY: posthogApiKey, POSTHOG_ANALYTICS_HOST: posthogHost } = env
     if (!posthogApiKey || !posthogHost) {
