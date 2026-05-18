@@ -471,9 +471,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     />
                 ) : (
                     <Tooltip title="No session replay was captured for this event">
-                        <span className="text-xs text-secondary shrink-0 cursor-default select-none">
-                            No recording
-                        </span>
+                        <span className="text-xs text-secondary shrink-0 cursor-default select-none">No recording</span>
                     </Tooltip>
                 )}
             </div>
