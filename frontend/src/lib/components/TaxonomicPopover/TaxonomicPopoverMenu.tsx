@@ -31,6 +31,20 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
+/**
+ * Shortcut/aggregator groups that have no real items of their own — a
+ * selection never genuinely "belongs" to one. `TaxonomicPopover.groupType`
+ * often defaults to `SuggestedFilters` (e.g. the insights series picker),
+ * so a synthetic entry stamped with it would lock the combobox to that
+ * near-empty group instead of opening on the value's real category.
+ */
+const NON_SELECTABLE_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+    TaxonomicFilterGroupType.Empty,
+])
+
 export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
@@ -72,6 +86,17 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     enableKeywordShortcuts,
     disabledReason,
 }: TaxonomicPopoverMenuProps<ValueType>): JSX.Element {
+    // The group a synthetic `selected` entry should claim. `groupType` is
+    // the popover's *default tab*, not the value's real category — and it's
+    // often a non-selectable shortcut group. Fall back to the first real
+    // group in `groupTypes` so the menu opens on a browsable category.
+    const selectedGroupType = useMemo<TaxonomicFilterGroupType>(() => {
+        if (!NON_SELECTABLE_GROUP_TYPES.has(groupType)) {
+            return groupType
+        }
+        return (groupTypes ?? []).find((t) => !NON_SELECTABLE_GROUP_TYPES.has(t)) ?? groupType
+    }, [groupType, groupTypes])
+
     // Synthetic entry — the menu reads `group.type` to route the initial
     // open and `name` to highlight the matching row. A full
     // `TaxonomicFilterGroup` isn't needed; the orchestrator's resolved group
@@ -83,13 +108,13 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
         return {
             item: { id: value, name: String(value) },
             group: {
-                type: groupType,
+                type: selectedGroupType,
                 getName: (t: any) => t?.name,
                 getValue: (t: any) => t?.name ?? t?.id,
             },
             name: String(value),
         } as unknown as MenuFilterEntry
-    }, [value, groupType])
+    }, [value, selectedGroupType])
 
     return (
         <TaxonomicFilterHeadless.Root
