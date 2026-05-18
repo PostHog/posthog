@@ -500,7 +500,8 @@ def fail_slots(inputs: FailSlotsInputs) -> int:
 
     failed = 0
     for slot in MaterializedColumnSlot.objects.select_related("team", "property_definition").filter(
-        id__in=inputs.slot_ids
+        id__in=inputs.slot_ids,
+        state=MaterializedColumnSlotState.BACKFILL,
     ):
         old_state = slot.state
         slot.state = MaterializedColumnSlotState.ERROR
