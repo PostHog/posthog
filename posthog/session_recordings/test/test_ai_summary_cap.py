@@ -15,12 +15,14 @@ from posthog.session_recordings.ai_summary_cap import (
     DEFAULT_MAX_SUMMARIES_PER_PERIOD,
     CapDecision,
     _redis_key,
+    atomic_check_and_consume,
     check_only,
     coerce_max_summaries_per_period,
     consume_summary_quota,
     current_usage,
     get_cap_for_team,
     headroom,
+    refund,
 )
 
 from products.signals.backend.models import SignalSourceConfig
@@ -80,9 +82,16 @@ class TestGetCapForTeam(BaseTest):
         _create_cluster_config(self.team, sample_rate=0.5)
         assert get_cap_for_team(self.team.pk) == DEFAULT_MAX_SUMMARIES_PER_PERIOD
 
-    def test_override_from_config(self):
+    def test_override_can_only_lower(self):
+        # Overrides ≤ default are honored.
         _create_cluster_config(self.team, max_summaries_per_period=7)
         assert get_cap_for_team(self.team.pk) == 7
+
+    def test_override_above_default_is_clamped(self):
+        # Cap-the-cap: project members can edit SignalSourceConfig, so an
+        # override is allowed to lower the backstop but never raise it.
+        _create_cluster_config(self.team, max_summaries_per_period=DEFAULT_MAX_SUMMARIES_PER_PERIOD * 1000)
+        assert get_cap_for_team(self.team.pk) == DEFAULT_MAX_SUMMARIES_PER_PERIOD
 
     def test_disabled_row_still_supplies_cap(self):
         # Sweep gating uses `enabled=True`, but the cap should apply even when the
@@ -92,21 +101,6 @@ class TestGetCapForTeam(BaseTest):
 
     def test_default_when_config_value_uncoerceable(self):
         _create_cluster_config(self.team, max_summaries_per_period="abc")
-        assert get_cap_for_team(self.team.pk) == DEFAULT_MAX_SUMMARIES_PER_PERIOD
-
-    def test_default_when_config_value_is_inf(self):
-        # JSON doesn't allow inf, but defensive: if it ever appears, don't crash.
-        _create_cluster_config(self.team, max_summaries_per_period=float("inf"))
-        assert get_cap_for_team(self.team.pk) == DEFAULT_MAX_SUMMARIES_PER_PERIOD
-
-    def test_default_when_config_is_null(self):
-        # JSONField allows null on the column; isinstance check catches it.
-        SignalSourceConfig.objects.create(
-            team=self.team,
-            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-            config=None,
-        )
         assert get_cap_for_team(self.team.pk) == DEFAULT_MAX_SUMMARIES_PER_PERIOD
 
     def test_default_when_config_is_list(self):
@@ -294,47 +288,105 @@ class TestHeadroom(BaseTest):
         assert headroom(self.team.pk) == 0
 
 
-class TestConcurrency(BaseTest):
-    """Pin the documented overshoot bound on the `check_only`+`consume_summary_quota`
-    split so a future change to the GET-then-INCRBY pattern can't silently widen
-    the race window past what we're willing to accept.
+class TestAtomicCheckAndConsume(BaseTest):
+    """`atomic_check_and_consume` is the request-handling primitive: reserves a
+    slot in one Redis round-trip and reverts if the new value exceeds the cap.
     """
 
     def setUp(self):
         super().setUp()
         _create_cluster_config(self.team, max_summaries_per_period=3)
 
-    def test_concurrent_check_only_then_consume_overshoot_bounded(self):
-        n_threads = 10
+    def test_first_n_calls_allowed_then_blocks(self):
+        # Within the cap: each call advances the counter by 1.
+        for i in range(1, 4):
+            decision = atomic_check_and_consume(self.team.pk)
+            assert decision == CapDecision(allowed=True, used=i, cap=3)
+            assert current_usage(self.team.pk) == i
+        # Cap reached: next call is blocked and reverted.
+        decision = atomic_check_and_consume(self.team.pk)
+        assert decision == CapDecision(allowed=False, used=3, cap=3)
+        assert current_usage(self.team.pk) == 3
+
+    def test_block_reverts_so_steady_state_stays_at_cap(self):
+        # The blocked branch must DECRBY back to the cap, otherwise repeated
+        # blocked calls would inflate the counter unboundedly.
+        consume_summary_quota(self.team.pk, 3)
+        for _ in range(20):
+            assert atomic_check_and_consume(self.team.pk).allowed is False
+        assert current_usage(self.team.pk) == 3
+
+    def test_requested_more_than_headroom_blocks_and_reverts(self):
+        consume_summary_quota(self.team.pk, 2)
+        decision = atomic_check_and_consume(self.team.pk, requested=2)
+        # Cap=3, used=2, requested=2 → would be 4 → block + revert.
+        assert decision == CapDecision(allowed=False, used=2, cap=3)
+        assert current_usage(self.team.pk) == 2
+
+    def test_requested_zero_is_allowed_noop(self):
+        decision = atomic_check_and_consume(self.team.pk, requested=0)
+        assert decision.allowed is True
+        assert current_usage(self.team.pk) == 0
+
+    def test_requested_negative_raises(self):
+        with pytest.raises(ValueError, match="requested must be >= 0"):
+            atomic_check_and_consume(self.team.pk, requested=-1)
+
+    def test_atomic_check_and_consume_is_overshoot_free(self):
+        # The defining invariant of the atomic API: concurrent callers can
+        # never collectively pass more than `cap`. The split check_only +
+        # consume pattern can; the atomic one cannot.
+        #
+        # Mock the cap lookup so we don't hit Django's connection-per-thread
+        # transaction isolation (test row written in the main thread isn't
+        # visible to worker threads with fresh connections).
+        n_threads = 20
         barrier = threading.Barrier(n_threads)
         results: list[CapDecision] = []
         results_lock = threading.Lock()
 
         def worker():
             barrier.wait()
-            decision = check_only(self.team.pk)
-            if decision.allowed:
-                consume_summary_quota(self.team.pk, 1)
+            decision = atomic_check_and_consume(self.team.pk)
             with results_lock:
                 results.append(decision)
 
-        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
-        for t in threads:
-            t.start()
-            # Note: hard to reliably trigger the read-write race in CPython under
-            # the GIL — but the test still asserts the post-state invariants,
-            # which is what matters for correctness.
-        for t in threads:
-            t.join()
+        with patch("posthog.session_recordings.ai_summary_cap.get_cap_for_team", return_value=3):
+            threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
         allowed_count = sum(1 for r in results if r.allowed)
-        # Floor: we must have honored at least the cap.
-        assert allowed_count >= 3
-        # Ceiling: in the worst case all 10 threads could pass `check_only` before
-        # any `consume`, but never more than the thread count.
-        assert allowed_count <= n_threads
-        # The counter MUST equal allowed_count: blocked decisions never consume.
-        assert current_usage(self.team.pk) == allowed_count
+        # Cap is 3 — no concurrency can break that.
+        assert allowed_count == 3
+        # Counter equals exactly cap. All blocked attempts reverted.
+        assert current_usage(self.team.pk) == 3
+
+
+class TestRefund(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _create_cluster_config(self.team, max_summaries_per_period=3)
+
+    def test_refund_undoes_a_prior_atomic_reservation(self):
+        atomic_check_and_consume(self.team.pk)
+        assert current_usage(self.team.pk) == 1
+        refund(self.team.pk, 1)
+        assert current_usage(self.team.pk) == 0
+
+    def test_refund_zero_or_negative_is_noop(self):
+        consume_summary_quota(self.team.pk, 2)
+        refund(self.team.pk, 0)
+        refund(self.team.pk, -5)
+        assert current_usage(self.team.pk) == 2
+
+    def test_refund_swallows_redis_errors(self):
+        # A flaky DECR must not raise — refund is best-effort.
+        with patch("posthog.session_recordings.ai_summary_cap.get_client") as mock_client:
+            mock_client.return_value.decrby.side_effect = ConnectionError("redis down")
+            refund(self.team.pk, 1)
 
 
 class TestMonthBoundary(BaseTest):

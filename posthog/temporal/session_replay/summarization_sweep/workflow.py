@@ -94,24 +94,14 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 type="AllChildStartsFailed",
             )
 
-        # Charge the per-team monthly cap by what we actually dispatched. Skipped
-        # workflows are deduped existing runs (no extra LLM cost), failed starts
-        # never reach the LLM either. Consuming after the fact rather than at
-        # find-time means a transient Temporal outage doesn't burn quota for
-        # work that never happened.
+        # Charge the cap by what we actually dispatched. Skipped/failed children
+        # never reach the LLM, so don't count them.
         #
-        # `maximum_attempts=1` because INCRBY is non-idempotent: if Redis applies
-        # the increment and the activity then fails to report success back to
-        # Temporal (worker crash, network blip, heartbeat timeout), retries would
-        # silently inflate the team's used count and falsely trip the backstop
-        # for the rest of the calendar month. Losing a single increment is
-        # recoverable — the next sweep tick refills naturally.
-        #
-        # The activity failure itself is swallowed for the same reason: bookkeeping
-        # must not fail a sweep whose children all dispatched successfully. Mirrors
-        # the DRF path's try/except around `consume_summary_quota`. Failing here
-        # would alert/retry on already-completed work; the lost increment is
-        # absorbed by the next tick.
+        # `maximum_attempts=1` + swallow exceptions: INCRBY is non-idempotent, so
+        # a retry after a Redis blip would silently inflate the counter for the
+        # rest of the month. Losing one increment is recoverable on the next
+        # sweep tick; an inflated counter is not. Bookkeeping must never fail a
+        # sweep whose children all dispatched.
         if started > 0:
             try:
                 await workflow.execute_activity(

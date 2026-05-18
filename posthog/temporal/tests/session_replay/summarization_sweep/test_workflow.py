@@ -2,14 +2,11 @@ import uuid
 
 import pytest
 
-from django.conf import settings
-
 import temporalio.worker
-from temporalio import activity, workflow
+from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
 from posthog.temporal.session_replay.summarization_sweep.constants import WORKFLOW_NAME
 from posthog.temporal.session_replay.summarization_sweep.types import (
     ConsumeSummaryQuotaInput,
@@ -18,19 +15,6 @@ from posthog.temporal.session_replay.summarization_sweep.types import (
     SummarizeTeamSessionsInputs,
 )
 from posthog.temporal.session_replay.summarization_sweep.workflow import SummarizeTeamSessionsWorkflow
-
-
-@workflow.defn(name="summarize-session")
-class _NoopChildWorkflow:
-    """Stand-in for the real summarize-session child so the sweep workflow has
-    something to dispatch into. ABANDON parent close policy means the parent
-    doesn't await child completion; the child still has to *start* on a worker
-    or `start_child_workflow` waits forever, hence registering this on the
-    same task queue as the sweep worker via monkeypatched settings."""
-
-    @workflow.run
-    async def run(self, inputs: SingleSessionSummaryInputs) -> None:
-        return None
 
 
 @pytest.mark.asyncio
@@ -62,8 +46,24 @@ async def test_workflow_noop_when_no_sessions():
     }
 
 
+async def _fake_start_child(
+    self: SummarizeTeamSessionsWorkflow,
+    team_id: int,
+    session_id: str,
+    user_id: int,
+    user_distinct_id: str | None,
+) -> bool:
+    """Replacement for `_start_child` in tests so we don't have to register a
+    real child workflow + worker. With ABANDON parent-close + time skipping,
+    pending children keep the test env alive until their execution_timeout
+    (~45 minutes), which deadlocks the test."""
+    return True
+
+
 @pytest.mark.asyncio
 async def test_workflow_consumes_quota_after_dispatching_children(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(SummarizeTeamSessionsWorkflow, "_start_child", _fake_start_child)
+
     @activity.defn(name="find_sessions_for_team_activity")
     async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
         return FindSessionsResult(
@@ -80,12 +80,11 @@ async def test_workflow_consumes_quota_after_dispatching_children(monkeypatch: p
         consume_calls.append(inputs)
 
     task_queue = str(uuid.uuid4())
-    monkeypatch.setattr(settings, "SESSION_REPLAY_TASK_QUEUE", task_queue)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[SummarizeTeamSessionsWorkflow, _NoopChildWorkflow],
+            workflows=[SummarizeTeamSessionsWorkflow],
             activities=[find_sessions_mocked, consume_mocked],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -107,6 +106,7 @@ async def test_workflow_does_not_fail_when_consume_quota_activity_fails(monkeypa
     """A transient Redis blip in the bookkeeping activity must not roll up as
     a workflow failure — the children were dispatched successfully, and the
     next sweep tick refills the increment naturally."""
+    monkeypatch.setattr(SummarizeTeamSessionsWorkflow, "_start_child", _fake_start_child)
 
     @activity.defn(name="find_sessions_for_team_activity")
     async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
@@ -122,12 +122,11 @@ async def test_workflow_does_not_fail_when_consume_quota_activity_fails(monkeypa
         raise RuntimeError("redis is on fire")
 
     task_queue = str(uuid.uuid4())
-    monkeypatch.setattr(settings, "SESSION_REPLAY_TASK_QUEUE", task_queue)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[SummarizeTeamSessionsWorkflow, _NoopChildWorkflow],
+            workflows=[SummarizeTeamSessionsWorkflow],
             activities=[find_sessions_mocked, consume_failing],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):

@@ -1,16 +1,14 @@
 """Per-team monthly hard cap for Replay Vision summaries.
 
-A backstop against runaway LLM cost. Cap is read from
-`SignalSourceConfig(SESSION_REPLAY, SESSION_ANALYSIS_CLUSTER).config["max_summaries_per_period"]`
-when present, otherwise falls back to a constant default. Mirrors the
-`coerce_sample_rate` pattern from the sampling work in PR #56921.
+Backstop against runaway LLM cost. One Redis counter per team per calendar
+month; auto-resets on the 1st. A team can use up to 2x the cap across a month
+boundary — fine for a backstop, not for billing.
 
-Counter is a Redis key per team per calendar month — auto-resets on the 1st,
-no sliding-window bookkeeping. Boundary effect (a team can use up to 2x the
-cap across a month boundary) is acceptable for a backstop, not for billing.
+Cap value: `DEFAULT_MAX_SUMMARIES_PER_PERIOD`, optionally lowered (never
+raised) by `SignalSourceConfig.config["max_summaries_per_period"]`.
 
-Importable from both DRF (`session_recording_api`) and Temporal activities —
-keep this module dependency-light (no DRF / Temporal imports).
+Importable from both DRF and Temporal activities — keep this module
+dependency-light.
 """
 
 from __future__ import annotations
@@ -25,18 +23,16 @@ from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 
-# Tweak with billing team. Intentionally a code constant — easy to bump in a deploy,
-# easy to override per-team via SignalSourceConfig for ops cases.
+# Bump in a deploy. Per-team lowering is allowed via SignalSourceConfig.
 DEFAULT_MAX_SUMMARIES_PER_PERIOD = 4 * 1000
 
-# JSON key on SignalSourceConfig.config. Mirrors the `sample_rate` key from PR #56921.
+# JSON key on SignalSourceConfig.config.
 CONFIG_KEY = "max_summaries_per_period"
 
-# Redis key prefix. One key per team per month, auto-expires.
 _REDIS_KEY_PREFIX = "posthog/replay-summary-cap"
 
-# 32 days — slightly longer than any month so the bucket survives until it would naturally
-# stop being read. Redis GCs it on its own; we never have to clean up.
+# 32 days — slightly longer than any month so the bucket outlives its read
+# window. Redis GCs the key on its own.
 _KEY_TTL_SECONDS = 32 * 24 * 60 * 60
 
 
@@ -48,14 +44,11 @@ class CapDecision:
 
 
 def coerce_max_summaries_per_period(value: object) -> int:
-    """Validate a raw cap value (e.g. `config.config.get("max_summaries_per_period")`).
+    """Validate a raw cap override value. Anything malformed falls back to
+    the default — admin JSON should never take down the summarize path.
 
-    Mirrors the `coerce_sample_rate` pattern from PR #56921 — takes the raw
-    value rather than the whole dict, so callers that already loaded the config
-    don't pay for a second read. Anything malformed (None, wrong type,
-    non-positive) silently falls back to the default — admin JSON should never
-    take down the summarize path. Bools are rejected explicitly because they
-    inherit from int and would otherwise coerce to 0/1.
+    Bools are rejected explicitly because they inherit from int and would
+    otherwise coerce to 0/1.
     """
     if value is None or isinstance(value, bool):
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
@@ -71,17 +64,15 @@ def coerce_max_summaries_per_period(value: object) -> int:
 
 
 def get_cap_for_team(team_id: int) -> int:
-    """Look up the team's `SignalSourceConfig` row for the autonomous summarization
-    cluster and read the cap override from its `config` dict. Falls back to the
-    default for teams without a row (which is most teams — the row is only
-    created when a team opts into the autonomous sweep).
+    """Return the effective per-team monthly cap.
 
-    Used by callers that don't already have the config loaded (DRF entrypoint).
-    Sweep activities should prefer `coerce_max_summaries_per_period(config.config.get(CONFIG_KEY))`
-    directly to avoid a second DB hit once PR #56921's config preload lands.
+    The override on `SignalSourceConfig.config` can only LOWER the default —
+    never raise it. Project members can edit that config row via API, so
+    treating it as a raise vector would be a privilege escalation around the
+    backstop.
     """
-    # Imported lazily to avoid pulling Django app loading into module import time
-    # (this module is imported by Temporal activities that load before Django apps).
+    # Lazy import: this module is imported by Temporal activities that load
+    # before Django apps.
     from products.signals.backend.models import SignalSourceConfig
 
     row = (
@@ -95,7 +86,8 @@ def get_cap_for_team(team_id: int) -> int:
     )
     if row is None or not isinstance(row.config, dict):
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
-    return coerce_max_summaries_per_period(row.config.get(CONFIG_KEY))
+    override = coerce_max_summaries_per_period(row.config.get(CONFIG_KEY))
+    return min(override, DEFAULT_MAX_SUMMARIES_PER_PERIOD)
 
 
 def _redis_key(team_id: int, *, now: datetime | None = None) -> str:
@@ -119,51 +111,90 @@ def headroom(team_id: int, *, now: datetime | None = None) -> int:
     """Remaining quota for the team this month. Never negative.
 
     Used by the autonomous sweep to slice its dispatch list before starting
-    children — the cap is otherwise only enforced on the DRF entrypoint, which
-    would let a runaway sweep starve interactive users.
+    children, otherwise a runaway sweep could starve interactive DRF users.
     """
     return max(0, get_cap_for_team(team_id) - current_usage(team_id, now=now))
 
 
-def consume_summary_quota(team_id: int, n: int = 1, *, now: datetime | None = None) -> int:
-    """Increment the team's monthly counter by `n`. Sets a TTL on first write
-    so abandoned keys GC themselves. Returns the new counter value.
+def _incrby(client, key: str, n: int) -> int:
+    """INCRBY with WRONGTYPE recovery. Returns the new counter value.
 
-    No bound check — callers that want to enforce the cap should call
-    `check_only` first and only consume after they've committed to LLM work.
+    Recovery: if somebody SET the key to a non-integer string, reset it and
+    retry. Losing the (uncountable) prior usage is fine for a backstop.
     """
+    try:
+        return int(client.incrby(key, n))
+    except ResponseError:
+        logger.warning("replay_summary_cap.corrupt_counter_on_write", key=key)
+        client.delete(key)
+        return int(client.incrby(key, n))
+
+
+def consume_summary_quota(team_id: int, n: int = 1, *, now: datetime | None = None) -> int:
+    """Increment the counter by `n`. Sets TTL on first write. Returns the new
+    value. No bound check — caller is responsible for that."""
     if n <= 0:
         return current_usage(team_id, now=now)
     key = _redis_key(team_id, now=now)
     client = get_client()
-    try:
-        new_value = client.incrby(key, n)
-    except ResponseError:
-        # WRONGTYPE: somebody SET the key to a non-integer string. Reset and
-        # retry — losing the (uncountable) prior usage is fine for a backstop,
-        # and crashing the summarize path would be worse.
-        logger.warning("replay_summary_cap.corrupt_counter_on_write", team_id=team_id)
-        client.delete(key)
-        new_value = client.incrby(key, n)
-    # Set TTL only when this is the first write of the month. INCRBY returning
-    # exactly `n` is a tight enough proxy (collision requires the key to have
-    # been GCed and re-incremented in the same race — fine for a backstop).
-    if int(new_value) == n:
+    new_value = _incrby(client, key, n)
+    # First write of the month: set the TTL so abandoned keys GC themselves.
+    if new_value == n:
         client.expire(key, _KEY_TTL_SECONDS)
-    return int(new_value)
+    return new_value
+
+
+def atomic_check_and_consume(team_id: int, *, requested: int = 1, now: datetime | None = None) -> CapDecision:
+    """Reserve `requested` slots in one Redis round-trip. Returns the decision.
+
+    If the new counter exceeds the cap, the reservation is rolled back and
+    `allowed=False` is returned. This closes the TOCTOU window between a
+    naive read-then-write check, so concurrent requests can't all pass and
+    then collectively overshoot.
+
+    Callers MUST `refund(team_id, n)` if they later decide not to do the
+    work (e.g. `start_workflow` failed). The split between reservation and
+    commit lives in the caller.
+    """
+    if requested < 0:
+        raise ValueError(f"requested must be >= 0, got {requested}")
+    if requested == 0:
+        return CapDecision(allowed=True, used=current_usage(team_id, now=now), cap=get_cap_for_team(team_id))
+
+    cap = get_cap_for_team(team_id)
+    key = _redis_key(team_id, now=now)
+    client = get_client()
+    new_value = _incrby(client, key, requested)
+    if new_value == requested:
+        client.expire(key, _KEY_TTL_SECONDS)
+    if new_value > cap:
+        # Roll back: keep the counter at-or-below cap so a steady-state team
+        # doesn't permanently look over.
+        client.decrby(key, requested)
+        return CapDecision(allowed=False, used=new_value - requested, cap=cap)
+    return CapDecision(allowed=True, used=new_value, cap=cap)
+
+
+def refund(team_id: int, n: int = 1, *, now: datetime | None = None) -> None:
+    """Roll back a previous `atomic_check_and_consume(...n)` reservation.
+
+    Best-effort: failures are logged, not raised. We don't want a Redis blip
+    to fail a request that already succeeded (or failed) on its main path.
+    """
+    if n <= 0:
+        return
+    try:
+        get_client().decrby(_redis_key(team_id, now=now), n)
+    except Exception as e:
+        logger.warning("replay_summary_cap.refund_failed", team_id=team_id, n=n, error=str(e))
 
 
 def check_only(team_id: int, *, requested: int = 1, now: datetime | None = None) -> CapDecision:
-    """Read the cap and current usage, return a decision, but do NOT increment.
+    """Read-only: decide whether `requested` slots fit, without reserving.
 
-    Use at request entry (DRF) when you want to fail fast without burning quota
-    on no-op paths (cache hits, dedup branches that won't issue LLM calls). Pair
-    with a later `consume_summary_quota(team_id, n)` once the caller has
-    committed to actual LLM work.
-
-    `requested` must be non-negative — a negative value here would mean "give
-    me a refund preview", which is almost never what a caller wants; surface
-    it loudly.
+    Use this when you can't tolerate the boundary effect of a reserve-then-
+    refund cycle (e.g. health checks). For request-handling paths that may
+    commit to LLM work, prefer `atomic_check_and_consume`.
     """
     if requested < 0:
         raise ValueError(f"requested must be >= 0, got {requested}")

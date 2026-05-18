@@ -28,7 +28,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
-from posthog.session_recordings.ai_summary_cap import check_only, consume_summary_quota
+from posthog.session_recordings.ai_summary_cap import atomic_check_and_consume, refund
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -623,20 +623,14 @@ async def _check_handle_data(
 async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
     """True iff a workflow with this id is currently RUNNING.
 
-    Used to distinguish a brand-new LLM run from a silent attach to one already
-    in flight: ``_start_video_summary_workflow`` uses ``USE_EXISTING``, so when
-    a workflow with the same id is already running, ``start_workflow`` returns
-    a handle to it without ever raising ``WorkflowAlreadyStartedError``.
+    Discriminates fresh LLM runs from silent attaches: ``_start_video_summary_workflow``
+    uses ``USE_EXISTING``, so starting twice with the same id returns a handle
+    without raising.
 
-    Error semantics are deliberately asymmetric:
-    - ``NOT_FOUND`` → ``False``. The workflow id has never been used, so this
-      call will create a fresh run; the caller MUST charge the cap.
-    - Any other ``RPCError`` (``UNAVAILABLE``, ``DEADLINE_EXCEEDED``, etc.) is
-      re-raised. Silently treating a transient Temporal blip as "not running"
-      would push the caller down the fresh-run path and double-charge the cap
-      against an attach that the user can no longer observe; surfacing the
-      error lets the outer SSE handler emit ``session-summary-error`` and
-      leave the cap counter alone. The caller can retry.
+    Error handling is asymmetric on purpose:
+    - ``NOT_FOUND`` → ``False`` (fresh start path; caller must charge the cap).
+    - Any other ``RPCError`` is re-raised so a flaky Temporal blip surfaces as
+      ``session-summary-error`` rather than silently double-charging.
     """
     handle = client.get_workflow_handle(workflow_id)
     try:
@@ -862,16 +856,31 @@ async def execute_summarize_session_video_stream(
 
     client = await async_connect()
 
-    # Detect whether `_start_video_summary_workflow` will silently attach to an
-    # in-flight run (USE_EXISTING) vs. start a brand-new LLM run. The cap is a
-    # cost backstop, so it MUST only fire on the fresh-run path — gating on
-    # attach would 402 a user reading work a teammate already paid for.
-    # `force_restart` always restarts (TERMINATE_EXISTING), so it counts as fresh.
+    # The cap only fires on a fresh LLM run. If `_start_video_summary_workflow`
+    # is about to attach via USE_EXISTING to someone else's in-flight run, skip
+    # the cap so we don't 402 a teammate reading already-paid-for work.
+    # `force_restart` always preempts via TERMINATE_EXISTING — counts as fresh.
     will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
 
+    quota_reserved = False
     if will_start_fresh_run:
-        cap_decision = await database_sync_to_async(check_only, thread_sensitive=False)(team.id)
-        if not cap_decision.allowed:
+        # Reserve a slot atomically (INCR + revert if over cap). One round-trip
+        # closes the TOCTOU window where concurrent requests can all read the
+        # same `used` and then collectively overshoot. Redis failures fail open
+        # — a flaky counter must not break the summarize path.
+        try:
+            cap_decision = await database_sync_to_async(atomic_check_and_consume, thread_sensitive=False)(team.id)
+        except Exception as e:
+            logger.warning(
+                "video summary cap reservation failed (fail-open)",
+                team_id=team.id,
+                session_id=session_id,
+                error=str(e),
+                signals_type="session-summaries",
+            )
+            cap_decision = None
+
+        if cap_decision is not None and not cap_decision.allowed:
             posthoganalytics.capture(
                 distinct_id=user.distinct_id,
                 event="replay summary quota blocked",
@@ -892,32 +901,24 @@ async def execute_summarize_session_video_stream(
             )
             return
 
+        quota_reserved = cap_decision is not None and cap_decision.allowed
+
     try:
         handle = await _start_video_summary_workflow(
             inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
         )
     except WorkflowAlreadyStartedError:
-        # Defensive only: USE_EXISTING + ALLOW_DUPLICATE shouldn't raise this in
-        # practice (the `will_start_fresh_run` describe just above resolved the
-        # attach case to False). If Temporal config drifts, fall back to attach
-        # without burning quota.
+        # Race: someone else started the same workflow between our describe and
+        # start call. Attach to theirs and refund the slot we reserved.
         handle = client.get_workflow_handle(workflow_id)
-        will_start_fresh_run = False
-
-    if will_start_fresh_run:
-        # Workflow has been committed to (fresh start, or force_restart preempted
-        # the previous run) — charge the per-team monthly cost backstop. Wrapped
-        # so a Redis blip can't fail a user request already going to the LLM.
-        try:
-            await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.id, 1)
-        except Exception as e:
-            logger.warning(
-                "video summary cap consume failed (best-effort)",
-                team_id=team.id,
-                session_id=session_id,
-                error=str(e),
-                signals_type="session-summaries",
-            )
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+            quota_reserved = False
+    except Exception:
+        # Any other start failure: never went to the LLM, give the slot back.
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+        raise
 
     logger.info(
         "video summary polling loop starting",

@@ -136,30 +136,29 @@ class TestExecuteSummarizeSessionVideoStream:
     @pytest.fixture(autouse=True)
     def cap_mocks(self) -> Iterator[SimpleNamespace]:
         """Default cap behavior for the happy path: no in-flight workflow,
-        cap not exhausted, consume succeeds. Tests exercising the attach,
-        force-restart, or quota-blocked paths flip the relevant return value
-        rather than re-patching the same three names in every method."""
+        cap not exhausted. Tests that need to block, refund, or simulate Redis
+        failures flip the relevant return value rather than re-patching."""
         workflow_is_running = AsyncMock(return_value=False)
-        check_only = MagicMock(return_value=MagicMock(allowed=True, used=0, cap=4000))
-        consume = MagicMock(return_value=1)
+        atomic = MagicMock(return_value=MagicMock(allowed=True, used=1, cap=4000))
+        refund = MagicMock(return_value=None)
         with (
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._workflow_is_running",
                 workflow_is_running,
             ),
             patch(
-                "posthog.temporal.session_replay.session_summary.workflow.check_only",
-                check_only,
+                "posthog.temporal.session_replay.session_summary.workflow.atomic_check_and_consume",
+                atomic,
             ),
             patch(
-                "posthog.temporal.session_replay.session_summary.workflow.consume_summary_quota",
-                consume,
+                "posthog.temporal.session_replay.session_summary.workflow.refund",
+                refund,
             ),
         ):
             yield SimpleNamespace(
                 workflow_is_running=workflow_is_running,
-                check_only=check_only,
-                consume=consume,
+                atomic=atomic,
+                refund=refund,
             )
 
     @staticmethod
@@ -667,8 +666,8 @@ class TestExecuteSummarizeSessionVideoStream:
                 )
             )
 
-        cap_mocks.check_only.assert_not_called()
-        cap_mocks.consume.assert_not_called()
+        cap_mocks.atomic.assert_not_called()
+        cap_mocks.refund.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_force_restart_charges_cap_even_when_already_running(
@@ -720,8 +719,8 @@ class TestExecuteSummarizeSessionVideoStream:
                 )
             )
 
-        cap_mocks.check_only.assert_called_once_with(mock_team.id)
-        cap_mocks.consume.assert_called_once_with(mock_team.id, 1)
+        cap_mocks.atomic.assert_called_once_with(mock_team.id)
+        cap_mocks.refund.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_quota_blocked_emits_error_and_skips_workflow_start(
@@ -731,9 +730,10 @@ class TestExecuteSummarizeSessionVideoStream:
         mock_user: MagicMock,
         mock_team: MagicMock,
     ):
-        """When `check_only` blocks, the generator yields a session-summary-error
-        event with quota info and never starts a workflow or consumes quota."""
-        cap_mocks.check_only.return_value = MagicMock(allowed=False, used=4000, cap=4000)
+        """When `atomic_check_and_consume` returns `allowed=False`, the generator
+        yields a session-summary-error event and never starts a workflow.
+        The atomic op already rolled the counter back, so no refund needed."""
+        cap_mocks.atomic.return_value = MagicMock(allowed=False, used=4000, cap=4000)
         start_mock = AsyncMock()
         with (
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
@@ -763,7 +763,7 @@ class TestExecuteSummarizeSessionVideoStream:
         assert events[0].startswith("event: session-summary-error\n")
         assert "4000/4000" in events[0]
         start_mock.assert_not_called()
-        cap_mocks.consume.assert_not_called()
+        cap_mocks.refund.assert_not_called()
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["event"] == "replay summary quota blocked"
         assert mock_capture.call_args.kwargs["properties"]["used"] == 4000
@@ -798,8 +798,8 @@ class TestExecuteSummarizeSessionVideoStream:
                 )
             )
 
-        cap_mocks.check_only.assert_not_called()
-        cap_mocks.consume.assert_not_called()
+        cap_mocks.atomic.assert_not_called()
+        cap_mocks.refund.assert_not_called()
         mock_start.assert_not_called()
 
 
@@ -815,7 +815,7 @@ class TestVideoStreamCapEndToEnd:
     - Requests cap+1..N yield `session-summary-error` and never call
       `_start_video_summary_workflow`.
     - The Redis counter ends at exactly cap (no overshoot in the sequential
-      case — concurrency is covered by `test_concurrent_check_only_then_consume_overshoot_bounded`).
+      case — concurrency is covered by `test_atomic_check_and_consume_is_overshoot_free`).
     - One `replay summary quota blocked` analytics event per blocked request.
 
     Cap is overridden to a small value via `get_cap_for_team` so the test
