@@ -45,14 +45,14 @@ Suppression is **not** the right tool when:
 
 ## Available tools
 
-| Tool                                              | Purpose                                                                   |
-| ------------------------------------------------- | ------------------------------------------------------------------------- |
-| `posthog:query-error-tracking-issues-list`        | Find suppression candidates by volume and impact                          |
-| `posthog:query-error-tracking-issue-events`       | Inspect sampled `$exception` events to confirm the pattern                |
-| `posthog:execute-sql`                             | Pre-create volume estimate (count + distinct users) for the chosen filter |
-| `posthog:error-tracking-suppression-rules-list`   | Check existing suppression rules                                          |
-| `posthog:error-tracking-suppression-rules-create` | Create the suppression rule                                               |
-| `posthog:error-tracking-issues-partial-update`    | Hide past data via issue status without dropping events at ingestion      |
+| Tool                                              | Purpose                                                                                              |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `posthog:query-error-tracking-issues-list`        | Find suppression candidates by volume and impact; dry-run a candidate filter via `filterGroup`       |
+| `posthog:query-error-tracking-issue-events`       | Inspect sampled `$exception` events to confirm the pattern                                           |
+| `posthog:execute-sql`                             | Fallback dry-run for filters that need OR groups or operators outside the `filterGroup` allowed list |
+| `posthog:error-tracking-suppression-rules-list`   | Check existing suppression rules                                                                     |
+| `posthog:error-tracking-suppression-rules-create` | Create the suppression rule                                                                          |
+| `posthog:error-tracking-issues-partial-update`    | Hide past data via issue status without dropping events at ingestion                                 |
 
 ## Workflow
 
@@ -168,16 +168,109 @@ Default to a non-1.0 sampling rate when there's any doubt that the pattern is
 purely noise. You can tighten to 1.0 later once the data shows the rule isn't
 catching real issues.
 
-### Step 5 — Confirm with the user before creating
+### Step 5 — Dry-run the filter against live data
+
+Before asking for confirmation, run the candidate filter against the issues
+list so you (and the user) can see exactly which issues the rule would have
+caught over the last 7 days. `query-error-tracking-issues-list` accepts the
+same property-filter shape suppression rules use via its `filterGroup`
+parameter, so for a typical AND-only rule you can pass the rule's leaf
+filters directly — no HogQL translation needed:
+
+```json
+posthog:query-error-tracking-issues-list
+{
+  "filterGroup": [
+    { "type": "event", "key": "$exception_types", "operator": "exact", "value": "Error" },
+    { "type": "event", "key": "$exception_values", "operator": "icontains", "value": "ResizeObserver loop" }
+  ],
+  "dateRange": { "date_from": "-7d" },
+  "status": "all",
+  "filterTestAccounts": false,
+  "orderBy": "occurrences",
+  "limit": 25
+}
+```
+
+Important defaults to override for suppression preview:
+
+- `status: "all"` — suppression applies regardless of issue status, so don't
+  let the default `active` filter hide already-archived noise.
+- `filterTestAccounts: false` — the rule will not respect the test-account
+  toggle at ingestion. The preview should match production reality.
+
+Each row is one issue the rule would catch: `name` (exception type),
+`description` (sample message), `source`, `library`, plus
+`aggregations.occurrences` and `aggregations.users`. The issue list **is**
+the per-issue breakdown — read every row.
+
+**The single most important safety check**: scan the result for any issue
+whose `name` / `description` / `source` looks like a real bug the team
+would want to fix, not noise. A filter that looks tight by message text
+will routinely match unrelated issues that happen to share a phrase, and
+this is the failure mode that silently destroys real data once the rule is
+live. If you see anything suspicious, narrow the filter (step 3) and rerun
+this step until only the genuine noise pattern is in the list.
+
+Add up `aggregations.occurrences` and `aggregations.users` across rows for
+the blast-radius totals you'll surface to the user in step 6. If you need
+exact totals across more than `limit` issues, paginate with `offset` or
+fall back to the HogQL aggregate at the end of this step.
+
+For one or two concrete sample events with full stack traces, follow up on
+the most suspicious-looking issue with `query-error-tracking-issue-events`:
+
+```json
+posthog:query-error-tracking-issue-events
+{
+  "issueId": "<id from the list>",
+  "limit": 3,
+  "verbosity": "stack",
+  "onlyAppFrames": false
+}
+```
+
+#### When you must fall back to execute-sql
+
+`filterGroup` is **flat AND only**. Drop into HogQL when:
+
+- The rule uses `type: "OR"` at the outer group or any nested OR.
+- The rule uses operators not supported by `filterGroup` (e.g. `between`,
+  `in`, `semver_*`).
+- You want a precise event-level count rather than per-issue aggregates.
+
+The HogQL shape mirrors what the suppression rule bytecode compiles to.
+The materialized property column is nullable, so the `coalesce(..., '[]')`
+wrapper is required — without it ClickHouse rejects the query with
+"Nested type Array(String) cannot be inside Nullable type":
+
+```sql
+SELECT
+  count() AS matched,
+  count(DISTINCT distinct_id) AS users,
+  count(DISTINCT properties.$exception_issue_id) AS issues
+FROM events
+WHERE event = '$exception'
+  AND timestamp > now() - INTERVAL 7 DAY
+  AND arrayExists(
+    v -> ifNull(ilike(v, '<pattern>'), 0),
+    JSONExtract(coalesce(properties.$exception_values, '[]'), 'Array(String)')
+  )
+```
+
+Use `ilike` for `icontains`, plain equality for `exact`, `match(v,
+'<pattern>')` for `regex`. The rule's `regex` is case-sensitive — add
+`(?i)` inline if needed.
+
+### Step 6 — Confirm with the user before creating
 
 Suppression is destructive in spirit even though the API marks it
 `destructive: false`. Show the user before creating:
 
 1. The exact filter you plan to send
-2. The current 7d volume that filter would have suppressed
-3. The number of distinct users in that volume (highlight if it's higher than
-   expected)
-4. Whether it overlaps any existing suppression rules
+2. The list of issues from step 5 with their `occurrences` and `users`,
+   plus the aggregate totals — call out any rows that look like real bugs
+3. Whether it overlaps any existing suppression rules
    (`posthog:error-tracking-suppression-rules-list` first)
 
 Wait for explicit confirmation. Then create:
@@ -209,7 +302,7 @@ posthog:error-tracking-suppression-rules-create
 Start at `0.95` (drop 95%, keep 5% as sentinel data) so you can confirm the
 rule isn't catching real errors before tightening to `1.0`.
 
-### Step 6 — Watch the rule for 24-48h
+### Step 7 — Watch the rule for 24-48h
 
 After creating the rule:
 
@@ -236,9 +329,7 @@ preserves the rule's configuration for forensic review.
 - Project settings → Error tracking → Suppression rules shows the same data;
   mention this when the user asks where rules live in the UI.
 - Suppression applies at ingestion. Existing issues from past events keep their
-  data; only new events are dropped. To clean up past data, change the issue's
-  status to `archived` or `suppressed` via
-  `error-tracking-issues-partial-update`.
+  data; only new events are dropped.
 - For a status-only change (don't drop the data, just hide it from the active
   list), prefer `error-tracking-issues-partial-update` with `status: "suppressed"`
   over a suppression rule.
