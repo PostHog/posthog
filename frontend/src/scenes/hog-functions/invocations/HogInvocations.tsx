@@ -20,12 +20,16 @@ import {
 import api from 'lib/api'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
+import { DateMappingOption } from '~/types'
 
 import { renderHogFunctionMessage } from '../logs/HogFunctionLogs'
 import { LogsViewer } from '../logs/LogsViewer'
@@ -49,6 +53,58 @@ const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
+]
+
+/**
+ * Preset windows mirroring the Logs viewer — covers minute-level scoping
+ * (5m / 30m / 1h) plus the longer windows the table already supported.
+ * Pairs with `allowTimePrecision` + `allowFixedRangeWithTime` so custom
+ * ranges accept minute-precision timestamps.
+ */
+const INVOCATIONS_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    {
+        key: 'Last 5 minutes',
+        values: ['-5M'],
+        getFormattedDate: (date) => date.subtract(5, 'minute').format(DATE_TIME_FORMAT),
+        defaultInterval: 'minute',
+    },
+    {
+        key: 'Last 30 minutes',
+        values: ['-30M'],
+        getFormattedDate: (date) => date.subtract(30, 'minute').format(DATE_TIME_FORMAT),
+        defaultInterval: 'minute',
+    },
+    {
+        key: 'Last 1 hour',
+        values: ['-1h'],
+        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(1, 'h'), date),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 4 hours',
+        values: ['-4h'],
+        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(4, 'h'), date),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 24 hours',
+        values: ['-24h'],
+        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 7 days',
+        values: ['-7d'],
+        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 30 days',
+        values: ['-30d'],
+        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
 ]
 
 const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
@@ -428,6 +484,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                         ]}
                     />
                     <DateFilter
+                        size="small"
                         dateTo={filters.date_to ?? undefined}
                         dateFrom={filters.date_from}
                         onChange={(from, to) =>
@@ -436,7 +493,11 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                                 date_to: to || undefined,
                             })
                         }
-                        allowedRollingDateOptions={['days', 'weeks', 'months']}
+                        dateOptions={INVOCATIONS_DATE_OPTIONS}
+                        allowTimePrecision
+                        allowFixedRangeWithTime
+                        allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
+                        use24HourFormat
                     />
                     <LemonButton
                         size="small"
@@ -755,13 +816,18 @@ function RerunModal({
             <div className="deprecated-space-y-3">
                 <Row label="Window">
                     <DateFilter
+                        size="small"
                         dateFrom={dateFrom}
                         dateTo={dateTo ?? undefined}
                         onChange={(from, to) => {
                             setDateFrom(from || '-24h')
                             setDateTo(to || undefined)
                         }}
-                        allowedRollingDateOptions={['days', 'weeks', 'months']}
+                        dateOptions={INVOCATIONS_DATE_OPTIONS}
+                        allowTimePrecision
+                        allowFixedRangeWithTime
+                        allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
+                        use24HourFormat
                     />
                 </Row>
                 <Row label="Status">
