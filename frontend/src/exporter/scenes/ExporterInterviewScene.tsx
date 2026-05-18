@@ -212,11 +212,15 @@ export default function ExporterInterviewScene({
     accessToken?: string
 }): JSX.Element {
     const [state, setState] = useState<CallState>('idle')
-    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('listening')
+    // Default to 'thinking' — between connection-up and the agent's first speech-start
+    // the assistant is loading its opener, which can take a few seconds. After
+    // speech-end transitions us into 'listening', subsequent silent moments correctly
+    // read as listening (mic is open), and only the post-user-final gap re-enters thinking.
+    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('thinking')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const vapiRef = useRef<Vapi | null>(null)
     const agentTalkingRef = useRef<boolean>(false)
-    const lastPhaseRef = useRef<ConversationPhase>('listening')
+    const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
 
     useEffect(() => {
@@ -240,8 +244,8 @@ export default function ExporterInterviewScene({
         vapiRef.current?.stop()
         vapiRef.current = null
         agentTalkingRef.current = false
-        lastPhaseRef.current = 'listening'
-        setConversationPhase('listening')
+        lastPhaseRef.current = 'thinking'
+        setConversationPhase('thinking')
         setState('loading')
         void (async () => {
             try {
