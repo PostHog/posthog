@@ -2,19 +2,27 @@ import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_select
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
+    DEFAULT_RESOLUTION_DEADLINE_SECONDS,
+    DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+    BoundedResolver,
     DataWarehouseModelPath,
     NodeType,
+    ResolutionCycleError,
+    ResolutionDepthExceededError,
+    ResolutionTimeoutError,
     get_parents_from_model_query,
 )
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models import DataWarehouseTable
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),
@@ -441,5 +449,195 @@ class TestModelPath(BaseTest):
         child_saved_query.query = {"query": "select * from my_model union all select * from my_model_grand_child"}
         child_saved_query.save()
 
-        with pytest.raises(QueryError, match="[Cc]ircular dependency"):
+        with pytest.raises(ResolutionCycleError, match="[Cc]ircular dependency"):
             DataWarehouseModelPath.objects.update_from_saved_query(child_saved_query)
+
+
+class TestBoundedResolver(BaseTest):
+    def _resolve(
+        self,
+        query: str,
+        initial_view_name: str = "test_model",
+        max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+        deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
+    ) -> BoundedResolver:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(team_id=context.team_id, modifiers=context.modifiers, team=context.team)
+        resolver = BoundedResolver(
+            context=context,
+            dialect="hogql",
+            initial_view_name=initial_view_name,
+            max_view_depth=max_view_depth,
+            deadline_seconds=deadline_seconds,
+        )
+        resolver.visit(parse_select(query))
+        return resolver
+
+    def _make_chain(self, length: int) -> None:
+        """Create a chain of saved-query views: v0 → v1 → … → events."""
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v0",
+            query={"query": "select event from events"},
+        )
+        for i in range(1, length):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"v{i}",
+                query={"query": f"select * from v{i - 1}"},
+            )
+
+    def test_cycle_raises_typed_error_with_initial_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="a",
+            query={"query": "select * from b"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="b",
+            query={"query": "select * from a"},
+        )
+
+        with pytest.raises(ResolutionCycleError) as exc_info:
+            get_parents_from_model_query(self.team, "a", "select * from b")
+
+        # the inner view where the cycle was detected is `a` (already on the stack), and the caller is also `a`
+        assert exc_info.value.view_name == "a"
+        assert exc_info.value.initial_view == "a"
+
+    def test_depth_limit_raises_when_chain_too_deep(self):
+        self._make_chain(length=4)  # v0 → v1 → v2 → v3
+
+        with pytest.raises(ResolutionDepthExceededError) as exc_info:
+            self._resolve("select * from v3", initial_view_name="caller", max_view_depth=2)
+
+        assert exc_info.value.max_depth == 2
+        assert exc_info.value.depth == 3
+        assert exc_info.value.initial_view == "caller"
+
+    def test_depth_limit_allows_chain_within_budget(self):
+        self._make_chain(length=3)  # v0 → v1 → v2
+
+        resolver = self._resolve("select * from v2", initial_view_name="caller", max_view_depth=10)
+
+        assert resolver.max_view_depth_observed == 3
+
+    def test_negative_deadline_triggers_timeout_immediately(self):
+        # A negative deadline is "already expired": the first visit_join_expr raises
+        # without depending on clock precision between init and first visit.
+        with pytest.raises(ResolutionTimeoutError) as exc_info:
+            self._resolve("select * from events", initial_view_name="caller", deadline_seconds=-1.0)
+
+        assert exc_info.value.deadline_seconds == -1.0
+        assert exc_info.value.elapsed_seconds >= 0.0
+        assert exc_info.value.initial_view == "caller"
+
+    def test_deadline_none_disables_timeout(self):
+        # No deadline: even with synthetic delay the resolver should not raise timeout.
+        resolver = self._resolve("select * from events", initial_view_name="caller", deadline_seconds=None)
+        assert resolver.deadline_seconds is None
+
+
+class TestResolutionMetrics(BaseTest):
+    def _counter(self, status: str) -> float:
+        return REGISTRY.get_sample_value("data_modeling_dag_resolution_total", {"status": status}) or 0.0
+
+    def test_ok_path_increments_counter_and_records_depth(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="leaf",
+            query={"query": "select event from events"},
+        )
+        before_ok = self._counter("ok")
+        before_count = REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count") or 0.0
+
+        parents = get_parents_from_model_query(self.team, "caller", "select * from leaf")
+
+        assert parents == {"leaf"}
+        assert self._counter("ok") - before_ok == 1.0
+        assert (
+            REGISTRY.get_sample_value("data_modeling_dag_resolution_duration_seconds_count") or 0.0
+        ) - before_count == 1.0
+
+    def test_cycle_increments_cycle_status(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="a",
+            query={"query": "select * from b"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="b",
+            query={"query": "select * from a"},
+        )
+        before_cycle = self._counter("cycle")
+
+        with pytest.raises(ResolutionCycleError):
+            get_parents_from_model_query(self.team, "a", "select * from b")
+
+        assert self._counter("cycle") - before_cycle == 1.0
+
+    def test_unknown_table_increments_error_status(self):
+        before_error = self._counter("error")
+
+        with pytest.raises(QueryError):
+            get_parents_from_model_query(self.team, "caller", "select * from some_random_view")
+
+        assert self._counter("error") - before_error == 1.0
+
+
+class TestResolverFactoryInjection(BaseTest):
+    """Confirms prepare_ast_for_printing honors resolver_factory — proves the workflow path can
+    swap in BoundedResolver instead of the unbounded base Resolver."""
+
+    def test_prepare_ast_for_printing_uses_injected_bounded_resolver(self):
+        from posthog.hogql.printer import prepare_ast_for_printing
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v0",
+            query={"query": "select event from events"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v1",
+            query={"query": "select * from v0"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v2",
+            query={"query": "select * from v1"},
+        )
+
+        query_node = parse_select("select * from v2")
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+
+        def factory(ctx, dialect, scopes):
+            return BoundedResolver(
+                scopes=scopes, context=ctx, dialect=dialect, initial_view_name="caller", max_view_depth=1
+            )
+
+        with pytest.raises(ResolutionDepthExceededError):
+            prepare_ast_for_printing(query_node, context=context, dialect="clickhouse", resolver_factory=factory)
+
+    def test_prepare_ast_for_printing_default_resolver_is_unbounded(self):
+        """Sanity check: without the factory, no depth bound is applied — proves the kwarg is the opt-in."""
+        from posthog.hogql.printer import prepare_ast_for_printing
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v0",
+            query={"query": "select event from events"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v1",
+            query={"query": "select * from v0"},
+        )
+
+        query_node = parse_select("select * from v1")
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+
+        # Should not raise — the default base Resolver has no depth bound.
+        prepare_ast_for_printing(query_node, context=context, dialect="clickhouse")
