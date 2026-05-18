@@ -794,14 +794,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'data-theme',
-                title: (
-                    <>
-                        Chart color themes
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
+                title: 'Chart color themes',
                 description: 'Customize the color palette used in charts and visualizations.',
                 component: <DataColorThemes />,
                 keywords: ['color', 'palette', 'chart', 'visualization'],
