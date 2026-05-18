@@ -117,6 +117,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    grace_hash_join_initial_buckets: Optional[int] = None
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
