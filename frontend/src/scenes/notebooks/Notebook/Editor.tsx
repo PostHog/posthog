@@ -57,7 +57,7 @@ import { NotebookNodeZendeskTickets } from '../Nodes/NotebookNodeZendeskTickets'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
-import { notebookEditorLogicKey, shouldUseNotebookCollab, textContent } from '../utils'
+import { textContent } from '../utils'
 import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
@@ -96,8 +96,8 @@ export function Editor(): JSX.Element {
         trailingNode: false,
     }
 
-    const useCollab = shouldUseNotebookCollab(collabEnabled, !!notebook, !!previewContent)
-    const editorLogicKey = notebookEditorLogicKey(shortId, useCollab)
+    const useCollab = collabEnabled && !!notebook && !previewContent
+    const editorLogicKey = `Notebook.${shortId}${useCollab ? '-collab' : ''}`
 
     const extensions = [
         mode === 'notebook' ? CustomDocument : ExtensionDocument,
