@@ -342,6 +342,37 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_hog_invocation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_hog_invocation_results
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String,
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String,
+      version UInt64,
+      is_deleted UInt8
+  )
+  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings]
   '''
   
@@ -1791,6 +1822,117 @@
   
   '''
 # ---
+# name: test_create_table_query[hog_invocation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS hog_invocation_results
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String,
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String,
+      version UInt64,
+      is_deleted UInt8
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'hog_invocation_results_data')
+  
+  '''
+# ---
+# name: test_create_table_query[hog_invocation_results_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS hog_invocation_results_data
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String CODEC(ZSTD(3)),
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String CODEC(ZSTD(3)),
+      version UInt64,
+      is_deleted UInt8 DEFAULT 0,
+      INDEX status_idx     status      TYPE set(8)             GRANULARITY 4,
+      INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX is_retry_idx   is_retry    TYPE set(2)             GRANULARITY 4
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.hog_invocation_results_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(scheduled_at)
+  ORDER BY (team_id, function_kind, function_id, invocation_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[hog_invocation_results_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS hog_invocation_results_mv
+  TO hog_invocation_results_data
+  AS SELECT
+      team_id,
+      function_kind,
+      function_id,
+      invocation_id,
+      parent_run_id,
+      status,
+      attempts,
+      is_retry,
+      scheduled_at,
+      started_at,
+      finished_at,
+      duration_ms,
+      error_kind,
+      error_message,
+      event_uuid,
+      distinct_id,
+      person_id,
+      invocation_globals,
+      version,
+      is_deleted,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_hog_invocation_results
+  
+  '''
+# ---
 # name: test_create_table_query[ingestion_warnings]
   '''
   
@@ -2091,6 +2233,37 @@
       current_url VARCHAR,
       type LowCardinality(String)
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_heatmap_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_hog_invocation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_hog_invocation_results
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String,
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String,
+      version UInt64,
+      is_deleted UInt8
+  )
+  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -5430,6 +5603,49 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_hog_invocation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_hog_invocation_results
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String CODEC(ZSTD(3)),
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String CODEC(ZSTD(3)),
+      version UInt64,
+      is_deleted UInt8 DEFAULT 0,
+      INDEX status_idx     status      TYPE set(8)             GRANULARITY 4,
+      INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX is_retry_idx   is_retry    TYPE set(2)             GRANULARITY 4
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_hog_invocation_results', '{replica}', version)
+  PARTITION BY toYYYYMMDD(scheduled_at)
+  ORDER BY (team_id, function_kind, function_id, invocation_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_ingestion_warnings]
   '''
   
@@ -6614,6 +6830,41 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_hog_invocation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_hog_invocation_results
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String,
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String,
+      version UInt64,
+      is_deleted UInt8
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_hog_invocation_results', cityHash64(invocation_id))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_ingestion_warnings]
   '''
   
@@ -7436,6 +7687,49 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   ORDER BY (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[hog_invocation_results_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS hog_invocation_results_data
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String CODEC(ZSTD(3)),
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String CODEC(ZSTD(3)),
+      version UInt64,
+      is_deleted UInt8 DEFAULT 0,
+      INDEX status_idx     status      TYPE set(8)             GRANULARITY 4,
+      INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX is_retry_idx   is_retry    TYPE set(2)             GRANULARITY 4
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.hog_invocation_results_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(scheduled_at)
+  ORDER BY (team_id, function_kind, function_id, invocation_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -8644,6 +8938,49 @@
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
   -- i don't think it applies here
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_hog_invocation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_hog_invocation_results
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      invocation_id String,
+      parent_run_id String,
+      status LowCardinality(String),
+      attempts UInt8,
+      is_retry UInt8,
+      scheduled_at DateTime64(6, 'UTC'),
+      started_at Nullable(DateTime64(6, 'UTC')),
+      finished_at Nullable(DateTime64(6, 'UTC')),
+      duration_ms Nullable(UInt32),
+      error_kind LowCardinality(String),
+      error_message String CODEC(ZSTD(3)),
+      event_uuid String,
+      distinct_id String,
+      person_id String,
+      invocation_globals String CODEC(ZSTD(3)),
+      version UInt64,
+      is_deleted UInt8 DEFAULT 0,
+      INDEX status_idx     status      TYPE set(8)             GRANULARITY 4,
+      INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX is_retry_idx   is_retry    TYPE set(2)             GRANULARITY 4
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_hog_invocation_results', '{replica}', version)
+  PARTITION BY toYYYYMMDD(scheduled_at)
+  ORDER BY (team_id, function_kind, function_id, invocation_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---
