@@ -25,9 +25,26 @@ export type Reservation = {
  * SSE has no equivalent — pinning a long-lived TCP stream to a pod was
  * deliberately rejected at the ingress.
  */
+const GC_INTERVAL_MS = 5 * 60 * 1000
+
 export class SessionStore {
     private entries = new Map<string, Entry>()
     private pending = 0
+    private gcTimer: ReturnType<typeof setInterval> | undefined
+
+    startGc(): void {
+        if (!this.gcTimer) {
+            this.gcTimer = setInterval(() => this.compact(), GC_INTERVAL_MS)
+            this.gcTimer.unref()
+        }
+    }
+
+    stopGc(): void {
+        if (this.gcTimer) {
+            clearInterval(this.gcTimer)
+            this.gcTimer = undefined
+        }
+    }
 
     /** Reserve a slot for a new session; returns null when the cap is reached. */
     reserve(): Reservation | null {

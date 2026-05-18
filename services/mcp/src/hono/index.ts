@@ -83,20 +83,21 @@ async function main(): Promise<void> {
         shuttingDownMetric.set(1)
 
         // Step 2: give kube-proxy a head start (skip if a preStop hook handles it).
+        const shutdownStart = Date.now()
         if (SHUTDOWN_PRESTOP_DELAY_MS > 0) {
             await sleep(SHUTDOWN_PRESTOP_DELAY_MS)
         }
 
         // Step 3: stop accepting new TCP connections. Existing keep-alive
         // connections (and in-flight responses on them) keep running.
-        const drainStart = Date.now()
-        const drainBudget = Math.max(SHUTDOWN_GRACE_MS - (Date.now() - drainStart), 1000)
+        const drainBudget = Math.max(SHUTDOWN_GRACE_MS - (Date.now() - shutdownStart), 1000)
         const closed = new Promise<void>((resolve) => server.close(() => resolve()))
         await Promise.race([closed, sleep(drainBudget)])
 
         // Step 4: anything still active gets force-closed. Clients see the
         // stream end and re-`initialize` against the next pod via the standard
         // 404→re-init flow in the MCP Streamable HTTP spec.
+        store.stopGc()
         store.closeAll()
 
         try {

@@ -68,7 +68,7 @@ export function parseRequestProperties(
         version: Number(header(request, 'x-posthog-mcp-version') || params.get('v')) || 1,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
-        mcpConsumer: sanitizeHeaderValue(header(request, 'x-posthog-mcp-consumer')),
+        mcpConsumer: sanitizeHeaderValue(header(request, 'x-posthog-mcp-consumer') || params.get('consumer') || undefined),
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,

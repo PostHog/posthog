@@ -28,6 +28,7 @@ export type App = {
 export function createApp(redis: RedisWithPing): App {
     const app = new Hono<HonoEnv>()
     const store = new SessionStore()
+    store.startGc()
     const lifecycle = newLifecycle()
 
     app.use('*', securityHeaders)
