@@ -10,7 +10,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { percentage } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Error404 } from '~/layout/Error404'
@@ -25,6 +24,7 @@ import {
     PulseSubscriptionFrequency,
     PulseSubscriptionType,
 } from './pulseTypes'
+import { formatSignedPct } from './utils'
 
 export const scene: SceneExport = {
     component: Pulse,
@@ -41,10 +41,6 @@ const CHANNEL_OPTIONS: { value: PulseChannel; label: string }[] = [
     { value: 'slack', label: 'Slack' },
     { value: 'email', label: 'Email' },
 ]
-
-function formatSignedPct(pct: number): string {
-    return `${pct >= 0 ? '+' : ''}${percentage(pct, 0)}`
-}
 
 function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
     const { submitFeedback } = useActions(pulseLogic)
@@ -209,7 +205,7 @@ export function Pulse(): JSX.Element {
 
             <SubscriptionPanel />
 
-            {digestsLoading && shouldShowEmptyState ? (
+            {digestsLoading ? (
                 <div className="flex justify-center py-8">
                     <Spinner />
                 </div>

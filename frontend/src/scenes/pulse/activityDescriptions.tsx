@@ -4,14 +4,10 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
-import { percentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { PULSE_ACTIVITY_SCOPE } from './pulseTypes'
-
-function formatSignedPct(pct: number): string {
-    return `${pct >= 0 ? '+' : ''}${percentage(pct, 0)}`
-}
+import { formatSignedPct } from './utils'
 
 export function pulseActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== PULSE_ACTIVITY_SCOPE) {
