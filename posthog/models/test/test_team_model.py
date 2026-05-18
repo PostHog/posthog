@@ -318,6 +318,7 @@ class TestTeamSetTokenAndSave(BaseTest):
         mock_push_vercel.assert_called_once_with(self.team.id)
 
         log_entry = ActivityLog.objects.get(scope="Team", item_id=str(self.team.pk), activity="updated")
+        assert log_entry.detail is not None
         change = log_entry.detail["changes"][0]
         assert change["field"] == "api_token"
         assert change["before"] == "phc_old_token_value"
