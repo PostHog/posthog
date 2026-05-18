@@ -304,9 +304,9 @@ export function MenuFilterDwhConfig({
                     so we get scroll shadows and edge-overflow data
                     attrs for free. The viewport already gets
                     `padding-block: 1rem` from Quill's body styling, so
-                    the inner stack just needs row gap + min-width
-                    bound for the LemonTable. */}
-                <DialogBody className="w-full max-w-[700px] overflow-auto">
+                    the inner stack just needs a row gap. Fills the full
+                    `size="wide"` dialog width — no max-width clamp. */}
+                <DialogBody className="w-full overflow-auto">
                     <div className="flex flex-col gap-4 min-w-0">
                         <FieldDescription className="!mt-0">
                             Table: <Badge variant="info">{tableName}</Badge>

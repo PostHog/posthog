@@ -13,6 +13,7 @@
  *   - the headless `onChange(group, value, item)` → the legacy
  *     `onChange(value, groupType, item)`.
  */
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -27,6 +28,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -93,6 +95,11 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     enableKeywordShortcuts,
     triggerButtonProps,
 }: TaxonomicPopoverMenuProps<ValueType>): JSX.Element {
+    // Data warehouse tables carry their column schema (`fields`) in
+    // `databaseTableListLogic`, not in the bare popover value — needed so
+    // the DWH config form can render its column dropdowns / preview.
+    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+
     // The group a synthetic `selected` entry should claim. `groupType` is
     // the popover's *default tab*, not the value's real category — and it's
     // often a non-selectable shortcut group. Fall back to the first real
@@ -107,13 +114,21 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     // Synthetic entry — the menu reads `group.type` to route the initial
     // open and `name` to highlight the matching row. A full
     // `TaxonomicFilterGroup` isn't needed; the orchestrator's resolved group
-    // is used once the user commits.
+    // is used once the user commits. For a data warehouse value, merge in
+    // the resolved table schema so re-opening lands on a populated config
+    // form (column dropdowns, preview) rather than an empty one.
     const selected = useMemo<MenuFilterEntry | null>(() => {
         if (value == null || value === '') {
             return null
         }
+        const isDataWarehouse = selectedGroupType === TaxonomicFilterGroupType.DataWarehouse
+        const item = {
+            id: value,
+            name: String(value),
+            ...(isDataWarehouse ? dataWarehouseTablesMap[String(value)] : {}),
+        }
         return {
-            item: { id: value, name: String(value) },
+            item,
             group: {
                 type: selectedGroupType,
                 getName: (t: any) => t?.name,
@@ -121,7 +136,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
             },
             name: String(value),
         } as unknown as MenuFilterEntry
-    }, [value, selectedGroupType])
+    }, [value, selectedGroupType, dataWarehouseTablesMap])
 
     return (
         <TaxonomicFilterHeadless.Root
