@@ -37,7 +37,12 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
                         }}
                         onClose={() => setIsOpen(false)}
                         granularity="minute"
-                        selectionPeriod={type === 'start' ? 'past' : undefined}
+                        // Constrain start dates to the past, except when the saved start date is
+                        // still in the future — in that case the experiment hasn't actually begun
+                        // yet, so we let users reschedule forward.
+                        selectionPeriod={
+                            type === 'start' && !(date && dayjs(date).isAfter(dayjs())) ? 'past' : undefined
+                        }
                     />
                 }
             >

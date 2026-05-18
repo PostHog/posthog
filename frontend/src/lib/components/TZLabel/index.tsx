@@ -254,7 +254,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
                 placement="top"
                 showArrow
                 {...dropdownProps}
-                trigger="hover"
+                trigger={['hover', 'click']}
                 closeOnClickInside={false}
                 overlay={
                     <TZLabelPopoverContent

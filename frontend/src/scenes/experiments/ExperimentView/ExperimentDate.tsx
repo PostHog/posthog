@@ -43,7 +43,9 @@ const ExperimentDate = ({
                         onClose={() => setIsDatePickerOpen(false)}
                         onClickOutside={() => setIsDatePickerOpen(false)}
                         clearable={false}
-                        selectionPeriod="past"
+                        // Only constrain to past if the saved date isn't already in the future —
+                        // otherwise users can't reschedule a not-yet-started date.
+                        selectionPeriod={dayjs(date).isAfter(dayjs()) ? undefined : 'past'}
                         buttonProps={{ size: 'xsmall', 'data-attr': `${dataAttr}-picker` }}
                         selectionPeriodLimit={selectionLimitDate ? dayjs(selectionLimitDate) : undefined}
                     />

@@ -16,8 +16,12 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
      * @default true
      */
     closeOnClickInside?: boolean
-    /** @default 'click' */
-    trigger?: 'click' | 'hover'
+    /**
+     * Which interactions open the dropdown. Pass an array to combine — e.g. `['hover', 'click']`
+     * keeps the popover open during hover and also lets touch users tap to open.
+     * @default 'click'
+     */
+    trigger?: 'click' | 'hover' | Array<'click' | 'hover'>
     children: React.ReactElement<
         Record<string, any> & {
             onClick: MouseEventHandler
@@ -54,6 +58,15 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
 
         const effectiveVisible = visible ?? localVisible
 
+        // Legacy single-string triggers always toggle visibility on click (preserving prior behavior
+        // for existing callers). The new array form lets a caller combine hover and click, in which
+        // case click only opens — so a hover-opened popover doesn't immediately dead-click closed.
+        const isArrayTrigger = Array.isArray(trigger)
+        const triggers = isArrayTrigger ? trigger : [trigger]
+        const hasClickTrigger = !isArrayTrigger || triggers.includes('click')
+        const hasHoverTrigger = isArrayTrigger ? triggers.includes('hover') : trigger === 'hover'
+        const clickOnlyOpens = isArrayTrigger && hasHoverTrigger && triggers.includes('click')
+
         const setVisible = (value: boolean): void => {
             if (!isControlled) {
                 setLocalVisible(value)
@@ -67,7 +80,8 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                 floatingRef={floatingRef}
                 referenceRef={referenceRef}
                 onClickOutside={(e) => {
-                    if (trigger === 'click') {
+                    // Match prior single-string 'click' behavior; array form closes when 'click' is present.
+                    if (isArrayTrigger ? triggers.includes('click') : trigger === 'click') {
                         setVisible(false)
                     }
                     onClickOutside?.(e)
@@ -78,7 +92,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     onClickInside?.(e)
                 }}
                 onMouseLeaveInside={(e) => {
-                    if (trigger === 'hover' && !referenceRef.current?.contains(e.relatedTarget as Node)) {
+                    if (hasHoverTrigger && !referenceRef.current?.contains(e.relatedTarget as Node)) {
                         setVisible(false)
                     }
                     onMouseLeaveInside?.(e)
@@ -88,7 +102,12 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             >
                 {React.cloneElement(children, {
                     onClick: (e: React.MouseEvent): void => {
-                        setVisible(!effectiveVisible)
+                        if (hasClickTrigger) {
+                            // In combined hover+click mode, click only opens — hover/mouse-leave or
+                            // click-outside handle dismissal. Avoids the dead-click feel where clicking
+                            // a hover-opened popover immediately closes it.
+                            setVisible(clickOnlyOpens ? true : !effectiveVisible)
+                        }
                         children.props.onClick?.(e)
                         if (parentPopoverLevel > -1) {
                             // If this button is inside another popover, let's not propagate this event so that
@@ -97,12 +116,12 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                         }
                     },
                     onMouseEnter: (): void => {
-                        if (trigger === 'hover') {
+                        if (hasHoverTrigger) {
                             setVisible(true)
                         }
                     },
                     onMouseLeave: (e: React.MouseEvent): void => {
-                        if (trigger === 'hover' && !floatingRef.current?.contains(e.relatedTarget as Node)) {
+                        if (hasHoverTrigger && !floatingRef.current?.contains(e.relatedTarget as Node)) {
                             setVisible(false)
                         }
                     },
