@@ -51,7 +51,7 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     name = models.CharField(max_length=400)
     _properties = JSONField(default=dict, db_column="properties")
 
-    objects = AccountManager()  # type: ignore[assignment]
+    objects = AccountManager()  # type: ignore[assignment, misc]
 
     class Meta:
         constraints = [
