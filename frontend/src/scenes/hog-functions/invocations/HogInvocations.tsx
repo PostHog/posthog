@@ -34,9 +34,11 @@ import {
     BulkReplayParams,
     HOG_INVOCATIONS_REPLAY_MAX_COUNT,
     HogInvocationRow,
+    HogInvocationsFilters,
     HogInvocationsFunctionKind,
     HogInvocationsLogicProps,
     RunStatus,
+    dateClauseFor,
     hogInvocationsLogic,
     isReplayWrapperKind,
 } from './hogInvocationsLogic'
@@ -105,9 +107,7 @@ const rowRibbonColorFor = (row: HogInvocationRow): string | null => {
 /**
  * Live count for the re-run modal — mirrors the worker's predicate shape
  * (window + status + error_kind + max_attempts) but skips `max_count`
- * (server-side ceiling, not a row filter). Uses HogQL's `filtersOverride`
- * for the date window, matching `fetchRunsPage` — inline `scheduled_at`
- * comparisons don't get the table's timestamp routing.
+ * (server-side ceiling, not a row filter).
  */
 async function countRerunMatches(
     props: { id: string; functionKind: HogInvocationsFunctionKind },
@@ -121,6 +121,11 @@ async function countRerunMatches(
         : hogql.raw('')
     const maxAttemptsClause =
         typeof params.max_attempts === 'number' ? hogql.raw(`AND attempts < ${params.max_attempts}`) : hogql.raw('')
+    // Reuse the same inline date clause shape the list / sparkline use.
+    const dateClause = dateClauseFor({
+        date_from: params.date_from,
+        date_to: params.date_to,
+    } as HogInvocationsFilters)
 
     const query = hogql`
         SELECT count() FROM (
@@ -132,6 +137,7 @@ async function countRerunMatches(
             FROM posthog.hog_invocation_results
             WHERE function_kind = ${props.functionKind}
               AND function_id = ${props.id}
+              ${dateClause}
             GROUP BY invocation_id
             HAVING argMax(is_deleted, version) = 0
                ${statusClause}
@@ -139,14 +145,10 @@ async function countRerunMatches(
                ${maxAttemptsClause}
         )
     `
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
-        {
-            refresh: 'force_blocking',
-            filtersOverride: { date_from: params.date_from, date_to: params.date_to },
-        }
-    )
+    const response = await api.queryHogQL(query, {
+        scene: 'HogInvocations',
+        productKey: 'pipeline_destinations',
+    })
     const row = response.results?.[0]
     return Array.isArray(row) ? Number(row[0] ?? 0) : 0
 }

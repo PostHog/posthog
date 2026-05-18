@@ -205,7 +205,7 @@ const parseRelativeHours = (value: string | undefined): number | null => {
  * same window (otherwise the chart's x-axis can drift away from the actual
  * filter the table is using).
  */
-const resolveDateRange = (filters: HogInvocationsFilters): { start: dayjs.Dayjs; end: dayjs.Dayjs } => {
+export const resolveDateRange = (filters: HogInvocationsFilters): { start: dayjs.Dayjs; end: dayjs.Dayjs } => {
     const end = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
     const relHours = parseRelativeHours(filters.date_from)
     if (relHours !== null) {
@@ -213,6 +213,18 @@ const resolveDateRange = (filters: HogInvocationsFilters): { start: dayjs.Dayjs;
     }
     const start = dateStringToDayJs(filters.date_from) ?? end.subtract(24, 'hour')
     return { start, end }
+}
+
+/**
+ * Inline date predicate for the inner subquery's WHERE clause. `filtersOverride`
+ * doesn't bind to a timestamp field on `hog_invocation_results` (no marker on
+ * the schema), so we apply the window directly. UTC + the CH DateTime64 literal
+ * format keeps partition pruning working.
+ */
+export const dateClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof hogql.raw> => {
+    const { start, end } = resolveDateRange(filters)
+    const fmt = (d: dayjs.Dayjs): string => d.utc().format('YYYY-MM-DD HH:mm:ss.SSS')
+    return hogql.raw(`AND scheduled_at >= '${fmt(start)}' AND scheduled_at < '${fmt(end)}'`)
 }
 
 /**
@@ -298,6 +310,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
           )
         : hogql.raw('')
 
+    const dateClause = dateClauseFor(filters)
     const query = hogql`
         SELECT
             ${hogql.raw(bucketExpr)} AS bucket,
@@ -316,6 +329,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
             FROM posthog.hog_invocation_results
             WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
               AND function_id = ${props.id}
+              ${dateClause}
             GROUP BY invocation_id, function_kind
             HAVING argMax(is_deleted, version) = 0
                ${optionalStatusClause}
@@ -401,6 +415,7 @@ async function fetchRunsPage(
         filters.order_by === 'first_scheduled'
             ? hogql.raw('ORDER BY min(scheduled_at) DESC, invocation_id DESC')
             : hogql.raw('ORDER BY max(scheduled_at) DESC, invocation_id DESC')
+    const dateClause = dateClauseFor(filters)
     const query = hogql`
         SELECT
             invocation_id,
@@ -422,6 +437,7 @@ async function fetchRunsPage(
         FROM posthog.hog_invocation_results
         WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
           AND function_id = ${props.id}
+          ${dateClause}
         GROUP BY invocation_id, function_kind
         HAVING argMax(is_deleted, version) = 0
            ${optionalStatusClause}
