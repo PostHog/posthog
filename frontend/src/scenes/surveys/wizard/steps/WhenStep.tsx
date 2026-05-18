@@ -273,8 +273,8 @@ export function WhenStep(): JSX.Element {
             </WizardSection>
 
             <WizardSection
-                title="How often should this survey repeat?"
-                description="How many times the same user can see this survey, and how far apart those views are."
+                title="How often should this survey show?"
+                description="How many times the same user can see this survey, and how often."
                 descriptionClassName="text-sm"
             >
                 <LemonSegmentedButton
@@ -309,10 +309,8 @@ export function WhenStep(): JSX.Element {
                         </span>
                     </div>
                 )}
-            </WizardSection>
 
-            <WizardSection title="Avoid back-to-back surveys">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
                     <LemonCheckbox
                         checked={seenSurveyWaitPeriodInDays != null}
                         onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
@@ -327,10 +325,8 @@ export function WhenStep(): JSX.Element {
                     />
                     <span className="text-secondary">days.</span>
                 </div>
-            </WizardSection>
 
-            <WizardSection title="Response limit">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm mt-3">
                     <LemonCheckbox
                         checked={survey.responses_limit != null}
                         onChange={(checked) => setResponsesLimit(checked ? 100 : null)}
