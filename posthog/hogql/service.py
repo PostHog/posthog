@@ -103,12 +103,20 @@ class HogQLServiceConfig:
 
 
 @dataclass(frozen=True)
+class HogQLServiceDatabaseTarget:
+    raw_database: str
+    team: Team
+    connection_id: str | None = None
+
+
+@dataclass(frozen=True)
 class HogQLServiceSessionContext:
     database_user: str
     database: str
     user: User
     team: Team
     authenticated_by: Literal["shared_secret", "personal_api_key"]
+    connection_id: str | None = None
     personal_api_key_id: str | None = None
 
 
@@ -156,17 +164,18 @@ class HogQLServiceAuthenticator:
         self.shared_secret = shared_secret
 
     def authenticate(self, database_user: str, database: str, password: str) -> HogQLServiceSessionContext:
-        team = self._get_team(database)
+        database_target = self._get_database_target(database)
 
         if self.shared_secret and hmac.compare_digest(password, self.shared_secret):
             user = self._get_database_user(database_user)
-            self._validate_user_team_access(user, team)
+            self._validate_user_team_access(user, database_target.team)
             return HogQLServiceSessionContext(
                 database_user=database_user,
-                database=database,
+                database=database_target.raw_database,
                 user=user,
-                team=team,
+                team=database_target.team,
                 authenticated_by="shared_secret",
+                connection_id=database_target.connection_id,
             )
 
         personal_api_key = self._validate_personal_api_key(password)
@@ -176,28 +185,67 @@ class HogQLServiceAuthenticator:
         if not self._database_user_matches_user(database_user, user):
             raise HogQLServiceAuthenticationError("Database user does not match the personal API key owner.")
 
-        self._validate_personal_api_key_access(personal_api_key, team)
-        self._validate_user_team_access(user, team)
+        self._validate_personal_api_key_access(personal_api_key, database_target.team)
+        self._validate_user_team_access(user, database_target.team)
         self._mark_personal_api_key_used(personal_api_key)
         return HogQLServiceSessionContext(
             database_user=database_user,
-            database=database,
+            database=database_target.raw_database,
             user=user,
-            team=team,
+            team=database_target.team,
             authenticated_by="personal_api_key",
+            connection_id=database_target.connection_id,
             personal_api_key_id=personal_api_key.id,
         )
 
-    def _get_team(self, database: str) -> Team:
+    def _get_database_target(self, database: str) -> HogQLServiceDatabaseTarget:
+        normalized_database = database.strip()
+        team_id, connection_id = parse_database_name(normalized_database)
+        team = self._get_team(team_id)
+        if connection_id is not None:
+            self._validate_connection_id(team, connection_id)
+        return HogQLServiceDatabaseTarget(
+            raw_database=normalized_database,
+            team=team,
+            connection_id=connection_id,
+        )
+
+    def _get_team(self, team_id: str) -> Team:
         try:
-            team_id = int(database)
+            parsed_team_id = int(team_id)
         except ValueError as error:
-            raise HogQLServiceAuthenticationError("Database must be a PostHog team_id.") from error
+            raise HogQLServiceAuthenticationError(
+                "Database must be a PostHog team_id or team_id/connection_id."
+            ) from error
 
         try:
-            return Team.objects.select_related("organization").get(pk=team_id)
+            return Team.objects.select_related("organization").get(pk=parsed_team_id)
         except Team.DoesNotExist as error:
-            raise HogQLServiceAuthenticationError("Database must be a PostHog team_id.") from error
+            raise HogQLServiceAuthenticationError(
+                "Database must be a PostHog team_id or team_id/connection_id."
+            ) from error
+
+    def _validate_connection_id(self, team: Team, connection_id: str) -> None:
+        try:
+            source_uuid = UUID(connection_id)
+        except ValueError as error:
+            raise HogQLServiceAuthenticationError("Connection id must be a valid UUID.") from error
+
+        from products.data_warehouse.backend.models import ExternalDataSource
+
+        source = (
+            ExternalDataSource.objects.filter(
+                team_id=team.pk,
+                id=source_uuid,
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+            )
+            .exclude(deleted=True)
+            .first()
+        )
+        if source is None:
+            raise HogQLServiceAuthenticationError("Connection id is invalid for this team.")
+        if not source.is_direct_postgres:
+            raise HogQLServiceAuthenticationError("Connection id must reference a direct Postgres connection.")
 
     def _get_database_user(self, database_user: str) -> User:
         username = database_user.strip()
@@ -302,6 +350,7 @@ class HogQLServiceQueryExecutor:
                 user=context.user,
                 query_type="hogql_service",
                 limit_context=LimitContext.QUERY,
+                connection_id=context.connection_id,
                 pretty=False,
             )
         except (ExposedHogQLError, QueryError, ResolutionError, ValueError) as error:
@@ -805,6 +854,20 @@ class HogQLPostgresServer:
 def normalize_sql(sql: str) -> str:
     without_comments = sqlparse.format(sql.strip().rstrip(";"), strip_comments=True)
     return re.sub(r"\s+", " ", without_comments).strip().lower()
+
+
+def parse_database_name(database: str) -> tuple[str, str | None]:
+    if not database:
+        raise HogQLServiceAuthenticationError("Database must be a PostHog team_id or team_id/connection_id.")
+
+    if "/" not in database:
+        return database, None
+
+    team_id, connection_id = database.split("/", 1)
+    if not team_id or not connection_id or "/" in connection_id:
+        raise HogQLServiceAuthenticationError("Database must be a PostHog team_id or team_id/connection_id.")
+
+    return team_id, connection_id
 
 
 def clickhouse_type_to_postgres_oid(clickhouse_type: str) -> int:

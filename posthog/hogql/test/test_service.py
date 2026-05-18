@@ -22,10 +22,14 @@ from posthog.hogql.service import (
     QueryResult,
     ResultColumn,
     bind_parameters_to_query,
+    parse_database_name,
 )
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestHogQLServiceAuthenticator(BaseTest):
@@ -51,6 +55,46 @@ class TestHogQLServiceAuthenticator(BaseTest):
         assert context.user == self.user
         assert context.team == self.team
         assert context.authenticated_by == "shared_secret"
+        assert context.connection_id is None
+
+    def test_shared_secret_accepts_database_with_direct_connection_id(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source",
+            connection_id="connection",
+            destination_id="destination",
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+
+        context = HogQLServiceAuthenticator(shared_secret="secret").authenticate(
+            self.user.email, f"{self.team.id}/{source.id}", "secret"
+        )
+
+        assert context.user == self.user
+        assert context.team == self.team
+        assert context.database == f"{self.team.id}/{source.id}"
+        assert context.connection_id == str(source.id)
+
+    def test_shared_secret_rejects_connection_id_from_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        source = ExternalDataSource.objects.create(
+            team=other_team,
+            source_id="source",
+            connection_id="connection",
+            destination_id="destination",
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+
+        with self.assertRaises(HogQLServiceAuthenticationError):
+            HogQLServiceAuthenticator(shared_secret="secret").authenticate(
+                self.user.email, f"{self.team.id}/{source.id}", "secret"
+            )
 
     def test_shared_secret_rejects_user_without_project_access(self) -> None:
         organization = Organization.objects.create(name="Other")
@@ -120,9 +164,39 @@ class TestHogQLServiceQueryExecutor(BaseTest):
         assert mock_execute_hogql_query.call_args.kwargs["team"] == self.team
         assert mock_execute_hogql_query.call_args.kwargs["user"] == self.user
         assert mock_execute_hogql_query.call_args.kwargs["query_type"] == "hogql_service"
+        assert mock_execute_hogql_query.call_args.kwargs["connection_id"] is None
+
+    @patch("posthog.hogql.service.execute_hogql_query")
+    def test_hogql_query_passes_connection_id(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(1,)], columns=["one"])
+
+        context = HogQLServiceSessionContext(
+            database_user=self.user.email,
+            database=f"{self.team.id}/018f0000-0000-7000-8000-000000000000",
+            user=self.user,
+            team=self.team,
+            authenticated_by="shared_secret",
+            connection_id="018f0000-0000-7000-8000-000000000000",
+        )
+        HogQLServiceQueryExecutor().execute("SELECT 1 AS one", context)
+
+        assert mock_execute_hogql_query.call_args.kwargs["connection_id"] == "018f0000-0000-7000-8000-000000000000"
 
 
 class TestHogQLServiceParameters(BaseTest):
+    def test_parse_database_name_accepts_team_id(self) -> None:
+        assert parse_database_name("123") == ("123", None)
+
+    def test_parse_database_name_accepts_team_id_and_connection_id(self) -> None:
+        assert parse_database_name("123/018f0000-0000-7000-8000-000000000000") == (
+            "123",
+            "018f0000-0000-7000-8000-000000000000",
+        )
+
+    def test_parse_database_name_rejects_invalid_combo(self) -> None:
+        with self.assertRaises(HogQLServiceAuthenticationError):
+            parse_database_name("123/")
+
     def test_bind_parameters_replaces_numbered_placeholders_outside_literals(self) -> None:
         query = "SELECT $1, '$1', \"$1\", `$1`, -- $1\n$2"
 
