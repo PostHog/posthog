@@ -4525,8 +4525,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
-    def test_materialized_column_lower_in_not_optimized_without_bloom_filter_lower_index(self) -> None:
-        # Without a bloom_filter_lower index there's nothing to hit, so we leave the generic IN handling in place
+    def test_materialized_column_lower_in_uses_ngram_lower_index(self) -> None:
+        # An ngram_lower index also serves IN lookups, so the rewrite fires for it too
+        with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_in_not_optimized_without_a_lower_index(self) -> None:
+        # Without a bloom_filter_lower or ngram_lower index there's nothing to hit, so we leave the generic
+        # IN handling in place
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("lower(properties.test_prop) in ('value1', 'value2')")
             assert "has(" not in printed, printed
@@ -4628,6 +4638,28 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             clickhouse_sql, _ = executor.generate_clickhouse_sql()
             assert executor.clickhouse_context is not None
             index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            index_info = get_index_from_explain(
+                clickhouse_sql, index_name, placeholder_values=executor.clickhouse_context.values
+            )
+            assert index_info is not None, (
+                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{clickhouse_sql}"
+            )
+
+    def test_lower_in_uses_ngram_lower_index_on_events(self) -> None:
+        # The rewrite must also let an ngram_lower index serve the IN lookup end to end.
+        query = "SELECT count() FROM events WHERE lower(properties.email) IN ('foo@example.com', 'bar@example.com')"
+        with materialized("events", "email", is_nullable=True, create_ngram_lower_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
+
+            executor = HogQLQueryExecutor(
+                query_type="HogQLQuery",
+                query=parse_select(query),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            clickhouse_sql, _ = executor.generate_clickhouse_sql()
+            assert executor.clickhouse_context is not None
+            index_name = get_ngram_lower_index_name(mat_col.name)
             index_info = get_index_from_explain(
                 clickhouse_sql, index_name, placeholder_values=executor.clickhouse_context.values
             )

@@ -808,8 +808,9 @@ class ClickHousePrinter(BasePrinter):
         """
         Returns an optimized printed expression for `lower(<property>) IN (...)` comparisons.
 
-        The bloom_filter_lower index is built on `lower(column)` (or `lower(coalesce(column, ''))` for nullable
-        columns), so we print the comparison against that exact expression for ClickHouse to pick the index.
+        The bloom_filter_lower and ngram_lower indexes are both built on `lower(column)` (or
+        `lower(coalesce(column, ''))` for nullable columns) and both serve equality / IN lookups, so we
+        print the comparison against that exact expression for ClickHouse to pick whichever index exists.
         """
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
             return None
@@ -819,9 +820,8 @@ class ClickHousePrinter(BasePrinter):
             return None
 
         property_source = self._get_materialized_string_property_source(node.left.args[0])
-        if (
-            not isinstance(property_source, PrintableMaterializedColumn)
-            or not property_source.has_bloom_filter_lower_index
+        if not isinstance(property_source, PrintableMaterializedColumn) or not (
+            property_source.has_bloom_filter_lower_index or property_source.has_ngram_lower_index
         ):
             return None
 
