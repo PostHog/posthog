@@ -735,9 +735,16 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // through urlToAction and re-dispatches setStepId(bogus), looping
             // indefinitely. Stripping unresolvable stepIds here keeps the URL
             // self-consistent with the reducer state.
+            // Mirror the `setStepId` listener's `isKnownStepKey` heuristic. Billing-gated
+            // steps (plans, invite_teammates, link_data) are appended async after billing
+            // loads, so they may not be in `flow` when the URL push lands. Stripping them
+            // from the URL would re-fire `setStepId('')` and permanently lose the request.
+            const isKnownStepKey =
+                Object.values(OnboardingStepKey).includes(stepId as OnboardingStepKey) || stepId.includes(':')
             const stepResolves =
                 !stepId ||
                 values.flow.length === 0 ||
+                isKnownStepKey ||
                 !!values.flow.find((s) => s.id === stepId || s.stepKey === stepId)
             const url = urls.onboarding({
                 productKey: values.productKey ?? undefined,
