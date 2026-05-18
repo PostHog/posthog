@@ -62,7 +62,9 @@ function SearchResults({
     return (
         <div className="flex flex-col gap-2">
             {results.map((r) => {
-                const target = r.topic_id ? urls.userInterviewResponse(r.topic_id, r.interview_id) : null
+                const target = r.topic_id
+                    ? urls.userInterviewResponse(r.topic_id, encodeURIComponent(r.interviewee_identifier))
+                    : null
                 const Wrapper = ({ children }: { children: React.ReactNode }): JSX.Element =>
                     target ? (
                         <Link to={target} className="block">
