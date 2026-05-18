@@ -322,3 +322,43 @@ class TestEmail(BaseTest):
 
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
+
+    def test_all_http_templates_are_registered_in_customer_io_map(self) -> None:
+        # Every EmailMessage(use_http=True, template_name="X", ...) call in
+        # posthog/tasks/email.py needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
+        # The Customer.io HTTP sender raises "Unknown template name" if it
+        # isn't, and the Celery task wrapper swallows the exception via
+        # capture_exception. Without this test, a new transactional email
+        # added with a forgotten map entry sends zero emails and surfaces
+        # nothing user-visible.
+        import ast
+        from pathlib import Path
+
+        import posthog.tasks.email as email_tasks
+
+        source = Path(email_tasks.__file__).read_text()
+        tree = ast.parse(source)
+
+        missing: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
+                continue
+            kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+            use_http = kwargs.get("use_http")
+            if not (isinstance(use_http, ast.Constant) and use_http.value is True):
+                continue
+            template_name = kwargs.get("template_name")
+            if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
+                if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
+                    missing.append(template_name.value)
+
+        self.assertEqual(
+            sorted(set(missing)),
+            [],
+            "These template_name values use use_http=True in posthog/tasks/email.py but are "
+            "missing from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry "
+            "pointing to the Customer.io transactional message ID, otherwise the sender will "
+            "raise 'Unknown template name' at runtime and the Celery task will swallow it.",
+        )
