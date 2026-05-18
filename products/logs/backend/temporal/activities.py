@@ -43,8 +43,8 @@ from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
     CheckResult,
+    ControlPlaneOutcome,
     NotificationAction,
-    apply_broken_config,
     apply_outcome,
     evaluate_alert_check,
 )
@@ -404,7 +404,10 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
             if alert.state == LogsAlertConfiguration.State.BROKEN:
                 return
             state_before = alert.state
-            outcome = apply_broken_config(alert.to_snapshot(recent_events_breached=()))
+            outcome = ControlPlaneOutcome(
+                new_state=AlertState.BROKEN,
+                consecutive_failures=alert.consecutive_failures,
+            )
             update_fields = apply_outcome(alert, outcome)
             LogsAlertEvent.objects.create(
                 alert=alert,

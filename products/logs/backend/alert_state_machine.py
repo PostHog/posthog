@@ -194,21 +194,6 @@ def evaluate_alert_check(
     )
 
 
-def apply_broken_config(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
-    """Transition to BROKEN immediately when an alert's configuration is structurally
-    invalid (e.g. malformed `filterGroup`).
-
-    Unlike the check-driven BROKEN transition in `evaluate_alert_check`, this skips
-    `MAX_CONSECUTIVE_FAILURES` — a structurally broken config will never succeed,
-    so retrying it five times only burns scheduler ticks and risks one bad row
-    bricking discovery for the rest of the project.
-    """
-    return ControlPlaneOutcome(
-        new_state=AlertState.BROKEN,
-        consecutive_failures=snapshot.consecutive_failures,
-    )
-
-
 def apply_user_reset(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
     if snapshot.state != AlertState.BROKEN:
         raise InvalidTransition(f"Only broken alerts can be reset. Current state is {snapshot.state.value}.")
