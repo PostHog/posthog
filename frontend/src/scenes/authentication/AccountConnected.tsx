@@ -10,15 +10,30 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import type { SSOProvider } from '~/types'
 
-const POSTHOG_CODE_DEEP_LINK = 'posthog-code://integration'
+/** Path segment under {@link urls.accountConnected} — SSO link, GitHub integration, or Slack integration. */
+export type AccountConnectedKind = 'github-login' | 'github-integration' | 'slack-integration' | 'invalid'
 
-function posthogCodeDeepUrl(searchParams: Record<string, unknown>): string {
-    const url = new URL(POSTHOG_CODE_DEEP_LINK)
+// Per-kind deep link host. GitHub already uses `posthog-code://integration`;
+// Slack uses its own host so each provider's main-process handler stays isolated
+// (the deep-link service registers one handler per host).
+const DEEP_LINK_HOSTS: Record<Exclude<AccountConnectedKind, 'invalid'>, string> = {
+    'github-login': 'posthog-code://integration',
+    'github-integration': 'posthog-code://integration',
+    'slack-integration': 'posthog-code://slack-integration',
+}
+
+function posthogCodeDeepUrl(
+    kind: Exclude<AccountConnectedKind, 'invalid'>,
+    searchParams: Record<string, unknown>
+): string {
+    const url = new URL(DEEP_LINK_HOSTS[kind])
     const provider = typeof searchParams.provider === 'string' ? searchParams.provider : ''
     if (provider) {
         url.searchParams.set('provider', provider)
     }
-    for (const key of ['project_id', 'installation_id'] as const) {
+    // `integration_id` (Slack and most kinds) and `installation_id` (GitHub) are both
+    // forwarded so the desktop handler can act on whichever its provider uses.
+    for (const key of ['project_id', 'installation_id', 'integration_id'] as const) {
         const value = searchParams[key]
         if (value !== undefined && value !== null && value !== '') {
             url.searchParams.set(key, String(value))
@@ -36,38 +51,49 @@ function posthogCodeDeepUrl(searchParams: Record<string, unknown>): string {
     return url.toString()
 }
 
-/** Path segment under {@link urls.accountConnected} — SSO link vs GitHub user integration. */
-export type AccountConnectedKind = 'github-login' | 'github-integration' | 'invalid'
-
 export interface AccountConnectedProps {
     kind: AccountConnectedKind
+}
+
+// Integration providers that aren't SSO providers, but render on the same page.
+const INTEGRATION_LABELS: Record<string, string> = {
+    slack: 'Slack',
 }
 
 function providerLabel(provider: string | undefined): string {
     if (!provider) {
         return 'Account'
     }
-    return SSO_PROVIDER_NAMES[provider as SSOProvider] ?? provider
+    return SSO_PROVIDER_NAMES[provider as SSOProvider] ?? INTEGRATION_LABELS[provider] ?? provider
 }
 
-function headline(kind: 'github-login' | 'github-integration', label: string, isError: boolean): string {
-    if (kind === 'github-integration') {
+function headline(kind: Exclude<AccountConnectedKind, 'invalid'>, label: string, isError: boolean): string {
+    if (kind === 'github-integration' || kind === 'slack-integration') {
         return isError ? `${label} connection failed` : `${label} connected`
     }
     return isError ? `${label} linking failed` : `${label} linked to account`
 }
 
+const VALID_KINDS: ReadonlyArray<Exclude<AccountConnectedKind, 'invalid'>> = [
+    'github-login',
+    'github-integration',
+    'slack-integration',
+]
+
 export const scene: SceneExport<AccountConnectedProps> = {
     component: AccountConnected,
     paramsToProps: ({ params: { kind: raw } }) => {
-        const kind: AccountConnectedKind = raw === 'github-login' || raw === 'github-integration' ? raw : 'invalid'
+        const kind: AccountConnectedKind = (VALID_KINDS as readonly string[]).includes(raw ?? '')
+            ? (raw as AccountConnectedKind)
+            : 'invalid'
         return { kind }
     },
 }
 
 /**
- * Unified return page for PostHog Code / web: social SSO link (`github-login`) or
- * personal GitHub integration (`github-integration`). Navigates to `posthog-code://integration?…` for the desktop app.
+ * Unified return page for PostHog Code / web: social SSO link (`github-login`), personal GitHub
+ * integration (`github-integration`), or team Slack integration (`slack-integration`). Navigates
+ * to the matching `posthog-code://…` deep link so the desktop app refreshes its integrations.
  */
 export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     const { searchParams } = useValues(router)
@@ -77,7 +103,7 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
 
     useEffect(() => {
         if (kind !== 'invalid') {
-            window.location.href = posthogCodeDeepUrl(searchParams)
+            window.location.href = posthogCodeDeepUrl(kind, searchParams)
         }
     }, [kind, searchParams])
 
