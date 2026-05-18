@@ -81,7 +81,9 @@ def validate_alert_config(
     except Exception:
         raise ValueError(f"Alert has invalid condition: {condition}")
 
-    config_type = config.get("type") if isinstance(config, dict) else None
+    if not isinstance(config, dict):
+        raise ValueError(f"Unsupported alert config type: {config}")
+    config_type = config.get("type")
     if config_type == "HogQLAlertConfig":
         _validate_hogql_alert_config(query, parsed_condition, config, threshold_config)
         return

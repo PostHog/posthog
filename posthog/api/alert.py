@@ -704,10 +704,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def perform_destroy(self, instance: AlertConfiguration) -> None:
-        instance.report_deleted(
-            self.request.user,
-            analytics_props=get_request_analytics_properties(self.request),
-        )
+        # The viewset enforces authentication, so self.request.user is always a real User here —
+        # narrow for mypy's sake.
+        user = self.request.user
+        assert isinstance(user, User)
+        instance.report_deleted(user, analytics_props=get_request_analytics_properties(self.request))
         super().perform_destroy(instance)
 
     CHECKS_DEFAULT_LIMIT = 5
