@@ -422,7 +422,7 @@ class BaseAgentRunner(ABC):
                         "$session_id": self._session_id,
                         "$ai_trace_id": self._trace_id,
                         "thread_id": str(self._conversation.id),
-                        "error_type": "heartbeat_cancellation",
+                        "error_type": "cancellation",
                         "agent_mode": agent_mode,
                         "tag": "max_ai",
                         "$groups": event_usage.groups(team=self._team),
