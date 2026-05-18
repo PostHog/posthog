@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import { getPostHogClient } from '@/lib/analytics'
 import { mapErrorToAuthResponse, mapKnownErrorMessage, validateBearerToken } from '@/lib/auth-errors'
 import {
@@ -11,34 +13,49 @@ import { sanitizeHeaderValue } from '@/lib/utils'
 
 import type { HonoCtx } from './types'
 
-function parseClientInfoFromText(text: string): ClientInfo {
+const InitializeParamsSchema = z.object({
+    clientInfo: z
+        .object({
+            name: z.string().optional(),
+            version: z.string().optional(),
+        })
+        .optional(),
+    protocolVersion: z.string().optional(),
+})
+
+const JsonRpcMessageSchema = z.object({
+    method: z.string(),
+    params: z.unknown().optional(),
+})
+
+function parseClientInfo(bodyText: string): ClientInfo {
     try {
-        const parsed: unknown = JSON.parse(text)
+        const parsed = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]
+
         for (const msg of messages) {
-            if (!msg || typeof msg !== 'object' || (msg as { method?: unknown }).method !== 'initialize') {
+            const rpc = JsonRpcMessageSchema.safeParse(msg)
+            if (!rpc.success || rpc.data.method !== 'initialize') {
                 continue
             }
-            const params = (
-                msg as { params?: { clientInfo?: { name?: unknown; version?: unknown }; protocolVersion?: unknown } }
-            ).params
-            if (!params) {
+            const params = InitializeParamsSchema.safeParse(rpc.data.params)
+            if (!params.success) {
                 continue
             }
             return {
-                clientName: sanitizeHeaderValue(
-                    typeof params.clientInfo?.name === 'string' ? params.clientInfo.name : undefined
-                ),
-                clientVersion: sanitizeHeaderValue(
-                    typeof params.clientInfo?.version === 'string' ? params.clientInfo.version : undefined
-                ),
-                protocolVersion: sanitizeHeaderValue(
-                    typeof params.protocolVersion === 'string' ? params.protocolVersion : undefined
-                ),
+                clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
+                clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
+                protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
             }
         }
     } catch {}
     return {}
+}
+
+function rebuildRequest(c: HonoCtx, bodyText: string): void {
+    const raw = c.req.raw
+    const fresh = new Request(raw.url, { method: raw.method, headers: raw.headers, body: bodyText })
+    Object.defineProperty(c.req, 'raw', { value: fresh, writable: true, configurable: true })
 }
 
 export async function authenticateAndParse(
@@ -47,29 +64,25 @@ export async function authenticateAndParse(
 ): Promise<{ props: RequestProperties } | { error: Response }> {
     const raw = c.req.raw
     const token = c.req.header('Authorization')?.split(' ')[1]
-    const effectiveRegion = getRegionFromRequest(raw)
 
-    const tokenError = validateBearerToken(token, raw, effectiveRegion)
+    const tokenError = validateBearerToken(token, raw, getRegionFromRequest(raw))
     if (tokenError) {
         return { error: tokenError }
     }
 
-    const hasBody = raw.method !== 'GET' && raw.method !== 'HEAD' && raw.method !== 'DELETE'
+    const hasBody = raw.method === 'POST' || raw.method === 'PUT' || raw.method === 'PATCH'
     const bodyText = hasBody ? await raw.text() : null
 
-    // Rebuild c.req.raw so downstream (transport.handleRequest) can still read the body.
     if (bodyText !== null) {
-        const fresh = new Request(raw.url, { method: raw.method, headers: raw.headers, body: bodyText })
-        Object.defineProperty(c.req, 'raw', { value: fresh, writable: true })
+        rebuildRequest(c, bodyText)
     }
 
-    const clientInfo = bodyText ? parseClientInfoFromText(bodyText) : {}
+    const clientInfo = bodyText ? parseClientInfo(bodyText) : {}
     const props = parseRequestProperties(raw, clientInfo, transport)
 
     const mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     const mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
-    const url = new URL(c.req.url)
-    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
+    const viaSseRedirect = new URL(c.req.url).searchParams.get('_deprecated') === 'sse'
 
     Object.assign(props, {
         ...(mcpSessionId ? { mcpSessionId } : {}),

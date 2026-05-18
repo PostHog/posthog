@@ -89,14 +89,14 @@ export class StreamableMcpHandler {
         if (!reservation) {
             return new Response('Too many active sessions', { status: 503 })
         }
+        let initialized = false
         try {
             const mcpServer = new HonoMcpServer(this.redis, props)
             await mcpServer.init()
             const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => uuidv4(),
                 onsessioninitialized: (sid: string): void => {
-                    // Move from pending to live before registering. release() is a no-op
-                    // afterwards thanks to the idempotency guard inside reserve().
+                    initialized = true
                     reservation.release()
                     this.store.set(sid, transport, props.userHash)
                 },
@@ -107,11 +107,15 @@ export class StreamableMcpHandler {
                 }
             }
             await mcpServer.server.connect(transport)
-            return passThrough(await transport.handleRequest(c.req.raw))
+            const response = await transport.handleRequest(c.req.raw)
+            if (!initialized) {
+                reservation.release()
+            }
+            return passThrough(response)
         } catch (error) {
-            // Boot threw or handleRequest never reached `onsessioninitialized` —
-            // give the slot back so future requests aren't permanently blocked.
-            reservation.release()
+            if (!initialized) {
+                reservation.release()
+            }
             throw error
         }
     }
