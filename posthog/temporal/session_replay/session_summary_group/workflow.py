@@ -285,7 +285,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 successful_sessions.append(single_session_input)
 
         # Fail fast below the floor to short-circuit expensive pattern extraction over a tiny sample.
-        min_required = max(GROUP_SUMMARY_MIN_SUCCESS_FLOOR, ceil(len(inputs) * GROUP_SUMMARY_MIN_SUCCESS_RATIO))
+        # Cap the floor at ceil(N/2) so a small batch isn't worse off than the ratio alone would require.
+        effective_floor = min(GROUP_SUMMARY_MIN_SUCCESS_FLOOR, ceil(len(inputs) / 2))
+        min_required = max(effective_floor, ceil(len(inputs) * GROUP_SUMMARY_MIN_SUCCESS_RATIO))
         if len(successful_sessions) < min_required:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
