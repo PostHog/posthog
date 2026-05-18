@@ -26,6 +26,8 @@ import type { surveyWizardLogicType } from './surveyWizardLogicType'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
+export type SurveyTemplateMode = 'in_app' | 'hosted'
+
 // Main flow steps (appearance is optional, branched from 'when')
 const WIZARD_STEPS: WizardStep[] = ['template', 'questions', 'where', 'when']
 
@@ -73,6 +75,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         prevStep: true,
         resetWizard: true,
         selectTemplate: (template: SurveyTemplate) => ({ template }),
+        setTemplateMode: (mode: SurveyTemplateMode) => ({ mode }),
         restoreDefaultQuestions: true,
         launchSurvey: true,
         launchSurveySuccess: (survey: Survey) => ({ survey }),
@@ -108,6 +111,13 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             {
                 selectTemplate: (_, { template }) => template,
                 resetWizard: () => null,
+            },
+        ],
+        templateMode: [
+            'in_app' as SurveyTemplateMode,
+            {
+                setTemplateMode: (_, { mode }) => mode,
+                resetWizard: () => 'in_app' as SurveyTemplateMode,
             },
         ],
         createdSurvey: [
@@ -237,10 +247,14 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     listeners(({ actions, values, props }) => ({
         selectTemplate: ({ template }) => {
+            const isHostedMode = values.templateMode === 'hosted'
             const timestamp = dayjs().format('YYYY-MM-DD HH:mm')
             actions.setSurveyValue('name', `${template.templateType} (${timestamp})`)
             actions.setSurveyValue('description', template.description || '')
-            actions.setSurveyValue('type', template.type || SurveyType.Popover)
+            actions.setSurveyValue(
+                'type',
+                isHostedMode ? SurveyType.ExternalSurvey : template.type || SurveyType.Popover
+            )
             actions.setSurveyValue('questions', template.questions)
 
             // Apply Clean theme by default (works well on most sites, and users without
@@ -285,6 +299,11 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('conditions', template.conditions ?? null)
 
             actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
+
+            // Hosted surveys don't have a guided wizard — route to the dedicated editor.
+            if (isHostedMode) {
+                router.actions.push(props.id === 'new' ? urls.survey('new') : `${urls.survey(props.id)}?edit=true`)
+            }
         },
         restoreDefaultQuestions: () => {
             const template = values.selectedTemplate

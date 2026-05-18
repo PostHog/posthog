@@ -297,6 +297,30 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
+    const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
+    const canConvertToHosted = hostedEditorEnabled && survey.type !== SurveyType.ExternalSurvey
+
+    const convertToHostedSurvey = (): void => {
+        LemonDialog.open({
+            title: 'Convert to hosted survey?',
+            description: (
+                <p className="py-2">
+                    This keeps the questions and style, then switches the editor to the hosted-survey setup. Display
+                    conditions and in-app placement settings won't apply.
+                </p>
+            ),
+            primaryButton: {
+                children: 'Convert',
+                onClick: () => {
+                    setSurveyValue('type', SurveyType.ExternalSurvey)
+                    setSelectedPageIndex(0)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
     const activeEditingLanguage = surveyTranslationsEnabled ? editingLanguage : null
     const surveyTranslations = survey.translations ?? {}
     const hasActualTranslations = !!(
@@ -440,6 +464,16 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     onClick={() => setPreferredEditor('guided')}
                                 >
                                     Guided editor
+                                </LemonButton>
+                            )}
+                            {canConvertToHosted && (
+                                <LemonButton
+                                    data-attr="convert-to-hosted-survey"
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={convertToHostedSurvey}
+                                >
+                                    Convert to hosted
                                 </LemonButton>
                             )}
                             <LemonButton
