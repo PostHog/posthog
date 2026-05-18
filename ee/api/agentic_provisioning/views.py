@@ -1349,15 +1349,23 @@ def _resolve_provisioning_resource(
       token's ``scoped_teams``, it has been backfilled into both the access token
       and any matching refresh tokens.
     - ``(None, scoped_teams, "invalid_resource_id")`` if ``resource_id`` is not a valid integer.
-    - ``(None, scoped_teams, "forbidden")`` if the team cannot be auto-added to scope.
+    - ``(None, scoped_teams, "not_found")`` if ``team_id`` is in scope but the
+      team has been deleted (degenerate stale-scope state).
+    - ``(None, scoped_teams, "forbidden")`` otherwise.
 
-    A team is eligible for auto-add when the customer has previously consented to
-    this partner provisioning it (a ``TeamProvisioningConfig`` row exists, in the
-    same org as a currently-scoped team) and the user still has access. This
-    closes the gap where a customer re-OAuths the partner and gets a fresh access
-    token scoped only to their default team, leaving previously-provisioned teams
-    inaccessible on `update_service` / `rotate_credentials` / `resolve` /
-    `remove` until they retrigger the project-resolution flow.
+    A team is eligible for auto-add when the customer has previously provisioned
+    it through this partner flow (its ``TeamProvisioningConfig.stripe_project_id``
+    is set, the team is in the same org as a currently-scoped team) and the user
+    still has access. This closes the gap where a customer re-OAuths the partner
+    and gets a fresh access token scoped only to their default team, leaving
+    previously-provisioned teams inaccessible on `update_service` /
+    `rotate_credentials` / `resolve` / `remove` until they retrigger the
+    project-resolution flow.
+
+    Note: ``TeamProvisioningConfig`` rows are auto-created for every team by a
+    post_save signal, so row existence alone is not a meaningful check. The
+    partner-provisioned indicator is ``stripe_project_id`` being set (which only
+    ``_resolve_or_create_project_team`` sets, in this file).
     """
     from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -1372,7 +1380,7 @@ def _resolve_provisioning_resource(
         try:
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
-            return None, scoped_teams, "forbidden"
+            return None, scoped_teams, "not_found"
         # Re-check ACL even on the short-circuit: the team may have been added
         # to scope by an earlier `/resources` call when the user had access, but
         # advanced permissions can revoke that access later. Stale scope must
@@ -1394,7 +1402,7 @@ def _resolve_provisioning_resource(
     if team.organization_id not in scoped_org_ids:
         return None, scoped_teams, "forbidden"
 
-    if not TeamProvisioningConfig.objects.filter(team_id=team_id).exists():
+    if not TeamProvisioningConfig.objects.filter(team_id=team_id, stripe_project_id__isnull=False).exists():
         return None, scoped_teams, "forbidden"
 
     if not _user_can_access_team(user, team):
@@ -1636,6 +1644,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
     if error_code == "invalid_resource_id":
         return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+    if error_code == "not_found":
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
     if error_code == "forbidden" or team is None:
         return _error_response(
             "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
@@ -1699,6 +1709,8 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
     if error_code == "invalid_resource_id":
         return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+    if error_code == "not_found":
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
     if error_code == "forbidden" or team is None:
         return _error_response(
             "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
@@ -1799,6 +1811,11 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
             },
             status=400,
         )
+    if error_code == "not_found":
+        return Response(
+            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
+            status=404,
+        )
     if error_code == "forbidden" or team is None:
         return Response(
             {
@@ -1874,6 +1891,11 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
                 "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
             },
             status=400,
+        )
+    if error_code == "not_found":
+        return Response(
+            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
+            status=404,
         )
     if error_code == "forbidden" or team is None:
         return Response(

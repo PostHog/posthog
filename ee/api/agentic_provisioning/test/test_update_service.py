@@ -207,11 +207,13 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         )
         assert res.status_code == 403
 
-    def test_update_service_rejects_team_without_provisioning_config(self):
+    def test_update_service_rejects_same_org_team_not_provisioned_by_partner(self):
         from posthog.models.team.team import Team
 
-        # Same-org team that was NOT provisioned through this partner flow — no
-        # TeamProvisioningConfig means the partner has no claim on it.
+        # Same-org team. A `TeamProvisioningConfig` row is auto-created on every
+        # team (post_save signal), but its `stripe_project_id` is None because
+        # the team was created outside the partner flow. The partner has no
+        # claim on it.
         unprovisioned_team = Team.objects.create_with_data(
             initiating_user=self.user,
             organization=self.organization,
