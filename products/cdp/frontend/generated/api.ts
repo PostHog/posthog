@@ -19,6 +19,8 @@ import type {
     HogFunctionsLogsRetrieveParams,
     HogFunctionsMetricsRetrieveParams,
     HogFunctionsMetricsTotalsRetrieveParams,
+    HogInvocationReplayRequestApi,
+    HogInvocationReplayResponseApi,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionTemplateListApi,
     PatchedHogFunctionApi,
@@ -323,6 +325,33 @@ export const hogFunctionsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFunctionsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFunctionsReplayCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/replay/`
+}
+
+/**
+ * Replay past invocations of this hog function from their stored payloads.
+
+The CDP worker reads matching rows from the `hog_invocation_results`
+ClickHouse table, rehydrates the invocation from the stored
+`invocation_globals`, and re-enqueues onto cyclotron. Each replayed
+run reuses the original `invocation_id` with `is_retry=1` set on the
+new lifecycle row so the UI can surface that it was a replay.
+ */
+export const hogFunctionsReplayCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationReplayRequestApi: HogInvocationReplayRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationReplayResponseApi> => {
+    return apiMutator<HogInvocationReplayResponseApi>(getHogFunctionsReplayCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationReplayRequestApi),
     })
 }
 
