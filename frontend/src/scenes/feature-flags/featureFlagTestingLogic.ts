@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
@@ -165,6 +165,73 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             {
                 setSelectedPerson: (_, { person }) => person,
                 clearTestForm: () => null,
+            },
+        ],
+    }),
+    selectors({
+        // Get the set of properties used in any condition
+        usedProperties: [
+            (s) => [s.testResult],
+            (result: TestResult | null): Set<string> => {
+                const used = new Set<string>()
+                if (result?.conditions) {
+                    for (const condition of result.conditions) {
+                        for (const prop of condition.properties) {
+                            used.add(prop.key)
+                        }
+                    }
+                }
+                return used
+            },
+        ],
+        // Get properties to show based on showAllProperties toggle and used properties
+        propertiesToShow: [
+            (s) => [s.testResult, s.showAllProperties, s.usedProperties],
+            (result: TestResult | null, showAll: boolean, usedProps: Set<string>): string[] => {
+                if (!result) {
+                    return []
+                }
+                return showAll ? Object.keys(result.person_properties) : Array.from(usedProps)
+            },
+        ],
+        // Get properties sorted with used properties first, then alphabetical
+        sortedProperties: [
+            (s) => [s.propertiesToShow, s.usedProperties],
+            (propertiesToShow: string[], usedProps: Set<string>): string[] => {
+                return propertiesToShow.sort((a, b) => {
+                    // Show used properties first, then alphabetical
+                    const aUsed = usedProps.has(a)
+                    const bUsed = usedProps.has(b)
+                    if (aUsed && !bUsed) {
+                        return -1
+                    }
+                    if (!aUsed && bUsed) {
+                        return 1
+                    }
+                    return a.localeCompare(b)
+                })
+            },
+        ],
+        // Get enriched conditions with derived flags for UI rendering
+        enrichedConditions: [
+            (s) => [s.testResult],
+            (result: TestResult | null) => {
+                if (!result?.conditions) {
+                    return []
+                }
+
+                return result.conditions.map((condition: ConditionAnalysis) => {
+                    // Check if this condition is the actual winner
+                    const isWinningCondition = result.condition_index === condition.index
+                    // Determine if this condition matched but wasn't the winner
+                    const matchedButNotWinner = condition.matched && !condition.rollout_excluded && !isWinningCondition
+
+                    return {
+                        ...condition,
+                        isWinningCondition,
+                        matchedButNotWinner,
+                    }
+                })
             },
         ],
     }),

@@ -9,7 +9,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType, PersonType } from '~/types'
 
-import type { ConditionAnalysis, TestResult } from './featureFlagTestingLogic'
+import type { ConditionAnalysis } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
 function formatPropertyKey(key: string): string {
@@ -41,18 +41,6 @@ function formatPropertyValue(value: unknown): string {
     return String(value)
 }
 
-function getUsedProperties(result: TestResult | null): Set<string> {
-    const used = new Set<string>()
-    if (result?.conditions) {
-        for (const condition of result.conditions) {
-            for (const prop of condition.properties) {
-                used.add(prop.key)
-            }
-        }
-    }
-    return used
-}
-
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
 
@@ -65,6 +53,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         datePickerValue,
         testEvaluationLoading: isLoading,
         selectedPerson,
+        usedProperties,
+        sortedProperties,
+        enrichedConditions,
     } = useValues(logic)
 
     const {
@@ -324,14 +315,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         <LemonLabel>Condition analysis</LemonLabel>
 
                                         <div className="space-y-3 max-h-96 overflow-auto">
-                                            {result.conditions.map((condition: ConditionAnalysis) => {
-                                                // Check if this condition is the actual winner
-                                                const isWinningCondition = result.condition_index === condition.index
-                                                // Determine if this condition matched but wasn't the winner
-                                                const matchedButNotWinner =
-                                                    condition.matched &&
-                                                    !condition.rollout_excluded &&
-                                                    !isWinningCondition
+                                            {enrichedConditions.map((condition) => {
+                                                const { isWinningCondition, matchedButNotWinner } = condition
 
                                                 return (
                                                     <div
@@ -426,101 +411,71 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     </div>
 
                                     <div className="max-h-96 overflow-auto">
-                                        {(() => {
-                                            const usedProps = getUsedProperties(result)
-                                            const propertiesToShow = showAllProperties
-                                                ? Object.keys(result.person_properties)
-                                                : Array.from(usedProps)
-
-                                            const sortedProperties = propertiesToShow.sort((a, b) => {
-                                                // Show used properties first, then alphabetical
-                                                const aUsed = usedProps.has(a)
-                                                const bUsed = usedProps.has(b)
-                                                if (aUsed && !bUsed) {
-                                                    return -1
-                                                }
-                                                if (!aUsed && bUsed) {
-                                                    return 1
-                                                }
-                                                return a.localeCompare(b)
-                                            })
-
-                                            if (Object.keys(result.person_properties).length === 0) {
-                                                return (
-                                                    <div className="text-center py-4 text-muted">
-                                                        <p>No person properties available</p>
-                                                        <p className="text-xs mt-1">
-                                                            This person has no properties, or they were not included in
-                                                            the evaluation
-                                                        </p>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (sortedProperties.length === 0) {
-                                                return (
-                                                    <div className="text-center py-4 text-muted">
-                                                        <p>No properties used in conditions</p>
-                                                        <p className="text-xs mt-1">
-                                                            This person has{' '}
-                                                            {Object.keys(result.person_properties).length} properties,
-                                                            but none were used in flag conditions.{' '}
-                                                            <button
-                                                                className="text-primary cursor-pointer underline"
-                                                                onClick={() => setShowAllProperties(true)}
-                                                            >
-                                                                Show all properties
-                                                            </button>
-                                                        </p>
-                                                    </div>
-                                                )
-                                            }
-
-                                            return (
-                                                <LemonTable
-                                                    columns={[
-                                                        {
-                                                            title: 'Property',
-                                                            key: 'property',
-                                                            render: (_, record: { key: string }) => (
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="font-medium">
-                                                                        {formatPropertyKey(record.key)}
-                                                                    </span>
-                                                                    {usedProps.has(record.key) && (
-                                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-highlight text-success border border-success">
-                                                                            Used in condition
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            ),
-                                                        },
-                                                        {
-                                                            title: 'Value',
-                                                            key: 'value',
-                                                            render: (_, record: { key: string }) => (
-                                                                <span
-                                                                    className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                        result.person_properties[record.key] === null ||
-                                                                        result.person_properties[record.key] ===
-                                                                            undefined
-                                                                            ? 'bg-muted text-muted-alt'
-                                                                            : 'bg-bg-light border'
-                                                                    }`}
-                                                                >
-                                                                    {formatPropertyValue(
-                                                                        result.person_properties[record.key]
-                                                                    )}
+                                        {Object.keys(result.person_properties).length === 0 ? (
+                                            <div className="text-center py-4 text-muted">
+                                                <p>No person properties available</p>
+                                                <p className="text-xs mt-1">
+                                                    This person has no properties, or they were not included in the
+                                                    evaluation
+                                                </p>
+                                            </div>
+                                        ) : sortedProperties.length === 0 ? (
+                                            <div className="text-center py-4 text-muted">
+                                                <p>No properties used in conditions</p>
+                                                <p className="text-xs mt-1">
+                                                    This person has {Object.keys(result.person_properties).length}{' '}
+                                                    properties, but none were used in flag conditions.{' '}
+                                                    <button
+                                                        className="text-primary cursor-pointer underline"
+                                                        onClick={() => setShowAllProperties(true)}
+                                                    >
+                                                        Show all properties
+                                                    </button>
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <LemonTable
+                                                columns={[
+                                                    {
+                                                        title: 'Property',
+                                                        key: 'property',
+                                                        render: (_, record: { key: string }) => (
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-medium">
+                                                                    {formatPropertyKey(record.key)}
                                                                 </span>
-                                                            ),
-                                                        },
-                                                    ]}
-                                                    dataSource={sortedProperties.map((key) => ({ key }))}
-                                                    rowKey={(record) => record.key}
-                                                    size="small"
-                                                />
-                                            )
-                                        })()}
+                                                                {usedProperties.has(record.key) && (
+                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-highlight text-success border border-success">
+                                                                        Used in condition
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        ),
+                                                    },
+                                                    {
+                                                        title: 'Value',
+                                                        key: 'value',
+                                                        render: (_, record: { key: string }) => (
+                                                            <span
+                                                                className={`px-2 py-1 rounded text-xs font-mono ${
+                                                                    result.person_properties[record.key] === null ||
+                                                                    result.person_properties[record.key] === undefined
+                                                                        ? 'bg-muted text-muted-alt'
+                                                                        : 'bg-bg-light border'
+                                                                }`}
+                                                            >
+                                                                {formatPropertyValue(
+                                                                    result.person_properties[record.key]
+                                                                )}
+                                                            </span>
+                                                        ),
+                                                    },
+                                                ]}
+                                                dataSource={sortedProperties.map((key) => ({ key }))}
+                                                rowKey={(record) => record.key}
+                                                size="small"
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             </div>
