@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.core_event import CoreEvent
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
@@ -347,3 +349,39 @@ class TestTeamSetTokenAndSave(BaseTest):
         )
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_trimmed"
+
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_set_token_and_save_evicts_old_and_warms_new_cache(self, _mock_push_vercel) -> None:
+        cache.clear()
+        set_team_in_cache("phc_old_token_value", self.team)
+        assert get_team_in_cache("phc_old_token_value") is not None
+
+        self.team.set_token_and_save(
+            new_token="phc_new_token_value",
+            user=self.user,
+            is_impersonated_session=False,
+        )
+
+        assert get_team_in_cache("phc_old_token_value") is None
+
+        cached_new = get_team_in_cache("phc_new_token_value")
+        assert cached_new is not None
+        assert cached_new.api_token == "phc_new_token_value"
+
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_set_token_and_save_rejection_leaves_cache_untouched(self, _mock_push_vercel) -> None:
+        Team.objects.create(organization=self.organization, api_token="phc_already_taken")
+        cache.clear()
+        set_team_in_cache("phc_old_token_value", self.team)
+
+        with self.assertRaises(ValueError):
+            self.team.set_token_and_save(
+                new_token="phc_already_taken",
+                user=self.user,
+                is_impersonated_session=False,
+            )
+
+        cached = get_team_in_cache("phc_old_token_value")
+        assert cached is not None
+        assert cached.api_token == "phc_old_token_value"
+        assert get_team_in_cache("phc_already_taken") is None
