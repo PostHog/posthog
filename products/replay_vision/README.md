@@ -10,10 +10,8 @@ A sub-product of Session Replay. Users configure named **lenses** that PostHog a
 
 ## Layout
 
-- `backend/models/` — `ReplayLens`, `ReplayLensObservation`, and their enums.
-- `backend/temporal/` — Vision-owned Temporal workflows (e.g. `ApplyLensWorkflow`, the per-lens schedule, the reconciler, the reaper).
-- `backend/presentation/` — DRF viewsets, serializers, URL routing.
-- `backend/facade/` — thin contract layer for cross-product access; this product is `backend:contract-check`-isolated, so external imports must enter through `facade/api.py`.
-- `backend/logic/` — business logic; keeps the facade and viewsets thin.
+- `backend/models/` — `ReplayLens`, `ReplayObservation`, and their enums.
+- `backend/api/` — DRF viewsets, serializers, URL routing.
+- `backend/feature_flag.py` — `replay-vision` flag check + permission.
 - `backend/admin.py` — Django admin registrations for both models.
 - `frontend/` — kea-first scenes and logics for the lens management UI.

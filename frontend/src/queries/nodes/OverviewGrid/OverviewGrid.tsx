@@ -191,6 +191,7 @@ const OverviewItemCell = ({
                     <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
                     {item.warning && (
                         <Tooltip
+                            interactive={!!item.warningLink}
                             title={
                                 <div>
                                     {item.warning}

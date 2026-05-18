@@ -7,6 +7,10 @@ import type { MCPAnalyticsContext } from '@/lib/analytics'
 /** Provider interface for resolving user/session identity and workspace context. */
 export type McpCatIdentityProvider = {
     getDistinctId: () => Promise<string>
+    // PostHog-side session UUID. Resolved from the wrapper-app `?sessionId=`
+    // query hint via `SessionManager.getSessionUuid()` and used as `$session_id`
+    // / `$ai_session_id` to drive Session Replay and LLM Analytics grouping.
+    // Only set when a wrapping consumer app supplied the hint.
     getSessionUuid: () => Promise<string | undefined>
     getMcpClientName: () => Promise<string | undefined>
     getMcpClientVersion: () => Promise<string | undefined>
@@ -20,6 +24,18 @@ export type McpCatIdentityProvider = {
     getTransport: () => Promise<string | undefined>
     getMcpConsumer: () => Promise<string | undefined>
     getMcpMode: () => Promise<string | undefined>
+    // Streamable-HTTP transport session id from the inbound `Mcp-Session-Id`
+    // header. Distinct from `getSessionUuid()` above: this one is minted by
+    // the MCP server per the protocol spec and is available on (almost) every
+    // request, whereas `getSessionUuid()` only resolves when a wrapper app
+    // also supplied a `?sessionId=` hint. Emitted on events as `mcp_session_id`.
+    getMcpSessionId: () => Promise<string | undefined>
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14
+    // (`enableConversationId: true`). Persists across transport reconnects.
+    // Sourced from tool-call arguments by the SDK; we scaffold the property
+    // here so it lands on events once the SDK is bumped. Returns undefined
+    // until that wiring is in place.
+    getMcpConversationId: () => Promise<string | undefined>
 }
 
 export function redactSensitiveInformation(text: string): string {
@@ -79,6 +95,8 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     transport,
                     mcpConsumer,
                     mcpMode,
+                    mcpSessionId,
+                    mcpConversationId,
                 ] = await Promise.all([
                     identity.getMcpVersion(),
                     identity.getClientUserAgent(),
@@ -92,6 +110,8 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     identity.getTransport(),
                     identity.getMcpConsumer(),
                     identity.getMcpMode(),
+                    identity.getMcpSessionId(),
+                    identity.getMcpConversationId(),
                 ])
 
                 // `$groups` is the raw event-payload key; mcpcat doesn't expose a typed
@@ -118,6 +138,8 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     mcp_transport: transport,
                     mcp_consumer: mcpConsumer,
                     mcp_mode: mcpMode,
+                    mcp_session_id: mcpSessionId,
+                    mcp_conversation_id: mcpConversationId,
                     ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
                 }
             },

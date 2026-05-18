@@ -201,6 +201,15 @@ const handleRequest = async (
         })
     }
 
+    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
+    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
+    // routes these to the asset binding before the Worker runs, but
+    // `wrangler dev` invokes the Worker first — without this short-circuit,
+    // the OAuth gate below 401s the request before assets get a chance.
+    if (url.pathname.startsWith('/ui-apps/')) {
+        return env.ASSETS.fetch(request)
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)
@@ -337,10 +346,24 @@ const handleRequest = async (
     // synchronously via `RequestProperties`.
     const clientInfo = await extractClientInfoFromBody(request)
 
+    // Streamable-HTTP transport session id, minted by the MCP server on
+    // initialize and echoed back on every subsequent request. Absent on the
+    // initialize call itself. Distinct from `sessionId` (above), which is the
+    // wrapper-app-provided analytics correlation id.
+    const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
+    // Caller-supplied for now (wrapper apps can pass it via the header even
+    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
+    // the same value will also flow in from tool args — both sources land on
+    // the same `requestProperties.mcpConversationId` slot.
+    const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
+        mcpSessionId,
+        mcpConversationId,
         organizationId,
         projectId,
         clientUserAgent,
