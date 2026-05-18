@@ -255,14 +255,31 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             // Reconnect from focus-on-give-up still uses a separate 'sseFocusReconnect'
             // disposable so users who stay on a foreground tab past max-attempts retry on
             // window refocus.
+            //
+            // Lifecycle telemetry now fires on every visibility cycle (the disposable's
+            // setup/teardown run on resume/pause), so we tag each capture with a `reason`
+            // so existing dashboards can still distinguish initial connects, team-driven
+            // reloads, focus-reconnects, and pure visibility transitions.
+            // `cache.nextStartReason` / `cache.nextStopReason` carry the caller's intent
+            // into the factory + teardown; the disposable plugin's pause/resume cycle
+            // doesn't go through this action so the cache values default to
+            // 'visibility_resume' / 'visibility_pause'.
+            const startReason = cache.nextStartReason ?? 'initial'
+            cache.nextStartReason = null
+            cache.nextStopReason = 'replaced'
             cache.disposables.dispose('sseFocusReconnect')
             cache.disposables.dispose('sseConnection')
+            cache.nextStopReason = null
+            cache.nextStartReason = startReason
 
             cache.disposables.add(
                 () => {
+                    const reason = cache.nextStartReason ?? 'visibility_resume'
+                    cache.nextStartReason = null
                     // TEMPORARY: lifecycle tracking for /notifications SSE connection.
                     // Remove together with livestream_401_debug once root cause is known.
                     posthog.capture('livestream_sse_startsse_called', {
+                        reason,
                         flag_enabled: values.realTimeNotificationsEnabled,
                         has_token: !!values.currentTeam?.live_events_token,
                         has_host: !!liveEventsHostOrigin(),
@@ -292,7 +309,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     cache.sseConnection = abortController
                     cache.firstMessageLogged = false
 
-                    posthog.capture('livestream_sse_connecting', { url })
+                    posthog.capture('livestream_sse_connecting', { url, reason })
 
                     void retryWithBackoff(
                         () =>
@@ -350,6 +367,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             () => {
                                 const onFocus = (): void => {
                                     posthog.capture('livestream_sse_refocus_reconnect', { url })
+                                    cache.nextStartReason = 'focus_reconnect'
                                     actions.startSSE()
                                 }
                                 window.addEventListener('focus', onFocus, { once: true })
@@ -361,9 +379,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     })
 
                     return () => {
-                        // TEMPORARY: livestream SSE lifecycle tracking — captures both
-                        // explicit stop and pause-for-hidden teardowns.
+                        // TEMPORARY: livestream SSE lifecycle tracking. `reason` tags
+                        // whether this teardown was an explicit stop, a replacement by
+                        // a later startSSE call, or the disposable pausing for a
+                        // hidden tab so dashboards can still distinguish them.
+                        const stopReason = cache.nextStopReason ?? 'visibility_pause'
+                        cache.nextStopReason = null
                         posthog.capture('livestream_sse_stopped', {
+                            reason: stopReason,
                             had_connection: !!cache.sseConnection,
                         })
                         abortController.abort()
@@ -377,8 +400,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             )
         },
         stopSSE: () => {
+            cache.nextStopReason = 'explicit_stop'
             cache.disposables.dispose('sseFocusReconnect')
             cache.disposables.dispose('sseConnection')
+            cache.nextStopReason = null
         },
         navigateToNotification: ({ notification }) => {
             const path = values.sourcePathForNotification(notification)
@@ -433,6 +458,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         },
         loadCurrentTeamSuccess: () => {
             if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
+                cache.nextStartReason = 'team_reload'
                 actions.startSSE()
             }
         },
