@@ -1,12 +1,14 @@
-import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
 import {
+    userInterviewTopicsAddIntervieweeCreate,
     userInterviewTopicsGenerateLinksCreate,
     userInterviewTopicsIntervieweesList,
     userInterviewTopicsRetrieve,
@@ -35,6 +37,27 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
     path(['products', 'user_interviews', 'frontend', 'userInterviewLogic']),
     props({} as UserInterviewLogicProps),
     key((props) => props.id),
+    actions({
+        openAddPeopleModal: true,
+        closeAddPeopleModal: true,
+        addPeople: (emails: string[], distinctIds: string[]) => ({ emails, distinctIds }),
+    }),
+    reducers({
+        addPeopleModalOpen: [
+            false,
+            {
+                openAddPeopleModal: () => true,
+                closeAddPeopleModal: () => false,
+            },
+        ],
+        addingPeople: [
+            false,
+            {
+                addPeople: () => true,
+                closeAddPeopleModal: () => false,
+            },
+        ],
+    }),
     loaders(({ props }) => ({
         topic: {
             __default: null as UserInterviewTopicApi | null,
@@ -155,6 +178,37 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 },
             ],
         ],
+    })),
+    listeners(({ actions, props }) => ({
+        addPeople: async ({ emails, distinctIds }) => {
+            const projectId = String(teamLogic.values.currentTeamId)
+            const identifiers = [...emails, ...distinctIds]
+            // Upstream's `add_interviewee` endpoint takes one identifier at a time and
+            // auto-routes emails vs distinct IDs based on validation. Fan out in parallel
+            // and surface any per-identifier failures without aborting the whole batch.
+            const results = await Promise.allSettled(
+                identifiers.map((identifier) =>
+                    userInterviewTopicsAddIntervieweeCreate(projectId, props.id, { identifier })
+                )
+            )
+            const failed = results
+                .map((result, i) => ({ result, identifier: identifiers[i] }))
+                .filter(({ result }) => result.status === 'rejected')
+
+            actions.closeAddPeopleModal()
+
+            const succeeded = identifiers.length - failed.length
+            if (succeeded > 0) {
+                lemonToast.success(`Added ${succeeded} ${succeeded === 1 ? 'person' : 'people'} to this topic`)
+            }
+            if (failed.length > 0) {
+                lemonToast.error(`Failed to add ${failed.length}: ${failed.map((f) => f.identifier).join(', ')}`)
+            }
+
+            actions.loadTopic()
+            actions.loadInterviewees()
+            actions.loadLinks()
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadTopic()

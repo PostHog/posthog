@@ -1,7 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconCheck, IconChevronRight, IconClock, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSkeleton, LemonTag, LemonTextArea, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -44,7 +45,10 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         respondedCount,
         totalTargeted,
         responseRate,
+        addPeopleModalOpen,
+        addingPeople,
     } = useValues(userInterviewLogic)
+    const { openAddPeopleModal, closeAddPeopleModal, addPeople } = useActions(userInterviewLogic)
 
     if (topicLoading && !topic) {
         return (
@@ -114,7 +118,20 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     </div>
 
                     {/* Targeted people list */}
-                    <LemonWidget title={`People (${allIdentifiers.length})`}>
+                    <LemonWidget
+                        title={`People (${allIdentifiers.length})`}
+                        actions={
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconPlus />}
+                                onClick={openAddPeopleModal}
+                                data-attr="add-people-to-topic"
+                            >
+                                Add people
+                            </LemonButton>
+                        }
+                    >
                         <div className="divide-y">
                             {intervieweesLoading && interviewees.length === 0 && allIdentifiers.length === 0 ? (
                                 <div className="p-4 space-y-3">
@@ -173,7 +190,99 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     )}
                 </div>
             </div>
+
+            <AddPeopleModal
+                isOpen={addPeopleModalOpen}
+                isSaving={addingPeople}
+                onClose={closeAddPeopleModal}
+                onSubmit={(emails, distinctIds) => addPeople(emails, distinctIds)}
+            />
         </SceneContent>
+    )
+}
+
+function parseLines(value: string): string[] {
+    return value
+        .split(/[\n,]/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+}
+
+function AddPeopleModal({
+    isOpen,
+    isSaving,
+    onClose,
+    onSubmit,
+}: {
+    isOpen: boolean
+    isSaving: boolean
+    onClose: () => void
+    onSubmit: (emails: string[], distinctIds: string[]) => void
+}): JSX.Element {
+    const [emailsInput, setEmailsInput] = useState('')
+    const [distinctIdsInput, setDistinctIdsInput] = useState('')
+
+    const emails = parseLines(emailsInput)
+    const distinctIds = parseLines(distinctIdsInput)
+    const canSubmit = emails.length + distinctIds.length > 0
+
+    const handleClose = (): void => {
+        setEmailsInput('')
+        setDistinctIdsInput('')
+        onClose()
+    }
+
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={handleClose}
+            title="Add people to this topic"
+            description="They'll be merged into the existing targeting — generate links or send invites afterwards to reach the new people."
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={handleClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabledReason={!canSubmit ? 'Enter at least one email or distinct ID' : undefined}
+                        loading={isSaving}
+                        onClick={() => {
+                            onSubmit(emails, distinctIds)
+                            setEmailsInput('')
+                            setDistinctIdsInput('')
+                        }}
+                    >
+                        Add {emails.length + distinctIds.length || ''}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="flex flex-col gap-4 min-w-[420px]">
+                <div>
+                    <label className="block text-sm font-medium mb-1">Emails</label>
+                    <p className="text-xs text-muted mb-1">One per line or comma-separated.</p>
+                    <LemonTextArea
+                        value={emailsInput}
+                        onChange={setEmailsInput}
+                        placeholder={'alex@example.com\nJordan <jordan@example.com>'}
+                        rows={4}
+                        data-attr="add-people-emails"
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium mb-1">Distinct IDs</label>
+                    <p className="text-xs text-muted mb-1">One per line or comma-separated.</p>
+                    <LemonTextArea
+                        value={distinctIdsInput}
+                        onChange={setDistinctIdsInput}
+                        placeholder="user_abc123"
+                        rows={3}
+                        data-attr="add-people-distinct-ids"
+                    />
+                </div>
+            </div>
+        </LemonModal>
     )
 }
 
