@@ -8,6 +8,8 @@ import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -88,9 +90,12 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { insightMode, alertId } = useValues(insightSceneLogic)
     const { insightProps, insight } = useValues(insightLogic(insightLogicProps))
     const { query } = useValues(insightDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
 
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
+        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
+    })
 
     return (
         <>
