@@ -12,7 +12,7 @@ export function isTreeEmpty(node: FilterNode): boolean {
     if (node.type === 'not') {
         return isTreeEmpty(node.child)
     }
-    return node.children.length === 0
+    return node.children.length === 0 || node.children.every(isTreeEmpty)
 }
 
 /**

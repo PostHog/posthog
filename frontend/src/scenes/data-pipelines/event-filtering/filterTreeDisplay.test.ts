@@ -9,7 +9,8 @@ describe('isTreeEmpty', () => {
         ['not wrapping empty group', not(or()), true],
         ['not wrapping condition', not(cond()), false],
         ['group with condition', or(cond()), false],
-        ['nested empty groups (not recursive — has a child node)', or(and()), false],
+        ['nested empty groups recurse', or(and()), true],
+        ['nested empty groups mixed with condition', or(and(), cond()), false],
     ])('%s', (_name, tree, expected) => {
         expect(isTreeEmpty(tree)).toBe(expected)
     })
