@@ -300,6 +300,11 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // lifecycle row producer reads this to drive the `attempts` + `is_retry`
     // columns in `hog_invocation_results`.
     replayAttempts?: number
+    // ISO timestamp of the *original* cyclotron-scheduled time. Carried through
+    // replays so the lifecycle row producer can populate `first_scheduled_at`
+    // verbatim — ReplacingMergeTree would otherwise collapse retries to the
+    // latest version and lose the original.
+    firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 
@@ -330,6 +335,9 @@ export type HogFlowInvocationContext = {
     // the same way it does for hog functions, so the `max_attempts` guard on
     // the replay filter actually applies to flows.
     replayAttempts?: number
+    // Carried verbatim through retries so `first_scheduled_at` survives the
+    // ReplacingMergeTree collapse on the hog_invocation_results table.
+    firstScheduledAt?: string
 }
 
 // Mostly copied from frontend types

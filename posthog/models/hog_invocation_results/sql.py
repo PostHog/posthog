@@ -49,6 +49,13 @@ def HOG_INVOCATION_RESULTS_ENGINE() -> ReplacingMergeTree:
 # Kafka payload column list (no CODEC clauses — ZSTD applies on the storage
 # side only). Reused between the Kafka engine table, the MV projection, and
 # the distributed read alias.
+#
+# `first_scheduled_at` is set by the producer to the *original* cyclotron-
+# scheduled time and carried unchanged through retries. The ReplacingMergeTree
+# collapses rows per `invocation_id`, so we couldn't recover the original
+# scheduled time with `min(scheduled_at)` post-merge — every lifecycle row
+# for a given invocation carries this column verbatim so `argMax(..., version)`
+# returns it correctly regardless of merge state.
 HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = """
     team_id Int64,
     function_kind LowCardinality(String),
@@ -59,6 +66,7 @@ HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = """
     attempts UInt8,
     is_retry UInt8,
     scheduled_at DateTime64(6, 'UTC'),
+    first_scheduled_at DateTime64(6, 'UTC'),
     started_at Nullable(DateTime64(6, 'UTC')),
     finished_at Nullable(DateTime64(6, 'UTC')),
     duration_ms Nullable(UInt32),
@@ -89,6 +97,7 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     attempts UInt8,
     is_retry UInt8,
     scheduled_at DateTime64(6, 'UTC'),
+    first_scheduled_at DateTime64(6, 'UTC') DEFAULT scheduled_at,
     started_at Nullable(DateTime64(6, 'UTC')),
     finished_at Nullable(DateTime64(6, 'UTC')),
     duration_ms Nullable(UInt32),
@@ -169,6 +178,12 @@ AS SELECT
     attempts,
     is_retry,
     scheduled_at,
+    -- Defensive fallback: if the producer omits the field (e.g. an older build
+    -- still in rollout), the Kafka JSONEachRow parser populates the column
+    -- with epoch 0. Substitute `scheduled_at` in that case so the column reads
+    -- sensibly. Once every producer carries the field, this resolves to a
+    -- straight passthrough.
+    if(first_scheduled_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), scheduled_at, first_scheduled_at) AS first_scheduled_at,
     started_at,
     finished_at,
     duration_ms,
@@ -204,6 +219,7 @@ INSERT INTO {HOG_INVOCATION_RESULTS_DATA_TABLE} (
     attempts,
     is_retry,
     scheduled_at,
+    first_scheduled_at,
     started_at,
     finished_at,
     duration_ms,
@@ -229,6 +245,7 @@ SELECT
     %(attempts)s,
     %(is_retry)s,
     %(scheduled_at)s,
+    %(first_scheduled_at)s,
     %(started_at)s,
     %(finished_at)s,
     %(duration_ms)s,

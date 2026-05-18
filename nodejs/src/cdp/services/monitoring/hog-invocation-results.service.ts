@@ -55,6 +55,11 @@ export interface HogInvocationResultRow {
     attempts: number
     is_retry: 0 | 1
     scheduled_at: string // ISO microsecond DateTime64
+    // Original cyclotron-scheduled time, carried unchanged through retries.
+    // ReplacingMergeTree collapses lifecycle rows per invocation_id, so
+    // `min(scheduled_at)` post-merge is unreliable — every row stamps this
+    // verbatim so `argMax(first_scheduled_at, version)` returns it correctly.
+    first_scheduled_at: string
     started_at: string | null
     finished_at: string | null
     duration_ms: number | null
@@ -301,6 +306,16 @@ export class HogInvocationResultsService {
               ? (invocation.state?.replayAttempts ?? 0)
               : 0
 
+        // `firstScheduledAt` is set by the replay paginator on rehydration so
+        // retries inherit the original's value; for fresh invocations it's
+        // unset and we fall back to the current `scheduled_at`.
+        const firstScheduledAtRaw = isHogFunctionInvocation(invocation)
+            ? invocation.state?.firstScheduledAt
+            : isHogFlowInvocation(invocation)
+              ? invocation.state?.firstScheduledAt
+              : undefined
+        const scheduledAtIso = isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now)
+
         const row: HogInvocationResultRow = {
             team_id: invocation.teamId,
             function_kind: this.functionKindFor(invocation),
@@ -310,7 +325,8 @@ export class HogInvocationResultsService {
             status,
             attempts: replayAttempts,
             is_retry: replayAttempts > 0 ? 1 : 0,
-            scheduled_at: isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now),
+            scheduled_at: scheduledAtIso,
+            first_scheduled_at: firstScheduledAtRaw ?? scheduledAtIso,
             started_at: startedAt ? isoMicroseconds(startedAt) : null,
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
             duration_ms: durationMs,
@@ -364,6 +380,7 @@ export class HogInvocationResultsService {
         const durationMs =
             args.startedAt && args.finishedAt ? Math.max(0, args.finishedAt.getTime() - args.startedAt.getTime()) : null
 
+        const scheduledAtIso = isoMicroseconds(args.scheduledAt)
         const row: HogInvocationResultRow = {
             team_id: args.teamId,
             function_kind: replayWrapperKindFor(args.parentFunctionKind),
@@ -373,7 +390,11 @@ export class HogInvocationResultsService {
             status: args.status,
             attempts: args.pagesProcessed,
             is_retry: 0,
-            scheduled_at: isoMicroseconds(args.scheduledAt),
+            scheduled_at: scheduledAtIso,
+            // Wrapper rows don't have retries — first == scheduled. Keeping
+            // the field populated so the column reads consistently across
+            // both row kinds.
+            first_scheduled_at: scheduledAtIso,
             started_at: args.startedAt ? isoMicroseconds(args.startedAt) : null,
             finished_at: args.finishedAt ? isoMicroseconds(args.finishedAt) : null,
             duration_ms: durationMs,

@@ -269,18 +269,18 @@ const pickSparklineTier = (filters: HogInvocationsFilters): SparklineTier => {
     const { start, end } = resolveDateRange(filters)
     const hours = end.diff(start, 'hour')
     if (hours < 24) {
-        return { intervalMs: 60_000, bucketExpr: 'toStartOfMinute(first_scheduled_at)' }
+        return { intervalMs: 60_000, bucketExpr: 'toStartOfMinute(first_scheduled)' }
     }
     if (hours <= 4 * 24) {
         return {
             intervalMs: 15 * 60_000,
-            bucketExpr: 'toStartOfInterval(first_scheduled_at, INTERVAL 15 MINUTE)',
+            bucketExpr: 'toStartOfInterval(first_scheduled, INTERVAL 15 MINUTE)',
         }
     }
     if (hours <= 7 * 24) {
-        return { intervalMs: 60 * 60_000, bucketExpr: 'toStartOfHour(first_scheduled_at)' }
+        return { intervalMs: 60 * 60_000, bucketExpr: 'toStartOfHour(first_scheduled)' }
     }
-    return { intervalMs: 24 * 60 * 60_000, bucketExpr: 'toStartOfDay(first_scheduled_at)' }
+    return { intervalMs: 24 * 60 * 60_000, bucketExpr: 'toStartOfDay(first_scheduled)' }
 }
 
 /**
@@ -344,7 +344,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
                 argMax(event_uuid, version)     AS event_uuid,
                 argMax(distinct_id, version)    AS distinct_id,
                 argMax(person_id, version)      AS person_id,
-                min(scheduled_at)               AS first_scheduled_at
+                argMax(first_scheduled_at, version) AS first_scheduled
             FROM posthog.hog_invocation_results
             WHERE ${kindClause}
               AND function_id = ${props.id}
@@ -424,7 +424,7 @@ async function fetchRunsPage(
     // `max(max(scheduled_at))`.
     const orderClause =
         filters.order_by === 'first_scheduled'
-            ? hogql.raw('ORDER BY min(scheduled_at) DESC, invocation_id DESC')
+            ? hogql.raw('ORDER BY argMax(first_scheduled_at, version) DESC, invocation_id DESC')
             : hogql.raw('ORDER BY max(scheduled_at) DESC, invocation_id DESC')
     const kindClause = kindClauseFor(props, filters)
     const dateClause = dateClauseFor(filters)
@@ -438,7 +438,7 @@ async function fetchRunsPage(
             argMax(error_kind, version)     AS error_kind,
             argMax(error_message, version)  AS error_message,
             max(scheduled_at)               AS latest_scheduled_at,
-            min(scheduled_at)               AS first_scheduled_at,
+            argMax(first_scheduled_at, version) AS first_scheduled,
             argMax(started_at, version)     AS started_at,
             argMax(finished_at, version)    AS finished_at,
             argMax(duration_ms, version)    AS duration_ms,

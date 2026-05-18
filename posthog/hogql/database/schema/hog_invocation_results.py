@@ -33,6 +33,7 @@ HOG_INVOCATION_RESULTS_FIELDS: dict[str, FieldOrTable] = {
     "attempts": IntegerDatabaseField(name="attempts", nullable=False),
     "is_retry": BooleanDatabaseField(name="is_retry", nullable=False),
     "scheduled_at": DateTimeDatabaseField(name="scheduled_at", nullable=False),
+    "first_scheduled_at": DateTimeDatabaseField(name="first_scheduled_at", nullable=False),
     "started_at": DateTimeDatabaseField(name="started_at", nullable=True),
     "finished_at": DateTimeDatabaseField(name="finished_at", nullable=True),
     "duration_ms": IntegerDatabaseField(name="duration_ms", nullable=True),

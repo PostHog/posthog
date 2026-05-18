@@ -68,6 +68,7 @@ interface InvocationRow {
     parent_run_id: string
     attempts: number
     last_scheduled_at: string
+    first_scheduled_at: string
     invocation_globals: string
 }
 
@@ -382,10 +383,11 @@ export class ReplayPaginatorService {
             query: `/* team_id:${teamId} query_type:hog_invocation_replay_page */
                 SELECT
                     invocation_id,
-                    argMax(parent_run_id, version)      AS parent_run_id,
-                    argMax(attempts, version)           AS attempts,
-                    argMax(invocation_globals, version) AS invocation_globals,
-                    max(scheduled_at)                   AS last_scheduled_at
+                    argMax(parent_run_id, version)         AS parent_run_id,
+                    argMax(attempts, version)              AS attempts,
+                    argMax(invocation_globals, version)    AS invocation_globals,
+                    argMax(first_scheduled_at, version)    AS first_scheduled_at,
+                    max(scheduled_at)                      AS last_scheduled_at
                 FROM hog_invocation_results
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
@@ -500,6 +502,10 @@ export class ReplayPaginatorService {
                     // lifecycle rows.
                     attempts: 0,
                     replayAttempts: (row.attempts || 0) + 1,
+                    // Carry the original first-scheduled time forward — the
+                    // producer writes this verbatim on every retry's lifecycle
+                    // rows so ReplacingMergeTree doesn't collapse it away.
+                    firstScheduledAt: row.first_scheduled_at,
                 },
                 teamId,
                 functionId,
@@ -548,6 +554,7 @@ export class ReplayPaginatorService {
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.
                 replayAttempts: (row.attempts || 0) + 1,
+                firstScheduledAt: row.first_scheduled_at,
             }
             return invocation
         }
