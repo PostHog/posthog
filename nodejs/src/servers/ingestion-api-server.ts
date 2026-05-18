@@ -410,7 +410,11 @@ export class IngestionApiServer implements NodeServer {
                 // with ours. Respond 503 so the consumer surfaces it as a
                 // distinct error (TransportError::WorkerBusy) and the alarm is
                 // visible in `ingestion_api_batch_capacity_rejections_total`.
-                if (feedResult.reason.startsWith('at concurrent batch capacity')) {
+                // Use the typed `kind` discriminator (not the human-readable
+                // `reason` string) so a future BatchingPipeline message tweak
+                // can't silently downgrade us to a fall-through 500 — which
+                // the Rust transport treats as retriable.
+                if (feedResult.kind === 'at_capacity') {
                     batchCapacityRejections.inc()
                     res.status(503).json({
                         batch_id: batch_id ?? '',

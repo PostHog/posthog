@@ -133,18 +133,24 @@ impl HttpTransport {
             .ok_or_else(|| TransportError::UnknownWorker(worker_url.to_string()))?
             .clone();
 
-        if semaphore.available_permits() == 0 {
-            counter!(
-                "ingestion_consumer_transport_backpressure_waits_total",
-                "worker" => worker_url.to_string()
-            )
-            .increment(1);
-        }
-
-        let _permit = semaphore
-            .acquire_owned()
-            .await
-            .expect("worker semaphore must not be closed");
+        // Atomic "did we actually have to wait?" check. `available_permits`
+        // followed by `acquire_owned` would race — a permit could be released
+        // between the two (false positive) or stolen (false negative). Using
+        // `try_acquire_owned` first gives an accurate backpressure counter.
+        let _permit = match semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                counter!(
+                    "ingestion_consumer_transport_backpressure_waits_total",
+                    "worker" => worker_url.to_string()
+                )
+                .increment(1);
+                semaphore
+                    .acquire_owned()
+                    .await
+                    .expect("worker semaphore must not be closed")
+            }
+        };
 
         let mut last_err = None;
         for attempt in 0..=self.max_retries {
