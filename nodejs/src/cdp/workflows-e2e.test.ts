@@ -40,7 +40,7 @@ jest.mock('@posthog/cyclotron', () => ({
 const CYCLOTRON_NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
 describe('Workflows E2E (postgres-v2)', () => {
-    jest.setTimeout(120000)
+    jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
@@ -604,19 +604,8 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('wait_until_time_window: window in the future', () => {
         beforeEach(async () => {
-            // Schedule for a time window 1 second from now
-            const now = new Date()
-            const futureHour = now.getUTCHours()
-            const futureMinute = now.getUTCMinutes()
-            // Window starts 1s from now (rounded to next minute + 1) and lasts 2 minutes
-            const startMinute = (futureMinute + 1) % 60
-            const startHour = futureMinute + 1 >= 60 ? (futureHour + 1) % 24 : futureHour
-            const endMinute = (startMinute + 2) % 60
-            const endHour = startMinute + 2 >= 60 ? (startHour + 1) % 24 : startHour
-
-            const startTime = `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`
-            const endTime = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`
-
+            // Use a time window far in the future (23:00-23:59 tomorrow) so the job
+            // is always rescheduled. We then fast-forward by updating the DB directly.
             await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
@@ -634,9 +623,9 @@ describe('Workflows E2E (postgres-v2)', () => {
                             wait_window: {
                                 type: 'wait_until_time_window',
                                 config: {
-                                    timezone: 'UTC',
+                                    timezone: 'Pacific/Kiritimati', // UTC+14, ensures the window is always in the future from UTC perspective
                                     day: 'any',
-                                    time: [startTime, endTime],
+                                    time: ['23:50', '23:59'],
                                 },
                             },
                             function_1: {
@@ -679,10 +668,12 @@ describe('Workflows E2E (postgres-v2)', () => {
             // Fetch should NOT be called yet
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // After the time window opens (~1 minute), the worker picks it up
+            // Fast-forward: set the scheduled time to now so the worker picks it up
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available'`)
+
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
-            }, 90000)
+            }, 10000)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-time-window', expect.anything())
         })
