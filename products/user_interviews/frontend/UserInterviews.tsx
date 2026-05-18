@@ -78,7 +78,7 @@ export function SearchResults({
     results: UserInterviewSearchResultApi[]
     loading: boolean
 }): JSX.Element {
-    if (loading && results.length === 0) {
+    if (loading) {
         return <p className="text-muted">Searching…</p>
     }
     if (results.length === 0) {
