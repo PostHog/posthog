@@ -91,3 +91,30 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not presigned_url:
             raise exceptions.NotFound()
         return HttpResponseRedirect(presigned_url)
+
+    @extend_schema(responses={204: None, 403: None, 404: None})
+    def destroy(self, request: Request, pk: str, **kwargs) -> Response:
+        """
+        Delete an unsigned legal document. Voids the underlying PandaDoc
+        envelope as part of the same operation so the original signer can no
+        longer complete it, then removes the row — which frees the
+        unique-per-org-per-type constraint so a fresh document can be
+        generated with corrected details (e.g., a different signer).
+
+        Signed documents are completed legal artifacts and stay admin-only;
+        the API returns 403 rather than 204 for them. Staff can still delete
+        signed rows from Django admin.
+        """
+        try:
+            document_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        try:
+            api.delete_document(document_id, self.organization.id)
+        except api.LegalDocumentNotFound:
+            raise exceptions.NotFound()
+        except api.LegalDocumentAlreadySigned:
+            raise exceptions.PermissionDenied(
+                "Signed documents can't be deleted from the UI. Contact PostHog support if you need to remove a signed record."
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)

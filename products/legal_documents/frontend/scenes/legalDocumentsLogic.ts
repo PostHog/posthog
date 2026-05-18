@@ -62,6 +62,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
     actions({
         setDocumentType: (documentType: LegalDocumentType) => ({ documentType }),
         setDpaMode: (dpaMode: DPAMode) => ({ dpaMode }),
+        deleteLegalDocument: (id: string, documentType: LegalDocumentType) => ({ id, documentType }),
     }),
     loaders(({ values }) => ({
         legalDocuments: [
@@ -128,6 +129,23 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
         },
         setDpaMode: ({ dpaMode }) => {
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
+        },
+        deleteLegalDocument: async ({ id, documentType }) => {
+            if (!values.currentOrganizationId) {
+                return
+            }
+            try {
+                await api.legalDocumentsDestroy(values.currentOrganizationId, id)
+                actions.loadLegalDocuments()
+                lemonToast.success(
+                    `${documentType} deleted. You can now generate a new ${documentType} with the corrected details.`
+                )
+            } catch (error: any) {
+                lemonToast.error(
+                    error?.detail ||
+                        `Could not delete the ${documentType}. Please try again, or contact PostHog support.`
+                )
+            }
         },
     })),
     selectors({

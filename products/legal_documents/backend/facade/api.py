@@ -79,6 +79,34 @@ def exists_for_organization_and_type(organization_id: UUID, document_type: str) 
     return logic.exists_for_organization_and_type(organization_id, document_type)
 
 
+class LegalDocumentNotFound(Exception):
+    """Raised when a delete targets a row that doesn't exist (or belongs to a different org)."""
+
+
+class LegalDocumentAlreadySigned(Exception):
+    """Raised when a delete targets a row in `signed` state, which is admin-only."""
+
+
+def delete_document(document_id: UUID, organization_id: UUID) -> None:
+    """
+    Self-serve deletion entry point for org admins. Refuses signed documents —
+    those are completed legal artifacts and stay admin-only (Django admin
+    bypasses this guard by calling logic.delete_document directly).
+
+    Raises LegalDocumentNotFound if the row doesn't exist or belongs to a
+    different org. Raises LegalDocumentAlreadySigned for signed rows. Both
+    map cleanly to HTTP responses in the presentation layer.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        raise LegalDocumentNotFound(f"Legal document {document_id} not found for organization {organization_id}")
+    if document.status == LegalDocumentStatus.SIGNED:
+        raise LegalDocumentAlreadySigned(
+            f"Legal document {document_id} is already signed and can't be deleted from the self-serve UI"
+        )
+    logic.delete_document(document)
+
+
 def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.LegalDocumentDTO:
     document = logic.create_document(
         organization_id=data.organization_id,
