@@ -357,19 +357,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                                 {/* Right Column - Person Properties */}
                                 <div className="space-y-3 xl:col-span-3">
-                                    <div className="flex items-center justify-between">
+                                    <div>
                                         <LemonLabel>
                                             Person properties {formData.timestamp ? 'at evaluation time' : '(current)'}
                                         </LemonLabel>
-                                        {Object.keys(result.person_properties).length > 0 && (
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                onClick={() => setShowAllProperties(!showAllProperties)}
-                                            >
-                                                {showAllProperties ? 'Show used only' : 'Show all'}
-                                            </LemonButton>
-                                        )}
                                     </div>
 
                                     <div className="max-h-96 overflow-auto">
