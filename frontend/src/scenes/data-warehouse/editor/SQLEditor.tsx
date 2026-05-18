@@ -359,16 +359,21 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return 'Loading insight...'
         }
 
-        if (!isSourceQueryLastRun) {
-            return 'Run latest query changes before saving'
-        }
-
         if (responseLoading) {
             return 'Running query...'
         }
 
+        // Check response state before `isSourceQueryLastRun`: after a page reload the `lastRunQuery`
+        // reducer resets to `null` (not persisted), which makes `isSourceQueryLastRun` falsely report
+        // "not last run" even though the editor just rehydrated. Surface "Run query successfully
+        // before saving" — the actionable next step — instead of the misleading "Run latest query
+        // changes before saving".
         if (responseError || !response) {
             return 'Run query successfully before saving'
+        }
+
+        if (!isSourceQueryLastRun) {
+            return 'Run latest query changes before saving'
         }
 
         return undefined
