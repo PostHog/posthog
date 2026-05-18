@@ -12,6 +12,7 @@ import psycopg
 import pyarrow as pa
 import structlog
 from psycopg import sql
+from rest_framework import status
 
 import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -2101,3 +2102,112 @@ class TestIteratePartitionsRealDb:
                 )
             )
             assert sum(t.num_rows for t in tables) == 80
+
+
+class TestIncrementalFieldsSwitchToIncremental:
+    """
+    Regression tests for: switching a postgres schema from full_refresh (or unset
+    sync_type) to incremental via the incremental_fields endpoint does not persist
+    the chosen configuration.
+
+    Root cause: the incremental_fields action only returned available fields from the
+    source without saving any of the provided update params (sync_type,
+    incremental_field, incremental_field_type, etc.).
+    """
+
+    @pytest.mark.django_db
+    def test_incremental_fields_persists_sync_config_when_switching_to_incremental(self, team, user):
+        from django.test import Client
+
+        from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+        from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+
+        from products.data_warehouse.backend.models import DataWarehouseTable
+        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+        from products.data_warehouse.backend.types import ExternalDataSourceType
+
+        client = Client()
+        client.force_login(user)
+
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+                "schema": "public",
+            },
+        )
+        table = DataWarehouseTable.objects.create(team=team)
+        schema = ExternalDataSchema.objects.create(
+            name="session_instances",
+            team=team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            # Simulates a schema that was originally synced as full_refresh:
+            # sync_type was never explicitly set, and sync_type_config only has
+            # the partition config accumulated from previous full_refresh runs.
+            sync_type=None,
+            sync_type_config={
+                "partition_mode": "datetime",
+                "partition_format": "week",
+                "partitioning_keys": ["created_at"],
+                "partitioning_enabled": True,
+            },
+            initial_sync_complete=True,
+            table=table,
+        )
+
+        fake_source_schema = SourceSchema(
+            name="session_instances",
+            supports_incremental=True,
+            supports_append=True,
+            supports_cdc=False,
+            incremental_fields=[
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": False,
+                    "is_indexed": True,
+                }
+            ],
+            columns=[("id", "integer", False), ("created_at", "datetime", False)],
+            detected_primary_keys=["id"],
+        )
+
+        mock_source = mock.MagicMock()
+        mock_source.parse_config.return_value = mock.MagicMock()
+        mock_source.validate_credentials.return_value = (True, None)
+        mock_source.get_schemas.return_value = [fake_source_schema]
+
+        with (
+            mock.patch.object(SourceRegistry, "get_source", return_value=mock_source),
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1000),
+        ):
+            response = client.post(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+                data={
+                    "sync_type": "incremental",
+                    "incremental_field": "id",
+                    "incremental_field_type": "integer",
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        schema.refresh_from_db()
+
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("incremental_field") == "id"
+        assert schema.sync_type_config.get("incremental_field_type") == "integer"
+        # First incremental sync starts from max(id) in the existing table,
+        # not from 0, so it doesn't re-scan all historical data.
+        assert schema.sync_type_config.get("incremental_field_last_value") == 1000

@@ -733,6 +733,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "detected_primary_keys": schema.detected_primary_keys,
         }
 
+        # Persist sync config if the caller also provided update params.
+        # This covers the common flow where the UI or an agent calls this endpoint
+        # both to discover available fields AND to apply the chosen configuration in
+        # one round-trip (e.g. switching from full_refresh to incremental).
+        update_keys = {
+            "sync_type",
+            "incremental_field",
+            "incremental_field_type",
+            "should_sync",
+            "primary_key_columns",
+            "sync_frequency",
+            "sync_time_of_day",
+            "cdc_table_mode",
+        }
+        update_data = {k: v for k, v in request.data.items() if k in update_keys}
+        if update_data:
+            serializer = self.get_serializer(instance, data=update_data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
         return Response(status=status.HTTP_200_OK, data=data)
 
 
