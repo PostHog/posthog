@@ -22,6 +22,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
@@ -1554,3 +1555,146 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert response.status_code == 200
         self.schema.refresh_from_db()
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
+
+class TestIncrementalFieldsEndpoint:
+    @pytest.fixture
+    def organization(self):
+        org = create_organization("Test Org")
+        yield org
+        org.delete()
+
+    @pytest.fixture
+    def team(self, organization):
+        t = create_team(organization)
+        yield t
+        t.delete()
+
+    @pytest.fixture
+    def user(self, team):
+        u = create_user("incremental_fields_test@user.com", "Test User", team.organization)
+        yield u
+        u.delete()
+
+    @pytest.fixture
+    def source(self, team):
+        return ExternalDataSource.objects.create(
+            team=team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+                "schema": "public",
+            },
+        )
+
+    @pytest.fixture
+    def schema(self, team, source):
+        table = DataWarehouseTable.objects.create(team=team)
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team=team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=None,
+            sync_type_config={},
+            initial_sync_complete=True,
+            table=table,
+        )
+
+    @pytest.fixture
+    def fake_source_schema(self):
+        return SourceSchema(
+            name="orders",
+            supports_incremental=True,
+            supports_append=True,
+            supports_cdc=False,
+            incremental_fields=[
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": False,
+                    "is_indexed": True,
+                }
+            ],
+            columns=[("id", "integer", False), ("created_at", "datetime", False)],
+            detected_primary_keys=["id"],
+        )
+
+    @pytest.mark.parametrize(
+        "sync_type,max_value,expected_last_value",
+        [
+            ("incremental", 1000, 1000),
+            ("incremental", None, None),
+            ("append", 500, 500),
+        ],
+    )
+    def test_incremental_fields_persists_sync_config(
+        self,
+        sync_type: str,
+        max_value: int | None,
+        expected_last_value: int | None,
+        team,
+        user,
+        schema,
+        fake_source_schema,
+        client: HttpClient,
+    ):
+        client.force_login(user)
+        mock_source = mock.MagicMock()
+        mock_source.parse_config.return_value = mock.MagicMock()
+        mock_source.validate_credentials.return_value = (True, None)
+        mock_source.get_schemas.return_value = [fake_source_schema]
+
+        with (
+            mock.patch.object(SourceRegistry, "get_source", return_value=mock_source),
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=max_value),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+        ):
+            response = client.post(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+                data={"sync_type": sync_type, "incremental_field": "id", "incremental_field_type": "integer"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type == sync_type
+        assert schema.sync_type_config.get("incremental_field") == "id"
+        assert schema.sync_type_config.get("incremental_field_type") == "integer"
+        assert schema.sync_type_config.get("incremental_field_last_value") == expected_last_value
+
+    def test_incremental_fields_with_no_update_params_does_not_modify_schema(
+        self,
+        team,
+        user,
+        schema,
+        fake_source_schema,
+        client: HttpClient,
+    ):
+        client.force_login(user)
+        original_sync_type = schema.sync_type
+        original_config = dict(schema.sync_type_config)
+
+        mock_source = mock.MagicMock()
+        mock_source.parse_config.return_value = mock.MagicMock()
+        mock_source.validate_credentials.return_value = (True, None)
+        mock_source.get_schemas.return_value = [fake_source_schema]
+
+        with mock.patch.object(SourceRegistry, "get_source", return_value=mock_source):
+            response = client.post(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+                data={},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.sync_type == original_sync_type
+        assert schema.sync_type_config == original_config
