@@ -402,6 +402,18 @@ def setup_jetbrains_background() -> None:
     if pid != 0:
         return  # Parent continues
 
+    # The child must never return to the caller. If an exception unwinds past
+    # os.fork(), run_setup's "JetBrains is non-fatal" guard catches it and the
+    # forked child then falls through and re-runs the rest of run_setup,
+    # spawning a duplicate phrocs window. Always terminate the child here.
+    try:
+        _run_jetbrains_child(idea_script, data_dir_name)
+    except Exception:
+        traceback.print_exc()
+    os._exit(0)
+
+
+def _run_jetbrains_child(idea_script: Path, data_dir_name: str) -> None:
     # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
     log_path = "/tmp/sandbox-jetbrains.log"
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
@@ -490,7 +502,6 @@ def setup_jetbrains_background() -> None:
     )
 
     info(f"{data_dir_name} backend ready")
-    os._exit(0)
 
 
 def _setup_user_env() -> None:

@@ -1878,7 +1878,23 @@ def _seed_tool_auth(container: str, tools: list[Tool]) -> None:
             tgt = sandbox_tools.expand_sandbox_path(c.target)
             if not src.exists():
                 continue
-            run(["docker", "exec", container, "mkdir", "-p", str(Path(tgt).parent)], capture=True)
+            # mkdir as the sandbox user — docker exec defaults to root, and a
+            # root-owned parent dir would block the sandbox user from writing
+            # into it later (e.g. JetBrains under ~/.config). docker cp still
+            # lands root-owned, hence the chown below.
+            run(
+                [
+                    "docker",
+                    "exec",
+                    "-u",
+                    f"{os.getuid()}:{os.getgid()}",
+                    container,
+                    "mkdir",
+                    "-p",
+                    str(Path(tgt).parent),
+                ],
+                capture=True,
+            )
             run(["docker", "cp", str(src), f"{container}:{tgt}"], capture=True)
             run(["docker", "exec", container, "chown", "-R", "sandbox:sandbox", tgt], capture=True)
 
