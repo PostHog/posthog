@@ -1793,9 +1793,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] ? (
                                                                   <LemonField.Pure
                                                                       label="Activation triggers"
-                                                                      info="Survey will activate when any of these conditions are met"
+                                                                      help="The survey activates when any of these conditions are met."
                                                                   >
-                                                                      <div className="border rounded p-3 space-y-3">
+                                                                      <div className="space-y-4">
                                                                           <SurveyEventTrigger />
                                                                           <div className="flex items-center gap-2">
                                                                               <div className="flex-1 border-t border-dashed" />
