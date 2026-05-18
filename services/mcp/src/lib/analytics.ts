@@ -53,9 +53,9 @@ export const buildMCPContextProperties = (
 
 export const getPostHogClient = (): PostHog => {
     if (!_client) {
-        _client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY, {
+        _client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY ?? '', {
             disabled: !env.POSTHOG_ANALYTICS_API_KEY || !env.POSTHOG_ANALYTICS_HOST, // Disable if the API key or host is not set
-            host: env.POSTHOG_ANALYTICS_HOST,
+            ...(env.POSTHOG_ANALYTICS_HOST ? { host: env.POSTHOG_ANALYTICS_HOST } : {}),
             flushAt: 1,
             flushInterval: 0,
         })

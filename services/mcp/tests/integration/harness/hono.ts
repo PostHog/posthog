@@ -11,6 +11,8 @@ import type { IntegrationEnv, IntegrationHarness } from './types'
 // owns this DB exclusively. Override via TEST_REDIS_DB if your local Redis is
 // configured with a different db count.
 const TEST_REDIS_DB = parseInt(process.env.TEST_REDIS_DB ?? '15', 10)
+// Integration test harness targets a local dev Redis; production paths set REDIS_URL.
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
 const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? process.env.REDIS_URL ?? 'redis://localhost:6379'
 
 async function startTestRedis(): Promise<InstanceType<typeof Redis>> {

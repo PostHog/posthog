@@ -58,18 +58,18 @@ type PostHogMcpAnalyticsFlagResult = {
 // base type so the Hono server can read/write them without modifying the
 // shared module.
 type HonoRequestProperties = RequestProperties & {
-    mcpSessionId?: string
-    mcpConversationId?: string
-    viaSseRedirect?: boolean
-    mcpAnalyticsProvider?: McpAnalyticsProvider
-    mcpAnalyticsFlagKey?: string
-    mcpAnalyticsFlagEnabled?: boolean
-    mcpAnalyticsFlagErrorName?: string
-    mcpAnalyticsFlagErrorMessage?: string
-    posthogMcpAnalyticsInitAction?: 'initialized' | 'skipped' | 'failed'
-    posthogMcpAnalyticsInitReason?: string
-    posthogMcpAnalyticsInitErrorName?: string
-    posthogMcpAnalyticsInitErrorMessage?: string
+    mcpSessionId?: string | undefined
+    mcpConversationId?: string | undefined
+    viaSseRedirect?: boolean | undefined
+    mcpAnalyticsProvider?: McpAnalyticsProvider | undefined
+    mcpAnalyticsFlagKey?: string | undefined
+    mcpAnalyticsFlagEnabled?: boolean | undefined
+    mcpAnalyticsFlagErrorName?: string | undefined
+    mcpAnalyticsFlagErrorMessage?: string | undefined
+    posthogMcpAnalyticsInitAction?: 'initialized' | 'skipped' | 'failed' | undefined
+    posthogMcpAnalyticsInitReason?: string | undefined
+    posthogMcpAnalyticsInitErrorName?: string | undefined
+    posthogMcpAnalyticsInitErrorMessage?: string | undefined
 }
 
 // Guidelines are generated at build time; optional import so tests and

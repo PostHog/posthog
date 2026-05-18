@@ -27,6 +27,7 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
             )
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
         permissions:
             id-token: write
             contents: read

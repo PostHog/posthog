@@ -24,7 +24,12 @@ afterAll(async () => {
     await harness?.stop()
 })
 
-const harnessFor = () => ({
+const harnessFor = (): {
+    baseUrl: URL
+    fetch: typeof fetch
+    token: string
+    token2: string | undefined
+} => ({
     baseUrl: harness.baseUrl,
     fetch: globalThis.fetch,
     token: env.apiToken,
