@@ -15,6 +15,7 @@ in `products/signals/backend/api.py` validates against.
 from __future__ import annotations
 
 import uuid
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -25,6 +26,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalAgentRun
+
+logger = logging.getLogger(__name__)
 
 SOURCE_PRODUCT = "signals_agent"
 SOURCE_TYPE = "cross_source_issue"
@@ -103,6 +106,19 @@ async def emit_finding(
         time_range=time_range,
         mcp_trace_id=mcp_trace_id,
     )
+    attempt_extra = _log_extra(
+        team_id=team.id,
+        run_id=str(run.id),
+        finding_id=finding_id,
+        skill_name=run.skill_name,
+        skill_version=run.skill_version,
+        weight=weight,
+        confidence=confidence,
+        severity=severity,
+        evidence_count=len(evidence),
+        shadow_mode=shadow_mode,
+    )
+    logger.info("signals_agent.emit: attempt", extra=attempt_extra)
 
     already_emitted = await database_sync_to_async(_record_finding_pre_emit, thread_sensitive=False)(
         run_id=str(run.id),
@@ -112,13 +128,20 @@ async def emit_finding(
         extra=extra,
     )
     if already_emitted:
+        logger.info("signals_agent.emit: skipped already_emitted", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=True, skipped_reason="already_emitted")
 
     if shadow_mode:
+        logger.info("signals_agent.emit: skipped shadow_mode", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team)
     if preflight is not None:
+        logger.warning(
+            "signals_agent.emit: skipped %s",
+            preflight,
+            extra={**attempt_extra, "skipped_reason": preflight},
+        )
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
 
     # Defer the import: products.signals.backend.api transitively imports temporal
@@ -138,6 +161,10 @@ async def emit_finding(
 
     await database_sync_to_async(_mark_finding_emitted, thread_sensitive=False)(
         run_id=str(run.id), finding_id=finding_id
+    )
+    logger.info(
+        "signals_agent.emit: emitted",
+        extra={**attempt_extra, "source_id": source_id},
     )
     return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
 
@@ -184,6 +211,19 @@ def emit_finding_sync(
         time_range=time_range,
         mcp_trace_id=mcp_trace_id,
     )
+    attempt_extra = _log_extra(
+        team_id=team.id,
+        run_id=str(run.id),
+        finding_id=finding_id,
+        skill_name=run.skill_name,
+        skill_version=run.skill_version,
+        weight=weight,
+        confidence=confidence,
+        severity=severity,
+        evidence_count=len(evidence),
+        shadow_mode=shadow_mode,
+    )
+    logger.info("signals_agent.emit: attempt", extra=attempt_extra)
 
     already_emitted = _record_finding_pre_emit(
         run_id=str(run.id),
@@ -193,13 +233,20 @@ def emit_finding_sync(
         extra=extra,
     )
     if already_emitted:
+        logger.info("signals_agent.emit: skipped already_emitted", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=True, skipped_reason="already_emitted")
 
     if shadow_mode:
+        logger.info("signals_agent.emit: skipped shadow_mode", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
 
     preflight = _preflight_emit_gates(team)
     if preflight is not None:
+        logger.warning(
+            "signals_agent.emit: skipped %s",
+            preflight,
+            extra={**attempt_extra, "skipped_reason": preflight},
+        )
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
 
     from products.signals.backend.api import emit_signal
@@ -216,6 +263,10 @@ def emit_finding_sync(
     )
 
     _mark_finding_emitted(run_id=str(run.id), finding_id=finding_id)
+    logger.info(
+        "signals_agent.emit: emitted",
+        extra={**attempt_extra, "source_id": source_id},
+    )
     return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
 
 
@@ -336,6 +387,35 @@ def _mark_finding_emitted(*, run_id: str, finding_id: str) -> None:
 
 def _new_finding_id() -> str:
     return str(uuid.uuid4())
+
+
+def _log_extra(
+    *,
+    team_id: int,
+    run_id: str,
+    finding_id: str,
+    skill_name: str,
+    skill_version: int,
+    weight: float,
+    confidence: float,
+    severity: str | None,
+    evidence_count: int,
+    shadow_mode: bool,
+) -> dict[str, Any]:
+    """Structured log fields for emit-lifecycle events. Description text is
+    deliberately omitted — it can carry customer-derived strings."""
+    return {
+        "team_id": team_id,
+        "run_id": run_id,
+        "finding_id": finding_id,
+        "skill_name": skill_name,
+        "skill_version": skill_version,
+        "weight": weight,
+        "confidence": confidence,
+        "severity": severity,
+        "evidence_count": evidence_count,
+        "shadow_mode": shadow_mode,
+    }
 
 
 def _preflight_emit_gates(team: Team) -> str | None:
