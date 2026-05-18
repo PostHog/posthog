@@ -176,8 +176,8 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
                 .with([true], () => <LemonSkeleton className="w-[50px] h-2" />)
                 .with([false], () => (
                     <Tooltip title={tooltip} delayMs={0} placement="right">
-                        <div className="flex items-center gap-1">
-                            <div className="text-lg font-bold inline-block">
+                        <div className="flex items-baseline gap-1">
+                            <div className="text-sm font-medium inline-block">
                                 {value == null ? '0' : humanFriendlyLargeNumber(value)}
                             </div>
                             <div className="text-xs text-muted inline-block">{name}</div>
