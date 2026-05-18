@@ -1,5 +1,8 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { asNonEmptyString } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
@@ -73,11 +76,23 @@ export async function withTokenRefresh(
         if (!toolbarConfigLogic.findMounted()) {
             return response
         }
-        toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
-        return await retryRequest(tokens.access_token)
+        const access = asNonEmptyString(tokens?.access_token)
+        const refresh = asNonEmptyString(tokens?.refresh_token)
+        if (!access || !refresh) {
+            toolbarLogger.warn('auth', 'Refresh response missing string tokens, discarding')
+            // Refresh fired in response to a user action (not mount-time restore), so the
+            // tokenExpired suppression by source !== 'localstorage' doesn't apply — surface
+            // a toast directly so the user knows why the action failed.
+            lemonToast.error('Please re-authenticate to continue using the toolbar.')
+            toolbarConfigLogic.actions.tokenExpired()
+            return response
+        }
+        toolbarConfigLogic.actions.setOAuthTokens(access, refresh, clientId)
+        return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
         captureToolbarException(e, 'token_refresh_retry')
+        lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
     }

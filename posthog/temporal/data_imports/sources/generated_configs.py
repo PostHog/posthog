@@ -616,7 +616,7 @@ class PlainSourceConfig(config.Config):
 
 @config.config
 class PolarSourceConfig(config.Config):
-    pass
+    polar_api_key: str
 
 
 @config.config

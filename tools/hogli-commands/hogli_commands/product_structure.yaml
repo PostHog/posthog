@@ -118,12 +118,17 @@ backend_files:
 
             from django.db import models
 
-            from posthog.models.scoping.product_mixin import ProductTeamModel
+            {team_base_import}
 
             from .facade.enums import SplineStatus
 
 
-            class SplineReticulator(ProductTeamModel):
+            # Inherits {team_base_mixin} so models opt into fail-closed team scoping —
+            # queries without team context raise TeamScopeError instead of silently
+            # returning every team's rows. See posthog/models/scoping/README.md.
+            # Main-DB products (TeamScopedRootMixin): add `team = models.ForeignKey(
+            # "posthog.Team", on_delete=models.CASCADE)` to the subclass.
+            class SplineReticulator({team_base_mixin}):
                 id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
                 name = models.CharField(max_length=255)
                 status = models.CharField(
