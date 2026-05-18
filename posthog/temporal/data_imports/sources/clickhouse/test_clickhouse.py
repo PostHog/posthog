@@ -182,51 +182,67 @@ class TestBuildQuery:
                 incremental_field=None,
             )
 
-    def test_sync_from_full_refresh(self):
+    @pytest.mark.parametrize(
+        "columns,should_use_incremental_field,incremental_field,sync_from_field,expected_clauses,expected_order_by",
+        [
+            (
+                [("id", "Int64"), ("created_at", "DateTime")],
+                False,
+                None,
+                "created_at",
+                ["WHERE `created_at` >= %(sync_from)s"],
+                None,
+            ),
+            (
+                [("id", "Int64"), ("created_at", "DateTime")],
+                True,
+                "created_at",
+                "created_at",
+                ["WHERE `created_at` > %(last_value)s AND `created_at` >= %(sync_from)s"],
+                "ORDER BY `created_at` ASC",
+            ),
+            (
+                [("id", "Int64"), ("created_at", "DateTime"), ("updated_at", "DateTime")],
+                True,
+                "updated_at",
+                "created_at",
+                ["WHERE `updated_at` > %(last_value)s AND `created_at` >= %(sync_from)s"],
+                "ORDER BY `updated_at` ASC",
+            ),
+            (
+                [("event date", "Date")],
+                False,
+                None,
+                "event date",
+                ["WHERE `event date` >= %(sync_from)s"],
+                None,
+            ),
+        ],
+        ids=["full_refresh", "incremental_same_column", "incremental_different_column", "quotes_identifier"],
+    )
+    def test_sync_from(
+        self,
+        columns,
+        should_use_incremental_field,
+        incremental_field,
+        sync_from_field,
+        expected_clauses,
+        expected_order_by,
+    ):
         query = _build_query(
             database="default",
             table_name="events",
-            columns=self._cols(("id", "Int64"), ("created_at", "DateTime")),
-            should_use_incremental_field=False,
-            incremental_field=None,
-            sync_from_field="created_at",
+            columns=self._cols(*columns),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+            sync_from_field=sync_from_field,
         )
-        assert query == ("SELECT `id`, `created_at` FROM `default`.`events` WHERE `created_at` >= %(sync_from)s")
-
-    def test_sync_from_incremental_combined(self):
-        query = _build_query(
-            database="default",
-            table_name="events",
-            columns=self._cols(("id", "Int64"), ("created_at", "DateTime")),
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            sync_from_field="created_at",
-        )
-        assert "WHERE `created_at` > %(last_value)s AND `created_at` >= %(sync_from)s" in query
-        assert "ORDER BY `created_at` ASC" in query
-
-    def test_sync_from_different_column_than_incremental(self):
-        query = _build_query(
-            database="default",
-            table_name="events",
-            columns=self._cols(("id", "Int64"), ("created_at", "DateTime"), ("updated_at", "DateTime")),
-            should_use_incremental_field=True,
-            incremental_field="updated_at",
-            sync_from_field="created_at",
-        )
-        assert "WHERE `updated_at` > %(last_value)s AND `created_at` >= %(sync_from)s" in query
-        assert "ORDER BY `updated_at` ASC" in query
-
-    def test_sync_from_quotes_identifier(self):
-        query = _build_query(
-            database="default",
-            table_name="events",
-            columns=self._cols(("event date", "Date")),
-            should_use_incremental_field=False,
-            incremental_field=None,
-            sync_from_field="event date",
-        )
-        assert "WHERE `event date` >= %(sync_from)s" in query
+        for clause in expected_clauses:
+            assert clause in query
+        if expected_order_by is None:
+            assert "ORDER BY" not in query
+        else:
+            assert expected_order_by in query
 
     def test_wraps_arrow_unsupported_types_in_to_string(self):
         query = _build_query(

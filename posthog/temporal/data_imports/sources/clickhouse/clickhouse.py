@@ -923,10 +923,8 @@ def _build_query(
             raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
         where_parts.append(f"{_quote_identifier(incremental_field)} > %(last_value)s")
 
-
-    if sync_from_field is not None and sync_from_value is not None:
+    if sync_from_field is not None:
         where_parts.append(f"{_quote_identifier(sync_from_field)} >= %(sync_from)s")
-
 
     sql = f"SELECT {select_list} FROM {qualified}"
     if where_parts:
@@ -1090,6 +1088,11 @@ def clickhouse_source(
                 settings=_query_settings(chunk_size),
             )
 
+            # Only apply the sync_from clause when we actually have a value to bind. The value can
+            # arrive as None (e.g. when process_incremental_value cannot coerce because field_type
+            # is None / unrecognised); without this guard `field >= NULL` silently returns no rows.
+            effective_sync_from_field = sync_from_field if sync_from_value is not None else None
+
             try:
                 query = _build_query(
                     database=database,
@@ -1097,7 +1100,7 @@ def clickhouse_source(
                     columns=list(table.columns),
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
-                    sync_from_field=sync_from_field,
+                    sync_from_field=effective_sync_from_field,
                 )
 
                 parameters: dict[str, Any] = {}
