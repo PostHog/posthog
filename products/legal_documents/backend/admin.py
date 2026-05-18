@@ -66,6 +66,7 @@ class LegalDocumentAdminForm(forms.ModelForm):
         return pdf
 
 
+@admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
     list_display = (
         "id",

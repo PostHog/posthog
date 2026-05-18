@@ -170,7 +170,7 @@ function TracingSceneContents(): JSX.Element {
                     current={aggregation.current}
                     previous={aggregation.previous}
                     loading={aggregationLoading}
-                    onRowClick={(row) => openCompareFlame(row.name)}
+                    onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
                 />
             ) : (
                 <LemonTable
