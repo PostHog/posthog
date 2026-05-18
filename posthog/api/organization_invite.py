@@ -661,9 +661,7 @@ class OrganizationInviteViewSet(
         normalized_incoming_emails = {
             EmailNormalizer.normalize(entry["target_email"])
             for entry in data
-            if isinstance(entry, dict)
-            and isinstance(entry.get("target_email"), str)
-            and entry["target_email"]
+            if isinstance(entry, dict) and isinstance(entry.get("target_email"), str) and entry["target_email"]
         }
         if normalized_incoming_emails:
             existing_member_emails = set(
