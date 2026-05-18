@@ -85,7 +85,7 @@ export function SceneTabs(): JSX.Element {
                     strategy={horizontalListSortingStrategy}
                 >
                     <div
-                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2 overflow-x-auto overflow-y-hidden"
                         onMouseLeave={clearFrozenWidths}
                     >
                         {tabs.map((tab, index) => {
@@ -179,7 +179,7 @@ function SortableSceneTab({
             {...attributes}
             {...listeners}
             className={cn(
-                isPinned ? 'shrink-0' : frozenWidth != null ? '' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
+                isPinned ? 'shrink-0' : frozenWidth != null ? '' : 'w-full flex-1 min-w-[60px] max-w-[250px]'
             )}
             data-tab-id={tab.id}
         >

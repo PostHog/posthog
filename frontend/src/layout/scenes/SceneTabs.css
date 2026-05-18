@@ -1,3 +1,31 @@
+.scene-tab-row {
+    scroll-behavior: smooth;
+}
+
+/* Hide scrollbar but keep scrolling functionality on non-hover */
+.scene-tab-row::-webkit-scrollbar {
+    height: 6px;
+}
+
+.scene-tab-row::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.scene-tab-row::-webkit-scrollbar-thumb {
+    background: var(--color-border-secondary);
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.scene-tab-row:hover::-webkit-scrollbar-thumb {
+    opacity: 1;
+}
+
+.scene-tab-row::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-primary);
+}
+
 .scene-tab--pinned {
     max-width: 36px;
     padding-right: 0.5rem;
