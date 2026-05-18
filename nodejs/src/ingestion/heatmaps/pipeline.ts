@@ -34,6 +34,7 @@ import {
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { createFlushHogTransformerStep } from '../event-processing/flush-hog-transformer-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
@@ -184,7 +185,8 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         (afterBatch) =>
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
-                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+                .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                .pipe(createFlushHogTransformerStep({ hogTransformer })),
         { concurrentBatches: 1 }
     )
 }

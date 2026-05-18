@@ -25,6 +25,7 @@ import { createPreTeamPreprocessingSubpipeline } from '../common/subpipelines/pr
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { createFlushHogTransformerStep } from '../event-processing/flush-hog-transformer-step'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
@@ -196,7 +197,8 @@ export function createAiPipeline<TInput extends AiPipelineInput, TContext extend
         (afterBatch) =>
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
-                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+                .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                .pipe(createFlushHogTransformerStep({ hogTransformer })),
         { concurrentBatches: 1 }
     )
 }

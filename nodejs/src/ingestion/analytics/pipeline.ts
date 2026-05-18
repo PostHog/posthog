@@ -24,6 +24,7 @@ import { createPreTeamPreprocessingSubpipeline } from '../common/subpipelines/pr
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { createFlushHogTransformerStep } from '../event-processing/flush-hog-transformer-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
@@ -193,7 +194,8 @@ export function createAnalyticsPipeline<
         (afterBatch) =>
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
-                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+                .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                .pipe(createFlushHogTransformerStep({ hogTransformer })),
         // Batch stores (personsStore, groupStore) are singletons that don't support
         // concurrent batches yet — they accumulate state across events and flush once.
         { concurrentBatches: 1 }
