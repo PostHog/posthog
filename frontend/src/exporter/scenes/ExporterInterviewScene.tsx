@@ -212,11 +212,15 @@ export default function ExporterInterviewScene({
     accessToken?: string
 }): JSX.Element {
     const [state, setState] = useState<CallState>('idle')
-    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('listening')
+    // Default to 'thinking' — between connection-up and the agent's first speech-start
+    // the assistant is loading its opener, which can take a few seconds. After
+    // speech-end transitions us into 'listening', subsequent silent moments correctly
+    // read as listening (mic is open), and only the post-user-final gap re-enters thinking.
+    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('thinking')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const vapiRef = useRef<Vapi | null>(null)
     const agentTalkingRef = useRef<boolean>(false)
-    const lastPhaseRef = useRef<ConversationPhase>('listening')
+    const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
 
     useEffect(() => {
@@ -240,8 +244,8 @@ export default function ExporterInterviewScene({
         vapiRef.current?.stop()
         vapiRef.current = null
         agentTalkingRef.current = false
-        lastPhaseRef.current = 'listening'
-        setConversationPhase('listening')
+        lastPhaseRef.current = 'thinking'
+        setConversationPhase('thinking')
         setState('loading')
         void (async () => {
             try {
@@ -258,10 +262,25 @@ export default function ExporterInterviewScene({
                     lastPhaseRef.current = next
                     setConversationPhase(next)
                 }
-                vapi.on('call-end', () => setState('ended'))
+                // Daily.co's normal end-of-call eviction surfaces as an `error` event in the
+                // Vapi SDK ("Meeting ended due to ejection: Meeting has ended"), often racing
+                // with the `call-end` event. Track whether the call has ended so we can
+                // suppress the spurious error transition that would otherwise flash an
+                // error panel right as the interview wraps up.
+                const callEndedRef = { current: false }
+                const isBenignEndOfCallError = (msg: string): boolean =>
+                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
+                vapi.on('call-end', () => {
+                    callEndedRef.current = true
+                    setState('ended')
+                })
                 vapi.on('error', (e: unknown) => {
+                    const message = e instanceof Error ? e.message : ''
+                    if (callEndedRef.current || isBenignEndOfCallError(message)) {
+                        return
+                    }
                     vapi.stop()
-                    setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
+                    setErrorMessage(message || 'Vapi reported an error during the call.')
                     setState('error')
                 })
                 vapi.on('speech-start', () => {
