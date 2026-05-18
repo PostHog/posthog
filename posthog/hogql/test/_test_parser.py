@@ -2830,6 +2830,53 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ],
             )
 
+        def test_visit_hogqlx_tag_array_attribute(self):
+            # Un-braced array literal: data=['hey']
+            node = self._select("select <T data=['hey'] /> from events")
+            assert isinstance(node, ast.SelectQuery)
+            assert cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="T",
+                attributes=[ast.HogQLXAttribute(name="data", value=ast.Array(exprs=[ast.Constant(value="hey")]))],
+            )
+
+            # Multiple string elements
+            node = self._select("select <T data=['a','b'] /> from events")
+            assert isinstance(node, ast.SelectQuery)
+            assert cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="T",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="data", value=ast.Array(exprs=[ast.Constant(value="a"), ast.Constant(value="b")])
+                    )
+                ],
+            )
+
+            # Empty array
+            node = self._select("select <T data=[] /> from events")
+            assert isinstance(node, ast.SelectQuery)
+            assert cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="T",
+                attributes=[ast.HogQLXAttribute(name="data", value=ast.Array(exprs=[]))],
+            )
+
+            # Number elements, including signed and floating-point
+            node = self._select("select <T data=[1, -2, 3.5] /> from events")
+            assert isinstance(node, ast.SelectQuery)
+            assert cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="T",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="data",
+                        value=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=-2), ast.Constant(value=3.5)]),
+                    )
+                ],
+            )
+
+            # The un-braced form must produce the same AST as the braced data={[...]} form
+            assert self._select("select <T data=['hey'] /> from events") == self._select(
+                "select <T data={['hey']} /> from events"
+            )
+
         def test_visit_hogqlx_multiple_children(self):
             query = """
                 select <a href='https://google.com'>{event}<b>{'Bold!'}</b></a> from events

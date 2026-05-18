@@ -290,6 +290,26 @@ TAG_EQ      : '='                     -> type(EQ_SINGLE);
 TAG_STRING  : STRING_LITERAL          -> type(STRING_LITERAL);
 TAG_WS      : [ \t\r\n]+              -> channel(HIDDEN);
 TAG_LBRACE  : '{'                     -> type(LBRACE), pushMode(DEFAULT_MODE);
+TAG_LBRACKET: '['                     -> type(LBRACKET), pushMode(HOGQLX_TAG_ARRAY);
+
+
+// ───────── HOGQLX TAG MODE for un-braced array-literal attribute values ─────────
+// Minimal mode for flat literal arrays in tag attributes, e.g. data=['a','b'] or data=[1,2].
+// Matching ']' pops back to HOGQLX_TAG_OPEN. Anything richer (expressions, nested
+// arrays) stays on the braced data={...} form.
+mode HOGQLX_TAG_ARRAY;
+
+TAGA_RBRACKET    : ']'                  -> type(RBRACKET), popMode;
+TAGA_STRING      : STRING_LITERAL       -> type(STRING_LITERAL);
+TAGA_FLOATING    : FLOATING_LITERAL     -> type(FLOATING_LITERAL);
+TAGA_OCTAL       : OCTAL_LITERAL        -> type(OCTAL_LITERAL);
+TAGA_DECIMAL     : DECIMAL_LITERAL      -> type(DECIMAL_LITERAL);
+TAGA_HEXADECIMAL : HEXADECIMAL_LITERAL  -> type(HEXADECIMAL_LITERAL);
+TAGA_COMMA       : ','                  -> type(COMMA);
+TAGA_DOT         : '.'                  -> type(DOT);
+TAGA_DASH        : '-'                  -> type(DASH);
+TAGA_PLUS        : '+'                  -> type(PLUS);
+TAGA_WS          : [ \t\r\n]+           -> channel(HIDDEN);
 
 
 // ───────── HOGQLX TAG MODE for closing tags ─────────

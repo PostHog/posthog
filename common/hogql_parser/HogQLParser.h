@@ -49,8 +49,8 @@ public:
     RPAREN = 182, SEMICOLON = 183, SLASH = 184, SLASH_GT = 185, UNDERSCORE = 186, 
     MULTI_LINE_COMMENT = 187, SINGLE_LINE_COMMENT = 188, WHITESPACE = 189, 
     STRING_TEXT = 190, STRING_ESCAPE_TRIGGER = 191, FULL_STRING_TEXT = 192, 
-    FULL_STRING_ESCAPE_TRIGGER = 193, TAG_WS = 194, TAGC_WS = 195, HOGQLX_TEXT_TEXT = 196, 
-    HOGQLX_TEXT_WS = 197
+    FULL_STRING_ESCAPE_TRIGGER = 193, TAG_WS = 194, TAGA_WS = 195, TAGC_WS = 196, 
+    HOGQLX_TEXT_TEXT = 197, HOGQLX_TEXT_WS = 198
   };
 
   enum {
@@ -2901,6 +2901,9 @@ public:
     antlr4::tree::TerminalNode *LBRACE();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RBRACE();
+    antlr4::tree::TerminalNode *LBRACKET();
+    antlr4::tree::TerminalNode *RBRACKET();
+    ColumnExprListContext *columnExprList();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

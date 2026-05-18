@@ -1941,7 +1941,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):
         name = self.visit(ctx.identifier())
-        if ctx.columnExpr():
+        if ctx.LBRACKET():
+            exprs = self.visit(ctx.columnExprList()) if ctx.columnExprList() else []
+            return ast.HogQLXAttribute(name=name, value=ast.Array(exprs=exprs))
+        elif ctx.columnExpr():
             return ast.HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
         elif ctx.string():
             return ast.HogQLXAttribute(name=name, value=self.visit(ctx.string()))

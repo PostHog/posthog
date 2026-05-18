@@ -324,6 +324,7 @@ hogqlxTagElement
 hogqlxTagAttribute
     :   identifier EQ_SINGLE string
     |   identifier EQ_SINGLE LBRACE columnExpr RBRACE
+    |   identifier EQ_SINGLE LBRACKET columnExprList? RBRACKET
     |   identifier
     ;
 

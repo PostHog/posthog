@@ -2911,17 +2911,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["name"] = visitAsString(ctx->identifier());
 
-    if (const auto column_expr_ctx = ctx->columnExpr()) {
+    if (ctx->LBRACKET()) {
+      Json array_json = Json::object();
+      array_json["node"] = "Array";
+      if (!is_internal) addPositionInfo(array_json, ctx);
+      array_json["exprs"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+      json["value"] = std::move(array_json);
+    } else if (const auto column_expr_ctx = ctx->columnExpr()) {
       json["value"] = visitAsJSON(column_expr_ctx);
+    } else if (const auto string_ctx = ctx->string()) {
+      json["value"] = visitAsJSON(string_ctx);
     } else {
-      if (const auto string_ctx = ctx->string()) {
-        json["value"] = visitAsJSON(string_ctx);
-      } else {
-        // Default to true Constant
-        json["value"] = Json::object();
-        json["value"]["node"] = "Constant";
-        json["value"]["value"] = true;
-      }
+      // Default to true Constant
+      json["value"] = Json::object();
+      json["value"]["node"] = "Constant";
+      json["value"]["value"] = true;
     }
 
     return json;
