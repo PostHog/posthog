@@ -1341,6 +1341,8 @@ def _resolve_provisioning_resource(
     resource_id: str,
     access_token: OAuthAccessToken,
     user: User,
+    *,
+    persist_scope: bool = True,
 ) -> tuple[Team | None, list[int], str | None]:
     """Resolve ``resource_id`` (a team id string) to a Team for endpoints that operate on existing resources.
 
@@ -1417,7 +1419,8 @@ def _resolve_provisioning_resource(
     if not _user_can_access_team(user, team):
         return None, scoped_teams, "forbidden"
 
-    team, scoped_teams = _ensure_team_in_token_scopes(access_token, scoped_teams, team)
+    if persist_scope:
+        team, scoped_teams = _ensure_team_in_token_scopes(access_token, scoped_teams, team)
     return team, scoped_teams, None
 
 
@@ -1810,7 +1813,13 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
     if error := verify_api_version(request):
         return error
 
-    team, _scoped_teams, error_code = _resolve_provisioning_resource(resource_id, access_token, user)
+    # `persist_scope=False`: `remove` deletes the TeamProvisioningConfig and
+    # strips the team from scope below. Auto-adding to scope first would be a
+    # redundant write and opens a brief window where the team is in scope but
+    # the config is gone, leaving it un-removable on retry.
+    team, _scoped_teams, error_code = _resolve_provisioning_resource(
+        resource_id, access_token, user, persist_scope=False
+    )
     if error_code == "invalid_resource_id":
         return Response(
             {
