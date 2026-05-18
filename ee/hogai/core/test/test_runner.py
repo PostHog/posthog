@@ -454,7 +454,7 @@ class TestRunnerCancellation(BaseTest):
     async def test_cancellation_via_task_cancel_yields_failure_message(self):
         async def slow_generator():
             await asyncio.sleep(60)
-            yield {}  # type: ignore[unreachable]
+            yield {}
 
         runner, _ = self._create_mock_runner(graph_stream=slow_generator())
 
