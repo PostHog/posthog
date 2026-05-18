@@ -53,7 +53,7 @@ from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
@@ -4587,9 +4587,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         # The user-facing query the optimization targets. The persons table pushes the WHERE filter into a
         # set-building IN-subquery; ClickHouse evaluates that subquery eagerly (EXPLAIN of the outer query
         # even shows it already resolved to a constant set), so no EXPLAIN option surfaces the subquery's
-        # own index analysis. We extract that subquery from the real generated SQL and EXPLAIN it - the
-        # index assertion runs against the actual printer output, not a hand-written query.
-        query = "SELECT id, properties.email FROM persons WHERE lower(properties.email) IN ('foo@example.com', 'bar@example.com')"
+        # own index analysis. We extract that subquery from the SQL that actually ran and EXPLAIN it.
         with materialized("person", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             _create_person(
                 distinct_ids=["p_foo"], team=self.team, properties={"email": "Foo@Example.com"}, immediate=True
@@ -4601,70 +4599,64 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=["p_other"], team=self.team, properties={"email": "other@example.com"}, immediate=True
             )
 
-            # Correctness: case-insensitive match through the deduplication subquery
             result = execute_hogql_query(
                 team=self.team,
-                query=f"{query} ORDER BY properties.email",
+                query="SELECT id, properties.email FROM persons "
+                "WHERE lower(properties.email) IN {emails} ORDER BY properties.email",
+                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
+            # Correctness: case-insensitive match through the deduplication subquery
             assert {email for (_id, email) in result.results} == {"Foo@Example.com", "bar@example.com"}
+            assert result.clickhouse
 
-            # Index usage: extract the person-scanning filter subquery from the real generated SQL and
-            # EXPLAIN it, proving the printer's output for the full query hits the bloom_filter_lower index.
-            subquery, placeholder_values = get_inner_person_subquery_clickhouse_sql(
-                query,
-                self.team,
-                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
-            )
+            # Index usage: EXPLAIN the person-filter subquery from the SQL that actually ran.
+            subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
             index_name = get_bloom_filter_lower_index_name(mat_col.name)
-            index_info = get_index_from_explain(subquery, index_name, placeholder_values=placeholder_values)
+            index_info = get_index_from_explain(subquery, index_name)
             assert index_info is not None, (
                 f"Expected skip index {index_name} to be used in the persons filter subquery:\n{subquery}"
             )
 
     def test_lower_in_uses_bloom_filter_lower_index_on_events(self) -> None:
-        # Events are a single direct scan, so EXPLAIN exposes the skip index (the persons dedup hides it in an
-        # IN-subquery EXPLAIN PLAN does not expand)
-        query = "SELECT count() FROM events WHERE lower(properties.email) IN ('foo@example.com', 'bar@example.com')"
+        # Events are a single direct scan, so EXPLAIN of the executed query exposes the skip index
+        # directly (the persons dedup hides it in an IN-subquery EXPLAIN PLAN does not expand).
         with materialized("events", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
 
-            executor = HogQLQueryExecutor(
-                query_type="HogQLQuery",
-                query=parse_select(query),
+            result = execute_hogql_query(
                 team=self.team,
+                query="SELECT count() FROM events WHERE lower(properties.email) IN {emails}",
+                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
-            clickhouse_sql, _ = executor.generate_clickhouse_sql()
-            assert executor.clickhouse_context is not None
+            assert result.results == [(1,)]
+            assert result.clickhouse
+
             index_name = get_bloom_filter_lower_index_name(mat_col.name)
-            index_info = get_index_from_explain(
-                clickhouse_sql, index_name, placeholder_values=executor.clickhouse_context.values
-            )
+            index_info = get_index_from_explain(result.clickhouse, index_name)
             assert index_info is not None, (
-                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{clickhouse_sql}"
+                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{result.clickhouse}"
             )
 
     def test_lower_in_uses_ngram_lower_index_on_events(self) -> None:
         # The rewrite must also let an ngram_lower index serve the IN lookup end to end.
-        query = "SELECT count() FROM events WHERE lower(properties.email) IN ('foo@example.com', 'bar@example.com')"
         with materialized("events", "email", is_nullable=True, create_ngram_lower_index=True) as mat_col:
             _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
 
-            executor = HogQLQueryExecutor(
-                query_type="HogQLQuery",
-                query=parse_select(query),
+            result = execute_hogql_query(
                 team=self.team,
+                query="SELECT count() FROM events WHERE lower(properties.email) IN {emails}",
+                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
-            clickhouse_sql, _ = executor.generate_clickhouse_sql()
-            assert executor.clickhouse_context is not None
+            assert result.results == [(1,)]
+            assert result.clickhouse
+
             index_name = get_ngram_lower_index_name(mat_col.name)
-            index_info = get_index_from_explain(
-                clickhouse_sql, index_name, placeholder_values=executor.clickhouse_context.values
-            )
+            index_info = get_index_from_explain(result.clickhouse, index_name)
             assert index_info is not None, (
-                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{clickhouse_sql}"
+                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{result.clickhouse}"
             )
 
     @parameterized.expand(

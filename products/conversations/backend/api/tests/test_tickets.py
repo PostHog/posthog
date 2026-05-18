@@ -21,6 +21,7 @@ from rest_framework import status
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
@@ -1344,17 +1345,19 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             index_name = get_bloom_filter_lower_index_name(mat_col.name)
             modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO)
 
-            result = _get_persons_by_email(self.team, ["indexed@example.com"], modifiers=modifiers)
-            assert len(result) == 1
-            assert "indexed@example.com" in result
+            assert "indexed@example.com" in _get_persons_by_email(
+                self.team, ["indexed@example.com"], modifiers=modifiers
+            )
 
-            # EXPLAIN the person-filter subquery from the exact query _get_persons_by_email runs, so the
-            # index assertion tracks the real query rather than a hand-written approximation.
-            subquery, placeholder_values = get_inner_person_subquery_clickhouse_sql(
+            # Run the exact lookup query and EXPLAIN its person-filter subquery, so the index assertion
+            # tracks the SQL that actually ran rather than a hand-written approximation.
+            result = execute_hogql_query(
                 PERSON_EMAIL_LOOKUP_QUERY,
-                self.team,
                 placeholders={"emails": ast.Constant(value=["indexed@example.com"])},
+                team=self.team,
                 modifiers=modifiers,
             )
-            index_info = get_index_from_explain(subquery, index_name, placeholder_values=placeholder_values)
+            assert result.clickhouse
+            subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
+            index_info = get_index_from_explain(subquery, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used:\n{subquery}"

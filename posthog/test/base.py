@@ -1107,37 +1107,17 @@ def get_indexes_from_explain(query: str, values: dict | None = None) -> list[dic
     return read_node.get("Indexes", [])
 
 
-def get_inner_person_subquery_clickhouse_sql(
-    query: str,
-    team,
-    *,
-    placeholders: dict | None = None,
-    modifiers=None,
-) -> tuple[str, dict]:
-    """Compile a HogQL `persons` query and return its pushed-down person-filter subquery.
+def get_inner_person_subquery_clickhouse_sql(clickhouse_sql: str) -> str:
+    """Extract the pushed-down person-filter subquery from a compiled persons query.
 
-    When you filter the `persons` virtual table by a property, the printer pushes the filter
-    into a `where_optimization` IN-subquery that scans the raw `person` table. ClickHouse
-    evaluates that set-building subquery eagerly, so EXPLAIN of the full query never shows the
-    subquery's index analysis - tests must EXPLAIN the subquery directly.
+    When you filter the `persons` virtual table by a property, the printer pushes the filter into a
+    `where_optimization` IN-subquery that scans the raw `person` table. ClickHouse evaluates that
+    set-building subquery eagerly, so EXPLAIN of the full query never shows the subquery's index
+    analysis - tests must EXPLAIN the subquery directly.
 
-    Returns (subquery_sql, placeholder_values) ready to pass to get_index_from_explain.
-
-    Test-only, not robust: it assumes the persons property-filter shape and fails loudly
-    (AssertionError) if the `where_optimization` subquery cannot be located.
+    Pass a `HogQLQueryResponse.clickhouse` string (the SQL that actually ran). Test-only, not robust:
+    fails loudly (AssertionError) if the `where_optimization` subquery cannot be located.
     """
-    from posthog.hogql.query import HogQLQueryExecutor
-
-    executor = HogQLQueryExecutor(
-        query=query,
-        placeholders=placeholders,
-        team=team,
-        query_type="HogQLQuery",
-        modifiers=modifiers,
-    )
-    clickhouse_sql, _ = executor.generate_clickhouse_sql()
-    assert executor.clickhouse_context is not None
-
     match = re.search(r"\(\s*SELECT\s+where_optimization", clickhouse_sql)
     assert match is not None, (
         f"No `where_optimization` person subquery found - is this a persons query with a property filter?"
@@ -1150,7 +1130,7 @@ def get_inner_person_subquery_clickhouse_sql(
         elif clickhouse_sql[i] == ")":
             depth -= 1
             if depth == 0:
-                return clickhouse_sql[match.start() + 1 : i], executor.clickhouse_context.values
+                return clickhouse_sql[match.start() + 1 : i]
     raise AssertionError(f"Unbalanced parentheses extracting the person subquery:\n{clickhouse_sql}")
 
 
