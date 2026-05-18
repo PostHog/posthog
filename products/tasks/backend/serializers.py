@@ -180,23 +180,18 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Signal report must belong to the same team")
         return value
 
+    def validate_origin_product(self, value):
+        # SIGNAL_REPORT is reserved for the signals pipeline (which creates Tasks directly,
+        # bypassing this serializer). Clients must not be able to forge that origin.
+        if value == Task.OriginProduct.SIGNAL_REPORT:
+            raise serializers.ValidationError("origin_product=signal_report is not accepted via this API.")
+        return value
+
     def validate(self, attrs: dict) -> dict:
         rel = attrs.get("signal_report_task_relationship")
-        if rel is not None:
-            if not attrs.get("signal_report"):
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": "Requires signal_report when set."}
-                )
-            if attrs.get("origin_product") != Task.OriginProduct.SIGNAL_REPORT:
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
-                )
-        if (
-            attrs.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
-            and attrs.get("github_user_integration") is not None
-        ):
+        if rel is not None and not attrs.get("signal_report"):
             raise serializers.ValidationError(
-                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+                {"signal_report_task_relationship": "Requires signal_report when set."}
             )
         return attrs
 
@@ -207,10 +202,7 @@ class TaskSerializer(serializers.ModelSerializer):
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
 
-        link_relationship = validated_data.pop(
-            "signal_report_task_relationship",
-            SignalReportTask.Relationship.IMPLEMENTATION,
-        )
+        link_relationship = validated_data.pop("signal_report_task_relationship", None)
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
@@ -241,13 +233,14 @@ class TaskSerializer(serializers.ModelSerializer):
         elif title:
             validated_data.setdefault("title_manually_set", True)
 
-        # Inbox / PostHog Code: tasks created via this API with a signal report use the same
-        # origin_product as server-side flows, but only those flows previously called
-        # SignalReportTask.objects.create. Link implementation tasks here so report task
-        # listings (e.g. getSignalReportTasks) match autostarted implementations.
+        # Inbox / PostHog Code: tasks created via this API with a signal report link to the
+        # report via SignalReportTask so report task listings (e.g. getSignalReportTasks)
+        # match autostarted implementations. Server-side signal flows create the link
+        # themselves, so we only do it here when the client explicitly opted in via
+        # signal_report_task_relationship.
         with transaction.atomic():
             task = super().create(validated_data)
-            if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+            if task.signal_report_id and link_relationship is not None:
                 SignalReportTask.objects.create(
                     team_id=task.team_id,
                     report_id=task.signal_report_id,
