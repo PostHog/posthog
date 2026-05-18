@@ -112,4 +112,50 @@ describe('matchPropertyFilter', () => {
             expect(matchPropertyFilter(filter({ operator: 'unsupported_op', value: 'x' }), 'x')).toBe(false)
         })
     })
+
+    describe('missing filter value', () => {
+        // Regression guard: without the value-null check, `String(undefined).toLowerCase()`
+        // yields `"undefined"` and `icontains` matches every log body containing that string.
+        it.each(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex', 'gt', 'in'])(
+            'returns false for %s when filter value is undefined',
+            (op) => {
+                expect(matchPropertyFilter(filter({ operator: op }), 'undefined')).toBe(false)
+                expect(matchPropertyFilter(filter({ operator: op }), 'anything')).toBe(false)
+            }
+        )
+        it.each(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex', 'gt', 'in'])(
+            'returns false for %s when filter value is null',
+            (op) => {
+                expect(matchPropertyFilter(filter({ operator: op, value: null }), 'undefined')).toBe(false)
+                expect(matchPropertyFilter(filter({ operator: op, value: null }), 'anything')).toBe(false)
+            }
+        )
+    })
+
+    describe('pre-compiled regex', () => {
+        it('uses the leaf _compiledRegex when present and skips ad-hoc compile', () => {
+            const compiled = /precompiled/is
+            // Set `value` to a different pattern so it's clear the compiled regex won.
+            expect(
+                matchPropertyFilter(
+                    { ...filter({ operator: 'regex', value: 'ad-hoc' }), _compiledRegex: compiled },
+                    'precompiled body'
+                )
+            ).toBe(true)
+        })
+        it('treats _compiledRegex === null as "compile failed, never match"', () => {
+            expect(
+                matchPropertyFilter(
+                    { ...filter({ operator: 'regex', value: 'whatever' }), _compiledRegex: null },
+                    'whatever'
+                )
+            ).toBe(false)
+            expect(
+                matchPropertyFilter(
+                    { ...filter({ operator: 'not_regex', value: 'whatever' }), _compiledRegex: null },
+                    'whatever'
+                )
+            ).toBe(false)
+        })
+    })
 })

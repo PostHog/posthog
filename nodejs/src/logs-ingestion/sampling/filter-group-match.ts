@@ -22,20 +22,34 @@ const PROPERTY_FILTER_TYPE_LOG = 'log'
 const PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE = 'log_attribute'
 const PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE = 'log_resource_attribute'
 
-export function matchFilterGroup(group: FilterGroupNode, record: LogRecord): boolean {
+/**
+ * Hard ceiling on filter-group nesting depth. The drop-rules UI surfaces at
+ * most 2 levels in practice; we leave generous headroom for hand-edited or
+ * future shapes. Beyond this we return false (no match → don't drop) so a
+ * pathological deeply-nested rule cannot blow the Node stack on every record.
+ * Pydantic validation in `sampling_api.py` enforces the same bound at write
+ * time; both sides exist so existing rows that predate the validator still
+ * degrade safely.
+ */
+export const MAX_FILTER_GROUP_DEPTH = 16
+
+export function matchFilterGroup(group: FilterGroupNode, record: LogRecord, depth: number = 0): boolean {
+    if (depth >= MAX_FILTER_GROUP_DEPTH) {
+        return false
+    }
     if (!group.values || group.values.length === 0) {
         return false
     }
     if (group.type === 'OR') {
-        return group.values.some((child) => matchOne(child, record))
+        return group.values.some((child) => matchOne(child, record, depth + 1))
     }
     // Default to AND for any unrecognised operator.
-    return group.values.every((child) => matchOne(child, record))
+    return group.values.every((child) => matchOne(child, record, depth + 1))
 }
 
-function matchOne(node: PropertyFilterLeaf | FilterGroupNode, record: LogRecord): boolean {
+function matchOne(node: PropertyFilterLeaf | FilterGroupNode, record: LogRecord, depth: number): boolean {
     if (isGroupNode(node)) {
-        return matchFilterGroup(node, record)
+        return matchFilterGroup(node, record, depth)
     }
     return matchPropertyFilter(node, lookupRecordValue(node, record))
 }

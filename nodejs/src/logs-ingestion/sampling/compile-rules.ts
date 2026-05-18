@@ -1,5 +1,6 @@
 import type { CompiledRuleSet, CompiledSamplingRule, SeverityAction } from './evaluate'
-import type { FilterGroupNode } from './filter-group-match'
+import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH } from './filter-group-match'
+import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-match'
 
 export type SamplingRuleRow = {
     id: string
@@ -81,6 +82,7 @@ function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (!Array.isArray(candidate.values) || (candidate.type !== 'AND' && candidate.type !== 'OR')) {
         return null
     }
+    let parsed: FilterGroupNode = candidate as FilterGroupNode
     // If the outer envelope contains a single inner group, unwrap it.
     if (candidate.values.length === 1) {
         const inner = candidate.values[0] as { type?: unknown; values?: unknown } | null
@@ -90,10 +92,51 @@ function parseFilterGroup(raw: unknown): FilterGroupNode | null {
             Array.isArray(inner.values) &&
             (inner.type === 'AND' || inner.type === 'OR')
         ) {
-            return inner as FilterGroupNode
+            parsed = inner as FilterGroupNode
         }
     }
-    return candidate as FilterGroupNode
+    // Reject pathologically deep trees at compile time so the worker hot path
+    // never recurses past MAX_FILTER_GROUP_DEPTH. Same bound is enforced in
+    // sampling_api.py's Pydantic validator at write time; this is defense in
+    // depth for rows that predate the validator.
+    if (filterGroupDepth(parsed, 0) > MAX_FILTER_GROUP_DEPTH) {
+        return null
+    }
+    // Walk the tree once and stamp pre-compiled regex onto each regex leaf so
+    // the per-record hot path doesn't allocate a fresh `RegExp` per match.
+    // Legacy `pathDropPatterns` already follow this pattern; this brings the
+    // filter-group path in line.
+    compileRegexLeavesInPlace(parsed)
+    return parsed
+}
+
+function filterGroupDepth(node: FilterGroupNode | PropertyFilterLeaf, depth: number): number {
+    const maybe = node as { type?: unknown; values?: unknown }
+    if (!Array.isArray(maybe.values) || (maybe.type !== 'AND' && maybe.type !== 'OR')) {
+        return depth
+    }
+    let maxChild = depth
+    for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+        const d = filterGroupDepth(child, depth + 1)
+        if (d > maxChild) {
+            maxChild = d
+        }
+    }
+    return maxChild
+}
+
+function compileRegexLeavesInPlace(node: FilterGroupNode | PropertyFilterLeaf): void {
+    const maybe = node as { type?: unknown; values?: unknown }
+    if (Array.isArray(maybe.values) && (maybe.type === 'AND' || maybe.type === 'OR')) {
+        for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+            compileRegexLeavesInPlace(child)
+        }
+        return
+    }
+    const leaf = node as PropertyFilterLeaf
+    if (leaf.operator === 'regex' || leaf.operator === 'not_regex') {
+        leaf._compiledRegex = leaf.value == null ? null : compileLeafRegex(leaf.value)
+    }
 }
 
 function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule['alwaysKeep'] {

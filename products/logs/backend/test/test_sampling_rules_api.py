@@ -157,3 +157,20 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_path_drop_rejects_filter_group_nested_too_deeply(self):
+        # 20 nested AND groups around a single leaf — well past the cap of 16.
+        # Worker recurses per record, so an unbounded depth is a stack-overflow + CPU footgun.
+        node = {
+            "type": "AND",
+            "values": [{"key": "service.name", "operator": "exact", "value": "api", "type": "log_resource_attribute"}],
+        }
+        for _ in range(20):
+            node = {"type": "AND", "values": [node]}
+        response = self.client.post(
+            self.base_url,
+            self._payload(config={"patterns": [], "filter_group": node}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "nested too deeply" in str(response.json()), response.json()

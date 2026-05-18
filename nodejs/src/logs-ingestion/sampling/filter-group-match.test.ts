@@ -1,5 +1,5 @@
 import type { LogRecord } from '../log-record-avro'
-import { type FilterGroupNode, matchFilterGroup } from './filter-group-match'
+import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH, matchFilterGroup } from './filter-group-match'
 
 const baseRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
     uuid: null,
@@ -136,6 +136,35 @@ describe('matchFilterGroup', () => {
         it('missing attribute does not match comparison operators', () => {
             const g = group({ values: [{ key: 'http.route', operator: 'exact', value: '/healthz' }] })
             expect(matchFilterGroup(g, baseRecord())).toBe(false)
+        })
+    })
+
+    describe('recursion depth cap', () => {
+        // Build a degenerate AND-chain N levels deep wrapping a single matching leaf.
+        function deepGroup(depth: number, leaf: { key: string; value: string; operator: string }): FilterGroupNode {
+            let node: FilterGroupNode = { type: 'AND', values: [leaf] }
+            for (let i = 0; i < depth; i++) {
+                node = { type: 'AND', values: [node] }
+            }
+            return node
+        }
+
+        it('matches at exactly the depth cap boundary', () => {
+            const g = deepGroup(MAX_FILTER_GROUP_DEPTH - 2, {
+                key: 'service.name',
+                value: 'api',
+                operator: 'exact',
+            })
+            expect(matchFilterGroup(g, baseRecord({ service_name: 'api' }))).toBe(true)
+        })
+
+        it('returns false past the depth cap without throwing', () => {
+            const g = deepGroup(MAX_FILTER_GROUP_DEPTH + 5, {
+                key: 'service.name',
+                value: 'api',
+                operator: 'exact',
+            })
+            expect(matchFilterGroup(g, baseRecord({ service_name: 'api' }))).toBe(false)
         })
     })
 })

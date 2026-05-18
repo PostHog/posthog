@@ -233,7 +233,13 @@ export class LogsIngestionConsumer {
                       ttlSeconds: this.logsSamplingRateLimitTtlSeconds,
                   }
                 : null
-            const sampled = await processBufferWithSampling(message.message.value!, logsSettings, ruleSet, rateCtx)
+            const sampled = await processBufferWithSampling(
+                message.message.value!,
+                logsSettings,
+                ruleSet,
+                rateCtx,
+                message.teamId
+            )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
             }

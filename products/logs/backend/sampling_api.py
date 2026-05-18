@@ -24,6 +24,32 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsExclusionRule
 
+# Keep aligned with `MAX_FILTER_GROUP_DEPTH` in
+# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`. Both sides bound
+# recursion depth so an adversarially deep filter_group cannot stack-overflow
+# the per-record evaluator in the Node ingestion worker.
+MAX_FILTER_GROUP_DEPTH = 16
+
+
+def _filter_group_depth(node: Any, depth: int = 0) -> int:
+    # Short-circuit once we've crossed the cap — we don't need the true depth,
+    # just that it exceeds MAX_FILTER_GROUP_DEPTH. Prevents Python RecursionError
+    # on adversarial payloads that pass pydantic-core (Rust) validation, which
+    # has a more generous recursion limit than ours.
+    if depth > MAX_FILTER_GROUP_DEPTH:
+        return depth
+    if not isinstance(node, dict):
+        return depth
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return depth
+    max_child = depth
+    for child in values:
+        d = _filter_group_depth(child, depth + 1)
+        if d > max_child:
+            max_child = d
+    return max_child
+
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this sampling rule.")
@@ -132,6 +158,19 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                 except PydanticValidationError as e:
                     raise ValidationError(
                         {"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}}
+                    )
+                # Bound nesting depth — the Node ingestion worker recurses per
+                # record over this tree, so an adversarially deep group is a
+                # stack-overflow + CPU footgun on every log line. Matches
+                # `MAX_FILTER_GROUP_DEPTH` in
+                # `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`.
+                if _filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
+                    raise ValidationError(
+                        {
+                            "config": {
+                                "filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."
+                            }
+                        }
                     )
         if rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
             if not isinstance(config, dict):

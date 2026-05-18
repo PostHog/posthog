@@ -27,12 +27,29 @@ export type SupportedPropertyOperator =
     | 'in'
     | 'not_in'
 
-/** Leaf filter shape — mirrors the AnyPropertyFilter wire format. */
+/**
+ * Leaf filter shape — mirrors the AnyPropertyFilter wire format. `_compiledRegex`
+ * is populated by `parseFilterGroup` for `regex` / `not_regex` leaves so the hot
+ * path does not allocate a fresh `RegExp` per log record. `null` means the
+ * pattern failed to compile; the leaf will never match.
+ */
 export interface PropertyFilterLeaf {
     key: string
     operator?: string
     value?: string | number | boolean | (string | number | boolean)[] | null
     type?: string
+    /** Internal — set during compile, do not write from outside compile-rules. */
+    _compiledRegex?: RegExp | null
+}
+
+/** Pre-compile a regex pattern for a leaf with the same flags `matchPropertyFilter` uses. */
+export function compileLeafRegex(pattern: unknown): RegExp | null {
+    try {
+        // Python source uses re.DOTALL | re.IGNORECASE — same as JS `s` + `i` flags.
+        return new RegExp(String(pattern), 'is')
+    } catch {
+        return null
+    }
 }
 
 export function matchPropertyFilter(
@@ -54,6 +71,15 @@ export function matchPropertyFilter(
         return false
     }
 
+    // A missing filter value never matches either — without this guard, the
+    // operators below silently coerce `undefined` to the literal string
+    // `"undefined"` and match any log line containing that substring.
+    // `is_set` / `is_not_set` above are the only operators that legitimately
+    // run without a filter value.
+    if (value === undefined || value === null) {
+        return false
+    }
+
     if (operator === 'exact' || operator === 'in') {
         return matchExact(value, overrideValue)
     }
@@ -69,11 +95,15 @@ export function matchPropertyFilter(
     }
 
     if (operator === 'regex' || operator === 'not_regex') {
-        let rx: RegExp
-        try {
-            // Python source uses re.DOTALL | re.IGNORECASE — same as JS `s` + `i` flags.
-            rx = new RegExp(String(value), 'is')
-        } catch {
+        // Prefer the compile-time regex if `parseFilterGroup` stamped one onto the
+        // leaf. `_compiledRegex === null` means the pattern failed to compile and
+        // the leaf should never match (mirrors the catch branch below).
+        let rx: RegExp | null | undefined = filter._compiledRegex
+        if (rx === undefined) {
+            // Fallback for callers that didn't pre-compile (mostly tests).
+            rx = compileLeafRegex(value)
+        }
+        if (rx === null) {
             return false
         }
         const matches = rx.test(String(overrideValue))
