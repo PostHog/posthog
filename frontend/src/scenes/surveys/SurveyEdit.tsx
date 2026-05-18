@@ -1367,7 +1367,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               <LemonField
                                                                   name="linked_flag_id"
                                                                   label="Feature flag targeting"
-                                                                  help="Optionally limit this survey to users who have a specific feature flag enabled. Connecting a flag enables the survey for everyone the flag is on for."
+                                                                  help="Linking a flag also enables the survey for everyone the flag is on for."
                                                               >
                                                                   {({ value, onChange }) => (
                                                                       <div
@@ -1497,7 +1497,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           <LemonField.Pure
                                                                               label="URL targeting"
                                                                               error={urlMatchTypeValidationError}
-                                                                              help="Match the current URL against the pattern you provide. Regex and exact match require posthog-js 1.82 or later."
+                                                                              help="Regex and exact match need posthog-js 1.82+."
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
                                                                                   <LemonSelect
@@ -1549,14 +1549,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               }
                                                                               help={
                                                                                   <>
-                                                                                      Restrict the survey to specific
-                                                                                      devices. Common values: Desktop,
-                                                                                      Mobile, Tablet — see the{' '}
                                                                                       <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
-                                                                                          full list and caveats
+                                                                                          See accepted values
                                                                                       </Link>
-                                                                                      . Requires posthog-js 1.214 or
-                                                                                      later.
+                                                                                      . Needs posthog-js 1.214+.
                                                                                   </>
                                                                               }
                                                                           >
@@ -1664,7 +1660,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
                                                                               label="Survey wait period"
-                                                                              help="Only reliable for identified users in a single browser session. Anonymous users, browser switches, incognito sessions, or log out / log back in flows may still see the survey again. Responses submitted while anonymous may be linked to the account if the user logs in during the same session."
+                                                                              help="Reliable only for identified users in the same browser session — incognito, browser switches, and logout/login may still see the survey again."
                                                                           >
                                                                               <div className="flex flex-wrap gap-2 items-center text-sm">
                                                                                   <LemonCheckbox
@@ -1713,10 +1709,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       </>
                                                                   )}
                                                               </LemonField>
-                                                              <LemonField.Pure
-                                                                  label="Audience filters"
-                                                                  help="Limit this survey to users (or groups) whose properties match the conditions below."
-                                                              >
+                                                              <LemonField.Pure label="Audience filters">
                                                                   <BindLogic
                                                                       logic={featureFlagLogic}
                                                                       props={{
@@ -1791,10 +1784,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                   Triggers
                                                               </h3>
                                                               {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] ? (
-                                                                  <LemonField.Pure
-                                                                      label="Activation triggers"
-                                                                      help="The survey activates when any of these conditions are met."
-                                                                  >
+                                                                  <LemonField.Pure label="Activation triggers">
                                                                       <div className="space-y-4">
                                                                           <SurveyEventTrigger />
                                                                           <div className="flex items-center gap-2">
