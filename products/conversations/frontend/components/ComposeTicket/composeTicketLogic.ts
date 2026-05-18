@@ -36,6 +36,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setRecipientEmail: (_, { email }) => email,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -43,6 +44,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setRecipientDistinctId: (_, { distinctId }) => distinctId,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -50,6 +52,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setEmailSubject: (_, { subject }) => subject,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -57,6 +60,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setEmailConfigId: (_, { configId }) => configId,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -65,6 +69,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             {
                 submitCompose: () => true,
                 submitComposeFinished: () => false,
+                openComposeModal: () => false,
                 resetForm: () => false,
             },
         ],
