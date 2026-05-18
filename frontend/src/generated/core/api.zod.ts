@@ -2594,10 +2594,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
+            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
             .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+                '\* `hourly` - Hourly\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+            )
+            .describe(
+                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n\* `hourly` - Hourly\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -2700,10 +2702,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
+            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
             .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+                '\* `hourly` - Hourly\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+            )
+            .describe(
+                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n\* `hourly` - Hourly\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -2808,11 +2812,13 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
+            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
+            .describe(
+                '\* `hourly` - Hourly\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+            )
             .optional()
             .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n\* `hourly` - Hourly\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -3139,6 +3145,38 @@ export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
     .describe(
         'Request body for POST \/api\/users\/{id}\/onboarding\/skip\/.\n\nSource of truth for OpenAPI \/ generated TS \/ zod \/ MCP — bind this serializer at\nruntime so the contract clients believe is enforced (length cap, choice validation,\nno extra fields) is actually enforced server-side.'
     )
+
+/**
+ * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * @summary Register a push notification token
+ */
+export const usersPushTokensCreateBodyTokenMax = 512
+
+export const UsersPushTokensCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .max(usersPushTokensCreateBodyTokenMax)
+        .describe("Opaque push token issued by the device's platform push service (e.g. an Expo push token)."),
+    platform: zod
+        .enum(['ios', 'android', 'web'])
+        .describe('\* `ios` - iOS\n\* `android` - Android\n\* `web` - Web')
+        .describe(
+            'Device platform the token was issued for. One of `ios`, `android`, or `web`.\n\n\* `ios` - iOS\n\* `android` - Android\n\* `web` - Web'
+        ),
+})
+
+/**
+ * Delete the row matching `(user, token)`. Returns 204 even if no row matches so the mobile client can call this unconditionally when the user opts out.
+ * @summary Unregister a push notification token
+ */
+export const usersPushTokensUnregisterCreateBodyTokenMax = 512
+
+export const UsersPushTokensUnregisterCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .max(usersPushTokensUnregisterCreateBodyTokenMax)
+        .describe('The opaque push token to remove for the authenticated user.'),
+})
 
 export const usersScenePersonalisationCreateBodyFirstNameMax = 150
 

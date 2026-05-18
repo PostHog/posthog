@@ -111,12 +111,36 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     - Host must not be localhost, metadata service, or internal domain
     - Resolved IPs must not be private/internal
     """
-    if _dev_bypass_enabled():
-        return True, None
+    allowed, reason, _ips = _validate_url_with_ips(raw_url)
+    return allowed, reason
 
-    def _blocked(reason: str, **log_kwargs) -> tuple[bool, str]:
+
+def validate_url_and_pin_ips(
+    raw_url: str,
+) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    """
+    Like ``is_url_allowed`` but also returns the validated IP set.
+
+    Callers that subsequently open a connection to the URL MUST use the
+    returned IPs (via ``PinnedIPAdapter``) instead of re-resolving DNS.
+    This eliminates the TOCTOU window that enables DNS-rebinding SSRF.
+    """
+    return _validate_url_with_ips(raw_url)
+
+
+def _validate_url_with_ips(
+    raw_url: str,
+) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    empty: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+
+    if _dev_bypass_enabled():
+        return True, None, empty
+
+    def _blocked(
+        reason: str, **log_kwargs: object
+    ) -> tuple[bool, str, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
-        return False, reason
+        return False, reason, empty
 
     try:
         u = urlparse.urlparse(raw_url)
@@ -147,7 +171,7 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     for ip in ips:
         if _is_internal_ip(ip):
             return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))
-    return True, None
+    return True, None, ips
 
 
 def should_block_url(u: str) -> bool:

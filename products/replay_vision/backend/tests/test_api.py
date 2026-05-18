@@ -1,9 +1,12 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
@@ -13,6 +16,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.temporal.constants import APPLY_LENS_WORKFLOW_NAME, build_apply_lens_workflow_id
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -327,3 +331,157 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         body = resp.json()
         self.assertEqual(len(body["results"]), 2)
         self.assertIsNotNone(body.get("next"))
+
+
+@patch("products.replay_vision.backend.api.lenses.async_to_sync")
+@patch("products.replay_vision.backend.api.lenses.sync_connect")
+class TestObserveAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.lens = self._create_lens()
+
+    def observe_url(self, lens_id: str) -> str:
+        return f"{self.lenses_url}{lens_id}/observe/"
+
+    def test_observe_returns_workflow_id_and_starts_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_sync_connect.return_value = mock_client
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-42"}, format="json")
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        expected_workflow_id = build_apply_lens_workflow_id(self.lens.id, "sess-42")
+        self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id})
+
+        self.assertFalse(ReplayObservation.objects.filter(lens=self.lens, session_id="sess-42").exists())
+
+        mock_async_to_sync.assert_called_once_with(mock_client.start_workflow)
+        args, kwargs = start_workflow.call_args
+        self.assertEqual(args[0], APPLY_LENS_WORKFLOW_NAME)
+        self.assertEqual(kwargs["id"], expected_workflow_id)
+        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        inputs = args[1]
+        self.assertEqual(inputs.lens_id, self.lens.id)
+        self.assertEqual(inputs.session_id, "sess-42")
+        self.assertEqual(inputs.team_id, self.team.id)
+        self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
+        self.assertEqual(inputs.triggered_by_user_id, self.user.id)
+
+    def test_observe_dedup_uses_deterministic_workflow_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        first = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-dup"}, format="json")
+        second = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-dup"}, format="json")
+        self.assertEqual(first.json()["workflow_id"], second.json()["workflow_id"])
+
+    def test_observe_rejects_missing_session_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "session_id")
+
+    def test_observe_rejects_too_long_session_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        resp = self.client.post(
+            self.observe_url(str(self.lens.id)),
+            data={"session_id": "x" * 129},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "session_id")
+
+    def test_observe_workflow_id_fits_observation_column_at_max_input(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Catches widening session_id without re-checking the workflow_id column ceiling.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        max_session_id = "x" * 128
+
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": max_session_id}, format="json")
+        self.assertEqual(resp.status_code, 202, resp.json())
+        workflow_id = resp.json()["workflow_id"]
+        max_length = ReplayObservation._meta.get_field("workflow_id").max_length
+        assert max_length is not None
+        self.assertLessEqual(len(workflow_id), max_length)
+
+    def test_observe_dispatch_failure_returns_503(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(side_effect=RuntimeError("temporal unavailable"))
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-broken"}, format="json")
+        self.assertEqual(resp.status_code, 503)
+        self.assertFalse(ReplayObservation.objects.filter(lens=self.lens, session_id="sess-broken").exists())
+
+    def test_observe_workflow_already_started_is_treated_as_success(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        coalesced_workflow_id = build_apply_lens_workflow_id(self.lens.id, "sess-coalesce")
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=coalesced_workflow_id,
+                workflow_type=APPLY_LENS_WORKFLOW_NAME,
+            )
+        )
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(
+            self.observe_url(str(self.lens.id)), data={"session_id": "sess-coalesce"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertEqual(resp.json(), {"workflow_id": coalesced_workflow_id})
+
+    def test_observe_workflow_already_started_with_mismatched_id_returns_503(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Mismatched workflow_id must not silently 202 under a future id_reuse_policy.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id="some-unrelated-workflow-id",
+                workflow_type=APPLY_LENS_WORKFLOW_NAME,
+            )
+        )
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(
+            self.observe_url(str(self.lens.id)), data={"session_id": "sess-mismatch"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 503, resp.json())
+
+
+@patch("products.replay_vision.backend.api.lenses.async_to_sync")
+@patch("products.replay_vision.backend.api.lenses.sync_connect")
+class TestObserveActionFeatureFlag(APIBaseTest):
+    def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
+        with patch(
+            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            lens = ReplayLens.objects.create(
+                team=self.team,
+                name="off",
+                lens_type=LensType.MONITOR,
+                lens_config={"prompt": "p"},
+                model=LensModel.GEMINI_3_FLASH,
+            )
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/vision/lenses/{lens.id}/observe/",
+                data={"session_id": "s"},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, 404)
