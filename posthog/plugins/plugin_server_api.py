@@ -102,6 +102,15 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+def bulk_replay_hog_flow_invocations(team_id: int, hog_flow_id: str, items: list[dict]) -> requests.Response:
+    logger.info("Bulk replaying blocked hog flow invocations", hog_flow_id=hog_flow_id, count=len(items))
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/bulk_replay_invocations",
+        json={"items": items},
+        headers=get_internal_api_headers(),
+    )
+
+
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
     return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
@@ -146,6 +155,35 @@ def get_hog_function_templates() -> requests.Response:
 def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
+        headers=get_internal_api_headers(),
+    )
+
+
+def replay_hog_invocations(
+    team_id: int,
+    function_kind: str,
+    function_id: str,
+    payload: dict,
+) -> requests.Response:
+    """
+    Trigger a replay of past hog function / hog flow invocations.
+
+    `payload` is one of:
+      - {"invocation_ids": ["uuid", ...]}                   -> replay these specific runs
+      - {"filter": {"window_start": "...", "window_end": "...", "status": [...], ...}}
+
+    The Node side (`nodejs/src/cdp/replay`) reads the matching rows from
+    `hog_invocation_results`, rehydrates the invocation from the stored
+    `invocation_globals`, and re-enqueues onto cyclotron with `is_retry=1`.
+    """
+    logger.info(
+        "Triggering replay of hog invocations",
+        function_kind=function_kind,
+        function_id=function_id,
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/{function_kind}s/{function_id}/replay",
+        json=payload,
         headers=get_internal_api_headers(),
     )
 

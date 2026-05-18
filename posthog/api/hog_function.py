@@ -22,6 +22,10 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.api.hog_invocation_replay import (
+    HogInvocationReplayRequestSerializer,
+    HogInvocationReplayResponseSerializer,
+)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -55,7 +59,7 @@ from posthog.models.hog_functions.hog_function import (
 )
 from posthog.models.hog_functions.utils import humanize_hog_function_type
 from posthog.models.plugin import TranspilerError
-from posthog.plugins.plugin_server_api import create_hog_invocation_test
+from posthog.plugins.plugin_server_api import create_hog_invocation_test, replay_hog_invocations
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -475,7 +479,7 @@ class HogFunctionViewSet(
 ):
     scope_object = "hog_function"
     scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
-    scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
+    scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange", "replay"]
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFunctionFilterSet
@@ -632,6 +636,46 @@ class HogFunctionViewSet(
 
         if res.status_code != 200:
             return Response({"status": "error"}, status=res.status_code)
+
+        return Response(res.json())
+
+    @extend_schema(
+        request=HogInvocationReplayRequestSerializer,
+        responses={200: HogInvocationReplayResponseSerializer, 400: HogInvocationReplayResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"])
+    def replay(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Replay past invocations of this hog function from their stored payloads.
+
+        The CDP worker reads matching rows from the `hog_invocation_results`
+        ClickHouse table, rehydrates the invocation from the stored
+        `invocation_globals`, and re-enqueues onto cyclotron. Each replayed
+        run reuses the original `invocation_id` with `is_retry=1` set on the
+        new lifecycle row so the UI can surface that it was a replay.
+        """
+        hog_function = self.get_object()
+
+        serializer = HogInvocationReplayRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # `serializer.data` runs `to_representation`, which converts the
+        # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
+        # ISO-8601 strings — `requests.post(json=...)` can't serialize raw
+        # `datetime` objects, so passing `validated_data` would 500 every
+        # filter-mode replay before the request even left Django.
+        res = replay_hog_invocations(
+            team_id=self.team_id,
+            function_kind="hog_function",
+            function_id=str(hog_function.id),
+            payload=serializer.data,
+        )
+
+        if res.status_code != 200:
+            return Response(
+                {"queued_count": 0, "skipped_count": 0, "error": res.text},
+                status=res.status_code,
+            )
 
         return Response(res.json())
 

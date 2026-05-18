@@ -87,6 +87,7 @@ from posthog.hogql.database.schema.experiment_metric_events_preaggregated import
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
+from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -279,6 +280,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
+                    ),
+                    "hog_invocation_results": TableNode(
+                        name="hog_invocation_results", table=HogInvocationResultsTable()
                     ),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
@@ -1284,28 +1288,34 @@ class Database(BaseModel):
                         # name, and the final database may resolve that name to the table even if a view exists too.
                         views = define_mappings(
                             views,
-                            lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                            .latest("created_at"),
+                            lambda team, warehouse_modifier: (
+                                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                                .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                                .latest("created_at")
+                            ),
                         )
                         warehouse_tables = define_mappings(
                             warehouse_tables,
-                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(
-                                team_id=team.pk,
-                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
-                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
-                                else warehouse_modifier.table_name,
-                            )
-                            .select_related("credential", "external_data_source")
-                            .latest("created_at"),
+                            lambda team, warehouse_modifier: (
+                                DataWarehouseTable.objects.exclude(deleted=True)
+                                .filter(
+                                    team_id=team.pk,
+                                    name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
+                                    if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
+                                    else warehouse_modifier.table_name,
+                                )
+                                .select_related("credential", "external_data_source")
+                                .latest("created_at")
+                            ),
                         )
                         self_managed_warehouse_tables = define_mappings(
                             self_managed_warehouse_tables,
-                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                            .select_related("credential", "external_data_source")
-                            .latest("created_at"),
+                            lambda team, warehouse_modifier: (
+                                DataWarehouseTable.objects.exclude(deleted=True)
+                                .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                                .select_related("credential", "external_data_source")
+                                .latest("created_at")
+                            ),
                         )
 
         database._add_warehouse_tables(warehouse_tables)

@@ -6,6 +6,7 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,6 +18,7 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -50,6 +52,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow } = useValues(logic)
 
+    const runsV2Enabled = useFeatureFlag('HOG_INVOCATION_RESULTS_RUNS_TAB')
+
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
@@ -74,6 +78,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             key: 'logs',
             content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
+        runsV2Enabled
+            ? {
+                  label: 'Invocations (preview)',
+                  key: 'invocations',
+                  content: <WorkflowInvocations id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Metrics',
             key: 'metrics',
