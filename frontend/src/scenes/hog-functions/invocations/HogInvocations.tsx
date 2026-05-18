@@ -17,12 +17,17 @@ import {
     LemonTagProps,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
+import { dateStringToDayJs } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { hogql } from '~/queries/utils'
 
 import { renderHogFunctionMessage } from '../logs/HogFunctionLogs'
 import { LogsViewer } from '../logs/LogsViewer'
@@ -31,6 +36,7 @@ import {
     BulkReplayParams,
     HOG_INVOCATIONS_REPLAY_MAX_COUNT,
     HogInvocationRow,
+    HogInvocationsFunctionKind,
     HogInvocationsLogicProps,
     RunStatus,
     hogInvocationsLogic,
@@ -95,6 +101,55 @@ const rowRibbonColorFor = (row: HogInvocationRow): string | null => {
         return 'var(--success)'
     }
     return null
+}
+
+/**
+ * Live count for the re-run modal — mirrors the worker's predicate shape
+ * (window + status + error_kind + max_attempts) but skips `max_count`,
+ * which is a server-side ceiling, not a row filter.
+ */
+async function countRerunMatches(
+    props: { id: string; functionKind: HogInvocationsFunctionKind },
+    params: BulkReplayParams
+): Promise<number> {
+    const start = (dateStringToDayJs(params.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
+    const end = ((params.date_to ? dateStringToDayJs(params.date_to) : null) ?? dayjs()).toISOString()
+    const statusClause = params.status?.length
+        ? hogql.raw(`AND argMax(status, version) IN (${params.status.map((s) => `'${s}'`).join(',')})`)
+        : hogql.raw('')
+    const errorKindClause = params.error_kind?.length
+        ? hogql.raw(
+              `AND argMax(error_kind, version) IN (${params.error_kind
+                  .map((s) => `'${s.replace(/'/g, "\\'")}'`)
+                  .join(',')})`
+          )
+        : hogql.raw('')
+    const maxAttemptsClause =
+        typeof params.max_attempts === 'number'
+            ? hogql.raw(`AND max(attempts) < ${params.max_attempts}`)
+            : hogql.raw('')
+
+    const query = hogql`
+        SELECT count() FROM (
+            SELECT invocation_id
+            FROM posthog.hog_invocation_results
+            WHERE function_kind = ${props.functionKind}
+              AND function_id = ${props.id}
+              AND scheduled_at >= ${start}
+              AND scheduled_at < ${end}
+            GROUP BY invocation_id
+            HAVING argMax(is_deleted, version) = 0
+               ${statusClause}
+               ${errorKindClause}
+               ${maxAttemptsClause}
+        )
+    `
+    const response = await api.queryHogQL(query, {
+        scene: 'HogInvocations',
+        productKey: 'pipeline_destinations',
+    })
+    const row = response.results?.[0]
+    return Array.isArray(row) ? Number(row[0] ?? 0) : 0
 }
 
 /**
@@ -398,6 +453,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 onClose={() => setRerunModalOpen(false)}
                 initialDateFrom={filters.date_from}
                 initialDateTo={filters.date_to}
+                countMatches={(params) => countRerunMatches({ id, functionKind }, params)}
                 onSubmit={(params) => {
                     bulkReplay(params)
                     setRerunModalOpen(false)
@@ -591,12 +647,14 @@ function RerunModal({
     onClose,
     initialDateFrom,
     initialDateTo,
+    countMatches,
     onSubmit,
 }: {
     isOpen: boolean
     onClose: () => void
     initialDateFrom: string
     initialDateTo: string | undefined
+    countMatches: (params: BulkReplayParams) => Promise<number>
     onSubmit: (params: BulkReplayParams) => void
 }): JSX.Element {
     const [status, setStatus] = useState<RunStatus[]>(['failed'])
@@ -605,6 +663,34 @@ function RerunModal({
     const [maxAttempts, setMaxAttempts] = useState<number | undefined>(undefined)
     const [dateFrom, setDateFrom] = useState<string>(initialDateFrom)
     const [dateTo, setDateTo] = useState<string | undefined>(initialDateTo)
+    const [previewCount, setPreviewCount] = useState<number | null>(null)
+    const [previewLoading, setPreviewLoading] = useState(false)
+
+    // Debounced live count of invocations matching the current filter so the
+    // user knows how many runs they're about to re-queue before they click.
+    // Skip the explicit max_count cap in the preview — that's a client-side
+    // ceiling applied at the server, not a filter on matching rows.
+    useEffect(() => {
+        if (!isOpen || status.length === 0) {
+            setPreviewCount(null)
+            return
+        }
+        const params: BulkReplayParams = {
+            date_from: dateFrom,
+            date_to: dateTo,
+            status,
+            error_kind: errorKinds.length ? errorKinds : undefined,
+            max_attempts: maxAttempts,
+        }
+        setPreviewLoading(true)
+        const handle = setTimeout(() => {
+            countMatches(params)
+                .then((n) => setPreviewCount(n))
+                .catch(() => setPreviewCount(null))
+                .finally(() => setPreviewLoading(false))
+        }, 400)
+        return () => clearTimeout(handle)
+    }, [isOpen, dateFrom, dateTo, status, errorKinds, maxAttempts, countMatches])
 
     return (
         <LemonModal
@@ -614,27 +700,46 @@ function RerunModal({
             description="Queue a re-run for every invocation that matches this filter within the window. Inputs (secrets, integration tokens) are re-resolved per row at execution time."
             width={520}
             footer={
-                <>
-                    <LemonButton type="secondary" onClick={onClose}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        disabledReason={status.length === 0 ? 'Pick at least one status' : undefined}
-                        onClick={() =>
-                            onSubmit({
-                                date_from: dateFrom,
-                                date_to: dateTo,
-                                status,
-                                error_kind: errorKinds.length ? errorKinds : undefined,
-                                max_count: maxCount,
-                                max_attempts: maxAttempts,
-                            })
-                        }
-                    >
-                        Queue re-run
-                    </LemonButton>
-                </>
+                <div className="flex items-center justify-between w-full gap-2">
+                    <div className="text-xs text-muted-alt">
+                        {status.length === 0
+                            ? 'Pick at least one status to preview matches'
+                            : previewLoading && previewCount === null
+                              ? 'Counting matching invocations…'
+                              : previewCount !== null
+                                ? typeof maxCount === 'number' && previewCount > maxCount
+                                    ? `${previewCount.toLocaleString()} match — will re-run the first ${maxCount.toLocaleString()}`
+                                    : `${previewCount.toLocaleString()} invocation${previewCount === 1 ? '' : 's'} match`
+                                : ''}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <LemonButton type="secondary" onClick={onClose}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            disabledReason={
+                                status.length === 0
+                                    ? 'Pick at least one status'
+                                    : previewCount === 0
+                                      ? 'Nothing matches this filter'
+                                      : undefined
+                            }
+                            onClick={() =>
+                                onSubmit({
+                                    date_from: dateFrom,
+                                    date_to: dateTo,
+                                    status,
+                                    error_kind: errorKinds.length ? errorKinds : undefined,
+                                    max_count: maxCount,
+                                    max_attempts: maxAttempts,
+                                })
+                            }
+                        >
+                            Queue re-run
+                        </LemonButton>
+                    </div>
+                </div>
             }
         >
             <div className="deprecated-space-y-3">
