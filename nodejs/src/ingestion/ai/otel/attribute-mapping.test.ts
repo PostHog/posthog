@@ -602,6 +602,32 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.$ai_input).toBeUndefined()
             expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
         })
+
+        it('strips a null-valued attribute without touching existing $ai_input', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': null,
+                'gen_ai.input.messages': JSON.stringify([{ role: 'user', content: 'Hi' }]),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hi' }])
+            expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
+        })
+
+        it('does not overwrite an existing non-array $ai_input', () => {
+            // Upstream bug shape: `$ai_input` already set to a non-array value
+            // (e.g. a raw string from a malformed `gen_ai.input.messages` that
+            // failed JSON parsing). Don't clobber it — the `conflict` outcome
+            // surfaces this in prod via the counter.
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': 'You are a helpful assistant.',
+                'gen_ai.input.messages': 'not valid json',
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toBe('not valid json')
+            expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
+        })
     })
 
     describe('older-spec span events composed with pydantic-ai middleware', () => {
