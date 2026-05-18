@@ -4,6 +4,7 @@ import { match } from 'ts-pattern'
 
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -51,6 +52,10 @@ export function SessionRecordingContent(): JSX.Element {
         setPlay()
     }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
 
+    if (isNotFound) {
+        return <NoRecordingFound />
+    }
+
     return (
         <div className="h-full flex flex-col">
             {isTimestampOutsideRecording && (
@@ -69,6 +74,20 @@ export function SessionRecordingContent(): JSX.Element {
                     withSidebar={false}
                 />
             </div>
+        </div>
+    )
+}
+
+export function NoRecordingFound(): JSX.Element {
+    return (
+        <div className="flex justify-center w-full h-[300px] items-center">
+            <EmptyMessage
+                title="No recording for this session"
+                description="The session ID is attached to this exception, but no recording is available. This usually means the recording was never captured, was excluded by sampling, or has aged out of the retention window."
+                buttonText="Check doc"
+                buttonTo="https://posthog.com/docs/session-replay"
+                size="small"
+            />
         </div>
     )
 }
