@@ -21,9 +21,7 @@ import api from 'lib/api'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { dateStringToDayJs } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -105,38 +103,34 @@ const rowRibbonColorFor = (row: HogInvocationRow): string | null => {
 
 /**
  * Live count for the re-run modal — mirrors the worker's predicate shape
- * (window + status + error_kind + max_attempts) but skips `max_count`,
- * which is a server-side ceiling, not a row filter.
+ * (window + status + error_kind + max_attempts) but skips `max_count`
+ * (server-side ceiling, not a row filter). Uses HogQL's `filtersOverride`
+ * for the date window, matching `fetchRunsPage` — inline `scheduled_at`
+ * comparisons don't get the table's timestamp routing.
  */
 async function countRerunMatches(
     props: { id: string; functionKind: HogInvocationsFunctionKind },
     params: BulkReplayParams
 ): Promise<number> {
-    const start = (dateStringToDayJs(params.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
-    const end = ((params.date_to ? dateStringToDayJs(params.date_to) : null) ?? dayjs()).toISOString()
     const statusClause = params.status?.length
-        ? hogql.raw(`AND argMax(status, version) IN (${params.status.map((s) => `'${s}'`).join(',')})`)
+        ? hogql.raw(`AND status IN (${params.status.map((s) => `'${s}'`).join(',')})`)
         : hogql.raw('')
     const errorKindClause = params.error_kind?.length
-        ? hogql.raw(
-              `AND argMax(error_kind, version) IN (${params.error_kind
-                  .map((s) => `'${s.replace(/'/g, "\\'")}'`)
-                  .join(',')})`
-          )
+        ? hogql.raw(`AND error_kind IN (${params.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(',')})`)
         : hogql.raw('')
     const maxAttemptsClause =
-        typeof params.max_attempts === 'number'
-            ? hogql.raw(`AND max(attempts) < ${params.max_attempts}`)
-            : hogql.raw('')
+        typeof params.max_attempts === 'number' ? hogql.raw(`AND attempts < ${params.max_attempts}`) : hogql.raw('')
 
     const query = hogql`
         SELECT count() FROM (
-            SELECT invocation_id
+            SELECT
+                invocation_id,
+                argMax(status, version)     AS status,
+                argMax(error_kind, version) AS error_kind,
+                max(attempts)               AS attempts
             FROM posthog.hog_invocation_results
             WHERE function_kind = ${props.functionKind}
               AND function_id = ${props.id}
-              AND scheduled_at >= ${start}
-              AND scheduled_at < ${end}
             GROUP BY invocation_id
             HAVING argMax(is_deleted, version) = 0
                ${statusClause}
@@ -144,10 +138,14 @@ async function countRerunMatches(
                ${maxAttemptsClause}
         )
     `
-    const response = await api.queryHogQL(query, {
-        scene: 'HogInvocations',
-        productKey: 'pipeline_destinations',
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
+        {
+            refresh: 'force_blocking',
+            filtersOverride: { date_from: params.date_from, date_to: params.date_to },
+        }
+    )
     const row = response.results?.[0]
     return Array.isArray(row) ? Number(row[0] ?? 0) : 0
 }
