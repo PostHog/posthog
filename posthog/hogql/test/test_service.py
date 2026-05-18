@@ -12,6 +12,7 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.service import (
     POSTGRES_INT8_OID,
+    CatalogTable,
     HogQLPostgresWireSession,
     HogQLServiceAuthenticationError,
     HogQLServiceAuthenticator,
@@ -22,7 +23,11 @@ from posthog.hogql.service import (
     QueryResult,
     ResultColumn,
     bind_parameters_to_query,
+    catalog_table_name,
     parse_database_name,
+    rewrite_catalog_table_references,
+    rewrite_postgres_pseudo_columns,
+    stable_catalog_oid,
 )
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
@@ -187,6 +192,146 @@ class TestHogQLServiceQueryExecutor(BaseTest):
         assert [column.name for column in result.columns] == ["table_cat", "table_schem", "table_name", "table_type"]
         assert (None, "public", "events", "BASE TABLE") in result.rows
 
+    def test_pg_catalog_class_ignores_empty_joined_catalog_tables(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT c.relname AS TABLE_NAME, d.description AS REMARKS "
+            "FROM pg_catalog.pg_class c "
+            "LEFT JOIN pg_catalog.pg_description d ON d.objoid = c.oid "
+            "WHERE c.relname = 'events'",
+            self._context(),
+        )
+
+        assert ("events", None) in result.rows
+
+    def test_unknown_pg_catalog_table_returns_empty_result(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT * FROM pg_catalog.pg_stat_activity",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == [
+            "datid",
+            "datname",
+            "pid",
+            "leader_pid",
+            "usesysid",
+            "usename",
+            "application_name",
+            "client_addr",
+            "client_hostname",
+            "client_port",
+            "backend_start",
+            "xact_start",
+            "query_start",
+            "state_change",
+            "wait_event_type",
+            "wait_event",
+            "state",
+            "backend_xid",
+            "backend_xmin",
+            "query_id",
+            "query",
+            "backend_type",
+        ]
+        assert result.rows == []
+
+    def test_catalog_source_detection_skips_nested_from_expression(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT E.oid AS id, array(SELECT unnest FROM unnest(available_versions)) AS available_updates "
+            "FROM pg_catalog.pg_extension E",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == ["id", "available_updates"]
+        assert result.rows == []
+
+    def test_pg_catalog_class_translates_relkind_for_object_list(self) -> None:
+        schema_oid = stable_catalog_oid("schema:public")
+        result = HogQLServiceQueryExecutor().execute(
+            f"SELECT T.oid AS oid, relnamespace AS schemaId, "
+            "pg_catalog.translate(relkind, 'rmvpfS', 'rmvrfS') AS kind, relname AS name "
+            "FROM pg_catalog.pg_class T "
+            f"WHERE relnamespace IN ( {schema_oid} ) AND relkind IN ('r', 'm', 'v', 'p', 'f', 'S')",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == ["oid", "schemaid", "kind", "name"]
+        assert any(row[3] == "events" for row in result.rows)
+        assert all(row[1] == schema_oid for row in result.rows)
+        assert {row[2] for row in result.rows} <= {"r", "m", "v", "f", "S"}
+
+    def test_pg_catalog_namespace_returns_non_null_state_number(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT N.oid::bigint AS id, N.xmin AS state_number, nspname AS name FROM pg_catalog.pg_namespace N",
+            self._context(),
+        )
+
+        assert ("public",) in [(row[2],) for row in result.rows]
+        assert all(isinstance(row[1], int) for row in result.rows)
+
+    def test_pg_catalog_attribute_cte_uses_outer_select_list(self) -> None:
+        schema_oid = stable_catalog_oid("schema:public")
+        result = HogQLServiceQueryExecutor().execute(
+            "WITH T AS ( SELECT DISTINCT T.oid AS table_id, T.relname AS table_name "
+            "FROM pg_catalog.pg_class T, pg_catalog.pg_attribute A "
+            f"WHERE T.relnamespace = {schema_oid}::oid AND T.relkind IN ('r', 'm', 'v', 'f', 'p') "
+            "AND A.attrelid = T.oid ) "
+            "SELECT T.table_id, C.attnum AS column_position, C.attname AS column_name, "
+            "C.xmin AS column_state_number, pg_catalog.format_type(C.atttypid, C.atttypmod) AS type_spec, "
+            "NOT C.attislocal AS column_is_inherited "
+            "FROM T JOIN pg_catalog.pg_attribute C ON T.table_id = C.attrelid "
+            "WHERE attnum > 0 ORDER BY table_id, attnum",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == [
+            "table_id",
+            "column_position",
+            "column_name",
+            "column_state_number",
+            "type_spec",
+            "column_is_inherited",
+        ]
+        assert any(row[2] == "event" and row[3] == 1 and row[5] is False for row in result.rows)
+
+    def test_pg_catalog_attribute_cte_returns_schema_id_for_object_list_columns(self) -> None:
+        schema_oid = stable_catalog_oid("schema:public")
+        result = HogQLServiceQueryExecutor().execute(
+            "WITH T AS ( SELECT T.oid AS oid, T.relkind AS kind, T.relnamespace AS schemaId "
+            "FROM pg_catalog.pg_class T "
+            f"WHERE T.relnamespace IN ( {schema_oid} ) AND T.relkind IN ('r', 'm', 'v', 'f', 'p') ) "
+            "SELECT T.schemaId AS schemaId, T.oid AS majorOid, "
+            "pg_catalog.translate(T.kind, 'rmvpf', 'rmvrf') AS kind, "
+            "C.attnum AS position, C.attname AS name "
+            "FROM T JOIN pg_catalog.pg_attribute C ON T.oid = C.attrelid "
+            "WHERE C.attnum > 0 AND NOT C.attisdropped "
+            "ORDER BY schemaId, majorOid",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == ["schemaid", "majoroid", "kind", "position", "name"]
+        assert any(row[4] == "event" for row in result.rows)
+        assert all(row[0] == schema_oid for row in result.rows)
+        assert all(row[1] is not None for row in result.rows)
+
+    def test_pg_user_privilege_probe_returns_current_user(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT usesuper FROM pg_user WHERE usename = current_user",
+            self._context(),
+        )
+
+        assert result.rows == [(False,)]
+
+    def test_builtin_current_txid_probe_returns_zero(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "select case when pg_catalog.pg_is_in_recovery() then null "
+            "else (pg_catalog.txid_current() % 4294967296)::varchar::bigint end as current_txid",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == ["current_txid"]
+        assert result.rows == [(0,)]
+
     @patch("posthog.hogql.service.execute_hogql_query")
     def test_hogql_query_executes_as_connection_user_and_team(self, mock_execute_hogql_query) -> None:
         mock_execute_hogql_query.return_value = HogQLQueryResponse(
@@ -195,7 +340,7 @@ class TestHogQLServiceQueryExecutor(BaseTest):
             types=[("one", "Int64")],
         )
 
-        result = HogQLServiceQueryExecutor().execute("SELECT 1 AS one", self._context())
+        result = HogQLServiceQueryExecutor().execute("SELECT event FROM events LIMIT 1", self._context())
 
         assert result.rows == [(1,)]
         assert result.columns[0].name == "one"
@@ -216,9 +361,17 @@ class TestHogQLServiceQueryExecutor(BaseTest):
             authenticated_by="shared_secret",
             connection_id="018f0000-0000-7000-8000-000000000000",
         )
-        HogQLServiceQueryExecutor().execute("SELECT 1 AS one", context)
+        HogQLServiceQueryExecutor().execute("SELECT event FROM events LIMIT 1", context)
 
         assert mock_execute_hogql_query.call_args.kwargs["connection_id"] == "018f0000-0000-7000-8000-000000000000"
+
+    @patch("posthog.hogql.service.execute_hogql_query")
+    def test_hogql_query_rewrites_postgres_ctid_pseudo_column(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(None,)], columns=["ctid"])
+
+        HogQLServiceQueryExecutor().execute("SELECT t.*, CTID FROM public.events t LIMIT 501", self._context())
+
+        assert mock_execute_hogql_query.call_args.kwargs["team"] == self.team
 
 
 class TestHogQLServiceParameters(BaseTest):
@@ -247,6 +400,42 @@ class TestHogQLServiceParameters(BaseTest):
             bind_parameters_to_query("SELECT $2", [PgParameter("one")])
 
         assert "Missing bind parameter $2" in str(error.exception)
+
+    def test_rewrite_postgres_pseudo_columns_replaces_ctid(self) -> None:
+        assert (
+            rewrite_postgres_pseudo_columns("SELECT t.*, CTID FROM public.events t LIMIT 501")
+            == "SELECT t.*, NULL AS ctid FROM public.events t LIMIT 501"
+        )
+
+    def test_catalog_table_name_flattens_hogql_multipart_names(self) -> None:
+        assert catalog_table_name("bigquery.bqds.sometable") == ("bigquery_bqds", "sometable")
+
+    def test_rewrite_catalog_table_references_accepts_safe_and_cached_multipart_names(self) -> None:
+        table = CatalogTable(
+            oid=1,
+            schema="bigquery_bqds",
+            name="sometable33",
+            hogql_name="bigquery.bqds.sometable33",
+            table_type="BASE TABLE",
+            fields=[],
+        )
+        context = HogQLServiceSessionContext(
+            database_user="user@example.com",
+            database="1",
+            user=cast(User, SimpleNamespace(email="user@example.com")),
+            team=cast(Team, SimpleNamespace(id=1, timezone="UTC")),
+            authenticated_by="shared_secret",
+        )
+
+        with patch("posthog.hogql.service.load_catalog_tables", return_value=[table]):
+            assert (
+                rewrite_catalog_table_references("SELECT * FROM bigquery_bqds.sometable33 t", context)
+                == "SELECT * FROM bigquery.bqds.sometable33 t"
+            )
+            assert (
+                rewrite_catalog_table_references('SELECT * FROM bigquery."bqds.sometable33" t', context)
+                == "SELECT * FROM bigquery.bqds.sometable33 t"
+            )
 
 
 class FakeAuthenticator:

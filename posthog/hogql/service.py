@@ -155,6 +155,7 @@ class CatalogTable:
     oid: int
     schema: str
     name: str
+    hogql_name: str
     table_type: str
     fields: list[DatabaseSchemaField]
 
@@ -359,7 +360,10 @@ class HogQLServiceQueryExecutor:
         if builtin_result is not None:
             return builtin_result
 
-        hogql_sql = strip_public_schema_references(stripped_sql)
+        hogql_sql = rewrite_catalog_table_references(
+            rewrite_postgres_pseudo_columns(strip_public_schema_references(stripped_sql)),
+            context,
+        )
         try:
             query_ast = parse_select(hogql_sql, cache_origin=CacheOrigin.USER)
             validate_user_query(query_ast, team=context.team)
@@ -564,6 +568,13 @@ class HogQLServiceQueryExecutor:
         return QueryResult(columns=result_columns, rows=result_rows, command_tag=f"SELECT {len(result_rows)}")
 
     def _catalog_rows(self, source: str, context: HogQLServiceSessionContext) -> tuple[list[dict[str, Any]], list[str]]:
+        if source == "pg_catalog.pg_roles":
+            return pg_roles_rows(context), EMPTY_CATALOG_COLUMNS["pg_catalog.pg_roles"]
+        if source == "pg_user":
+            return pg_user_rows(context), EMPTY_CATALOG_COLUMNS["pg_user"]
+        if source in EMPTY_CATALOG_COLUMNS:
+            return [], EMPTY_CATALOG_COLUMNS[source]
+
         tables = load_catalog_tables(context)
         schemas = sorted({table.schema for table in tables} | {"information_schema", "pg_catalog", "public"})
 
@@ -583,12 +594,8 @@ class HogQLServiceQueryExecutor:
             return pg_type_rows(), PG_TYPE_COLUMNS
         if source == "pg_catalog.pg_database":
             return pg_database_rows(context), PG_DATABASE_COLUMNS
-        if source == "pg_catalog.pg_roles":
-            return pg_roles_rows(context), EMPTY_CATALOG_COLUMNS["pg_catalog.pg_roles"]
-        if source == "pg_user":
-            return pg_user_rows(context), EMPTY_CATALOG_COLUMNS["pg_user"]
 
-        return [], EMPTY_CATALOG_COLUMNS.get(source, [])
+        return [], GENERIC_EMPTY_CATALOG_COLUMNS
 
 
 class PostgresWireCodec:
@@ -1007,7 +1014,9 @@ class HogQLPostgresWireSession:
             },
         )
         try:
-            return await asyncio.to_thread(self.query_executor.execute, sql, self.context)
+            result = await asyncio.to_thread(self.query_executor.execute, sql, self.context)
+            self._log_query_result(result)
+            return result
         except HogQLServiceError as error:
             if error.query is None:
                 error.query = sql
@@ -1025,6 +1034,21 @@ class HogQLPostgresWireSession:
                 },
             )
             raise
+
+    def _log_query_result(self, result: QueryResult) -> None:
+        assert self.context is not None
+        column_names = [column.name for column in result.columns[:20]]
+        null_columns = [
+            column.name
+            for column_index, column in enumerate(result.columns[:20])
+            if any(column_index >= len(row) or row[column_index] is None for row in result.rows[:50])
+        ]
+        append_service_log(
+            f"RESULT database={self.context.database} team_id={self.context.team.id} "
+            f"connection_id={self.context.connection_id} user={self.context.database_user} "
+            f"command={result.command_tag!r} row_count={len(result.rows)} columns={column_names!r} "
+            f"null_columns={null_columns!r}"
+        )
 
     async def _send_result(self, result: QueryResult, send_row_description: bool) -> None:
         if send_row_description and result.columns:
@@ -1299,10 +1323,55 @@ EMPTY_CATALOG_COLUMNS = {
     "pg_catalog.pg_am": ["oid", "amname", "amhandler", "amtype"],
     "pg_catalog.pg_enum": ["oid", "enumtypid", "enumsortorder", "enumlabel"],
     "pg_catalog.pg_auth_members": ["roleid", "member", "grantor", "admin_option"],
+    "pg_catalog.pg_available_extensions": ["name", "default_version", "installed_version", "comment"],
+    "pg_catalog.pg_cast": ["oid", "castsource", "casttarget", "castfunc", "castcontext", "castmethod"],
+    "pg_catalog.pg_collation": ["oid", "collname", "collnamespace", "collowner", "collencoding"],
+    "pg_catalog.pg_conversion": ["oid", "conname", "connamespace", "conowner", "conforencoding", "contoencoding"],
+    "pg_catalog.pg_db_role_setting": ["setdatabase", "setrole", "setconfig"],
+    "pg_catalog.pg_depend": ["classid", "objid", "objsubid", "refclassid", "refobjid", "refobjsubid", "deptype"],
+    "pg_catalog.pg_event_trigger": ["oid", "evtname", "evtevent", "evtowner", "evtfoid", "evtenabled", "evttags"],
+    "pg_catalog.pg_extension": ["oid", "extname", "extowner", "extnamespace", "extrelocatable", "extversion"],
+    "pg_catalog.pg_foreign_data_wrapper": ["oid", "fdwname", "fdwowner", "fdwhandler", "fdwvalidator", "fdwoptions"],
+    "pg_catalog.pg_foreign_server": ["oid", "srvname", "srvowner", "srvfdw", "srvtype", "srvversion", "srvoptions"],
     "pg_catalog.pg_locks": ["locktype", "database", "relation", "transactionid", "pid", "mode", "granted"],
+    "pg_catalog.pg_language": ["oid", "lanname", "lanowner", "lanispl", "lanpltrusted", "lanplcallfoid"],
+    "pg_catalog.pg_opclass": ["oid", "opcmethod", "opcname", "opcnamespace", "opcowner", "opcfamily", "opcintype"],
+    "pg_catalog.pg_operator": ["oid", "oprname", "oprnamespace", "oprowner", "oprkind", "oprcanmerge", "oprcanhash"],
+    "pg_catalog.pg_opfamily": ["oid", "opfmethod", "opfname", "opfnamespace", "opfowner"],
+    "pg_catalog.pg_policy": ["oid", "polname", "polrelid", "polcmd", "polpermissive", "polroles"],
+    "pg_catalog.pg_publication": ["oid", "pubname", "pubowner", "puballtables", "pubinsert", "pubupdate", "pubdelete"],
+    "pg_catalog.pg_rewrite": ["oid", "rulename", "ev_class", "ev_type", "ev_enabled", "is_instead"],
+    "pg_catalog.pg_sequence": ["seqrelid", "seqtypid", "seqstart", "seqincrement", "seqmax", "seqmin", "seqcache"],
     "pg_catalog.pg_shdescription": ["objoid", "classoid", "description"],
+    "pg_catalog.pg_stat_activity": [
+        "datid",
+        "datname",
+        "pid",
+        "leader_pid",
+        "usesysid",
+        "usename",
+        "application_name",
+        "client_addr",
+        "client_hostname",
+        "client_port",
+        "backend_start",
+        "xact_start",
+        "query_start",
+        "state_change",
+        "wait_event_type",
+        "wait_event",
+        "state",
+        "backend_xid",
+        "backend_xmin",
+        "query_id",
+        "query",
+        "backend_type",
+    ],
+    "pg_catalog.pg_subscription": ["oid", "subdbid", "subname", "subowner", "subenabled", "subconninfo"],
     "pg_catalog.pg_tablespace": ["oid", "spcname", "spcowner", "spcacl", "spcoptions", "xmin"],
+    "pg_catalog.pg_timezone_abbrevs": ["abbrev", "utc_offset", "is_dst"],
     "pg_catalog.pg_timezone_names": ["name", "abbrev", "utc_offset", "is_dst"],
+    "pg_catalog.pg_user_mapping": ["oid", "umuser", "umserver", "umoptions"],
     "pg_user": [
         "usename",
         "usesysid",
@@ -1315,6 +1384,7 @@ EMPTY_CATALOG_COLUMNS = {
         "useconfig",
     ],
 }
+GENERIC_EMPTY_CATALOG_COLUMNS = ["oid"]
 CATALOG_ALIAS_KEYS = {
     "table_cat": "table_catalog",
     "table_schem": "table_schema",
@@ -1331,8 +1401,11 @@ CATALOG_ALIAS_KEYS = {
     "nullable": "nullable",
     "is_nullable": "is_nullable",
     "schema_name": "schema_name",
+    "schemaid": "relnamespace",
     "table_oid": "oid",
     "column_oid": "attrelid",
+    "majoroid": "attrelid",
+    "position": "attnum",
 }
 UNHANDLED_BUILTIN_EXPRESSION = object()
 
@@ -1353,6 +1426,13 @@ def evaluate_builtin_expression(expression: str, context: HogQLServiceSessionCon
         return context.database_user
     if normalized in {"pg_backend_pid()", "pg_catalog.pg_backend_pid()"}:
         return os.getpid()
+    if normalized in {"pg_is_in_recovery()", "pg_catalog.pg_is_in_recovery()"}:
+        return False
+    if normalized in {"txid_current()", "pg_catalog.txid_current()"}:
+        return 0
+    if normalized.startswith("case when pg_catalog.pg_is_in_recovery() then null else"):
+        if "pg_catalog.txid_current()" in normalized:
+            return 0
     if normalized.startswith("current_setting(") or normalized.startswith("pg_catalog.current_setting("):
         setting_match = re.match(r"(?:pg_catalog\.)?current_setting\('([^']+)'(?:,\s*true)?\)", normalized)
         if setting_match:
@@ -1371,29 +1451,29 @@ def evaluate_builtin_expression(expression: str, context: HogQLServiceSessionCon
 
 
 def catalog_source(normalized: str) -> str | None:
-    if re.search(r"\bfrom\s+information_schema\.schemata\b", normalized):
-        return "information_schema.schemata"
-    if re.search(r"\bfrom\s+information_schema\.tables\b", normalized):
-        return "information_schema.tables"
-    if re.search(r"\bfrom\s+information_schema\.columns\b", normalized):
-        return "information_schema.columns"
+    source_pattern = r"\b(?:from|join)\s+(?:(information_schema|pg_catalog)\.)?([a-z_][a-z0-9_]*)\b"
 
-    for source in EMPTY_CATALOG_COLUMNS:
-        if re.search(rf"\bfrom\s+{re.escape(source)}\b", normalized):
-            return source
+    outer_select_index = find_top_level_keyword(normalized, "select")
+    if outer_select_index is not None:
+        outer_from_index = find_top_level_keyword(normalized, "from", start=outer_select_index + len("select"))
+        if outer_from_index is not None:
+            outer_source = catalog_source_from_fragment(normalized[outer_from_index:], source_pattern)
+            if outer_source is not None:
+                return outer_source
 
-    if re.search(r"\b(pg_catalog\.)?pg_attribute\b", normalized):
-        return "pg_catalog.pg_attribute"
-    if re.search(r"\b(pg_catalog\.)?pg_class\b", normalized):
-        return "pg_catalog.pg_class"
-    if re.search(r"\b(pg_catalog\.)?pg_namespace\b", normalized):
-        return "pg_catalog.pg_namespace"
-    if re.search(r"\b(pg_catalog\.)?pg_type\b", normalized):
-        return "pg_catalog.pg_type"
-    if re.search(r"\b(pg_catalog\.)?pg_database\b", normalized):
-        return "pg_catalog.pg_database"
-    if re.search(r"\b(pg_catalog\.)?pg_roles\b", normalized):
-        return "pg_catalog.pg_roles"
+    return catalog_source_from_fragment(normalized, source_pattern)
+
+
+def catalog_source_from_fragment(fragment: str, source_pattern: str) -> str | None:
+    for source_match in re.finditer(source_pattern, fragment):
+        schema_name = source_match.group(1)
+        table_name = source_match.group(2)
+        if schema_name == "information_schema":
+            return f"information_schema.{table_name}"
+        if table_name == "pg_user":
+            return "pg_user"
+        if schema_name == "pg_catalog" or table_name.startswith("pg_"):
+            return f"pg_catalog.{table_name}"
     return None
 
 
@@ -1414,12 +1494,13 @@ def load_catalog_tables(context: HogQLServiceSessionContext) -> list[CatalogTabl
     serialized_tables = database.serialize(hogql_context)
     tables: list[CatalogTable] = []
     for table_name, table in serialized_tables.items():
-        schema_name, relation_name = split_catalog_table_name(table_name)
+        schema_name, relation_name = catalog_table_name(table_name)
         tables.append(
             CatalogTable(
-                oid=stable_catalog_oid(f"table:{schema_name}.{relation_name}"),
+                oid=stable_catalog_oid(f"table:{table_name}"),
                 schema=schema_name,
                 name=relation_name,
+                hogql_name=table_name,
                 table_type=postgres_table_type(str(table.type)),
                 fields=list(table.fields.values()),
             )
@@ -1427,11 +1508,19 @@ def load_catalog_tables(context: HogQLServiceSessionContext) -> list[CatalogTabl
     return sorted(tables, key=lambda table: (table.schema, table.name))
 
 
-def split_catalog_table_name(table_name: str) -> tuple[str, str]:
+def catalog_table_name(table_name: str) -> tuple[str, str]:
     if "." not in table_name:
-        return "public", table_name
-    schema_name, relation_name = table_name.split(".", 1)
+        return "public", catalog_safe_identifier(table_name)
+
+    parts = table_name.split(".")
+    schema_name = catalog_safe_identifier("_".join(parts[:-1]))
+    relation_name = catalog_safe_identifier(parts[-1])
     return schema_name or "public", relation_name
+
+
+def catalog_safe_identifier(identifier: str) -> str:
+    safe_identifier = re.sub(r"[^a-zA-Z0-9_]+", "_", identifier).strip("_")
+    return safe_identifier or "unnamed"
 
 
 def postgres_table_type(table_type: str) -> str:
@@ -1553,6 +1642,7 @@ def pg_namespace_rows(schemas: list[str]) -> list[dict[str, Any]]:
     return [
         {
             "oid": stable_catalog_oid(f"schema:{schema}"),
+            "xmin": 1,
             "nspname": schema,
             "schema_name": schema,
             "nspowner": 10,
@@ -1566,8 +1656,12 @@ def pg_class_rows(tables: list[CatalogTable]) -> list[dict[str, Any]]:
     return [
         {
             "oid": table.oid,
+            "xmin": 1,
             "relname": table.name,
+            "name": table.name,
             "relnamespace": stable_catalog_oid(f"schema:{table.schema}"),
+            "schemaid": stable_catalog_oid(f"schema:{table.schema}"),
+            "majoroid": table.oid,
             "reltype": stable_catalog_oid(f"type:{table.schema}.{table.name}"),
             "relowner": 10,
             "relkind": "v" if table.table_type == "VIEW" else "r",
@@ -1597,16 +1691,29 @@ def pg_class_rows(tables: list[CatalogTable]) -> list[dict[str, Any]]:
 def pg_attribute_rows(tables: list[CatalogTable]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for table in tables:
+        schema_oid = stable_catalog_oid(f"schema:{table.schema}")
+        relkind = "v" if table.table_type == "VIEW" else "r"
         for ordinal_position, field in enumerate(table.fields, start=1):
             pg_type = postgres_type_for_field(field)
             rows.append(
                 {
+                    "table_id": table.oid,
+                    "majoroid": table.oid,
+                    "relnamespace": schema_oid,
+                    "schemaid": schema_oid,
+                    "relkind": relkind,
                     "attrelid": table.oid,
+                    "oid": table.oid,
+                    "object_id": table.oid,
+                    "xmin": 1,
                     "attname": field.name,
+                    "name": field.name,
                     "atttypid": pg_type["oid"],
                     "attstattarget": -1,
                     "attlen": -1,
                     "attnum": ordinal_position,
+                    "position": ordinal_position,
+                    "attr_position": ordinal_position,
                     "attndims": 0,
                     "attcacheoff": -1,
                     "atttypmod": -1,
@@ -1615,12 +1722,14 @@ def pg_attribute_rows(tables: list[CatalogTable]) -> list[dict[str, Any]]:
                     "attalign": "i",
                     "attnotnull": False,
                     "atthasdef": False,
+                    "attfdwoptions": None,
                     "attidentity": "",
                     "attgenerated": "",
                     "attisdropped": False,
                     "attislocal": True,
                     "attinhcount": 0,
                     "attcollation": 0,
+                    "attacl": None,
                     "nspname": table.schema,
                     "relname": table.name,
                     "typname": pg_type["udt_name"],
@@ -1657,6 +1766,7 @@ def pg_type_rows() -> list[dict[str, Any]]:
         rows.append(
             {
                 "oid": type_oid,
+                "xmin": 1,
                 "typname": typname,
                 "typnamespace": stable_catalog_oid("schema:pg_catalog"),
                 "typowner": 10,
@@ -1693,6 +1803,7 @@ def pg_database_rows(context: HogQLServiceSessionContext) -> list[dict[str, Any]
     return [
         {
             "oid": stable_catalog_oid(f"database:{context.database}"),
+            "xmin": 1,
             "datname": context.database,
             "datdba": 10,
             "encoding": 6,
@@ -1708,6 +1819,7 @@ def pg_roles_rows(context: HogQLServiceSessionContext) -> list[dict[str, Any]]:
     return [
         {
             "oid": stable_catalog_oid(f"role:{context.database_user}"),
+            "xmin": 1,
             "rolname": context.database_user,
             "rolsuper": False,
             "rolinherit": True,
@@ -1796,6 +1908,22 @@ def filter_catalog_rows(rows: list[dict[str, Any]], normalized: str) -> list[dic
             for row in filtered_rows
             if any(str(row.get(key, "")).casefold() in values for key in keys if row.get(key) is not None)
         ]
+
+    namespace_oids = extract_oid_filters(normalized, ["relnamespace", "typnamespace", "pronamespace", "collnamespace"])
+    n_oid_filters = extract_oid_filters(normalized, ["n.oid"])
+    if namespace_oids or n_oid_filters:
+        wanted_oids = namespace_oids | n_oid_filters
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if row_matches_any_oid(
+                row, ["relnamespace", "typnamespace", "pronamespace", "collnamespace", "oid"], wanted_oids
+            )
+        ]
+
+    relkinds = extract_string_in_filters(normalized, "relkind")
+    if relkinds:
+        filtered_rows = [row for row in filtered_rows if str(row.get("relkind", "")).casefold() in relkinds]
     return filtered_rows
 
 
@@ -1804,6 +1932,34 @@ def extract_equality_filters(normalized: str, names: list[str]) -> set[str]:
     for name in names:
         pattern = rf"(?:\b[a-z_][a-z0-9_]*\.)?{re.escape(name)}\s*=\s*'([^']*)'"
         values.update(match.group(1).casefold() for match in re.finditer(pattern, normalized))
+    return values
+
+
+def extract_oid_filters(normalized: str, names: list[str]) -> set[int]:
+    values: set[int] = set()
+    for name in names:
+        escaped_name = re.escape(name).replace(r"\.", r"\s*\.\s*")
+        equality_pattern = rf"(?:\b[a-z_][a-z0-9_]*\.)?{escaped_name}\s*=\s*(\d+)(?:::oid)?"
+        in_pattern = rf"(?:\b[a-z_][a-z0-9_]*\.)?{escaped_name}\s+in\s*\(([^)]*)\)"
+        values.update(int(match.group(1)) for match in re.finditer(equality_pattern, normalized))
+        for match in re.finditer(in_pattern, normalized):
+            values.update(int(value) for value in re.findall(r"\d+", match.group(1)))
+    return values
+
+
+def row_matches_any_oid(row: dict[str, Any], keys: list[str], wanted_oids: set[int]) -> bool:
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, int) and value in wanted_oids:
+            return True
+    return False
+
+
+def extract_string_in_filters(normalized: str, name: str) -> set[str]:
+    values: set[str] = set()
+    pattern = rf"(?:\b[a-z_][a-z0-9_]*\.)?{re.escape(name)}\s+in\s*\(([^)]*)\)"
+    for match in re.finditer(pattern, normalized):
+        values.update(value.casefold() for value in re.findall(r"'([^']*)'", match.group(1)))
     return values
 
 
@@ -1837,13 +1993,13 @@ def parse_select_items(sql: str) -> list[tuple[str, str]]:
 
 
 def extract_select_list(sql: str) -> str | None:
-    match = re.search(r"\bselect\b", sql, flags=re.IGNORECASE)
-    if not match:
+    select_index = find_top_level_keyword(sql, "select")
+    if select_index is None:
         return None
-    from_index = find_top_level_keyword(sql, "from", start=match.end())
+    from_index = find_top_level_keyword(sql, "from", start=select_index + len("select"))
     if from_index is None:
         return None
-    return sql[match.end() : from_index].strip()
+    return sql[select_index + len("select") : from_index].strip()
 
 
 def parse_select_item(item: str) -> tuple[str, str]:
@@ -1881,6 +2037,18 @@ def evaluate_catalog_expression(
         return context.database
     if normalized_expression in {"current_schema()", "pg_catalog.current_schema()"}:
         return "public"
+    if normalized_expression.startswith("pg_catalog.pg_get_userbyid(") or normalized_expression.startswith(
+        "pg_get_userbyid("
+    ):
+        return context.database_user
+    if normalized_expression.startswith("not "):
+        value = evaluate_catalog_expression(expression.strip()[4:], label, row, context)
+        if isinstance(value, bool):
+            return not value
+        return None
+    translated_value = evaluate_translate_expression(normalized_expression, row)
+    if translated_value is not None:
+        return translated_value
     if normalized_expression.startswith("pg_catalog.format_type(") or normalized_expression.startswith("format_type("):
         return row.get("format_type") or row.get("data_type")
     if "obj_description(" in normalized_expression or "col_description(" in normalized_expression:
@@ -1896,6 +2064,26 @@ def evaluate_catalog_expression(
     if normalized_expression.startswith("'") and normalized_expression.endswith("'"):
         return normalized_expression[1:-1].replace("''", "'")
     return None
+
+
+def evaluate_translate_expression(normalized_expression: str, row: dict[str, Any]) -> str | None:
+    match = re.fullmatch(
+        r"(?:pg_catalog\.)?translate\(([^,]+),\s*'([^']*)',\s*'([^']*)'\)",
+        normalized_expression,
+    )
+    if not match:
+        return None
+
+    source_expression = normalize_catalog_expression(match.group(1))
+    source_key = CATALOG_ALIAS_KEYS.get(source_expression, source_expression)
+    source_value = row.get(source_key)
+    if source_value is None and source_expression == "kind":
+        source_value = row.get("relkind")
+    if source_value is None and source_expression.startswith("'") and source_expression.endswith("'"):
+        source_value = source_expression[1:-1].replace("''", "'")
+    if source_value is None:
+        return None
+    return str(source_value).translate(str.maketrans(match.group(2), match.group(3)))
 
 
 def normalize_catalog_expression(expression: str) -> str:
@@ -2014,6 +2202,46 @@ def python_value_to_postgres_oid(value: Any) -> int:
 
 def strip_public_schema_references(sql: str) -> str:
     return re.sub(r'(?i)(\bfrom\s+|\bjoin\s+)(?:"public"|public)\.', r"\1", sql)
+
+
+def rewrite_postgres_pseudo_columns(sql: str) -> str:
+    sql = re.sub(r"(?i)(\bselect\s+)(?:[a-z_][a-z0-9_]*\.)?ctid(\s*,)", r"\1NULL AS ctid\2", sql)
+    return re.sub(r"(?i)(,\s*)(?:[a-z_][a-z0-9_]*\.)?ctid\b", r"\1NULL AS ctid", sql)
+
+
+def rewrite_catalog_table_references(sql: str, context: HogQLServiceSessionContext) -> str:
+    rewritten_sql = sql
+    for table in load_catalog_tables(context):
+        hogql_name = table.hogql_name
+        catalog_reference = f"{table.schema}.{table.name}"
+        replacements: list[tuple[str, str]] = []
+        if catalog_reference != hogql_name:
+            replacements.append((table.schema, table.name))
+
+        hogql_parts = hogql_name.split(".")
+        if len(hogql_parts) > 2:
+            replacements.append((hogql_parts[0], ".".join(hogql_parts[1:])))
+
+        for schema_name, table_name in replacements:
+            pattern = (
+                rf"(?i)(\b(?:from|join)\s+)"
+                rf"(?:{quoted_or_unquoted_identifier_pattern(schema_name)})"
+                rf"\."
+                rf"(?:{quoted_or_unquoted_identifier_pattern(table_name)})"
+                rf"(?=\s|$)"
+            )
+            rewritten_sql = re.sub(
+                pattern,
+                lambda match, replacement=hogql_name: f"{match.group(1)}{replacement}",
+                rewritten_sql,
+            )
+    return rewritten_sql
+
+
+def quoted_or_unquoted_identifier_pattern(identifier: str) -> str:
+    escaped_identifier = re.escape(identifier)
+    escaped_quoted_identifier = re.escape(identifier.replace('"', '""'))
+    return rf'"{escaped_quoted_identifier}"|{escaped_identifier}'
 
 
 def clickhouse_type_to_postgres_oid(clickhouse_type: str) -> int:
