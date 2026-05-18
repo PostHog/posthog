@@ -40,7 +40,7 @@ jest.mock('@posthog/cyclotron', () => ({
 const CYCLOTRON_NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
 describe('Workflows E2E (postgres-v2)', () => {
-    jest.setTimeout(30000)
+    jest.setTimeout(120000)
 
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
@@ -519,6 +519,172 @@ describe('Workflows E2E (postgres-v2)', () => {
             const urls = mockFetch.mock.calls.map((call) => call[0])
             expect(urls).toContain('https://example.com/workflow-a')
             expect(urls).toContain('https://example.com/workflow-b')
+        })
+    })
+
+    describe('wait_until_condition: condition never matches, times out', () => {
+        beforeEach(async () => {
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            wait_condition: {
+                                type: 'wait_until_condition',
+                                config: {
+                                    condition: {
+                                        // This filter requires $autocapture with "reload" in elements_chain_texts
+                                        // — our $pageview event will never match
+                                        filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
+                                    },
+                                    max_wait_duration: '2s',
+                                },
+                            },
+                            function_1: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-workflows-e2e-fetch',
+                                    inputs: {
+                                        url: { value: 'https://example.com/after-wait-timeout' },
+                                        method: { value: 'POST' },
+                                    },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                            // Branch 0 = condition matched (won't happen)
+                            { from: 'wait_condition', to: 'exit', type: 'branch', index: 0 },
+                            // Continue = condition timed out → go to function
+                            { from: 'wait_condition', to: 'function_1', type: 'continue' },
+                            { from: 'function_1', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            globals = createGlobals()
+        })
+
+        it('should reschedule while polling, then continue after max_wait expires', async () => {
+            const { backgroundTask } = await eventsConsumer.processBatch([globals])
+            await backgroundTask
+
+            // Job should be rescheduled (condition doesn't match, waiting for next poll)
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const rescheduled = jobs.filter(
+                    (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+                )
+                expect(rescheduled.length).toBe(1)
+            }, 5000)
+
+            // Fetch should NOT be called yet — still waiting for condition
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // After max_wait (2s) expires, the condition times out and the workflow
+            // continues to the function action via the continue edge
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-wait-timeout', expect.anything())
+        })
+    })
+
+    describe('wait_until_time_window: window in the future', () => {
+        beforeEach(async () => {
+            // Schedule for a time window 1 second from now
+            const now = new Date()
+            const futureHour = now.getUTCHours()
+            const futureMinute = now.getUTCMinutes()
+            // Window starts 1s from now (rounded to next minute + 1) and lasts 2 minutes
+            const startMinute = (futureMinute + 1) % 60
+            const startHour = futureMinute + 1 >= 60 ? (futureHour + 1) % 24 : futureHour
+            const endMinute = (startMinute + 2) % 60
+            const endHour = startMinute + 2 >= 60 ? (startHour + 1) % 24 : startHour
+
+            const startTime = `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`
+            const endTime = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`
+
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            wait_window: {
+                                type: 'wait_until_time_window',
+                                config: {
+                                    timezone: 'UTC',
+                                    day: 'any',
+                                    time: [startTime, endTime],
+                                },
+                            },
+                            function_1: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-workflows-e2e-fetch',
+                                    inputs: {
+                                        url: { value: 'https://example.com/after-time-window' },
+                                        method: { value: 'POST' },
+                                    },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'wait_window', type: 'continue' },
+                            { from: 'wait_window', to: 'function_1', type: 'continue' },
+                            { from: 'function_1', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            globals = createGlobals()
+        })
+
+        it('should reschedule to the time window start and execute after it opens', async () => {
+            const { backgroundTask } = await eventsConsumer.processBatch([globals])
+            await backgroundTask
+
+            // Job should be rescheduled to the future time window
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const rescheduled = jobs.filter(
+                    (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+                )
+                expect(rescheduled.length).toBe(1)
+            }, 5000)
+
+            // Fetch should NOT be called yet
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // After the time window opens (~1 minute), the worker picks it up
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 90000)
+
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-time-window', expect.anything())
         })
     })
 
