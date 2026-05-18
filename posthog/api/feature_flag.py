@@ -1158,7 +1158,7 @@ class FeatureFlagSerializer(
                     if prop.operator not in (None, PropertyOperator.IN_, PropertyOperator.NOT_IN):
                         property["operator"] = (
                             PropertyOperator.NOT_IN
-                            if prop.operator == PropertyOperator.IS_NOT
+                            if prop.operator == PropertyOperator.IS_NOT.value
                             else PropertyOperator.IN_
                         )
                         prop = Property(**property)
