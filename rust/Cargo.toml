@@ -38,6 +38,7 @@ members = [
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
+  "hogql/parser",
   "kafka-assigner",
   "kafka-assigner-proto",
   "ingestion-consumer",

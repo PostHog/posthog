@@ -16,6 +16,13 @@ from hogql_parser import (
     parse_program_json as _parse_program_json_cpp,
     parse_select_json as _parse_select_json_cpp,
 )
+from hogql_parser_rs import (
+    parse_expr_json as _parse_expr_json_rs,
+    parse_full_template_string_json as _parse_full_template_string_json_rs,
+    parse_order_expr_json as _parse_order_expr_json_rs,
+    parse_program_json as _parse_program_json_rs,
+    parse_select_json as _parse_select_json_rs,
+)
 from opentelemetry import trace
 from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
@@ -103,6 +110,13 @@ RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
         ParseRule.SELECT: lambda string: deserialize_ast(_parse_select_json_cpp(string)),
         ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
         ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_cpp(string)),
+    },
+    "rust-json": {
+        ParseRule.EXPR: lambda string, start: deserialize_ast(_parse_expr_json_rs(string, is_internal=start is None)),
+        ParseRule.ORDER_EXPR: lambda string: deserialize_ast(_parse_order_expr_json_rs(string)),
+        ParseRule.SELECT: lambda string: deserialize_ast(_parse_select_json_rs(string)),
+        ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_rs(string)),
+        ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_rs(string)),
     },
 }
 

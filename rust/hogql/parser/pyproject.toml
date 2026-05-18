@@ -1,0 +1,26 @@
+[build-system]
+# `maturin` is fetched into an isolated PEP-517 build environment, so no
+# system install (or `cargo install maturin`) is required to build the wheel
+# in CI or on a contributor's machine. The only host requirements are a
+# Python interpreter, `uv` / `pip`, and a Rust toolchain.
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "hogql_parser_rs"
+version = "0.1.0"
+description = "Hand-rolled Rust HogQL parser with C++-parity AST output"
+requires-python = ">=3.12"
+authors = [{ name = "PostHog" }]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Private :: Do Not Upload",
+]
+
+[tool.maturin]
+module-name = "hogql_parser_rs"
+# Build using the workspace at `rust/Cargo.toml`. Maturin walks up from the
+# crate's `Cargo.toml` to find it automatically.
+features = ["pyo3/extension-module"]

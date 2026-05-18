@@ -1,0 +1,19 @@
+[package]
+name = "hogql_parser_rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "hogql_parser_rs"
+# `cdylib` for the Python wheel that maturin builds; `rlib` so other Rust
+# crates in the workspace can depend on the parser as a library if useful
+# later. `cdylib` alone would break that.
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true
+pyo3 = { version = "0.22", features = ["extension-module"] }
