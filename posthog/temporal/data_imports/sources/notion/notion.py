@@ -207,11 +207,40 @@ def _flatten_property(prop: dict[str, Any]) -> Any:
         return value.get("id") if isinstance(value, dict) else None
     if ptype in ("created_time", "last_edited_time"):
         return value
+    if ptype == "unique_id":
+        if not isinstance(value, dict):
+            return None
+        number = value.get("number")
+        if number is None:
+            return None
+        prefix = value.get("prefix")
+        # Mirror Notion's display form: "ABC-17" when a prefix is configured,
+        # otherwise the bare auto-increment integer.
+        return f"{prefix}-{number}" if prefix else number
+    if ptype == "verification":
+        return value.get("state") if isinstance(value, dict) else None
     if ptype == "formula":
         # Formulas wrap an inner type — recurse via the same flattener.
         return _flatten_property({"type": value.get("type"), value.get("type"): value.get(value.get("type"))})
     if ptype == "rollup":
-        return value  # leave as-is in the typed column; raw lives in _raw_properties anyway
+        if not isinstance(value, dict):
+            return None
+        rtype = value.get("type")
+        if rtype == "number":
+            return value.get("number")
+        if rtype == "date":
+            inner_date = value.get("date")
+            return inner_date.get("start") if isinstance(inner_date, dict) else None
+        if rtype == "array":
+            arr = value.get("array")
+            # Each array entry is itself a property-value object — flatten each
+            # via the same flattener so the typed column holds flat scalars.
+            return (
+                [_flatten_property(item) for item in arr if isinstance(item, dict)] if isinstance(arr, list) else None
+            )
+        # `incomplete` (rollup still computing) and `unsupported` have no usable
+        # scalar; the raw object is still preserved in `_raw_properties`.
+        return None
     # Unknown / unsupported property type — keep null in the typed column; raw is preserved.
     return None
 

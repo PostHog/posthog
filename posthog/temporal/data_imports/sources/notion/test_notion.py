@@ -343,6 +343,54 @@ class TestFlattenProperty:
                 {"type": "formula", "formula": {"type": "date", "date": {"start": "2026-01-01"}}},
                 "2026-01-01",
             ),
+            (
+                "unique_id_with_prefix_renders_display_form",
+                {"type": "unique_id", "unique_id": {"prefix": "ABC", "number": 17}},
+                "ABC-17",
+            ),
+            (
+                "unique_id_without_prefix_returns_bare_number",
+                {"type": "unique_id", "unique_id": {"prefix": None, "number": 42}},
+                42,
+            ),
+            (
+                "verification_returns_state",
+                {"type": "verification", "verification": {"state": "verified", "verified_by": None, "date": None}},
+                "verified",
+            ),
+            (
+                "rollup_number_resolves_inner_value",
+                {"type": "rollup", "rollup": {"type": "number", "number": 99, "function": "sum"}},
+                99,
+            ),
+            (
+                "rollup_date_resolves_inner_start",
+                {
+                    "type": "rollup",
+                    "rollup": {"type": "date", "date": {"start": "2026-03-01"}, "function": "latest_date"},
+                },
+                "2026-03-01",
+            ),
+            (
+                "rollup_array_flattens_each_entry",
+                {
+                    "type": "rollup",
+                    "rollup": {
+                        "type": "array",
+                        "array": [
+                            {"type": "title", "title": [{"plain_text": "Task A"}]},
+                            {"type": "number", "number": 3},
+                        ],
+                        "function": "show_original",
+                    },
+                },
+                ["Task A", 3],
+            ),
+            (
+                "rollup_incomplete_returns_none",
+                {"type": "rollup", "rollup": {"type": "incomplete", "incomplete": {}, "function": "sum"}},
+                None,
+            ),
             ("null_value_returns_none", {"type": "select", "select": None}, None),
             ("unknown_type_returns_none", {"type": "weird_new_type", "weird_new_type": "x"}, None),
         ]
