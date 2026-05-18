@@ -134,11 +134,13 @@ class ArtifactAdmin(admin.ModelAdmin):
     readonly_fields = (
         "id",
         "team_id",
+        "repo",
         "content_hash",
         "storage_path",
         "width",
         "height",
         "size_bytes",
+        "thumbnail",
         "created_at",
     )
 
@@ -204,9 +206,6 @@ class RunSnapshotInline(admin.TabularInline):
         "is_quarantined",
     )
     readonly_fields = fields
-    # FKs on RunSnapshot point at high-cardinality Artifact rows; force raw_id
-    # widgets so the inline doesn't render giant <select>s per row.
-    raw_id_fields = ("current_artifact", "baseline_artifact", "diff_artifact", "tolerated_hash_match")
 
     def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
         return False
@@ -366,7 +365,10 @@ class RunSnapshotAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     show_full_result_count = False
     paginator = NoCountPaginator
-    list_select_related = ("run", "run__repo")
+    # `list_display` only renders `run_id` via `run_link`; no list column
+    # dereferences `run.*` or `run.repo.*`, so an unconditional join here
+    # would only slow the changelist down. Search on `run__repo__*` joins
+    # on demand.
     raw_id_fields = (
         "run",
         "current_artifact",
@@ -384,6 +386,9 @@ class RunSnapshotAdmin(admin.ModelAdmin):
         "baseline_hash",
         "current_width",
         "current_height",
+        "current_artifact",
+        "baseline_artifact",
+        "diff_artifact",
         "result",
         "classification_reason",
         "tolerated_hash_match",
@@ -504,7 +509,10 @@ class ToleratedHashAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     show_full_result_count = False
     paginator = NoCountPaginator
-    list_select_related = ("repo", "source_run")
+    # Only `repo_link` dereferences a related object in the list view;
+    # `source_run` isn't displayed there, so don't pay for the join on every
+    # changelist render. The detail page joins on access.
+    list_select_related = ("repo",)
     raw_id_fields = ("repo", "source_run")
 
     readonly_fields = (
@@ -516,6 +524,7 @@ class ToleratedHashAdmin(admin.ModelAdmin):
         "alternate_hash",
         "reason",
         "source_run",
+        "created_by",
         "created_by_link",
         "diff_percentage",
         "created_at",
@@ -584,6 +593,9 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
     )
     ordering = ("-created_at",)
     show_full_result_count = False
+    # Append-only audit table; same `COUNT(*)` skip pattern as the other
+    # high-row admins above.
+    paginator = NoCountPaginator
     list_select_related = ("repo",)
     raw_id_fields = ("repo",)
 
@@ -596,6 +608,7 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
         "reason",
         "source",
         "expires_at",
+        "created_by",
         "created_by_link",
         "created_at",
         "updated_at",
