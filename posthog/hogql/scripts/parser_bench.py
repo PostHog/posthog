@@ -50,7 +50,20 @@ DEFAULT_N = 1_000  # iterations per row; override with --n
 # `--n` (e.g. a 50-iteration sanity check) is never raised back up.
 N_PER_QUERY: dict[str, int] = {
     "pathological_deep": 100,
+    # cpp is comparatively slow on this one; cap iterations so the row
+    # stays a few seconds rather than tens.
+    "nested_maybe_quadratic": 200,
 }
+
+
+def _nested_replace(depth: int) -> str:
+    """`columns(* replace(… as b))` nested `depth` levels deep — the
+    `nested_maybe_quadratic` bench query (see EXPR_QUERIES)."""
+    inner = "a"
+    for _ in range(depth):
+        inner = f"columns(* replace({inner} as b))"
+    return inner
+
 
 EXPR_QUERIES: dict[str, str] = {
     "int_literal": "1",
@@ -109,6 +122,17 @@ EXPR_QUERIES: dict[str, str] = {
         AND (properties.url LIKE '%admin%' OR properties.url LIKE '%dashboard%')
         AND NOT (properties.os = 'Linux' AND properties.device = 'Desktop')
     """,
+    # Deeply-nested `columns(* replace(… as b))`. Each REPLACE item
+    # parse runs a forward scan (`find_replace_item_as_pos`, and the
+    # sibling `find_cast_separator_pos`) to locate the item's
+    # separating `AS`; that scan is O(remaining input) and re-runs at
+    # every nesting level, so a hand-rolled parser is O(N^2) here
+    # while ANTLR (cpp) stays linear. This row is the canary for that
+    # scan: if the candidate's per-call µs — or the cpp/candidate
+    # ratio — degrades, the AS-position scan has regressed. The scan
+    # constant is a raw byte walk, so at this depth the candidate
+    # should still parse it in well under a millisecond.
+    "nested_maybe_quadratic": _nested_replace(50),
 }
 
 SELECT_QUERIES: dict[str, str] = {
