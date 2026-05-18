@@ -85,7 +85,11 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        # `force_refresh` is accepted for base-class signature parity; data source
+        # discovery already hits the Notion API live every call (no internal cache
+        # to bypass), so there is nothing extra to do here.
         # Build only the schemas the caller actually asked for. Static endpoints get
         # filtered upfront via `names`; dynamic data source rows are fetched live below.
         schemas: list[SourceSchema] = [
