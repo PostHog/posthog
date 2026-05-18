@@ -11,7 +11,9 @@ import {
     IconGraph,
     IconHandwave,
     IconMegaphone,
+    IconNotebook,
     IconPeople,
+    IconPhone,
     IconPulse,
     IconSparkles,
     IconTarget,
@@ -26,9 +28,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType } from '../../constants'
+import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateMode, SurveyTemplateType } from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
-import { SurveyTemplateMode, surveyWizardLogic } from '../surveyWizardLogic'
+import { surveyWizardLogic } from '../surveyWizardLogic'
 
 const TEMPLATE_ICONS: Partial<Record<SurveyTemplateType, React.ComponentType<{ className?: string }>>> = {
     [SurveyTemplateType.NPS]: IconGraph,
@@ -44,6 +46,8 @@ const TEMPLATE_ICONS: Partial<Record<SurveyTemplateType, React.ComponentType<{ c
     [SurveyTemplateType.OnboardingFeedback]: IconHandwave,
     [SurveyTemplateType.BetaFeedback]: IconFlask,
     [SurveyTemplateType.Announcement]: IconMegaphone,
+    [SurveyTemplateType.UserResearchIntake]: IconPhone,
+    [SurveyTemplateType.ProductResearch]: IconNotebook,
 }
 
 interface TemplateCardProps {

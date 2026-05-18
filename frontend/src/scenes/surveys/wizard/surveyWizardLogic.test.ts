@@ -362,5 +362,37 @@ describe('surveyWizardLogic', () => {
                 }),
             })
         })
+
+        it('exposes mode-specific core templates and hides in-app-only templates in hosted mode', () => {
+            const logic = surveyWizardLogic({ id: 'new' })
+            logic.mount()
+
+            const inAppCore = logic.values.coreTemplates.map((t) => t.templateType)
+            expect(inAppCore).toEqual([
+                SurveyTemplateType.NPS,
+                SurveyTemplateType.CSAT,
+                SurveyTemplateType.PMF,
+                SurveyTemplateType.OpenFeedback,
+            ])
+
+            const inAppOther = logic.values.otherTemplates.map((t) => t.templateType)
+            expect(inAppOther).toContain(SurveyTemplateType.Announcement)
+            expect(inAppOther).not.toContain(SurveyTemplateType.UserResearchIntake)
+
+            logic.actions.setTemplateMode('hosted')
+
+            const hostedCore = logic.values.coreTemplates.map((t) => t.templateType)
+            expect(hostedCore).toEqual([
+                SurveyTemplateType.UserResearchIntake,
+                SurveyTemplateType.ProductResearch,
+                SurveyTemplateType.NPS,
+                SurveyTemplateType.CCR,
+            ])
+
+            const hostedOther = logic.values.otherTemplates.map((t) => t.templateType)
+            expect(hostedOther).not.toContain(SurveyTemplateType.Announcement)
+            expect(hostedOther).not.toContain(SurveyTemplateType.ErrorTracking)
+            expect(hostedOther).not.toContain(SurveyTemplateType.OnboardingFeedback)
+        })
     })
 })
