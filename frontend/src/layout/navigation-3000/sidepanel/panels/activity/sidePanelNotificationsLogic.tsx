@@ -559,6 +559,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 }
             },
             toggleRead: async ({ id }) => {
+                // `notification.read` here is the *target* state — the toggleRead reducer above
+                // has already flipped it, so we call the endpoint matching the new state.
                 const notification = values.inAppNotifications.find((n) => n.id === id)
                 if (!notification) {
                     return
