@@ -59,6 +59,7 @@ import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLo
 import { NotebookEditor } from '../types'
 import { textContent } from '../utils'
 import { CollapsibleHeading } from './CollapsibleHeading'
+import { notebookEditorLogicKey, shouldUseNotebookCollab } from './collabUtils'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { notebookCollabLogic } from './notebookCollabLogic'
@@ -75,11 +76,11 @@ const CustomDocument = ExtensionDocument.extend({
 })
 
 export function Editor(): JSX.Element {
-    const { shortId, mode, isEditable, content, collabEnabled, notebook } = useValues(notebookLogic)
+    const { shortId, mode, isEditable, content, collabEnabled, notebook, previewContent } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
-    const { bindEditor } = useActions(notebookCollabLogic({ shortId }))
+    const { bindEditor, unbindEditor } = useActions(notebookCollabLogic({ shortId }))
     const { clientID } = useValues(notebookCollabLogic({ shortId }))
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -96,7 +97,8 @@ export function Editor(): JSX.Element {
         trailingNode: false,
     }
 
-    const useCollab = collabEnabled && !!notebook
+    const useCollab = shouldUseNotebookCollab(collabEnabled, !!notebook, !!previewContent)
+    const editorLogicKey = notebookEditorLogicKey(shortId, useCollab)
 
     const extensions = [
         mode === 'notebook' ? CustomDocument : ExtensionDocument,
@@ -177,7 +179,7 @@ export function Editor(): JSX.Element {
         RangeSelectedNodes,
     ]
 
-    if (useCollab) {
+    if (useCollab && notebook) {
         extensions.push(
             Extension.create({
                 name: 'collaboration',
@@ -195,8 +197,9 @@ export function Editor(): JSX.Element {
 
     return (
         <RichContentEditor
-            // Collab suffix forces editor to re-initialize so the collab plugin is present
-            logicKey={`Notebook.${shortId}${useCollab ? '-collab' : ''}`}
+            // Collab suffix forces editor to re-initialize so the collab plugin is only present when active.
+            key={editorLogicKey}
+            logicKey={editorLogicKey}
             extensions={extensions}
             disabled={!isEditable}
             className="NotebookEditor flex flex-col flex-1"
@@ -216,6 +219,8 @@ export function Editor(): JSX.Element {
 
                 if (useCollab) {
                     bindEditor(editor)
+                } else {
+                    unbindEditor()
                 }
             }}
         >
