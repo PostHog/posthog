@@ -1,1 +1,1 @@
-0252_extend_session_replay_features
+0254_repair_session_replay_features_unique_columns

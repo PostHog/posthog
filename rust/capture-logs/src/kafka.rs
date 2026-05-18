@@ -1,5 +1,7 @@
 use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::KafkaLogRow;
+use crate::metric_record::KafkaMetricRow;
+use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
 use anyhow::anyhow;
@@ -111,8 +113,10 @@ impl rdkafka::ClientContext for KafkaContext {
 pub struct KafkaSink {
     logs_producer: FutureProducer<KafkaContext>,
     traces_producer: FutureProducer<KafkaContext>,
+    metrics_producer: FutureProducer<KafkaContext>,
     logs_topic: String,
     traces_topic: String,
+    metrics_topic: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -197,6 +201,7 @@ impl KafkaSink {
         config: KafkaConfig,
         logs_liveness: HealthHandle,
         traces_liveness: HealthHandle,
+        metrics_liveness: HealthHandle,
     ) -> anyhow::Result<KafkaSink> {
         info!(
             "connecting to logs Kafka brokers at {}...",
@@ -263,18 +268,69 @@ impl KafkaSink {
         let traces_producer =
             build_producer(traces_client_config, traces_liveness, "traces").await?;
 
+        let metrics_hosts = config
+            .kafka_metrics_hosts
+            .clone()
+            .unwrap_or_else(|| config.kafka_hosts.clone());
+        info!(
+            "connecting to metrics Kafka brokers at {}...",
+            metrics_hosts
+        );
+        let metrics_client_config = build_client_config(
+            &metrics_hosts,
+            config.kafka_metrics_tls.unwrap_or(config.kafka_tls),
+            &config
+                .kafka_metrics_client_id
+                .clone()
+                .unwrap_or_else(|| config.kafka_client_id.clone()),
+            &config
+                .kafka_metrics_compression_codec
+                .clone()
+                .unwrap_or_else(|| config.kafka_compression_codec.clone()),
+            &config
+                .kafka_metrics_producer_acks
+                .clone()
+                .unwrap_or_else(|| config.kafka_producer_acks.clone()),
+            config
+                .kafka_metrics_producer_linger_ms
+                .unwrap_or(config.kafka_producer_linger_ms),
+            config
+                .kafka_metrics_producer_queue_mib
+                .unwrap_or(config.kafka_producer_queue_mib),
+            config
+                .kafka_metrics_message_timeout_ms
+                .unwrap_or(config.kafka_message_timeout_ms),
+            config
+                .kafka_metrics_producer_message_max_bytes
+                .unwrap_or(config.kafka_producer_message_max_bytes),
+            config
+                .kafka_metrics_producer_max_retries
+                .unwrap_or(config.kafka_producer_max_retries),
+            config
+                .kafka_metrics_topic_metadata_refresh_interval_ms
+                .unwrap_or(config.kafka_topic_metadata_refresh_interval_ms),
+            config
+                .kafka_metrics_metadata_max_age_ms
+                .unwrap_or(config.kafka_metadata_max_age_ms),
+        );
+        let metrics_producer =
+            build_producer(metrics_client_config, metrics_liveness, "metrics").await?;
+
         Ok(KafkaSink {
             logs_producer,
             traces_producer,
+            metrics_producer,
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
+            metrics_topic: config.kafka_metrics_topic,
         })
     }
 
     pub fn flush(&self) -> Result<(), KafkaError> {
         // TODO: hook it up on shutdown
         self.logs_producer.flush(Duration::new(30, 0))?;
-        self.traces_producer.flush(Duration::new(30, 0))
+        self.traces_producer.flush(Duration::new(30, 0))?;
+        self.metrics_producer.flush(Duration::new(30, 0))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -397,6 +453,35 @@ impl KafkaSink {
             &self.traces_producer,
             &self.traces_topic,
             TRACES_AVRO_SCHEMA,
+            token,
+            &rows,
+            uncompressed_bytes,
+            timestamps_overridden,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn write_metrics(
+        &self,
+        token: &str,
+        rows: Vec<KafkaMetricRow>,
+        uncompressed_bytes: u64,
+        timestamps_overridden: u64,
+    ) -> Result<(), anyhow::Error> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        if timestamps_overridden > 0 {
+            counter!("capture_metrics_timestamps_overridden").increment(timestamps_overridden);
+        }
+
+        self.write_avro_batch(
+            &self.metrics_producer,
+            &self.metrics_topic,
+            METRICS_AVRO_SCHEMA,
             token,
             &rows,
             uncompressed_bytes,

@@ -164,6 +164,8 @@ export interface _TracingTraceRequestApi {
 export interface _TracingTreeQueryBodyApi {
     /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
     spanName: string
+    /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+    serviceName: string
     /** Date range for the primary window. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
     /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
@@ -181,10 +183,10 @@ export interface _TracingTreeRequestApi {
 
 export type TracingSpansAttributesRetrieveParams = {
     /**
- * Type of attributes: "span" for span attributes, "resource" for resource attributes.
+ * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
-* `span` - span
-* `resource` - resource
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
  * @minLength 1
  */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType
@@ -210,8 +212,8 @@ export type TracingSpansAttributesRetrieveAttributeType =
     (typeof TracingSpansAttributesRetrieveAttributeType)[keyof typeof TracingSpansAttributesRetrieveAttributeType]
 
 export const TracingSpansAttributesRetrieveAttributeType = {
-    Span: 'span',
-    Resource: 'resource',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
 } as const
 
 export type TracingSpansServiceNamesRetrieveParams = {
@@ -229,10 +231,11 @@ export type TracingSpansServiceNamesRetrieveParams = {
 
 export type TracingSpansValuesRetrieveParams = {
     /**
- * Type of attribute: "span" or "resource".
+ * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
 * `span` - span
-* `resource` - resource
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
  * @minLength 1
  */
     attribute_type?: TracingSpansValuesRetrieveAttributeType
@@ -264,5 +267,6 @@ export type TracingSpansValuesRetrieveAttributeType =
 
 export const TracingSpansValuesRetrieveAttributeType = {
     Span: 'span',
-    Resource: 'resource',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
 } as const

@@ -109,24 +109,27 @@ function MonacoDiffEditor(
         })
 
         // Get initial content height
-        setTimeout(() => {
+        const initialHeightTimer = setTimeout(() => {
             if (editorRef.current) {
                 const modEditor = editorRef.current.getModifiedEditor()
                 setContentHeight(modEditor.getContentHeight())
             }
         }, 100)
 
-        // Cleanup
+        // Cleanup — order matters: detach the models from the DiffEditorWidget via setModel(null)
+        // before disposing anything, so Monaco's internal onWillDispose listeners don't fire
+        // against models that are about to be torn down ("TextModel got disposed before
+        // DiffEditorWidget model got reset").
         return () => {
-            const model = editorRef.current?.getModel()
-            if (editorRef.current && model) {
-                const { original: originalEditor, modified } = model
-                editorRef.current.dispose()
-                originalEditor.dispose()
-                modified.dispose()
-            }
+            clearTimeout(initialHeightTimer)
             subscriptionRef.current?.dispose()
-            contentSizeListener?.dispose()
+            contentSizeListener.dispose()
+            editorRef.current?.setModel(null)
+            editorRef.current?.dispose()
+            originalModel.dispose()
+            modifiedModel.dispose()
+            editorRef.current = null
+            subscriptionRef.current = null
         }
     })
 
