@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.logs.backend.models import LogsExclusionRule
@@ -96,3 +97,63 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert body["scope_service"] == "payment-api"
         assert body["config"]["logs_per_second"] == 5000
         assert body["config"]["burst_logs"] == 15000
+
+    def test_create_path_drop_with_valid_filter_group(self):
+        # The drop-rules UI writes the inner group wrapped in an outer AND envelope.
+        filter_group = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "service.name", "operator": "exact", "value": "api", "type": "log_resource_attribute"}
+                    ],
+                }
+            ],
+        }
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Drop api logs",
+                config={"patterns": [], "filter_group": filter_group},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["config"]["filter_group"] == filter_group
+
+    # Each case is a config payload that the Pydantic PropertyGroupFilter validator
+    # should reject at write time, so a malformed shape never reaches the worker.
+    MALFORMED_FILTER_GROUPS = [
+        ("filter_group_is_list", []),
+        ("filter_group_is_string", "not a group"),
+        ("missing_type", {"values": []}),
+        ("invalid_logical_operator", {"type": "XOR", "values": []}),
+        ("values_is_not_list", {"type": "AND", "values": "oops"}),
+        ("inner_group_is_list", {"type": "AND", "values": [[{"key": "x"}]]}),
+    ]
+
+    @parameterized.expand([(label, payload) for label, payload in MALFORMED_FILTER_GROUPS])
+    def test_create_path_drop_rejects_malformed_filter_group(self, _label, malformed):
+        response = self.client.post(
+            self.base_url,
+            self._payload(config={"patterns": [], "filter_group": malformed}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        # The error attaches under config → filter_group; precise message comes from Pydantic.
+        body = response.json()
+        assert "filter_group" in str(body), body
+
+    @parameterized.expand([(label, payload) for label, payload in MALFORMED_FILTER_GROUPS])
+    def test_patch_path_drop_rejects_malformed_filter_group(self, _label, malformed):
+        create = self.client.post(self.base_url, self._payload(), format="json")
+        assert create.status_code == status.HTTP_201_CREATED, create.json()
+        rule_id = create.json()["id"]
+
+        response = self.client.patch(
+            f"{self.base_url}{rule_id}/",
+            {"config": {"patterns": [], "filter_group": malformed}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

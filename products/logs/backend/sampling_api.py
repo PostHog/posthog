@@ -6,11 +6,14 @@ from django.db import transaction
 from django.db.models import F, Max, QuerySet
 
 from drf_spectacular.utils import extend_schema
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -61,13 +64,15 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     )
     config = serializers.JSONField(
         help_text=(
-            "Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional "
-            "`match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same "
-            "virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is "
-            "tested only against that string attribute on the log record. For severity_sampling: object with "
-            "`actions` per severity level and optional `always_keep`. For rate_limit: object with required "
-            "`logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); "
-            "rate_limit rules require non-null `scope_service` matching `service.name` on each log line."
+            "Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — "
+            "AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) "
+            "+ `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. "
+            'Filter group example: `{"type":"AND","values":[{"type":"AND","values":['
+            '{"key":"service.name","operator":"exact","value":"api"}]}]}`. '
+            "For severity_sampling: object with `actions` per severity level and optional `always_keep`. "
+            "For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` "
+            "(integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching "
+            "`service.name` on each log line."
         )
     )
     version = serializers.IntegerField(
@@ -116,6 +121,18 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             mak = config.get("match_attribute_key")
             if mak is not None and mak != "" and not isinstance(mak, str):
                 raise ValidationError({"config": {"match_attribute_key": "Must be a string when provided."}})
+            filter_group = config.get("filter_group")
+            if filter_group is not None:
+                # Validate shape against PropertyGroupFilter so malformed payloads
+                # (e.g. a list where an object is expected) are rejected at write
+                # time rather than letting them flow through to the ingestion worker.
+                # Mirrors the pattern used for alert filters in alerts_api.py.
+                try:
+                    PropertyGroupFilter.model_validate(filter_group)
+                except PydanticValidationError as e:
+                    raise ValidationError(
+                        {"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}}
+                    )
         if rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
             if not isinstance(config, dict):
                 raise ValidationError({"config": "rate_limit rules require config to be a JSON object."})

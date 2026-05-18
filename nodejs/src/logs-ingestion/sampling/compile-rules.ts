@@ -1,4 +1,5 @@
 import type { CompiledRuleSet, CompiledSamplingRule, SeverityAction } from './evaluate'
+import type { FilterGroupNode } from './filter-group-match'
 
 export type SamplingRuleRow = {
     id: string
@@ -66,6 +67,35 @@ function parseRateLimitFromConfig(
     return { refillPerSecond: refill, poolMax }
 }
 
+/**
+ * The drop-rules UI writes the inner group wrapped in another AND envelope:
+ *   { type: AND, values: [ { type: AND|OR, values: [<leaves>] } ] }
+ * Earlier shapes may have stored the bare inner group. Accept either; reject
+ * anything that doesn't look like a group.
+ */
+function parseFilterGroup(raw: unknown): FilterGroupNode | null {
+    if (!raw || typeof raw !== 'object') {
+        return null
+    }
+    const candidate = raw as { type?: unknown; values?: unknown }
+    if (!Array.isArray(candidate.values) || (candidate.type !== 'AND' && candidate.type !== 'OR')) {
+        return null
+    }
+    // If the outer envelope contains a single inner group, unwrap it.
+    if (candidate.values.length === 1) {
+        const inner = candidate.values[0] as { type?: unknown; values?: unknown } | null
+        if (
+            inner &&
+            typeof inner === 'object' &&
+            Array.isArray(inner.values) &&
+            (inner.type === 'AND' || inner.type === 'OR')
+        ) {
+            return inner as FilterGroupNode
+        }
+    }
+    return candidate as FilterGroupNode
+}
+
 function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule['alwaysKeep'] {
     const ak = config.always_keep as Record<string, unknown> | undefined
     if (!ak || typeof ak !== 'object') {
@@ -101,6 +131,7 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
         }
         let pathDropPatterns: RegExp[] | null = null
         let pathDropMatchAttributeKey: string | null = null
+        let filterGroup: FilterGroupNode | null = null
         if (row.rule_type === 'path_drop') {
             const patterns = (row.config.patterns as unknown[]) || []
             pathDropPatterns = []
@@ -119,6 +150,7 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
                 const t = mak.trim()
                 pathDropMatchAttributeKey = t === '' ? null : t
             }
+            filterGroup = parseFilterGroup(row.config.filter_group)
         }
         const rt = row.rule_type as CompiledSamplingRule['ruleType']
         const ruleType: CompiledSamplingRule['ruleType'] =
@@ -137,6 +169,7 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             pathRegex,
             pathDropPatterns,
             pathDropMatchAttributeKey,
+            filterGroup,
             severityActions: parseSeverityActions(row.config),
             alwaysKeep: parseAlwaysKeep(row.config),
             rateLimit,

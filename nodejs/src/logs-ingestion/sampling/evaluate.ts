@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 
 import type { LogRecord } from '../log-record-avro'
+import { type FilterGroupNode, matchFilterGroup } from './filter-group-match'
 
 export const SAMPLING_DECISION_KEEP = 'keep' as const
 export const SAMPLING_DECISION_DROP = 'drop' as const
@@ -23,6 +24,12 @@ export type CompiledSamplingRule = {
     pathDropPatterns: RegExp[] | null
     /** When set, path_drop regexes match only this attribute; null uses pathForMatching(). */
     pathDropMatchAttributeKey: string | null
+    /**
+     * Universal filter group from the drop-rule UI. Evaluated per record alongside
+     * legacy `pathDropPatterns`: a record is dropped if EITHER matches. Null when
+     * the rule has no filter_group configured (legacy / patterns-only rules).
+     */
+    filterGroup: FilterGroupNode | null
     severityActions: [SeverityAction, SeverityAction, SeverityAction, SeverityAction]
     alwaysKeep: {
         statusGte: number | null
@@ -135,6 +142,29 @@ function alwaysKeepMatches(rule: CompiledSamplingRule, record: LogRecord): boole
     return false
 }
 
+/**
+ * A path_drop rule matches when EITHER the legacy regex patterns match the
+ * resolved path/attribute, OR the universal filter_group matches the record.
+ * Both shapes are supported during the transition off `config.patterns` —
+ * once all rules carry a filter_group, the patterns branch will be retired.
+ */
+function pathDropMatches(rule: CompiledSamplingRule, record: LogRecord): boolean {
+    if (rule.pathDropPatterns && rule.pathDropPatterns.length > 0) {
+        const p = rule.pathDropMatchAttributeKey
+            ? (getAttribute(record, rule.pathDropMatchAttributeKey) ?? '')
+            : pathForMatching(record)
+        for (const rx of rule.pathDropPatterns) {
+            if (rx.test(p)) {
+                return true
+            }
+        }
+    }
+    if (rule.filterGroup && matchFilterGroup(rule.filterGroup, record)) {
+        return true
+    }
+    return false
+}
+
 function matchesScope(rule: CompiledSamplingRule, record: LogRecord): boolean {
     if (rule.scopeService != null && rule.scopeService !== '') {
         const sn = record.service_name || ''
@@ -180,16 +210,8 @@ export function classifySamplingRecord(teamRuleSet: CompiledRuleSet | null, reco
             return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: rule.id }
         }
         if (rule.ruleType === 'path_drop') {
-            if (!rule.pathDropPatterns || rule.pathDropPatterns.length === 0) {
-                continue
-            }
-            const p = rule.pathDropMatchAttributeKey
-                ? (getAttribute(record, rule.pathDropMatchAttributeKey) ?? '')
-                : pathForMatching(record)
-            for (const rx of rule.pathDropPatterns) {
-                if (rx.test(p)) {
-                    return { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
-                }
+            if (pathDropMatches(rule, record)) {
+                return { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
             }
             continue
         }
@@ -230,16 +252,8 @@ export function evaluateLogRecord(teamRuleSet: CompiledRuleSet | null, record: L
             return { decision: SAMPLING_DECISION_KEEP, ruleId: rule.id }
         }
         if (rule.ruleType === 'path_drop') {
-            if (!rule.pathDropPatterns || rule.pathDropPatterns.length === 0) {
-                continue
-            }
-            const p = rule.pathDropMatchAttributeKey
-                ? (getAttribute(record, rule.pathDropMatchAttributeKey) ?? '')
-                : pathForMatching(record)
-            for (const rx of rule.pathDropPatterns) {
-                if (rx.test(p)) {
-                    return { decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
-                }
+            if (pathDropMatches(rule, record)) {
+                return { decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
             }
             continue
         }
