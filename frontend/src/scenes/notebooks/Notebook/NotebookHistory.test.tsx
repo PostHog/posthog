@@ -105,7 +105,9 @@ describe('Notebook history revert flow', () => {
         logic.mount()
         logic.actions.setEditor(stubEditor())
 
+        // user clicks a history entry
         logic.actions.setPreviewContent(HISTORICAL_DOC)
+        // wait past debounce so any save would have fired
         await expectLogic(logic)
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
@@ -113,23 +115,27 @@ describe('Notebook history revert flow', () => {
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
         expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
         expect(logic.values.localContent).toBeNull()
-        // Critical: previewing is non-mutating. No save fires for either save path.
+        // previewing is non-mutating
         expect(apiCreateSpy).not.toHaveBeenCalled()
         expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
     it('revert in non-collab mode: clears preview, updates editor, dispatches PATCH save with historical content', async () => {
+        // load the notebook
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()
         logic.actions.setEditor(stubEditor())
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
+        // user clicks a history entry
         logic.actions.setPreviewContent(HISTORICAL_DOC)
         editorSetContent.mockClear()
 
+        // user clicks Revert
         logic.actions.clearPreviewContent()
         logic.actions.setLocalContent(HISTORICAL_DOC, true)
+        // wait past debounce
         await expectLogic(logic)
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
@@ -145,15 +151,18 @@ describe('Notebook history revert flow', () => {
     })
 
     it('revert in collab mode: clears preview, updates editor, dispatches collab/save POST with historical content', async () => {
+        // enable collab mode
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
             [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
         })
+        // pretend the editor has a pending step ready to send
         ;(PMCollab.sendableSteps as jest.Mock).mockReturnValue({
             version: 1,
             steps: [{ toJSON: () => ({ stepType: 'replace', from: 0, to: 0, slice: { content: [] } }) }],
             clientID: 'test-client',
         })
 
+        // load the notebook with a bound ttEditor
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()
         logic.actions.setEditor(stubEditor())
@@ -163,11 +172,14 @@ describe('Notebook history revert flow', () => {
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
+        // user clicks a history entry
         logic.actions.setPreviewContent(HISTORICAL_DOC)
         editorSetContent.mockClear()
 
+        // user clicks Revert
         logic.actions.clearPreviewContent()
         logic.actions.setLocalContent(HISTORICAL_DOC, true)
+        // wait past debounce
         await expectLogic(logic)
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
