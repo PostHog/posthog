@@ -32,7 +32,6 @@ function parseClientInfo(bodyText: string): ClientInfo {
     try {
         const parsed = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]
-
         for (const msg of messages) {
             const rpc = JsonRpcMessageSchema.safeParse(msg)
             if (!rpc.success || rpc.data.method !== 'initialize') {
@@ -52,43 +51,36 @@ function parseClientInfo(bodyText: string): ClientInfo {
     return {}
 }
 
-function rebuildRequest(c: HonoCtx, bodyText: string): void {
+function authenticate(c: HonoCtx): Response | null {
+    const token = c.req.header('Authorization')?.split(' ')[1]
+    return validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+}
+
+async function preserveBody(c: HonoCtx): Promise<string> {
     const raw = c.req.raw
+    const bodyText = await raw.text()
     const fresh = new Request(raw.url, { method: raw.method, headers: raw.headers, body: bodyText })
     Object.defineProperty(c.req, 'raw', { value: fresh, writable: true, configurable: true })
+    return bodyText
 }
 
 export async function authenticateAndParse(
     c: HonoCtx,
     transport: Transport
 ): Promise<{ props: RequestProperties } | { error: Response }> {
-    const raw = c.req.raw
-    const token = c.req.header('Authorization')?.split(' ')[1]
-
-    const tokenError = validateBearerToken(token, raw, getRegionFromRequest(raw))
-    if (tokenError) {
-        return { error: tokenError }
+    const error = authenticate(c)
+    if (error) {
+        return { error }
     }
 
-    const hasBody = raw.method === 'POST' || raw.method === 'PUT' || raw.method === 'PATCH'
-    const bodyText = hasBody ? await raw.text() : null
+    const bodyText = await preserveBody(c)
+    const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
 
-    if (bodyText !== null) {
-        rebuildRequest(c, bodyText)
+    props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
+    props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
+    if (new URL(c.req.url).searchParams.get('_deprecated') === 'sse') {
+        props.viaSseRedirect = true
     }
-
-    const clientInfo = bodyText ? parseClientInfo(bodyText) : {}
-    const props = parseRequestProperties(raw, clientInfo, transport)
-
-    const mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
-    const mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
-    const viaSseRedirect = new URL(c.req.url).searchParams.get('_deprecated') === 'sse'
-
-    Object.assign(props, {
-        ...(mcpSessionId ? { mcpSessionId } : {}),
-        ...(mcpConversationId ? { mcpConversationId } : {}),
-        ...(viaSseRedirect ? { viaSseRedirect: true } : {}),
-    })
 
     return { props }
 }

@@ -53,14 +53,7 @@ type PostHogMcpAnalyticsFlagResult = {
     errorMessage?: string
 }
 
-// Extended request properties for the Hono runtime. The CF worker defines
-// these fields inline in its own RequestProperties; we extend the shared
-// base type so the Hono server can read/write them without modifying the
-// shared module.
 type HonoRequestProperties = RequestProperties & {
-    mcpSessionId?: string | undefined
-    mcpConversationId?: string | undefined
-    viaSseRedirect?: boolean | undefined
     mcpAnalyticsProvider?: McpAnalyticsProvider | undefined
     mcpAnalyticsFlagKey?: string | undefined
     mcpAnalyticsFlagEnabled?: boolean | undefined
