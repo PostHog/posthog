@@ -276,6 +276,7 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
 
     def test_update_service_rejects_when_user_lacks_team_access(self):
         from posthog.constants import AvailableFeature
+        from posthog.models.oauth import OAuthAccessToken
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team import Team
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -289,13 +290,20 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+
         restricted_team = Team.objects.create_with_data(
             initiating_user=self.user,
             organization=self.organization,
             name="Restricted project",
         )
+        # Set `application` so the team passes the partner-binding check;
+        # otherwise the auto-add would reject before the ACL check runs and the
+        # test would pass for the wrong reason.
         TeamProvisioningConfig.objects.update_or_create(
-            team=restricted_team, defaults={"stripe_project_id": "proj_restricted"}
+            team=restricted_team,
+            defaults={"stripe_project_id": "proj_restricted", "application": access_token.application},
         )
         AccessControl.objects.create(
             team=restricted_team,
@@ -304,7 +312,6 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
             resource_id=str(restricted_team.id),
         )
 
-        token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{restricted_team.id}/update_service",
             data={"service_id": "analytics"},
