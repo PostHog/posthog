@@ -46,7 +46,7 @@ from posthog.hogql.visitor import clear_locations
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
 # covers the Hog imperative-statement layer (let / if / while / for /
 # fn / try-catch / return / throw / blocks).
-_PARSER_FOR_RULE = {
+_PARSER_FOR_RULE: dict[str, Callable[..., Any]] = {
     "expr": parse_expr,
     "select": parse_select,
     "program": parse_program,
@@ -227,7 +227,7 @@ def _safe_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | No
     `Exception` — a manual Ctrl-C still propagates past this handler."""
     parser_fn = _PARSER_FOR_RULE[rule]
     try:
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        node = parser_fn(query, backend=backend)
     except BaseHogQLError as e:
         return "reject", None, _normalize_error(str(e))
     except Exception as e:
@@ -248,7 +248,7 @@ def _probe_backend(rule: str, backend: str) -> str | None:
     invalid backend name raising `KeyError` through silently."""
     probe_fn = _PARSER_FOR_RULE[rule]
     try:
-        probe_fn("1", backend=backend)  # type: ignore[arg-type]
+        probe_fn("1", backend=backend)
     except BaseHogQLError:
         # Rejecting `"1"` would be surprising but isn't a backend
         # failure — `_try_parse` would also classify this as a reject.
@@ -502,7 +502,7 @@ def corpus_try_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str
     Ctrl-C still propagates (`BaseException`, not `Exception`)."""
     parser_fn = _PARSER_FOR_RULE[rule]
     try:
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        node = parser_fn(query, backend=backend)
         return "ok", clear_locations(node), None
     except BaseHogQLError as e:
         return "reject", None, str(e)
