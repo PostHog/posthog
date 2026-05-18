@@ -4,6 +4,7 @@ import { IconSearch, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { cn } from 'lib/utils/css-classes'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -46,6 +47,30 @@ const NEW_TOPIC_SUGGESTIONS = [
     'Research how teams are using dashboards day-to-day',
 ]
 
+function SearchResultCard({ result }: { result: UserInterviewSearchResultApi }): JSX.Element {
+    const target = result.topic_id
+        ? urls.userInterviewResponse(result.topic_id, encodeURIComponent(result.interviewee_identifier))
+        : null
+    const card = (
+        <div className="border rounded p-3 hover:bg-accent-highlight-secondary">
+            <div className="flex items-center gap-2 mb-1 text-sm">
+                <LemonTag type="muted">{result.document_type}</LemonTag>
+                <span className="text-muted">{Math.round(result.similarity * 100)}% match</span>
+                <span className="text-muted">·</span>
+                <span>{result.interviewee_identifier}</span>
+            </div>
+            <p className="text-sm">{result.content_snippet}</p>
+        </div>
+    )
+    return target ? (
+        <Link to={target} className="block">
+            {card}
+        </Link>
+    ) : (
+        card
+    )
+}
+
 function SearchResults({
     results,
     loading,
@@ -60,33 +85,10 @@ function SearchResults({
         return <p className="text-muted">No matching responses yet.</p>
     }
     return (
-        <div className="flex flex-col gap-2">
-            {results.map((r) => {
-                const target = r.topic_id
-                    ? urls.userInterviewResponse(r.topic_id, encodeURIComponent(r.interviewee_identifier))
-                    : null
-                const Wrapper = ({ children }: { children: React.ReactNode }): JSX.Element =>
-                    target ? (
-                        <Link to={target} className="block">
-                            {children}
-                        </Link>
-                    ) : (
-                        <>{children}</>
-                    )
-                return (
-                    <Wrapper key={`${r.interview_id}-${r.document_type}`}>
-                        <div className="border rounded p-3 hover:bg-accent-highlight-secondary">
-                            <div className="flex items-center gap-2 mb-1 text-sm">
-                                <LemonTag type="muted">{r.document_type}</LemonTag>
-                                <span className="text-muted">{Math.round(r.similarity * 100)}% match</span>
-                                <span className="text-muted">·</span>
-                                <span>{r.interviewee_identifier}</span>
-                            </div>
-                            <p className="text-sm">{r.content_snippet}</p>
-                        </div>
-                    </Wrapper>
-                )
-            })}
+        <div className={cn('flex flex-col gap-2 transition-opacity', loading && 'opacity-50')}>
+            {results.map((r) => (
+                <SearchResultCard key={`${r.interview_id}-${r.document_type}`} result={r} />
+            ))}
         </div>
     )
 }
