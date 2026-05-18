@@ -87,19 +87,45 @@ Breakdowns aren't a typed tool — drop into `execute-sql`. Run only the
 breakdowns the issue's shape suggests; each one costs a query and clutters the
 synthesis.
 
-| Sparkline shape   | First breakdown to try                                              |
-| ----------------- | ------------------------------------------------------------------- |
-| Spike from zero   | By SDK version (`$lib_version`) — almost always a deploy regression |
-| Steady-state high | By browser / OS — rendering or platform-specific bug                |
-| Ramp              | By geography or feature flag — gradual rollout exposure             |
-| Bursts then quiet | By time of day or `$current_url` — scheduled job or specific page   |
+| Sparkline shape   | First breakdown to try                                                   |
+| ----------------- | ------------------------------------------------------------------------ |
+| Spike from zero   | By app version / release — almost always a deploy regression (see below) |
+| Steady-state high | By browser / OS — rendering or platform-specific bug                     |
+| Ramp              | By geography or feature flag — gradual rollout exposure                  |
+| Bursts then quiet | By time of day or `$current_url` — scheduled job or specific page        |
 
-Example (SDK version — works on virtually every event):
+#### Picking the right version property
+
+PostHog emits three version-shaped fields. They mean different things and only
+one of them answers "what version of the user's app introduced this?":
+
+| Property              | What it is                                                | Auto-captured by                                                                   | Use for                                                                  |
+| --------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `$exception_releases` | Cymbal-managed release map, keyed by release ID           | Only when SDK publishes release metadata (e.g. sourcemap upload tied to a release) | Most precise release attribution **when present**                        |
+| `$app_version`        | The user's deployed app version                           | iOS (`CFBundleShortVersionString`), React Native (Expo / react-native-device-info) | "What deploy of my app introduced this?" — the question users care about |
+| `$lib_version`        | The PostHog SDK library version (e.g. posthog-js 1.298.0) | Every SDK on every event                                                           | The narrow "did upgrading the PostHog SDK introduce this?" question      |
+
+`$lib_version` is on virtually every event, which makes it tempting — but it's
+the PostHog library version, not the user's app version. A constant
+`$lib_version` paired with a spike means the user shipped a regression in
+their own code with the SDK unchanged, which is the common case. Reach for
+`$lib_version` only when nothing else is populated and you're explicitly
+asking "did upgrading PostHog cause this?".
+
+Web / server / Node / Java / Python projects do **not** auto-capture
+`$app_version` — the customer has to set it (via `register`, a context
+provider, or `before_send`). If the breakdown comes back with one
+`$app_version` row of all-NULL, say so explicitly in the synthesis and
+suggest the customer wire it up; falling back to `$exception_releases` or to
+a per-day timeline by `first_seen` keeps the investigation moving.
+
+Example (`$app_version` — populated automatically on mobile, manually on
+web / server):
 
 ```sql
 posthog:execute-sql
 SELECT
-    properties.$lib_version AS lib_version,
+    properties.$app_version AS app_version,
     count() AS occurrences,
     uniq(person_id) AS users,
     min(timestamp) AS first_seen,
@@ -108,7 +134,7 @@ FROM events
 WHERE event = '$exception'
     AND (issue_id = '<issue_id>' OR properties.$exception_issue_id = '<issue_id>')
     AND timestamp > now() - INTERVAL 30 DAY
-GROUP BY lib_version
+GROUP BY app_version
 ORDER BY occurrences DESC
 LIMIT 20
 ```
@@ -121,14 +147,15 @@ merged/split issues route correctly); `properties.$exception_issue_id` is
 the raw event property captured at ingestion. Filtering on only the property
 silently undercounts events for issues that have been merged or split.
 
-If `first_seen` for one version is much later than the issue's overall
-`first_seen`, that SDK version (or whatever app shipped with it) introduced
-or worsened the bug — strong root-cause signal.
+If `first_seen` for one `app_version` is much later than the issue's overall
+`first_seen`, that release introduced or worsened the bug — strong root-cause
+signal. If every row is `NULL`, the SDK isn't reporting an app version on
+this project (common on web / server) — switch to `$exception_releases` if
+the customer ships releases, or fall back to a `toDate(timestamp)` timeline.
 
-When the SDK is configured to publish explicit release metadata, it lands in
-`$exception_releases` — a JSON dict keyed by release ID, managed by cymbal.
-Empty on most events; useful only when the SDK is set up to populate it. There
-is no top-level `$release` property.
+When `$exception_releases` is populated, it's a JSON dict keyed by release
+ID. There is no top-level `$release` property; query `$exception_releases`
+directly when you need release attribution and the customer has it wired up.
 
 Repeat with `properties.$browser`, `properties.$os`, `properties.$current_url`,
 or any feature flag the project tags errors with.
@@ -220,8 +247,12 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - The canonical join key from events to an issue is the resolved `issue_id`
   virtual field, with `properties.$exception_issue_id` as fallback — see Step 3
   for the reason and the `build_issue_where` pattern.
-- For a "what version introduced this?" breakdown, use `$lib_version` (set on
-  ~100% of events); see the `$exception_releases` caveat in Step 3.
+- For a "what version introduced this?" breakdown, prefer `$app_version` (the
+  user's deployed app version, auto-captured on iOS / React Native and
+  manually set on web / server) or `$exception_releases` when populated. Avoid
+  `$lib_version` for this question — it's the PostHog SDK library version, not
+  the user's app. See the "Picking the right version property" subsection in
+  Step 3.
 - If the issue spans more than 30 days, widen the date range explicitly.
   Defaults often truncate the original `first_seen` event off the breakdown.
 - Don't propose a fix in the synthesis unless the cause is obvious from the
