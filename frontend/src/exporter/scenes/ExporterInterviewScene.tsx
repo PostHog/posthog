@@ -262,10 +262,25 @@ export default function ExporterInterviewScene({
                     lastPhaseRef.current = next
                     setConversationPhase(next)
                 }
-                vapi.on('call-end', () => setState('ended'))
+                // Daily.co's normal end-of-call eviction surfaces as an `error` event in the
+                // Vapi SDK ("Meeting ended due to ejection: Meeting has ended"), often racing
+                // with the `call-end` event. Track whether the call has ended so we can
+                // suppress the spurious error transition that would otherwise flash an
+                // error panel right as the interview wraps up.
+                const callEndedRef = { current: false }
+                const isBenignEndOfCallError = (msg: string): boolean =>
+                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
+                vapi.on('call-end', () => {
+                    callEndedRef.current = true
+                    setState('ended')
+                })
                 vapi.on('error', (e: unknown) => {
+                    const message = e instanceof Error ? e.message : ''
+                    if (callEndedRef.current || isBenignEndOfCallError(message)) {
+                        return
+                    }
                     vapi.stop()
-                    setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
+                    setErrorMessage(message || 'Vapi reported an error during the call.')
                     setState('error')
                 })
                 vapi.on('speech-start', () => {
