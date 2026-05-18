@@ -2096,7 +2096,7 @@
             "system": true
         },
         "$pathname": {
-            "description": "The path of the Current URL, which means everything in the url after the domain.",
+            "description": "The URL path of the Current URL \u2014 everything after the domain. This is a URL path string, not a user-facing screen title; to find events tied to a particular PostHog screen (e.g. 'Page not found'), filter by event name (e.g. `not_found_shown`) rather than by this property.",
             "examples": [
                 "/pricing",
                 "/about-us/team"
@@ -2560,7 +2560,7 @@
             "label": "Session entry msclkid"
         },
         "$session_entry_pathname": {
-            "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
+            "description": "The URL path of the Current URL \u2014 everything after the domain. This is a URL path string, not a user-facing screen title; to find events tied to a particular PostHog screen (e.g. 'Page not found'), filter by event name (e.g. `not_found_shown`) rather than by this property. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": [
                 "/pricing",
                 "/about-us/team"
@@ -3515,6 +3515,10 @@
         "mcp_tools_list": {
             "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery \u2014 i.e. whether new clients are finding the server.",
             "label": "MCP tools listed"
+        },
+        "not_found_shown": {
+            "description": "Fired when PostHog renders a 'Page not found' screen \u2014 for example when a dashboard, insight, or action ID in the URL can't be resolved. The `object` property names the kind of resource that was missing (e.g. `dashboard`, `insight`, `action`, `Person`). To find these events, filter by event name; the user-facing 'Page not found' label is not stored in `$pathname`.",
+            "label": "Not found shown"
         },
         "posthog_identify": {
             "description": "Fires when an MCP session becomes associated with an identified user, or when the identity changes for an existing session. Used to attribute subsequent events to a real user instead of an anonymous session.",
@@ -5466,7 +5470,7 @@
             "label": "Initial OS version"
         },
         "$initial_pathname": {
-            "description": "The path of the Current URL, which means everything in the url after the domain. Data from the first time this user was seen.",
+            "description": "The URL path of the Current URL \u2014 everything after the domain. This is a URL path string, not a user-facing screen title; to find events tied to a particular PostHog screen (e.g. 'Page not found'), filter by event name (e.g. `not_found_shown`) rather than by this property. Data from the first time this user was seen.",
             "examples": [
                 "/pricing",
                 "/about-us/team"
@@ -6005,7 +6009,7 @@
             "system": true
         },
         "$pathname": {
-            "description": "The path of the Current URL, which means everything in the url after the domain. Data from the last time this user was seen.",
+            "description": "The URL path of the Current URL \u2014 everything after the domain. This is a URL path string, not a user-facing screen title; to find events tied to a particular PostHog screen (e.g. 'Page not found'), filter by event name (e.g. `not_found_shown`) rather than by this property. Data from the last time this user was seen.",
             "examples": [
                 "/pricing",
                 "/about-us/team"

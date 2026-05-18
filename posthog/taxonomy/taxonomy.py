@@ -228,6 +228,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Web vitals",
             "description": "Automatically captured web vitals data.",
         },
+        "not_found_shown": {
+            "label": "Not found shown",
+            "description": "Fired when PostHog renders a 'Page not found' screen — for example when a dashboard, insight, or action ID in the URL can't be resolved. The `object` property names the kind of resource that was missing (e.g. `dashboard`, `insight`, `action`, `Person`). To find these events, filter by event name; the user-facing 'Page not found' label is not stored in `$pathname`.",
+        },
         "$ai_generation": {
             "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
@@ -1529,7 +1533,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$pathname": {
             "label": "Path name",
-            "description": "The path of the Current URL, which means everything in the url after the domain.",
+            "description": "The URL path of the Current URL — everything after the domain. This is a URL path string, not a user-facing screen title; to find events tied to a particular PostHog screen (e.g. 'Page not found'), filter by event name (e.g. `not_found_shown`) rather than by this property.",
             "examples": ["/pricing", "/about-us/team"],
         },
         "$search_engine": {
