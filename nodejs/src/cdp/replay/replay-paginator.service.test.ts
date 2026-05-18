@@ -1,6 +1,7 @@
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'
+import { DateTime } from 'luxon'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -19,6 +20,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { REPLAY_PAGE_SIZE, ReplayJobState } from './replay-job.types'
@@ -52,6 +54,7 @@ describe('ReplayPaginatorService integration', () => {
     let paginator: ReplayPaginatorService
     let cyclotronJobQueue: jest.Mocked<CyclotronJobQueue>
     let paginatorLifecycleService: jest.Mocked<HogInvocationResultsService>
+    let paginatorMonitoringService: jest.Mocked<HogFunctionMonitoringService>
     let hogFunctionManager: HogFunctionManagerService
     let hogFlowManager: jest.Mocked<HogFlowManagerService>
     let hogInputsService: jest.Mocked<HogInputsService>
@@ -183,9 +186,15 @@ describe('ReplayPaginatorService integration', () => {
         // in the e2e test — here we only care that the paginator queues it.
         paginatorLifecycleService = {
             queueLifecycleRow: jest.fn(),
+            queueReplayWrapperRow: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
             dropQueuedRowsFor: jest.fn(),
         } as unknown as jest.Mocked<HogInvocationResultsService>
+
+        paginatorMonitoringService = {
+            queueLogs: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<HogFunctionMonitoringService>
 
         paginator = new ReplayPaginatorService(
             chClient,
@@ -193,7 +202,8 @@ describe('ReplayPaginatorService integration', () => {
             hogFlowManager,
             hogInputsService,
             paginatorLifecycleService,
-            cyclotronJobQueue
+            cyclotronJobQueue,
+            paginatorMonitoringService
         )
     })
 
@@ -230,7 +240,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
 
             expect(cyclotronJobQueue.queueInvocations).toHaveBeenCalledTimes(1)
             const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
@@ -267,7 +280,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
 
             const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             expect(enqueued.map((i) => i.id)).toEqual(['inv-real'])
@@ -289,7 +305,7 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            await paginator.processPage(team.id, state)
+            await paginator.processPage(team.id, state, { jobId: 'test-replay-job', createdAt: DateTime.now() })
 
             expect(hogInputsService.buildInputsWithGlobals).toHaveBeenCalledTimes(1)
             const [fn, persistedGlobals] = hogInputsService.buildInputsWithGlobals.mock.calls[0]
@@ -316,7 +332,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
 
             const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             const ids = enqueued.map((i) => i.id).sort()
@@ -340,7 +359,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0]?.[0] as
                 | CyclotronJobInvocationHogFunction[]
                 | undefined
@@ -365,7 +387,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             expect(next.progress.queued).toBe(2)
             expect(next.progress.done).toBe(true)
         })
@@ -379,7 +404,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             expect(next.progress.queued).toBe(0)
             expect(next.progress.done).toBe(true)
             expect(cyclotronJobQueue.queueInvocations).not.toHaveBeenCalled()
@@ -424,7 +452,10 @@ describe('ReplayPaginatorService integration', () => {
                 progress: { queued: 0, skipped: 0, done: false },
             }
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             expect(next.progress.queued).toBe(0)
             expect(next.progress.skipped).toBe(1)
             expect(cyclotronJobQueue.queueInvocations).not.toHaveBeenCalled()
@@ -452,7 +483,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             expect(next.progress.queued).toBe(0)
             expect(next.progress.skipped).toBe(1)
             expect(next.progress.done).toBe(true)
@@ -473,7 +507,8 @@ describe('ReplayPaginatorService integration', () => {
                 hogFlowManager,
                 hogInputsService,
                 paginatorLifecycleService,
-                cyclotronJobQueue
+                cyclotronJobQueue,
+                paginatorMonitoringService
             )
 
             const state = buildState({
@@ -487,7 +522,10 @@ describe('ReplayPaginatorService integration', () => {
                 progress: { queued: 0, skipped: 0, done: false },
             })
 
-            const { state: next } = await brokenPaginator.processPage(team.id, state)
+            const { state: next } = await brokenPaginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             expect(next.progress.done).toBe(false)
             expect(next.progress.last_error).toContain('clickhouse boom')
             expect(cyclotronJobQueue.queueInvocations).not.toHaveBeenCalled()
@@ -504,7 +542,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             // 1 row < REPLAY_PAGE_SIZE → done.
             expect(next.progress.done).toBe(true)
             // Sanity: REPLAY_PAGE_SIZE constant didn't regress to a tiny value.
@@ -529,7 +570,10 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            const { state: next } = await paginator.processPage(team.id, state)
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
             expect(next.progress.queued).toBe(0)
         })
     })
