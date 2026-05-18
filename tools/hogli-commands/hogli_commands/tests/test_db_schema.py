@@ -64,25 +64,13 @@ def test_validate_gzip_rejects_truncated_stream(tmp_path: Path) -> None:
         db_schema._validate_gzip(truncated)
 
 
-@pytest.mark.parametrize(
-    "ancestor_shas,expected_index",
-    [
-        ({"older", "newer"}, 1),
-        ({"older"}, 0),
-    ],
-)
-def test_select_newest_compatible_artifact(ancestor_shas: set[str], expected_index: int) -> None:
+def test_select_newest_compatible_artifact_returns_most_recent() -> None:
     artifacts = [
         _artifact(1, "older", "2026-01-01T00:00:00Z"),
         _artifact(2, "newer", "2026-01-02T00:00:00Z"),
     ]
 
-    selected = db_schema.select_newest_compatible_artifact(
-        artifacts,
-        is_ancestor=lambda base_sha, head_ref: base_sha in ancestor_shas,
-    )
-
-    assert selected == artifacts[expected_index]
+    assert db_schema.select_newest_compatible_artifact(artifacts) == artifacts[1]
 
 
 @pytest.mark.parametrize(
@@ -96,35 +84,7 @@ def test_select_newest_compatible_artifact(ancestor_shas: set[str], expected_ind
     ],
 )
 def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) -> None:
-    assert (
-        db_schema.select_newest_compatible_artifact(
-            [artifact],
-            is_ancestor=lambda base_sha, head_ref: True,
-        )
-        is None
-    )
-
-
-def test_select_accepts_unresolvable_sha_when_branch_matches() -> None:
-    artifact = _artifact(1, "missing-locally", "2026-01-01T00:00:00Z")
-
-    selected = db_schema.select_newest_compatible_artifact(
-        [artifact],
-        is_ancestor=lambda base_sha, head_ref: None,
-    )
-
-    assert selected == artifact
-
-
-def test_select_rejects_definitive_non_ancestor() -> None:
-    artifact = _artifact(1, "diverged", "2026-01-01T00:00:00Z")
-
-    selected = db_schema.select_newest_compatible_artifact(
-        [artifact],
-        is_ancestor=lambda base_sha, head_ref: False,
-    )
-
-    assert selected is None
+    assert db_schema.select_newest_compatible_artifact([artifact]) is None
 
 
 def test_select_honors_custom_base_branch() -> None:
@@ -134,53 +94,25 @@ def test_select_honors_custom_base_branch() -> None:
     selected = db_schema.select_newest_compatible_artifact(
         [master_artifact, release_artifact],
         base_branch="release-26.1",
-        is_ancestor=lambda base_sha, head_ref: True,
     )
 
     assert selected == release_artifact
 
 
-@pytest.mark.parametrize(
-    "returncode,expected",
-    [
-        (0, True),
-        (1, False),
-        (128, None),
-    ],
-)
-def test_is_git_ancestor_returns_tristate(
-    returncode: int, expected: bool | None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class FakeCompleted:
-        def __init__(self, code: int) -> None:
-            self.returncode = code
-
-    monkeypatch.setattr(
-        db_schema.subprocess,
-        "run",
-        lambda *args, **kwargs: FakeCompleted(returncode),
-    )
-
-    assert db_schema._is_git_ancestor("sha", "HEAD") is expected
-
-
 def test_download_diagnostics_on_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts = [
         _artifact(10, "pr-sha", "2026-01-01T00:00:00Z", head_branch="some-pr"),
-        _artifact(11, "master-sha", "2026-01-02T00:00:00Z"),
+        _artifact(11, "master-sha", "2026-01-02T00:00:00Z", head_branch="some-other-pr"),
     ]
     monkeypatch.setattr(db_schema, "_github_token", lambda: "token")
     monkeypatch.setattr(db_schema, "fetch_schema_artifacts", lambda **kwargs: artifacts)
-    monkeypatch.setattr(db_schema, "_is_git_ancestor", lambda base_sha, head_ref: False)
 
     split_runner = CliRunner(mix_stderr=False)
     result = split_runner.invoke(db_schema.db_download_schema, [])
 
     assert result.exit_code != 0
     assert "Fetched 2 migrated-schema artifact(s)" in result.stderr
-    assert "After name/expiry/size/branch filters: 1 candidate(s)" in result.stderr
-    assert "candidate id=11 sha=master-s" in result.stderr
-    assert "ancestry=false" in result.stderr
+    assert "After name/expiry/size/branch filters: 0 candidate(s)" in result.stderr
 
 
 def test_effective_base_branch_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -215,7 +147,7 @@ def test_restore_schema_if_fresh_skips_without_download(
     monkeypatch.setattr(
         db_schema,
         "download_latest_compatible_schema",
-        lambda: pytest.fail("download should not run"),
+        lambda **kwargs: pytest.fail("download should not run"),
     )
 
     assert db_schema.restore_schema_if_fresh(target_db="posthog", mode=mode) is False
