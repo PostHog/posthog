@@ -5425,8 +5425,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
         experiment_id = experiment_response.json()["id"]
 
-        # Clear activity logs to start fresh
-        ActivityLog.objects.filter(item_id=str(experiment_id)).delete()
+        # Count logs before adding saved metric
+        logs_before_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
 
         # Add a saved metric to the experiment
         update_response = self.client.patch(
@@ -5440,19 +5440,36 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         experiment = Experiment.objects.get(id=experiment_id)
         self.assertIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
 
-        # Check activity logs - should only have the "created" for the saved_metric_config
-        activity_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
-        self.assertEqual(activity_logs.count(), 1)
+        # Exactly 1 new log should be created (the saved_metric_config, not ordering changes)
+        logs_after_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+        self.assertEqual(logs_after_add - logs_before_add, 1)
 
-        config_log = activity_logs.first()
-        assert config_log is not None
-        assert config_log.detail is not None
-        self.assertEqual(config_log.activity, "created")
-        self.assertEqual(config_log.detail.get("type"), "saved_metric_config")
+        # Verify the new log is for saved_metric_config, not ordering
+        config_logs = ActivityLog.objects.filter(
+            item_id=str(experiment_id),
+            scope="Experiment",
+            activity="created",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(config_logs.count(), 1)
 
-        # Now remove the saved metric
-        ActivityLog.objects.filter(item_id=str(experiment_id)).delete()
+        # Verify NO ordering change logs exist
+        all_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
+        ordering_logs = [
+            log
+            for log in all_logs
+            if log.detail
+            and any(
+                change.get("field") in ("primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids")
+                for change in (log.detail.get("changes") or [])
+            )
+        ]
+        self.assertEqual(len(ordering_logs), 0, "Ordering changes should not be logged")
 
+        # Count logs before removing saved metric
+        logs_before_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Remove the saved metric
         remove_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {"saved_metrics_ids": []},
@@ -5464,15 +5481,18 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         experiment.refresh_from_db()
         self.assertNotIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
 
-        # Check activity logs - should only have the "deleted" for the saved_metric_config
-        activity_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
-        self.assertEqual(activity_logs.count(), 1)
+        # Exactly 1 new log should be created (the saved_metric_config deletion)
+        logs_after_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+        self.assertEqual(logs_after_remove - logs_before_remove, 1)
 
-        delete_log = activity_logs.first()
-        assert delete_log is not None
-        assert delete_log.detail is not None
-        self.assertEqual(delete_log.activity, "deleted")
-        self.assertEqual(delete_log.detail.get("type"), "saved_metric_config")
+        # Verify the new log is for saved_metric_config deletion
+        delete_logs = ActivityLog.objects.filter(
+            item_id=str(experiment_id),
+            scope="Experiment",
+            activity="deleted",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(delete_logs.count(), 1)
 
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
