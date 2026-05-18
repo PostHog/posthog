@@ -5314,6 +5314,49 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
 
+    def test_experiment_to_saved_metric_metadata_change_activity_logging(self):
+        """Test that changes to ExperimentToSavedMetric metadata are logged under Experiment scope."""
+        # Create a saved metric
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Activity Test Metric",
+                "description": "Testing metadata activity logging",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        # Create experiment with saved metric including metadata
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Metadata Activity Test",
+                "feature_flag_key": "metadata-activity-test",
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        # Verify activity log was created for the saved metric config link
+        saved_metric_config_logs = ActivityLog.objects.filter(
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="created",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(saved_metric_config_logs.count(), 1)
+        self.assertEqual(saved_metric_config_logs[0].user, self.user)
+        self.assertEqual(saved_metric_config_logs[0].detail["name"], "Activity Test Metric")
+
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
