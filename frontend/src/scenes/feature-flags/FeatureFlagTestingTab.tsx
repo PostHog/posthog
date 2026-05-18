@@ -366,7 +366,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <div className="max-h-96 overflow-auto">
                                         <PropertiesTable
                                             properties={result.person_properties}
-                                            type={PropertyDefinitionType.Person}
+                                            type="person"
                                             searchable={true}
                                             sortProperties={true}
                                             highlightedKeys={Array.from(usedProperties)}
