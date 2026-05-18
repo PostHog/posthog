@@ -4,7 +4,6 @@ import { LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
@@ -39,8 +38,6 @@ export function LogsSamplingForm(): JSX.Element {
                 </LemonField.Pure>
             </div>
 
-            <SceneDivider />
-
             <SceneSection
                 title="Match"
                 titleSize="sm"
@@ -57,8 +54,6 @@ export function LogsSamplingForm(): JSX.Element {
                     />
                 )}
             </SceneSection>
-
-            <SceneDivider />
 
             <SceneSection title="Action" titleSize="sm">
                 <LemonField.Pure label="What to do when a log matches">
@@ -84,8 +79,6 @@ export function LogsSamplingForm(): JSX.Element {
                     </LemonField.Pure>
                 )}
             </SceneSection>
-
-            <SceneDivider />
 
             <SceneSection
                 title="Scope"
