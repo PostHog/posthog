@@ -404,21 +404,38 @@ class BaseAgentRunner(ABC):
                     ),
                 )
                 return  # Don't run interrupt handling after LLM errors
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as e:
                 # The activity hosting this runner was cancelled (for example by a
                 # Temporal heartbeat timeout). asyncio.CancelledError is a BaseException,
                 # so it bypasses the generic `except Exception` below; without this
                 # branch no FailureMessage is yielded and the user sees nothing.
-                if self._use_checkpointer:
-                    try:
-                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                    except Exception:
-                        logger.exception("Failed to reset state on cancellation")
-                logger.warning("Assistant stream cancelled before completion")
+                # No await calls in this handler: once a task is cancelled, additional
+                # awaits can re-raise CancelledError and we'd skip the yield. State
+                # reset is intentionally left to the next attempt's normal init flow.
+                agent_mode = getattr(self._state, "agent_mode", None) if self._state else None
+                logger.exception(
+                    "Assistant stream cancelled before completion",
+                    conversation_id=str(self._conversation.id),
+                    team_id=self._team.id,
+                    agent_mode=agent_mode,
+                )
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "$session_id": self._session_id,
+                        "$ai_trace_id": self._trace_id,
+                        "thread_id": str(self._conversation.id),
+                        "error_type": "heartbeat_cancellation",
+                        "agent_mode": agent_mode,
+                        "tag": "max_ai",
+                        "$groups": event_usage.groups(team=self._team),
+                    },
+                )
                 yield (
                     AssistantEventType.MESSAGE,
                     FailureMessage(
-                        content="I wasn't able to respond in time. Try simplifying your question, or removing attached context like dashboards, and send it again.",
+                        content="Something went wrong while processing your request. Please try again, and let us know if it keeps happening.",
                         id=str(uuid4()),
                     ),
                 )
