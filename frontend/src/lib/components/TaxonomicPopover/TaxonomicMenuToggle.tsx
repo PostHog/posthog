@@ -20,7 +20,9 @@ export function TaxonomicMenuToggle(): JSX.Element {
     const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
     const { setUseNewMenu } = useActions(taxonomicMenuPreferenceLogic)
 
-    const label = useNewMenu ? 'Switch back to the classic filter' : 'Try the new filter (beta)'
+    // Symmetric, state-neutral labels — the rebuilt menu is the default, so
+    // framing it as "beta / try" would mislabel the primary experience.
+    const label = useNewMenu ? 'Switch to the classic filter' : 'Switch to the new filter'
 
     return (
         <Tooltip title={label}>
@@ -31,6 +33,7 @@ export function TaxonomicMenuToggle(): JSX.Element {
                 onClick={(e) => {
                     // Don't let the click fall through to the trigger button
                     // underneath (which would open the picker).
+                    e.preventDefault()
                     e.stopPropagation()
                     setUseNewMenu(!useNewMenu)
                 }}

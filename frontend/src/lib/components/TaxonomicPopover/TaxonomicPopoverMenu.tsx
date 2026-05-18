@@ -2,19 +2,24 @@
  * Central bridge from the legacy `TaxonomicPopover` API to the rebuilt
  * `TaxonomicFilterMenu` (dropdown + preview-pane UI).
  *
- * `TaxonomicPopover` renders this alongside the legacy popover whenever the
- * `taxonomic-filter-menu-rebuild` flag is on, so every popover call site can
- * be compared against the new picker without per-site wiring.
+ * `TaxonomicPopover` renders this whenever the `taxonomic-filter-menu-rebuild`
+ * flag is on and the user prefers the new menu, at every popover call site.
  *
  * The adapter translates `TaxonomicPopover`'s `(value, groupType, item)`
  * shape into the headless orchestrator + menu:
  *   - `value` → a synthetic `MenuFilterEntry` so the trigger reflects the
  *     current selection and re-opening routes into the right panel.
  *   - the headless `onChange(group, value, item)` → the legacy
- *     `onChange(value, groupType, item)`.
+ *     `onChange(value, groupType, item, group)`.
+ *
+ * Lazy mount: the headless orchestrator (`buildTaxonomicGroups` + several
+ * kea subscriptions) is expensive and the picker is rendered at many call
+ * sites. So until the user first clicks the trigger, only a lightweight
+ * placeholder button is rendered — the heavy `ArmedTaxonomicPopoverMenu` is
+ * mounted on first click and opened immediately via `defaultOpen`.
  */
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { ReactElement, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
@@ -52,6 +57,11 @@ const NON_SELECTABLE_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Se
     TaxonomicFilterGroupType.Empty,
 ])
 
+type TriggerButtonProps = Pick<
+    LemonButtonProps,
+    'icon' | 'sideIcon' | 'fullWidth' | 'size' | 'type' | 'className' | 'disabledReason' | 'truncate'
+>
+
 export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
@@ -80,19 +90,82 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     enableKeywordShortcuts?: boolean
     /** Trigger button styling, forwarded so the rebuilt menu's trigger
      *  matches the legacy `TaxonomicPopover` button at the call site. */
-    triggerButtonProps?: Pick<
-        LemonButtonProps,
-        'icon' | 'sideIcon' | 'fullWidth' | 'size' | 'type' | 'className' | 'disabledReason' | 'truncate'
-    >
+    triggerButtonProps?: TriggerButtonProps
 }
 
-export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
+/**
+ * Builds the trigger `LemonButton` element — shared by the lazy placeholder
+ * and the live menu trigger so the two are visually identical. Returns a
+ * bare `LemonButton` (no wrapper) so base-ui's `DropdownMenuTrigger` can
+ * render onto it directly and the DOM matches a plain button.
+ */
+function buildTriggerButton(args: {
+    value: TaxonomicFilterValue | null | undefined
+    renderValue?: (value: any) => JSX.Element | null
+    placeholder?: React.ReactNode
+    placeholderClass?: string
+    triggerButtonProps?: TriggerButtonProps
+    open?: boolean
+    onClick?: () => void
+}): ReactElement {
+    const { value, renderValue, placeholder, placeholderClass, triggerButtonProps, open, onClick } = args
+    return (
+        <LemonButton
+            type="secondary"
+            {...triggerButtonProps}
+            // LemonButton only auto-adds the dropdown chevron inside a
+            // LemonDropdown; this trigger isn't, so default it explicitly
+            // (legacy parity). A caller passing `sideIcon={null}` still
+            // suppresses it.
+            sideIcon={triggerButtonProps?.sideIcon === undefined ? <IconChevronDown /> : triggerButtonProps.sideIcon}
+            active={open}
+            onClick={onClick}
+            data-attr="taxonomic-popover-menu-trigger"
+        >
+            {value ? (
+                (renderValue?.(value) ?? <span>{String(value)}</span>)
+            ) : (
+                <span className={placeholderClass ?? 'text-secondary'}>{placeholder}</span>
+            )}
+        </LemonButton>
+    )
+}
+
+export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
+    props: TaxonomicPopoverMenuProps<ValueType>
+): JSX.Element {
+    // Lazy mount — until the user first clicks the trigger, render only the
+    // placeholder button. Mounting the orchestrator for pickers the user
+    // never opens would multiply mount cost across every call site on a page.
+    const [armed, setArmed] = useState(false)
+
+    if (armed) {
+        return <ArmedTaxonomicPopoverMenu {...props} />
+    }
+
+    const { value, renderValue, placeholder = 'Select', placeholderClass, triggerButtonProps } = props
+    return (
+        <span className="relative inline-flex max-w-full min-w-0">
+            {buildTriggerButton({
+                value,
+                renderValue,
+                placeholder,
+                placeholderClass,
+                triggerButtonProps,
+                onClick: () => setArmed(true),
+            })}
+            <TaxonomicMenuToggle />
+        </span>
+    )
+}
+
+function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
     groupType,
     value,
     groupTypes,
     onChange,
     renderValue,
-    placeholder = 'Please select',
+    placeholder = 'Select',
     placeholderClass,
     eventNames = [],
     schemaColumns,
@@ -114,7 +187,9 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
 }: TaxonomicPopoverMenuProps<ValueType>): JSX.Element {
     // Data warehouse tables carry their column schema (`fields`) in
     // `databaseTableListLogic`, not in the bare popover value — needed so
-    // the DWH config form can render its column dropdowns / preview.
+    // the DWH config form can render its column dropdowns / preview. Read
+    // here (not in the lazy outer component) so non-opened pickers don't
+    // subscribe to it.
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     // The group a synthetic `selected` entry should claim. `groupType` is
@@ -198,34 +273,12 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                 dataWarehousePopoverFields={dataWarehousePopoverFields}
                 fullWidthTrigger={!!triggerButtonProps?.fullWidth}
                 triggerAccessory={<TaxonomicMenuToggle />}
-                // The trigger is a bare LemonButton — base-ui's
-                // DropdownMenuTrigger renders onto it directly, so the DOM
-                // matches a plain button and inherits the call site's layout.
-                trigger={({ open }) => (
-                    <LemonButton
-                        type="secondary"
-                        {...triggerButtonProps}
-                        // LemonButton only auto-adds the dropdown chevron
-                        // inside a LemonDropdown; this trigger isn't, so
-                        // default it explicitly (legacy parity). A caller
-                        // passing `sideIcon={null}` still suppresses it.
-                        sideIcon={
-                            triggerButtonProps?.sideIcon === undefined ? (
-                                <IconChevronDown />
-                            ) : (
-                                triggerButtonProps.sideIcon
-                            )
-                        }
-                        active={open}
-                        data-attr="taxonomic-popover-menu-trigger"
-                    >
-                        {value ? (
-                            (renderValue?.(value) ?? <span>{String(value)}</span>)
-                        ) : (
-                            <span className={placeholderClass ?? 'text-secondary'}>{placeholder}</span>
-                        )}
-                    </LemonButton>
-                )}
+                // Open immediately — this component is mounted in response
+                // to the user's first trigger click (see `TaxonomicPopoverMenu`).
+                defaultOpen
+                trigger={({ open }) =>
+                    buildTriggerButton({ value, renderValue, placeholder, placeholderClass, triggerButtonProps, open })
+                }
             />
         </TaxonomicFilterHeadless.Root>
     )

@@ -82,6 +82,12 @@ export interface TaxonomicFilterMenuProps {
      */
     fullWidthTrigger?: boolean
     /**
+     * Open the menu immediately on mount. Used by consumers that lazily
+     * mount this component on the user's first trigger click — without it
+     * the click that mounts the component wouldn't also open it.
+     */
+    defaultOpen?: boolean
+    /**
      * Extra node rendered inside the trigger wrapper (which is `relative`),
      * e.g. an absolutely-positioned corner badge. Kept inside the wrapper so
      * callers don't need to add another positioned ancestor of their own.
@@ -105,6 +111,7 @@ export function TaxonomicFilterMenu({
     dataWarehousePopoverFields,
     insightProps,
     fullWidthTrigger = false,
+    defaultOpen = false,
     triggerAccessory,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const { groups, selectItem, inputProps, searchQuery } = useTaxonomicFilterContext()
@@ -186,6 +193,16 @@ export function TaxonomicFilterMenu({
         // bouncing back to the dropdown menu.
         return { kind: 'combobox', drillTo: 'all' }
     }, [selected])
+
+    // Open on mount when the consumer lazily mounts this component in
+    // response to the user's first click (see `TaxonomicPopoverMenu`).
+    // Runs once — opening is a one-shot mount concern, not reactive.
+    useEffect(() => {
+        if (defaultOpen) {
+            setState(resolveOpenState())
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // -- Recent / Pinned shortcuts -- read from kea so menu items reflect
     // the live counts. Mapped back to entries via source group.
