@@ -498,7 +498,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         # resource access and we must not surface them as the effective access level.
         # NOTE: project-level role overrides are intentionally NOT gated here because
         # UserTeamPermissions.effective_membership_level_for_parent_membership honors
-        # role-backed project AccessControl rows whenever ADVANCED_PERMISSIONS is
+        # role-backed project AccessControl rows whenever ACCESS_CONTROL is
         # enabled (no ROLE_BASED_ACCESS check), so gating the preview here would lie
         # about a user's actual project access.
         role_based_resource_access_supported = team.organization.is_feature_available(
@@ -611,7 +611,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         # resource access level. NOTE: project-level role overrides are intentionally
         # NOT gated here because UserTeamPermissions.effective_membership_level_for_
         # parent_membership honors role-backed project AccessControl rows whenever
-        # ADVANCED_PERMISSIONS is enabled (no ROLE_BASED_ACCESS check), so gating the
+        # ACCESS_CONTROL is enabled (no ROLE_BASED_ACCESS check), so gating the
         # preview here would lie about a user's actual project access.
         role_based_resource_access_supported = team.organization.is_feature_available(
             AvailableFeature.ROLE_BASED_ACCESS
