@@ -56,6 +56,9 @@ async def workflows_batch_export(ateam, interval, exclude_events, temporal_clien
     await adelete_batch_export(batch_export, temporal_client)
 
 
+@pytest.mark.skip(
+    reason="Consistently hangs during Worker init in CI - see https://app.mendral.com/insights/01KRKA62P8CCHQ4SZKJY3MAXR8"
+)
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_workflows_export_workflow(
