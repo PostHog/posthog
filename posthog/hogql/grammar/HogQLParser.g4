@@ -22,14 +22,13 @@ statement      : returnStmt
                | forInStmt
                | forStmt
                | funcStmt
-               | varAssignment
                | block
                | exprStmt
                | emptyStmt
                ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
-throwStmt      : THROW expression? SEMICOLON?;
+throwStmt      : THROW expression SEMICOLON?;
 catchBlock     : CATCH (LPAREN catchVar=identifier (COLON catchType=identifier)? RPAREN)? catchStmt=block;
 tryCatchStmt   : TRY tryStmt=block catchBlock* (FINALLY finallyStmt=block)?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
@@ -42,7 +41,9 @@ forStmt        : FOR LPAREN
 forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : (FN | FUN) identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLONEQUALS expression ;
-exprStmt       : expression SEMICOLON?;
+// Assignment folded in as an optional suffix: one expression-leading alternative in
+// `statement` means `declaration*` parses without unbounded lookahead. `varAssignment` is forStmt-only.
+exprStmt       : expression (COLONEQUALS expression)? SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
@@ -376,7 +377,7 @@ floatingLiteral
     | DOT (DECIMAL_LITERAL | OCTAL_LITERAL)
     | DECIMAL_LITERAL DOT (DECIMAL_LITERAL | OCTAL_LITERAL)?  // can't move this to the lexer or it will break nested tuple access: t.1.2
     ;
-numberLiteral: (PLUS | DASH)? (floatingLiteral | OCTAL_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
+numberLiteral: (PLUS | DASH)? (floatingLiteral | BINARY_LITERAL | OCTAL_LITERAL | OCTAL_PREFIX_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
 literal
     : numberLiteral
     | STRING_LITERAL

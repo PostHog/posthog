@@ -256,6 +256,30 @@ func TestClassify_doneCountsAsReady(t *testing.T) {
 	}
 }
 
+// Regression: a proc configured `autostart: false` sits in status="stopped"
+// indefinitely because the manager intentionally never launches it. Treating
+// "stopped" as not-ready would cause `phrocs wait` to time out on configs
+// that mix autostart and on-demand procs (storybook, generate-demo-data,
+// migrate-flags-read-store, etc.).
+func TestClassify_stoppedCountsAsReady(t *testing.T) {
+	procs := map[string]any{
+		"storybook": map[string]any{"status": "stopped", "ready": false},
+		"web":       map[string]any{"status": "running", "ready": true},
+	}
+
+	verdict, crashed, notReady := classify(procs)
+
+	if verdict != "ready" {
+		t.Fatalf("verdict: got %q, want %q", verdict, "ready")
+	}
+	if len(crashed) != 0 {
+		t.Fatalf("crashed: got %v, want empty", crashed)
+	}
+	if len(notReady) != 0 {
+		t.Fatalf("notReady: got %v, want empty", notReady)
+	}
+}
+
 // runWait must surface an empty-config response as a distinct "no_procs"
 // verdict (exit 0) rather than spinning until the deadline and printing
 // "still not ready: " with an empty list.

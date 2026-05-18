@@ -2546,7 +2546,8 @@ export const TargetTypeEnumApi = {
 } as const
 
 /**
- * * `daily` - Daily
+ * * `hourly` - Hourly
+ * `daily` - Daily
  * `weekly` - Weekly
  * `monthly` - Monthly
  * `yearly` - Yearly
@@ -2555,6 +2556,7 @@ export type SubscriptionFrequencyEnumApi =
     (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
 
 export const SubscriptionFrequencyEnumApi = {
+    Hourly: 'hourly',
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -2612,8 +2614,9 @@ export interface SubscriptionApi {
     target_type: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
     target_value: string
-    /** How often to deliver: daily, weekly, monthly, or yearly.
+    /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+  * `hourly` - Hourly
   * `daily` - Daily
   * `weekly` - Weekly
   * `monthly` - Monthly
@@ -2742,8 +2745,9 @@ export interface PatchedSubscriptionApi {
     target_type?: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
     target_value?: string
-    /** How often to deliver: daily, weekly, monthly, or yearly.
+    /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+  * `hourly` - Hourly
   * `daily` - Daily
   * `weekly` - Weekly
   * `monthly` - Monthly
@@ -3250,6 +3254,56 @@ export interface OnboardingSkipRequestApi {
     step_at_skip?: string
 }
 
+/**
+ * * `ios` - iOS
+ * `android` - Android
+ * `web` - Web
+ */
+export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+
+export const PushTokenPlatformEnumApi = {
+    Ios: 'ios',
+    Android: 'android',
+    Web: 'web',
+} as const
+
+export interface UserPushTokenRegisterRequestApi {
+    /**
+     * Opaque push token issued by the device's platform push service (e.g. an Expo push token).
+     * @maxLength 512
+     */
+    token: string
+    /** Device platform the token was issued for. One of `ios`, `android`, or `web`.
+
+  * `ios` - iOS
+  * `android` - Android
+  * `web` - Web */
+    platform: PushTokenPlatformEnumApi
+}
+
+export interface UserPushTokenItemApi {
+    /** PostHog UserPushToken row id. */
+    id: string
+    /** Device platform the token was issued for.
+
+  * `ios` - iOS
+  * `android` - Android
+  * `web` - Web */
+    platform: PushTokenPlatformEnumApi
+    /** When this token was first registered. */
+    created_at: string
+    /** Last time the mobile app re-registered this token. */
+    last_seen_at: string
+}
+
+export interface UserPushTokenUnregisterRequestApi {
+    /**
+     * The opaque push token to remove for the authenticated user.
+     * @maxLength 512
+     */
+    token: string
+}
+
 export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.
@@ -3388,6 +3442,10 @@ export type PropertyDefinitionsListParams = {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1

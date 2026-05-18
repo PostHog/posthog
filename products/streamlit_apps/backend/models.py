@@ -6,6 +6,7 @@ from posthog.utils import generate_short_id
 
 
 class StreamlitApp(models.Model):
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -47,6 +48,7 @@ class StreamlitApp(models.Model):
 
 
 class StreamlitAppVersion(models.Model):
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app = models.ForeignKey(StreamlitApp, on_delete=models.CASCADE, related_name="versions")
     version_number = models.PositiveIntegerField()
@@ -76,6 +78,7 @@ class StreamlitAppSandbox(models.Model):
         STOPPED = "stopped", "Stopped"
         ERROR = "error", "Error"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app = models.OneToOneField(StreamlitApp, on_delete=models.CASCADE, related_name="sandbox")
     version = models.ForeignKey(StreamlitAppVersion, on_delete=models.SET_NULL, null=True, blank=True)

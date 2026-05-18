@@ -86,6 +86,16 @@ class TestIsProjectionEligible(unittest.TestCase):
                 False,
             ),
             (
+                "filter_group_is_list",
+                {"filterGroup": [{"type": "AND", "values": []}]},
+                False,
+            ),
+            (
+                "filter_group_inner_value_not_dict",
+                {"filterGroup": {"type": "AND", "values": ["not-a-dict"]}},
+                False,
+            ),
+            (
                 "attribute_filter_present",
                 {
                     "filterGroup": {

@@ -165,7 +165,12 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         }
 
     def get_schemas(
-        self, config: SlackSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SlackSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -185,7 +190,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         authed_user = self._get_authed_user_id(integration)
-        channels = get_channels(access_token, authed_user)
+        channels = get_channels(integration.id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
@@ -241,6 +246,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
         return slack_source(
             access_token=access_token,
+            integration_id=integration.id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,

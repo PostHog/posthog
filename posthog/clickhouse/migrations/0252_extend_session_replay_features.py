@@ -73,20 +73,20 @@ operations = [
     # 2. ALTER the sharded source-of-truth table in place (it holds the actual data).
     run_sql_with_exceptions(
         _alter_sharded(),
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX],
         sharded=True,
         is_alter_on_replicated_table=True,
     ),
     # 3. Drop and recreate the Distributed read/write tables. They have no data
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS session_replay_features",
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
         DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX],
     ),
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS writable_session_replay_features",

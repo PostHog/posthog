@@ -43,6 +43,7 @@ import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAna
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -54,6 +55,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
+import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -71,7 +73,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                'mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
             data-attr="web-analytics-dashboard"
@@ -138,9 +140,9 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.colSpanClassName ?? 'md:col-span-1',
                 layout.rowSpanClassName ?? 'md:row-span-1',
-                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.orderWhenLargeClassName ?? '2xl:order-12',
                 layout.className
             )}
         >
@@ -179,7 +181,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 'col-span-1 row-span-1',
                 layout.colSpanClassName || 'md:col-span-1',
                 layout.rowSpanClassName || 'md:row-span-1',
-                layout.orderWhenLargeClassName || 'xxl:order-12',
+                layout.orderWhenLargeClassName || '2xl:order-12',
                 layout.className
             )}
             activeTabId={tile.activeTabId}
@@ -450,6 +452,8 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
 
     return (
         <>
@@ -458,6 +462,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
+            {showLiveTiles && <LiveBotTiles />}
             <Tiles tiles={tiles} />
         </>
     )
@@ -564,6 +569,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
@@ -579,6 +585,11 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             </BindLogic>
         </BindLogic>
     )
+}
+
+const WebAnalyticsLoadTimeTracker = (): null => {
+    useMountedLogic(webAnalyticsLoadTimeLogic)
+    return null
 }
 
 const WebAnalyticsTabs = (): JSX.Element => {

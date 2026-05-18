@@ -60,6 +60,8 @@ describe('initMcpCatObservability', () => {
             getTransport: vi.fn().mockResolvedValue('streamable-http'),
             getMcpConsumer: vi.fn().mockResolvedValue('posthog-code'),
             getMcpMode: vi.fn().mockResolvedValue('cli'),
+            getMcpSessionId: vi.fn().mockResolvedValue('mcp-session-abc'),
+            getMcpConversationId: vi.fn().mockResolvedValue('mcp-conversation-xyz'),
             ...overrides,
         }
     }
@@ -190,6 +192,8 @@ describe('initMcpCatObservability', () => {
                 mcp_transport: 'streamable-http',
                 mcp_consumer: 'posthog-code',
                 mcp_mode: 'cli',
+                mcp_session_id: 'mcp-session-abc',
+                mcp_conversation_id: 'mcp-conversation-xyz',
                 $groups: {
                     organization: 'org-789',
                     project: 'proj-uuid-101',
@@ -218,6 +222,8 @@ describe('initMcpCatObservability', () => {
                 mcp_transport: 'streamable-http',
                 mcp_consumer: 'posthog-code',
                 mcp_mode: 'cli',
+                mcp_session_id: 'mcp-session-abc',
+                mcp_conversation_id: 'mcp-conversation-xyz',
                 $groups: { organization: 'org-789' },
             },
         },
@@ -236,6 +242,8 @@ describe('initMcpCatObservability', () => {
                 getTransport: vi.fn().mockResolvedValue(undefined),
                 getMcpConsumer: vi.fn().mockResolvedValue(undefined),
                 getMcpMode: vi.fn().mockResolvedValue(undefined),
+                getMcpSessionId: vi.fn().mockResolvedValue(undefined),
+                getMcpConversationId: vi.fn().mockResolvedValue(undefined),
             },
             expected: {
                 ai_product: 'mcp',
@@ -254,6 +262,8 @@ describe('initMcpCatObservability', () => {
                 mcp_transport: undefined,
                 mcp_consumer: undefined,
                 mcp_mode: undefined,
+                mcp_session_id: undefined,
+                mcp_conversation_id: undefined,
             },
         },
     ])('eventProperties: $name', async ({ overrides, expected }) => {

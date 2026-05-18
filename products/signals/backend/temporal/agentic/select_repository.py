@@ -10,6 +10,7 @@ from posthog.models.integration import GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import (
@@ -99,7 +100,7 @@ def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals."""
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)

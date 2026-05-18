@@ -822,10 +822,10 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
+        # Run universal validations before any early returns so they always apply,
+        # regardless of creation_context (surveys, etc.) or evaluation contexts.
+        self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
-
-        # Validate team-wide flag count limit before any early returns, since it
-        # applies to all creates regardless of creation context (surveys, etc.)
         self._validate_flag_limits()
 
         request = self.context.get("request")
@@ -878,6 +878,37 @@ class FeatureFlagSerializer(
                     )
 
         return attrs
+
+    def _validate_device_bucketing_with_persist_auth(self, attrs):
+        """Validate that persist across auth is not enabled with device ID bucketing"""
+        # bucketing_identifier is nullable (CharField(null=True)), so we use a sentinel to
+        # distinguish "field absent from PATCH" from "field explicitly set to null". A bare
+        # `attrs.get(...) is None` fallback would otherwise treat an explicit null as missing
+        # and validate against the stale instance value.
+        _MISSING: Any = object()
+        bucketing_identifier = attrs.get("bucketing_identifier", _MISSING)
+        ensure_experience_continuity = attrs.get("ensure_experience_continuity", _MISSING)
+
+        if self.instance:
+            if bucketing_identifier is _MISSING:
+                bucketing_identifier = self.instance.bucketing_identifier
+            if ensure_experience_continuity is _MISSING:
+                ensure_experience_continuity = self.instance.ensure_experience_continuity
+
+        # Prevent new combinations of device_id + ensure_experience_continuity=True
+        if bucketing_identifier == "device_id" and ensure_experience_continuity is True:
+            # Allow if this combination already existed (no change)
+            if (
+                self.instance
+                and self.instance.bucketing_identifier == "device_id"
+                and self.instance.ensure_experience_continuity is True
+            ):
+                pass  # Allow existing combination to be saved without changes
+            else:
+                raise serializers.ValidationError(
+                    "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
+                    "These features are incompatible."
+                )
 
     def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
         """Encrypted payloads are only valid on remote configuration flags."""
