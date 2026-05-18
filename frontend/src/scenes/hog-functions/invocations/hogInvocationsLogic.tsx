@@ -199,7 +199,7 @@ const parseRelativeHours = (value: string | undefined): number | null => {
     return n * (hoursPerUnit[match[2]] ?? 0)
 }
 
-const pickSparklineBucketFn = (filters: HogInvocationsFilters): 'toStartOfHour' | 'toStartOfDay' => {
+const pickSparklineBucketFn = (filters: HogInvocationsFilters): 'toStartOfMinute' | 'toStartOfHour' => {
     // Relative `-Nh / -Nd` strings have a known duration without needing to
     // anchor them; use that directly. Falls back to parsing both endpoints
     // when the filter uses absolute ISO timestamps.
@@ -209,7 +209,7 @@ const pickSparklineBucketFn = (filters: HogInvocationsFilters): 'toStartOfHour' 
         const to = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
         hours = to.diff(from, 'hour')
     }
-    return hours < 72 ? 'toStartOfHour' : 'toStartOfDay'
+    return hours < 72 ? 'toStartOfMinute' : 'toStartOfHour'
 }
 
 const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
