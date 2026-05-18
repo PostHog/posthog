@@ -1,6 +1,13 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    materialized,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import patch
 
 from django.db import transaction
@@ -1315,3 +1322,31 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["person"] is None
+
+    @snapshot_clickhouse_queries
+    def test_email_fallback_uses_ngram_skip_index(self, mock_on_commit):
+        from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
+        from products.conversations.backend.api.tickets import _get_persons_by_email
+
+        from ee.clickhouse.materialized_columns.columns import get_ngram_lower_index_name
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["idx-test-id"],
+            properties={"email": "indexed@example.com"},
+            immediate=True,
+        )
+
+        with materialized("person", "email", create_ngram_lower_index=True) as mat_col:
+            index_name = get_ngram_lower_index_name(mat_col.name)
+            result = _get_persons_by_email(
+                self.team,
+                ["indexed@example.com"],
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    forceClickhouseDataSkippingIndexes=[index_name],
+                ),
+            )
+            assert len(result) == 1
+            assert "indexed@example.com" in result

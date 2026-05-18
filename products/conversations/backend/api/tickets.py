@@ -25,6 +25,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -69,7 +71,11 @@ from ee.models.rbac.role import Role
 logger = structlog.get_logger(__name__)
 
 
-def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
+def _get_persons_by_email(
+    team: Team,
+    emails: list[str],
+    modifiers: HogQLQueryModifiers | None = None,
+) -> dict[str, Person]:
     """Batch look up persons by their properties.email value via ClickHouse.
 
     Returns a dict mapping lowercase email -> Person for the first match.
@@ -91,6 +97,7 @@ def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
             placeholders={"emails": ast.Constant(value=emails_lower)},
             team=team,
             query_type="conversations_person_email_lookup",
+            modifiers=modifiers,
         )
 
     if not response.results:
