@@ -432,6 +432,16 @@ class TestBytecodeExecute:
         else:
             raise AssertionError("Expected assignment to a call result to be rejected")
 
+    def test_assignment_to_parenthesized_target(self):
+        # A parenthesised target collapses to the underlying place: `(x)`
+        # assigns the variable, `(o.a)` / `(o).a` the property.
+        assert self._run_program("let x := 1; (x) := 5; return x;") == 5
+        assert self._run_program("let x := 1; ((x)) := 7; return x;") == 7
+        assert self._run_program("let o := {}; (o.a) := 3; return o.a;") == 3
+        assert self._run_program("let o := {}; (o).a := 4; return o.a;") == 4
+        # Adjacent assignments without separators parse as distinct statements.
+        assert self._run_program("let a := 0 let b := 0 (a) := 1 (b) := 2 return a + b") == 3
+
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
         bytecode = create_bytecode(program).bytecode

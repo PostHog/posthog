@@ -3414,8 +3414,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             # The merged `exprStmt` rule yields a VariableAssignment when a
             # `:=` is present (for any expression target, including a
             # subscript or property access) and an ExprStatement otherwise.
-            declarations = self._program("a := 1; o.a := 2; arr[1] := 3; foo();").declarations
+            declarations = self._program("a := 1; o.a := 2; arr[1] := 3; (x) := 9; foo();").declarations
             assert [type(declaration).__name__ for declaration in declarations] == [
+                "VariableAssignment",
                 "VariableAssignment",
                 "VariableAssignment",
                 "VariableAssignment",
