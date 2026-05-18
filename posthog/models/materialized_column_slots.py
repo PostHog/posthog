@@ -1,17 +1,16 @@
 from django.db import models
 
+from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
 
 from products.event_definitions.backend.models import PropertyDefinition
 
-MAX_SLOTS_PER_TEAM = 10
-
-# Inclusive — must stay paired with `DMAT_STRING_COLUMN_COUNT` in posthog/models/event/sql.py.
-# Slots are allocated per-team: each team picks freely from 0..MAX_SLOT_INDEX, and different
-# teams may share the same column index for different properties (the dmat dict resolves
-# (team_id, slot_index) → property_name at write/read time).
-MAX_SLOT_INDEX = 9
+# Single source of truth is the physical dmat_string pool size in event/sql.py. Per-team
+# cap equals pool size because slots are allocated per-team and indices are shared across
+# teams (the dmat dict resolves (team_id, slot_index) -> property_name at write/read time).
+MAX_SLOTS_PER_TEAM = DMAT_STRING_COLUMN_COUNT
+MAX_SLOT_INDEX = MAX_SLOTS_PER_TEAM - 1
 
 
 class MaterializedColumnSlotState(models.TextChoices):
