@@ -1,22 +1,31 @@
 ---
 name: grouping-noisy-errors
 description: >
-  Consolidate PostHog error tracking issues that share the same root
-  cause but were split into many separate fingerprints. Use when the
-  user asks "why do I have so many TypeError issues that look the same?",
-  "merge these duplicates", "stop splitting this error into new issues",
-  or wants to clean up fingerprint sprawl. Decides between a one-shot
-  merge of existing issues and a durable grouping rule that keeps future
-  events from creating new fingerprints.
+  Consolidate PostHog error tracking issues that are the same actual
+  error reported under different fingerprints. Use when the user asks
+  "why do I have so many TypeError issues that look the same?", "merge
+  these duplicates", "stop splitting this error into new issues", or
+  wants to clean up fingerprint sprawl. Decides between a one-shot merge
+  of existing issues and a durable grouping rule that keeps future
+  events from creating new fingerprints. Does NOT group conceptually
+  similar bugs across different runtimes, SDKs, or call sites.
 ---
 
 # Grouping noisy errors
 
-A single root cause can show up as dozens of separate issues when stack frames or
+The same error can be reported as dozens of separate issues when stack frames or
 messages contain volatile data — random IDs, dynamic file paths, build hashes,
 anonymous function names. The fix is two-step: merge the existing issues into one
-target, then create a grouping rule so future events with the same cause share a
-single canonical fingerprint instead of spawning new ones.
+target, then create a grouping rule so future events from the same call site
+share a single canonical fingerprint instead of spawning new ones.
+
+Important up front: "same error" here is narrow. Two issues that share a name or
+a sentence of message text but came from different code paths, different SDKs,
+or different runtimes are **different errors** and should stay separate, even if
+the user thinks of them as "the same kind of bug". Grouping a frontend
+`TypeError` together with a backend `TypeError` because both messages contain
+"undefined" destroys the signal that lets the team find each one. The criteria
+in step 1 exist to keep that from happening.
 
 ## Available tools
 
@@ -83,18 +92,51 @@ posthog:query-error-tracking-issue-events
 
 Run this once per candidate. The tool defaults to `onlyAppFrames: true`, which
 makes the top in-app frame stand out at a glance. If two candidates share the
-same top frame and same exception type, they're almost certainly the same bug.
+same top frame and same exception type, they're likely the same error — but
+verify against the full checklist below before merging.
 
-They share a root cause if all three are true:
+#### Are they the same error?
 
-- The exception type is identical
-- The message follows the same pattern (only volatile parts differ — IDs, hashes,
-  paths)
-- The top stack frames point at the same file and function (line numbers can
-  differ slightly)
+Treat two issues as duplicates only when **every one** of these matches:
 
-If any of those differ, they are not duplicates — investigate separately
-(`investigating-error-issue`).
+- `$lib` is the same SDK (`posthog-js`, `posthog-python`, `posthog-node`,
+  `posthog-android`, etc.). Errors from different SDKs almost always come from
+  different code paths even when the exception type matches.
+- The exception type is identical (`$exception_types`).
+- The top in-app stack frame points at the same file and same function. Line
+  numbers and minor offsets within that function are fine; a different file or
+  a different function on top means a different bug.
+- The message follows the same template, with differences confined to volatile
+  data — IDs, hashes, timestamps, dynamic paths. If the difference is a
+  different verb, object, or operation, it's a different bug.
+- `$exception_handled` agrees (both handled or both unhandled). A caught
+  variant and an uncaught variant are different code paths and benefit from
+  staying separate.
+
+If any single one of those differs, they are not duplicates — investigate
+separately (`investigating-error-issue`).
+
+#### What NOT to group together
+
+These are the failure modes that destroy debugging signal. Do not group
+across any of them, even when the user describes them as "the same kind of
+bug":
+
+- **Frontend and backend variants of the same exception type.** A `TypeError`
+  from a browser bundle and a `TypeError` from a Node service share a name and
+  often a message word, but the stack, the runtime, and the fix all differ.
+- **Different SDKs / platforms.** `posthog-js` vs `posthog-python` vs
+  `posthog-android` are different call sites.
+- **Same type, different file or function on top of the stack.** A
+  `NullPointerException` thrown from `OrderService.cancel` is not the same bug
+  as one thrown from `PaymentService.refund`, even if both messages say
+  "user was null".
+- **Caught vs uncaught.** Two issues that differ only in `$exception_handled`
+  are usually a code path that swallows the error in one place and lets it
+  propagate in another — keeping them separate makes that visible.
+- **Conceptually-similar bugs that happen to share a phrase.** "Cannot read
+  property of undefined" appears in many independent bugs. Without matching
+  stack frames, message similarity alone is not enough.
 
 ### Step 2 — Pick the target issue
 
@@ -162,6 +204,13 @@ Skip the grouping rule when:
 
 ### Step 5 — Create the grouping rule
 
+Translate the step 1 "same error" checklist into rule filters. A rule that
+matches more loosely than the checklist will silently merge unrelated bugs
+forever — the rule is more dangerous than the merge because it runs against
+every future event. At a minimum, scope by SDK and exception type, and add
+a third dimension (file path via `$exception_sources`, or a specific message
+phrase via `$exception_values`) to pin the call site:
+
 ```json
 posthog:error-tracking-grouping-rules-create
 {
@@ -170,9 +219,21 @@ posthog:error-tracking-grouping-rules-create
     "values": [
       {
         "type": "event",
+        "key": "$lib",
+        "operator": "exact",
+        "value": "posthog-js"
+      },
+      {
+        "type": "event",
         "key": "$exception_types",
         "operator": "exact",
         "value": "TypeError"
+      },
+      {
+        "type": "event",
+        "key": "$exception_sources",
+        "operator": "icontains",
+        "value": "/static/checkout/"
       },
       {
         "type": "event",
@@ -182,7 +243,7 @@ posthog:error-tracking-grouping-rules-create
       }
     ]
   },
-  "description": "Cleanup: collapse noisy TypeError fingerprints from main bundle"
+  "description": "Cleanup: collapse noisy checkout TypeError fingerprints (posthog-js)"
 }
 ```
 
