@@ -115,24 +115,6 @@ vi.mock('@/lib/errors', async () => {
     }
 })
 
-// Mock @/lib/posthog/analytics and @/lib/posthog/flags additions not present on all branches
-vi.mock('@/lib/posthog/analytics', async () => {
-    const actual = await vi.importActual<Record<string, unknown>>('@/lib/posthog/analytics')
-    return {
-        ...actual,
-        buildMCPAnalyticsGroups: actual.buildMCPAnalyticsGroups ?? vi.fn(() => ({})),
-        buildMCPContextProperties: actual.buildMCPContextProperties ?? vi.fn(() => ({})),
-    }
-})
-
-vi.mock('@/lib/posthog/flags', async () => {
-    const actual = await vi.importActual<Record<string, unknown>>('@/lib/posthog/flags')
-    return {
-        ...actual,
-        evaluateFeatureFlags: actual.evaluateFeatureFlags ?? vi.fn(async () => ({})),
-    }
-})
-
 // Mock template imports that may not exist
 vi.mock('@/templates/cli-proxy-command.md', async () => {
     try {
@@ -172,14 +154,5 @@ vi.mock('@/tools/exec', async () => {
             createExecTool: vi.fn(() => ({ name: 'posthog', handler: vi.fn() })),
             createExecInnerToolCallResolver: vi.fn(() => () => undefined),
         }
-    }
-})
-
-// Mock @/lib/posthog/analytics
-vi.mock('@/lib/posthog/analytics', async () => {
-    try {
-        return await vi.importActual('@/lib/posthog/analytics')
-    } catch {
-        return { initMcpAnalytics: vi.fn() }
     }
 })
