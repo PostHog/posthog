@@ -1196,14 +1196,16 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsBarValue` — total-value (not time-series) bar chart. Good for categorical comparisons.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `ActionsPie` — pie chart. Good for visualizing proportions of a single categorical breakdown.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsBarValue",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
+                "ActionsPie",
                 "TwoDimensionalHeatmap"
             ],
             "type": "string"
@@ -1975,6 +1977,10 @@
         "AssistantGenericMultipleBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_type_index": {
+                    "description": "Only meaningful when `type` is `group`; ignored for event/person/session breakdowns. Accepted as `null` here so a tolerant LLM payload that always emits the key still routes to this variant via the `type` discriminator instead of failing schema validation.",
+                    "type": "null"
+                },
                 "property": {
                     "description": "Property name from the plan to break down by.",
                     "type": "string"

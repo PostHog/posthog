@@ -169,8 +169,10 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+    ACTIONS_PIE = "ActionsPie"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
 
 
@@ -387,6 +389,15 @@ class AssistantGenerationStatusType(StrEnum):
 class AssistantGenericMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_type_index: None = Field(
+        default=None,
+        description=(
+            "Only meaningful when `type` is `group`; ignored for event/person/session"
+            " breakdowns. Accepted as `null` here so a tolerant LLM payload that always"
+            " emits the key still routes to this variant via the `type` discriminator"
+            " instead of failing schema validation."
+        ),
     )
     property: str = Field(..., description="Property name from the plan to break down by.")
     type: AssistantEventMultipleBreakdownFilterType

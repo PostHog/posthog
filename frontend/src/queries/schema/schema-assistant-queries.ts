@@ -421,6 +421,12 @@ export type AssistantEventMultipleBreakdownFilterType = Exclude<MultipleBreakdow
 
 export interface AssistantGenericMultipleBreakdownFilter extends AssistantBaseMultipleBreakdownFilter {
     type: AssistantEventMultipleBreakdownFilterType
+    /**
+     * Only meaningful when `type` is `group`; ignored for event/person/session breakdowns.
+     * Accepted as `null` here so a tolerant LLM payload that always emits the key still routes
+     * to this variant via the `type` discriminator instead of failing schema validation.
+     */
+    group_type_index?: null
 }
 
 export type AssistantMultipleBreakdownFilter =
@@ -1469,8 +1475,10 @@ export interface AssistantInsightVizNode {
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsBarValue` — total-value (not time-series) bar chart. Good for categorical comparisons.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
+ * - `ActionsPie` — pie chart. Good for visualizing proportions of a single categorical breakdown.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
  */
 export type AssistantDataVisualizationDisplayType =
@@ -1478,8 +1486,10 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.BoldNumber
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.ActionsPie
     | ChartDisplayType.TwoDimensionalHeatmap
 
 export interface AssistantDataVisualizationAxisDisplaySettings {

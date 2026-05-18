@@ -1,8 +1,16 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
+from posthog.schema import (
+    AssistantDataVisualizationDisplayType,
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+)
+
+from ee.hogai.tools.execute_sql.tool import ExecuteSQLToolArgs
 
 
 class TestSchema(BaseTest):
@@ -87,3 +95,39 @@ class TestSchema(BaseTest):
                     }
                 ],
             )
+
+    @parameterized.expand([("ActionsBarValue",), ("ActionsPie",)])
+    def test_assistant_data_visualization_display_supports_categorical_chart_types(self, value: str):
+        # If this fails, an LLM-emitted display type silently disappears from a Max-generated
+        # dashboard via the parallel task executor's swallow-and-continue path.
+        ExecuteSQLToolArgs.model_validate(
+            {
+                "query": "SELECT event, count() FROM events GROUP BY event",
+                "viz_title": "Event counts",
+                "viz_description": "Count events by type",
+                "display": value,
+            }
+        )
+        assert AssistantDataVisualizationDisplayType(value)
+
+    def test_assistant_multiple_breakdown_filter_routes_with_null_group_type_index(self):
+        # The union has no discriminator hint, so pydantic falls back to best-match. A tolerant
+        # LLM payload that always emits `group_type_index` (often null) must still route to the
+        # generic variant via the `type` field instead of failing with `extra_forbidden`.
+        query = AssistantTrendsQuery.model_validate(
+            {
+                "series": [{"event": "$pageview"}],
+                "breakdownFilter": {
+                    "breakdowns": [
+                        {
+                            "type": "person",
+                            "property": "latest_utm_source",
+                            "group_type_index": None,
+                        }
+                    ]
+                },
+            }
+        )
+        breakdown = query.breakdownFilter.breakdowns[0]
+        assert breakdown.type == "person"
+        assert breakdown.property == "latest_utm_source"
