@@ -12,7 +12,7 @@ from products.replay_vision.backend.temporal.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
-from products.replay_vision.backend.temporal.types import FetchSessionEventsInputs, LensLlmInputs
+from products.replay_vision.backend.temporal.types import EventTable, FetchSessionEventsInputs, LensLlmInputs
 
 # Mirrors session_summary's pagination shape; without it HogQL applies the LimitContext.QUERY default of 100.
 _EVENTS_PER_PAGE = 3000
@@ -73,6 +73,5 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
         session_start_time=metadata["start_time"],
         session_end_time=metadata["end_time"],
         duration_seconds=float(metadata["duration"]),
-        columns=columns,
-        events=all_rows,
+        events=EventTable(columns=columns, rows=all_rows),
     )

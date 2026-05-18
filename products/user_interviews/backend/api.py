@@ -5,8 +5,9 @@ from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files import File
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -519,6 +520,20 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
             **validated_data,
         )
 
+    def update(self, instance: UserInterviewTopic, validated_data: dict) -> UserInterviewTopic:
+        old_emails = set(instance.interviewee_emails or [])
+        old_distinct_ids = set(instance.interviewee_distinct_ids or [])
+        # Atomic so the topic save and the share-revoke commit together. Without this,
+        # a crash between the two writes would leave an interviewee removed from targeting
+        # but still able to open their existing public interview link.
+        with transaction.atomic():
+            topic = super().update(instance, validated_data)
+            new_emails = set(topic.interviewee_emails or [])
+            new_distinct_ids = set(topic.interviewee_distinct_ids or [])
+            removed = (old_emails - new_emails) | (old_distinct_ids - new_distinct_ids)
+            _disable_shares_for_identifiers(topic=topic, identifiers=sorted(removed))
+        return topic
+
 
 def _parse_identifier(identifier: str) -> tuple[str, str | None]:
     """Split an interviewee identifier into a display name and (optional) email.
@@ -637,6 +652,55 @@ class InterviewInviteResultSerializer(serializers.Serializer):
     )
 
 
+# Mirrors the column max_length on UserInterviewTopic.interviewee_emails — anything longer
+# would pass request validation and then fail at INSERT time with a 500. Keep in sync.
+EMAIL_IDENTIFIER_MAX_LENGTH = 254
+DISTINCT_ID_IDENTIFIER_MAX_LENGTH = 400
+
+
+def _identifier_is_email(identifier: str) -> bool:
+    try:
+        EmailWithDisplayNameValidator()(identifier)
+    except DjangoValidationError:
+        return False
+    return True
+
+
+class IntervieweeIdentifierRequestSerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=DISTINCT_ID_IDENTIFIER_MAX_LENGTH,
+        help_text=(
+            "Email address or PostHog distinct ID for the interviewee. Email-shaped values "
+            "(including the `Display Name <email@host>` form) are routed to `interviewee_emails`; "
+            "everything else lands in `interviewee_distinct_ids`."
+        ),
+    )
+
+    def validate_identifier(self, value: str) -> str:
+        if _identifier_is_email(value) and len(value) > EMAIL_IDENTIFIER_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"Email identifiers must be {EMAIL_IDENTIFIER_MAX_LENGTH} characters or fewer."
+            )
+        return value
+
+
+def _disable_shares_for_identifiers(*, topic: UserInterviewTopic, identifiers: list[str]) -> None:
+    """Disable any active SharingConfiguration tied to the given identifiers on a topic.
+
+    Used by remove_interviewee, and by topic partial_update when identifiers are dropped
+    from the targeting arrays — so a person removed via either path can no longer open
+    their existing public interview link.
+    """
+    if not identifiers:
+        return
+    SharingConfiguration.objects.filter(
+        team_id=topic.team_id,
+        interviewee_context__topic=topic,
+        interviewee_context__interviewee_identifier__in=identifiers,
+        enabled=True,
+    ).update(enabled=False)
+
+
 class SendInvitesRequestSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
@@ -671,6 +735,8 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "destroy",
         "generate_links",
         "send_invites",
+        "add_interviewee",
+        "remove_interviewee",
     ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
@@ -792,6 +858,79 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append({**base, "sent": False, "reason": f"error:{type(e).__name__}"})
 
         return response.Response(InterviewInviteResultSerializer(results, many=True).data)
+
+    @extend_schema(
+        request=IntervieweeIdentifierRequestSerializer,
+        responses={200: OpenApiResponse(response=UserInterviewTopicSerializer)},
+        description=(
+            "Add a single interviewee to this topic. Email-shaped identifiers (including the "
+            "`Display Name <email@host>` form) are appended to `interviewee_emails`; everything "
+            "else is appended to `interviewee_distinct_ids`. Idempotent — adding an identifier "
+            "that's already present leaves the topic unchanged. Returns the updated topic."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="add_interviewee")
+    def add_interviewee(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        params = IntervieweeIdentifierRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        identifier = params.validated_data["identifier"]
+
+        self.get_object()
+        with transaction.atomic():
+            topic = self.get_queryset().select_for_update(of=("self",)).get(pk=kwargs[self.lookup_field])
+            emails = list(topic.interviewee_emails or [])
+            distinct_ids = list(topic.interviewee_distinct_ids or [])
+            changed = False
+            if _identifier_is_email(identifier):
+                if identifier not in emails:
+                    emails.append(identifier)
+                    changed = True
+            elif identifier not in distinct_ids:
+                distinct_ids.append(identifier)
+                changed = True
+
+            if changed:
+                topic.interviewee_emails = emails
+                topic.interviewee_distinct_ids = distinct_ids
+                topic.save(update_fields=["interviewee_emails", "interviewee_distinct_ids"])
+
+        serializer = UserInterviewTopicSerializer(topic, context=self.get_serializer_context())
+        return response.Response(serializer.data)
+
+    @extend_schema(
+        request=IntervieweeIdentifierRequestSerializer,
+        responses={200: OpenApiResponse(response=UserInterviewTopicSerializer)},
+        description=(
+            "Remove an interviewee from this topic. Drops the identifier from both "
+            "`interviewee_emails` and `interviewee_distinct_ids`, and disables any active "
+            "SharingConfiguration linked to an IntervieweeContext for that identifier on this "
+            "topic so the removed person can no longer open their interview link. Idempotent — "
+            "removing an identifier that isn't present is a no-op. Returns the updated topic."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="remove_interviewee")
+    def remove_interviewee(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        params = IntervieweeIdentifierRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        identifier = params.validated_data["identifier"]
+
+        self.get_object()
+        with transaction.atomic():
+            topic = self.get_queryset().select_for_update(of=("self",)).get(pk=kwargs[self.lookup_field])
+            new_emails = [e for e in (topic.interviewee_emails or []) if e != identifier]
+            new_distinct_ids = [d for d in (topic.interviewee_distinct_ids or []) if d != identifier]
+
+            if new_emails != list(topic.interviewee_emails or []) or new_distinct_ids != list(
+                topic.interviewee_distinct_ids or []
+            ):
+                topic.interviewee_emails = new_emails
+                topic.interviewee_distinct_ids = new_distinct_ids
+                topic.save(update_fields=["interviewee_emails", "interviewee_distinct_ids"])
+
+            _disable_shares_for_identifiers(topic=topic, identifiers=[identifier])
+
+        serializer = UserInterviewTopicSerializer(topic, context=self.get_serializer_context())
+        return response.Response(serializer.data)
 
 
 class IntervieweeContextSerializer(serializers.ModelSerializer):

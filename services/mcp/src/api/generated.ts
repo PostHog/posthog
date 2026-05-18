@@ -18326,6 +18326,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: TraceSpansTreeQueryResponse | null;
+      /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+      serviceName: string;
       serviceNames?: string[] | null;
       /** Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run. */
       spanName: string;
@@ -19156,6 +19158,14 @@ export namespace Schemas {
          * @maxLength 10000
          */
       agent_context: string;
+    }
+
+    export interface IntervieweeIdentifierRequest {
+      /**
+         * Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.
+         * @maxLength 400
+         */
+      identifier: string;
     }
 
     /**
@@ -36382,6 +36392,8 @@ export namespace Schemas {
     export interface _TracingTreeQueryBody {
       /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
       spanName: string;
+      /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+      serviceName: string;
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
       /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
