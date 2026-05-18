@@ -15,6 +15,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -27,6 +28,7 @@ import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate } from './_tests/fixtures'
@@ -776,6 +778,101 @@ describe('Workflows E2E (postgres-v2)', () => {
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+    })
+
+    describe('person data survives v2 round-trip', () => {
+        beforeEach(async () => {
+            // Create a person with properties that the workflow will use
+            const personRepository = new PostgresPersonRepository(hub.postgres)
+            await personRepository.createPerson(
+                DateTime.utc(),
+                { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                { distinctId: 'test-distinct-id' }
+            )
+
+            // Template that includes person properties in the fetch body
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-person',
+                name: 'Workflows E2E Person',
+                code: `
+                fetch(inputs.url, {
+                    'method': 'POST',
+                    'body': inputs.body
+                });
+                `,
+                inputs_schema: [
+                    { key: 'url', type: 'string', required: true },
+                    { key: 'body', type: 'string', required: true },
+                ],
+            })
+
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            function_1: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-workflows-e2e-person',
+                                    inputs: {
+                                        url: { value: 'https://example.com/person-test' },
+                                        body: {
+                                            value: '{person.properties.email}',
+                                            // Bytecode: return person?.properties?.email
+                                            bytecode: ['_H', 1, 32, 'email', 32, 'properties', 32, 'person', 1, 3, 38],
+                                        },
+                                    },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'function_1', type: 'continue' },
+                            { from: 'function_1', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            globals = createGlobals({
+                distinct_id: 'test-distinct-id',
+            })
+        })
+
+        it('should load person and pass properties to function action', async () => {
+            const { backgroundTask } = await eventsConsumer.processBatch([globals])
+            await backgroundTask
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            // The fetch body should contain the person's email, proving person data
+            // was loaded by the worker after deserializing the v2 job
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/person-test',
+                expect.objectContaining({
+                    body: 'test@example.com',
+                    method: 'POST',
+                })
+            )
         })
     })
 })
