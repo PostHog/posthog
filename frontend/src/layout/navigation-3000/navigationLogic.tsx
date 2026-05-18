@@ -597,7 +597,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
                             ? {
                                   identifier: Scene.UserInterviews,
-                                  label: 'User interviews',
+                                  label: 'User research',
                                   icon: <IconChat />,
                                   tag: 'alpha' as const,
                                   to: urls.userInterviews(),

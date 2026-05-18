@@ -6,8 +6,8 @@ from django.test import TestCase
 
 from posthog.models.health_issue import HealthIssue
 
-from products.growth.backend.constants import SDK_TYPES
-from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
+from products.growth.backend.constants import SDK_TYPES, TEAM_SDK_CACHE_EXPIRY
+from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck, _cache_team_sdk_data
 
 
 def _make_github_data(latest_version: str, release_dates: dict | None = None) -> dict:
@@ -176,3 +176,16 @@ class TestSdkOutdatedCheck(TestCase):
         results = self.check.detect([1])
 
         assert results == {}
+
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
+    def test_cache_team_sdk_data_uses_team_sdk_cache_expiry(self, mock_get_client: MagicMock):
+        mock_redis = MagicMock()
+        mock_pipe = MagicMock()
+        mock_redis.pipeline.return_value = mock_pipe
+        mock_get_client.return_value = mock_redis
+
+        _cache_team_sdk_data({1: {"web": [{"lib_version": "1.0.0", "max_timestamp": "x", "count": 1}]}})
+
+        mock_pipe.setex.assert_called_once()
+        _key, ttl, _payload = mock_pipe.setex.call_args[0]
+        assert ttl == TEAM_SDK_CACHE_EXPIRY

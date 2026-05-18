@@ -36,6 +36,19 @@ def register_all_admin():
         admin.site.unregister(OAuthApplication)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
+    # `oauth2_provider.admin` also registers default `ModelAdmin`s for its
+    # token models. Those admins expose raw token values (`token` /
+    # `refresh_token` / `code`) in detail views — staff users with the
+    # appropriate admin perms could read them and impersonate end users or
+    # replay grants. Unregister the lot. If we ever need operational
+    # visibility, re-register with an admin that redacts the secret columns
+    # (same pattern as the `OAuthApplicationAdmin` override above).
+    from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+
+    for model in (OAuthAccessToken, OAuthRefreshToken, OAuthGrant, OAuthIDToken):
+        if admin.site.is_registered(model):
+            admin.site.unregister(model)
+
 
 # :KRUDGE: OAuth models live in the `posthog` app, so by default they appear
 # under "PostHog" in the admin sidebar alongside dozens of unrelated models.

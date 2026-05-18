@@ -6,7 +6,13 @@ import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from './types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type Tool,
+    type ZodObjectAny,
+} from './types'
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -32,6 +38,45 @@ function parseCommand(input: string): { verb: string; rest: string } {
         return { verb: trimmed, rest: '' }
     }
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
+}
+
+// Extracts the inner tool name from an exec `call` command, e.g.
+// "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
+// malformed input. Used by analytics to surface the real tool being invoked
+// in single-exec mode, where the outer call always shows as `exec`.
+export function parseExecCallInnerToolName(command: string): string | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
+    if (!argv) {
+        return
+    }
+    const innerName = parseCommand(argv).verb
+    return innerName || undefined
+}
+
+// Builds the resolver mcp.ts hands to initPostHogMcpAnalytics in single-exec
+// mode: given a request, return the inner tool's { name, description } when
+// the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
+// here (alongside parseExecCallInnerToolName) so tests can import the exact
+// same factory the production code uses — no copy-pasted resolver lambda.
+export function createExecInnerToolCallResolver(
+    allTools: ReadonlyArray<Tool<ZodObjectAny>>
+): (request: unknown) => { name: string; description: string } | undefined {
+    return (request: unknown) => {
+        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
+        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
+            return
+        }
+        const innerName = parseExecCallInnerToolName(params.arguments.command)
+        if (!innerName) {
+            return
+        }
+        const tool = allTools.find((t) => t.name === innerName)
+        return tool ? { name: tool.name, description: tool.description } : undefined
+    }
 }
 
 // Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
@@ -270,7 +315,23 @@ export function createExecTool(
                         success: true,
                         output_format: useJson ? 'json' : 'text',
                     })
-                    return useJson ? JSON.stringify(result) : formatResponse(result)
+                    if (useJson) {
+                        return JSON.stringify(result)
+                    }
+                    // Optimized mode: when the handler attached a backend-formatted table
+                    // via `__formatted_results_override`, return ONLY that string. The raw
+                    // `results`/`_posthogUrl` payload would otherwise duplicate the table
+                    // and crowd it out — buildToolResultPayload makes the same choice for
+                    // the non-exec path, this keeps exec consistent.
+                    if (result !== null && typeof result === 'object') {
+                        const formattedOverride = (result as Record<string, unknown>)[
+                            POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY
+                        ]
+                        if (typeof formattedOverride === 'string') {
+                            return formattedOverride
+                        }
+                    }
+                    return formatResponse(result)
                 }
 
                 default:

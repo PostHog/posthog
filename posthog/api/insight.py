@@ -18,7 +18,7 @@ import structlog
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -49,6 +49,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_metadata import generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query_coalescer import QueryCoalescingMixin
@@ -1191,6 +1192,20 @@ INSIGHT_ID_PATH_PARAMETER = OpenApiParameter(
 )
 
 
+INSIGHT_VIEWED_MAX_IDS = 2500
+
+
+class InsightViewedRequestSerializer(serializers.Serializer):
+    insight_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        max_length=INSIGHT_VIEWED_MAX_IDS,
+        help_text=(
+            f"Insight IDs that were just viewed by the current user. At most {INSIGHT_VIEWED_MAX_IDS} ids per request."
+        ),
+    )
+
+
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 @extend_schema_view(
     list=extend_schema(
@@ -2072,30 +2087,47 @@ When set, the specified dashboard's filters and date range override will be appl
     # Creates or updates InsightViewed objects for the user/insight combo(s)
     # Accepts an array of insight_ids
     # ******************************************
+    @validated_request(
+        request_serializer=InsightViewedRequestSerializer,
+        responses={201: OpenApiResponse(description="Views recorded.")},
+        description=(
+            "Record that the current user has just viewed one or more insights. "
+            "Submitted ids that do not belong to the current project or that point at deleted insights "
+            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+        ),
+    )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
-    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def viewed(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """
-        Update insight view timestamps.
+        Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
-        insight_ids = request.data.get("insight_ids")
+        insight_ids: list[int] = request.validated_data["insight_ids"]
 
-        if not insight_ids or not isinstance(insight_ids, list):
-            raise serializers.ValidationError({"insight_ids": "Must be a non-empty list of insight IDs"})
-
-        insights = Insight.objects.filter(
-            id__in=insight_ids,
-            team__project_id=self.team.project_id,
-            deleted=False,
+        visible_insight_ids = list(
+            Insight.objects.filter(
+                id__in=insight_ids,
+                team__project_id=self.team.project_id,
+                deleted=False,
+            ).values_list("id", flat=True)
         )
 
-        viewed_at = now()
-        for insight in insights:
-            InsightViewed.objects.update_or_create(
-                team=self.team,
-                user=request.user,
-                insight=insight,
-                defaults={"last_viewed_at": viewed_at},
+        if visible_insight_ids:
+            viewed_at = now()
+            user = cast(User, request.user)
+            InsightViewed.objects.bulk_create(
+                [
+                    InsightViewed(
+                        team=self.team,
+                        user=user,
+                        insight_id=insight_id,
+                        last_viewed_at=viewed_at,
+                    )
+                    for insight_id in visible_insight_ids
+                ],
+                update_conflicts=True,
+                unique_fields=["team", "user", "insight"],
+                update_fields=["last_viewed_at"],
             )
 
         return Response(status=status.HTTP_201_CREATED)
