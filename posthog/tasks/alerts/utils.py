@@ -92,9 +92,10 @@ def validate_alert_config(
 
 
 def _unwrap_inner_query(query: dict) -> tuple[dict, str | None]:
-    """Strip DataTable/DataVisualization/InsightVizNode wrappers and return the inner query plus its kind."""
+    """Strip DataTable/DataVisualization/InsightVizNode wrappers and return the inner query plus its kind.
+    Iterates so multi-level wrappers stay consistent with `Insight._unwrapped_query_kind`."""
     kind = get_from_dict_or_attr(query, "kind")
-    if kind in WRAPPER_NODE_KINDS:
+    while kind in WRAPPER_NODE_KINDS:
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
     return query, kind
