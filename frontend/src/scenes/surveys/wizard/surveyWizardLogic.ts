@@ -278,11 +278,11 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 monthly: 30,
             }
             const { value: frequencyValue } = values.recommendedFrequency
-            actions.setSurveyValue('schedule', frequencyValue === 'once' ? SurveySchedule.Once : SurveySchedule.Always)
-            actions.setSurveyValue('conditions', {
-                ...template.conditions,
-                seenSurveyWaitPeriodInDays: frequencyToDays[frequencyValue],
-            })
+            const isOnce = frequencyValue === 'once'
+            actions.setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Recurring)
+            actions.setSurveyValue('iteration_count', isOnce ? 0 : 10)
+            actions.setSurveyValue('iteration_frequency_days', isOnce ? 0 : frequencyToDays[frequencyValue])
+            actions.setSurveyValue('conditions', template.conditions ?? null)
 
             actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
         },
@@ -387,8 +387,10 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
     })),
 
     afterMount(({ actions, props, values }) => {
-        const shouldPreserveLocalChanges =
-            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+        // Preserve any in-memory edits when re-mounting on the same survey id (e.g.
+        // navigating between the full editor and the wizard). surveyChanged is
+        // in-memory only, so a fresh session can never trigger this branch.
+        const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === props.id
 
         if (props.id === 'new') {
             if (shouldPreserveLocalChanges) {
@@ -411,8 +413,18 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     beforeUnmount(({ actions, props }) => {
         actions.resetWizard()
-        if (props.id === 'new' && !router.values.hashParams.preserveLocalChanges) {
-            actions.resetSurvey()
+        // For an in-progress "new" survey, preserve the in-memory draft only if the
+        // user is navigating to the other survey-editor view for the same id (full
+        // editor for new). Anywhere else (list, dashboards, etc.) means the user
+        // abandoned the draft, so we clear it. Using `endsWith` so this still works
+        // when the app is mounted under a project-scoped path (`/project/<id>/...`).
+        if (props.id === 'new') {
+            const destination = router.values.location.pathname
+            const stayingInNewSurveyEditor =
+                destination.endsWith(urls.survey('new')) || destination.endsWith(urls.surveyWizard('new'))
+            if (!stayingInNewSurveyEditor) {
+                actions.resetSurvey()
+            }
         }
     }),
 ])
