@@ -1629,10 +1629,15 @@ class ExperimentService:
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
         update_data.pop("get_feature_flag_key", None)
 
-        # --- saved metrics replacement (delete-all / re-create) -----------
+        # --- saved metrics sync (update-in-place) -----------
         old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
         if update_saved_metrics:
-            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+            existing_links = {
+                link.saved_metric_id: link
+                for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+            }
+
+            for link in existing_links.values():
                 if link.saved_metric.query:
                     uuid = link.saved_metric.query.get("uuid")
                     if uuid:
@@ -1642,18 +1647,35 @@ class ExperimentService:
                         else:
                             old_saved_metric_uuids["secondary"].add(uuid)
 
-            experiment.experimenttosavedmetric_set.all().delete()
+            new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
+            existing_saved_metric_ids = set(existing_links.keys())
+
+            # Delete links no longer in the list
+            to_delete = existing_saved_metric_ids - new_saved_metric_ids
+            if to_delete:
+                experiment.experimenttosavedmetric_set.filter(saved_metric_id__in=to_delete).delete()
+
+            # Update or create links
             for saved_metric_data in saved_metrics_data:
-                saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                    data={
-                        "experiment": experiment.id,
-                        "saved_metric": saved_metric_data["id"],
-                        "metadata": saved_metric_data.get("metadata"),
-                    },
-                    context=context,
-                )
-                saved_metric_serializer.is_valid(raise_exception=True)
-                saved_metric_serializer.save()
+                saved_metric_id = saved_metric_data["id"]
+                new_metadata = saved_metric_data.get("metadata")
+
+                if saved_metric_id in existing_links:
+                    existing_link = existing_links[saved_metric_id]
+                    if existing_link.metadata != new_metadata:
+                        existing_link.metadata = new_metadata
+                        existing_link.save()
+                else:
+                    saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                        data={
+                            "experiment": experiment.id,
+                            "saved_metric": saved_metric_id,
+                            "metadata": new_metadata,
+                        },
+                        context=context,
+                    )
+                    saved_metric_serializer.is_valid(raise_exception=True)
+                    saved_metric_serializer.save()
 
         # --- feature flag sync ------------------------------------------------
         # Draft experiments always sync parameters to the linked feature flag.
