@@ -87,7 +87,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         // the producer ramps; subsumes the legacy logs/invocations tab once GA.
         runsV2Enabled
             ? {
-                  label: 'Runs (preview)',
+                  label: 'Invocations (preview)',
                   key: 'runs-v2',
                   content: <WorkflowRunsV2 id={workflowSceneProps.id!} />,
               }

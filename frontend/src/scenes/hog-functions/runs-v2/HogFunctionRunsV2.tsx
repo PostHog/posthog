@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
-import { IconRefresh, IconSearch } from '@posthog/icons'
+import { IconRefresh, IconRevert, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
     LemonInput,
+    LemonInputSelect,
+    LemonModal,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
@@ -17,11 +19,15 @@ import {
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { Link } from 'lib/lemon-ui/Link'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
 
 import { renderHogFunctionMessage } from '../logs/HogFunctionLogs'
 import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
 import {
+    BulkReplayParams,
     HogFunctionRunRow,
     HogFunctionRunsV2LogicProps,
     RUNS_V2_REPLAY_MAX_COUNT,
@@ -75,10 +81,28 @@ const shortId = (id: string): string =>
  */
 export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicProps): JSX.Element | null {
     const logic = hogFunctionRunsV2Logic({ id, functionKind })
-    const { runs, runsLoading, filters, selectedIds, selectedCount, expandedIds, replayableSelectedIds } =
-        useValues(logic)
-    const { loadRuns, setFilters, resetFilters, toggleSelected, clearSelected, setExpanded, replayInvocations } =
-        useActions(logic)
+    const {
+        runs,
+        runsLoading,
+        filters,
+        selectedIds,
+        selectedCount,
+        expandedIds,
+        replayableSelectedIds,
+        hasMore,
+        hasLoadedOnce,
+    } = useValues(logic)
+    const {
+        loadRuns,
+        loadMore,
+        setFilters,
+        toggleSelected,
+        clearSelected,
+        setExpanded,
+        replayInvocations,
+        bulkReplay,
+    } = useActions(logic)
+    const [rerunModalOpen, setRerunModalOpen] = useState(false)
 
     useEffect(() => {
         loadRuns(null)
@@ -142,11 +166,35 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
             dataIndex: 'event_uuid',
             render: (_, row) =>
                 row.event_uuid ? (
-                    <code className="text-xs">
-                        <CopyToClipboardInline explicitValue={row.event_uuid} selectable>
-                            {shortId(row.event_uuid)}
-                        </CopyToClipboardInline>
-                    </code>
+                    <Link
+                        to={urls.event(row.event_uuid, row.scheduled_at)}
+                        className="font-mono text-xs"
+                        title={row.event_uuid}
+                    >
+                        {shortId(row.event_uuid)}
+                    </Link>
+                ) : (
+                    <span className="text-muted-alt">—</span>
+                ),
+        },
+        {
+            title: 'Person',
+            key: 'person',
+            render: (_, row) =>
+                row.person_id || row.distinct_id ? (
+                    // Build the minimum-viable PersonPropType from what we
+                    // store on the lifecycle row. `id` is optional in the
+                    // type but, when set, lets PersonDisplay link to the
+                    // person page even without properties hydrated.
+                    <PersonDisplay
+                        person={{
+                            id: row.person_id,
+                            distinct_ids: row.distinct_id ? [row.distinct_id] : [],
+                        }}
+                        displayName={row.distinct_id || row.person_id || undefined}
+                        withIcon="sm"
+                        noPopover
+                    />
                 ) : (
                     <span className="text-muted-alt">—</span>
                 ),
@@ -275,11 +323,28 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
                     >
                         Refresh
                     </LemonButton>
-                    <LemonButton size="small" type="tertiary" onClick={() => resetFilters()}>
-                        Reset
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        icon={<IconRevert />}
+                        onClick={() => setRerunModalOpen(true)}
+                    >
+                        Re-run…
                     </LemonButton>
                 </div>
             </div>
+
+            <RerunModal
+                isOpen={rerunModalOpen}
+                onClose={() => setRerunModalOpen(false)}
+                initialDateFrom={filters.date_from}
+                initialDateTo={filters.date_to}
+                initialStatus={filters.status}
+                onSubmit={(params) => {
+                    bulkReplay(params)
+                    setRerunModalOpen(false)
+                }}
+            />
 
             {selectedCount > 0 ? (
                 <div className="flex items-center justify-between border rounded p-2 bg-bg-light">
@@ -327,7 +392,10 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
             <LemonTable
                 dataSource={runs}
                 columns={columns}
-                loading={runsLoading}
+                // Only show the full-table loading spinner on the very first
+                // load; refreshes keep the existing rows visible (the Refresh
+                // button itself spins) so the list doesn't "flash away".
+                loading={runsLoading && !hasLoadedOnce}
                 rowKey={(row) => row.invocation_id}
                 className="ph-no-capture overflow-y-auto"
                 expandable={{
@@ -341,10 +409,18 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
                 }}
                 emptyState={
                     <div className="py-8 text-center text-muted-alt">
-                        {runsLoading ? 'Loading runs…' : 'No invocations match these filters.'}
+                        {runsLoading ? 'Loading invocations…' : 'No invocations match these filters.'}
                     </div>
                 }
             />
+
+            {runs.length > 0 && hasMore ? (
+                <div className="flex justify-center py-2">
+                    <LemonButton size="small" type="secondary" loading={runsLoading} onClick={() => loadMore(null)}>
+                        Load more
+                    </LemonButton>
+                </div>
+            ) : null}
         </div>
     )
 }
@@ -418,5 +494,137 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
             <div className="text-muted-alt">{label}</div>
             <div className={mono ? 'font-mono text-xs break-all' : undefined}>{value}</div>
         </>
+    )
+}
+
+/**
+ * Modal for the "Re-run…" action. Lets the user kick off a bulk replay by
+ * specifying a window + filter (status, error kind, caps) rather than picking
+ * rows individually. The body shape matches `BulkReplayParams` and is forwarded
+ * to the `bulkReplay` action which resolves the date strings before posting.
+ */
+function RerunModal({
+    isOpen,
+    onClose,
+    initialDateFrom,
+    initialDateTo,
+    initialStatus,
+    onSubmit,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    initialDateFrom: string
+    initialDateTo: string | undefined
+    initialStatus: RunStatus[] | undefined
+    onSubmit: (params: BulkReplayParams) => void
+}): JSX.Element {
+    // Default to "failed" — the most common re-run motion.
+    const [status, setStatus] = useState<RunStatus[]>(initialStatus?.length ? initialStatus : ['failed'])
+    const [errorKinds, setErrorKinds] = useState<string[]>([])
+    const [maxCount, setMaxCount] = useState<number | undefined>(undefined)
+    const [maxAttempts, setMaxAttempts] = useState<number | undefined>(undefined)
+    const [dateFrom, setDateFrom] = useState<string>(initialDateFrom)
+    const [dateTo, setDateTo] = useState<string | undefined>(initialDateTo)
+
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Re-run invocations"
+            description="Queue a re-run for every invocation that matches this filter within the window. Inputs (secrets, integration tokens) are re-resolved per row at execution time."
+            width={520}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabledReason={status.length === 0 ? 'Pick at least one status' : undefined}
+                        onClick={() =>
+                            onSubmit({
+                                date_from: dateFrom,
+                                date_to: dateTo,
+                                status,
+                                error_kind: errorKinds.length ? errorKinds : undefined,
+                                max_count: maxCount,
+                                max_attempts: maxAttempts,
+                            })
+                        }
+                    >
+                        Queue re-run
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="deprecated-space-y-3">
+                <Row label="Window">
+                    <DateFilter
+                        dateFrom={dateFrom}
+                        dateTo={dateTo ?? undefined}
+                        onChange={(from, to) => {
+                            setDateFrom(from || '-24h')
+                            setDateTo(to || undefined)
+                        }}
+                        allowedRollingDateOptions={['days', 'weeks', 'months']}
+                    />
+                </Row>
+                <Row label="Status">
+                    <LemonInputSelect
+                        mode="multiple"
+                        value={status}
+                        options={STATUS_OPTIONS.map((o) => ({ key: o.value, label: o.label }))}
+                        onChange={(values) => setStatus(values as RunStatus[])}
+                        placeholder="Pick statuses to re-run"
+                    />
+                </Row>
+                <Row
+                    label="Error kinds"
+                    help="Free-text — only matters when filtering by failed. Match values from the Error column (e.g. http_5xx)."
+                >
+                    <LemonInputSelect
+                        mode="multiple"
+                        value={errorKinds}
+                        options={[]}
+                        allowCustomValues
+                        onChange={(values) => setErrorKinds(values)}
+                        placeholder="Leave empty for all"
+                    />
+                </Row>
+                <Row label="Max invocations to re-run" help={`Server caps at ${RUNS_V2_REPLAY_MAX_COUNT}.`}>
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        max={RUNS_V2_REPLAY_MAX_COUNT}
+                        value={maxCount}
+                        onChange={(v) => setMaxCount(typeof v === 'number' ? v : undefined)}
+                        placeholder="Unlimited (up to server cap)"
+                    />
+                </Row>
+                <Row
+                    label="Skip rows with attempts ≥"
+                    help="Useful to avoid re-running rows that have already retried a lot."
+                >
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        max={255}
+                        value={maxAttempts}
+                        onChange={(v) => setMaxAttempts(typeof v === 'number' ? v : undefined)}
+                        placeholder="No cap"
+                    />
+                </Row>
+            </div>
+        </LemonModal>
+    )
+}
+
+function Row({ label, help, children }: { label: string; help?: string; children: ReactNode }): JSX.Element {
+    return (
+        <div>
+            <div className="text-xs text-muted-alt mb-1">{label}</div>
+            {children}
+            {help ? <div className="text-xs text-muted-alt mt-1">{help}</div> : null}
+        </div>
     )
 }

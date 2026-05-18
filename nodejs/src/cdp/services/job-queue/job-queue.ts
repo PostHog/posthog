@@ -144,8 +144,15 @@ export class CyclotronJobQueue {
             await this.jobQueuePostgres.startAsProducer()
         }
 
-        if (targets.has('postgres-v2')) {
-            await this.jobQueuePostgresV2?.startAsProducer()
+        // Always start v2 when it's been constructed (which only happens when
+        // CYCLOTRON_NODE_DATABASE_URL is set). The routing mapping isn't the
+        // only path that reaches v2 — `queueInvocations({ overwriteExisting:
+        // true })` routes through v2 unconditionally for the replay flow, so a
+        // service whose routing mapping doesn't reference v2 (the replay
+        // worker, for instance) would still hit a 'CyclotronV2Manager not
+        // initialized' throw at first replay if we gated on the mapping alone.
+        if (this.jobQueuePostgresV2) {
+            await this.jobQueuePostgresV2.startAsProducer()
         }
 
         if (targets.has('kafka')) {

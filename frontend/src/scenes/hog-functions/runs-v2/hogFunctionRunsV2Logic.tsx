@@ -64,6 +64,21 @@ export interface HogFunctionRunsV2LogicProps {
     functionKind: RunsV2FunctionKind
 }
 
+/**
+ * Params for the "Re-run" modal — a bulk replay matched by filter rather than
+ * by explicit invocation IDs. `date_from` / `date_to` are date-picker strings
+ * (relative or ISO); they get resolved through `dateStringToDayJs` before
+ * the request hits the API.
+ */
+export interface BulkReplayParams {
+    date_from: string
+    date_to?: string
+    status?: RunStatus[]
+    error_kind?: string[]
+    max_count?: number
+    max_attempts?: number
+}
+
 const DEFAULT_FILTERS: HogFunctionRunsV2Filters = {
     date_from: '-24h',
     date_to: undefined,
@@ -71,6 +86,139 @@ const DEFAULT_FILTERS: HogFunctionRunsV2Filters = {
     error_kind: undefined,
     is_retry: undefined,
     search: undefined,
+}
+
+/**
+ * Pulls one page of collapsed lifecycle rows from `hog_invocation_results`.
+ * Shared by initial load and "Load more" — only the OFFSET differs.
+ */
+async function fetchRunsPage(
+    props: HogFunctionRunsV2LogicProps,
+    filters: HogFunctionRunsV2Filters,
+    offset: number
+): Promise<HogFunctionRunRow[]> {
+    // HAVING clauses reference the SELECT aliases below — wrapping the column
+    // again as `argMax(status, version)` makes HogQL substitute `status` for
+    // its alias (also `argMax(status, version)`) and produce a nested aggregate.
+    const optionalStatusClause = filters.status?.length
+        ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(', ')})`)
+        : hogql.raw('')
+    const optionalErrorKindClause = filters.error_kind?.length
+        ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(', ')})`)
+        : hogql.raw('')
+    // is_retry is stored as 0/1 — convert the UI tristate.
+    const optionalRetryClause =
+        filters.is_retry === 'only_retries'
+            ? hogql.raw('AND is_retry = 1')
+            : filters.is_retry === 'only_originals'
+              ? hogql.raw('AND is_retry = 0')
+              : hogql.raw('')
+    // Free-text search hits invocation_id / event_uuid / distinct_id /
+    // person_id. Bloom-filter indexes on event_uuid + function_id keep this
+    // fast for the cardinality we'll see in practice.
+    const trimmedSearch = filters.search?.trim()
+    const optionalSearchClause = trimmedSearch
+        ? hogql.raw(
+              `AND (
+                  invocation_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  OR event_uuid = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  OR distinct_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  OR person_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+              )`
+          )
+        : hogql.raw('')
+
+    const query = hogql`
+        SELECT
+            invocation_id,
+            argMax(status, version)         AS status,
+            argMax(attempts, version)       AS attempts,
+            argMax(is_retry, version)       AS is_retry,
+            argMax(error_kind, version)     AS error_kind,
+            argMax(error_message, version)  AS error_message,
+            max(scheduled_at)               AS scheduled_at,
+            argMax(started_at, version)     AS started_at,
+            argMax(finished_at, version)    AS finished_at,
+            argMax(duration_ms, version)    AS duration_ms,
+            argMax(event_uuid, version)     AS event_uuid,
+            argMax(distinct_id, version)    AS distinct_id,
+            argMax(person_id, version)      AS person_id,
+            argMax(parent_run_id, version)  AS parent_run_id
+        FROM posthog.hog_invocation_results
+        WHERE function_kind = ${props.functionKind}
+          AND function_id = ${props.id}
+        GROUP BY invocation_id
+        HAVING argMax(is_deleted, version) = 0
+           ${optionalStatusClause}
+           ${optionalErrorKindClause}
+           ${optionalRetryClause}
+           ${optionalSearchClause}
+        ORDER BY scheduled_at DESC, invocation_id DESC
+        LIMIT ${RUNS_V2_PAGE_SIZE}
+        OFFSET ${offset}
+    `
+
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogFunctionRunsV2', productKey: 'pipeline_destinations' },
+        {
+            refresh: 'force_blocking',
+            filtersOverride: {
+                date_from: filters.date_from,
+                date_to: filters.date_to,
+            },
+        }
+    )
+
+    return (response.results ?? []).map((row): HogFunctionRunRow => {
+        const [
+            invocation_id,
+            status,
+            attempts,
+            is_retry,
+            error_kind,
+            error_message,
+            scheduled_at,
+            started_at,
+            finished_at,
+            duration_ms,
+            event_uuid,
+            distinct_id,
+            person_id,
+            parent_run_id,
+        ] = row as unknown as [
+            string,
+            RunStatus,
+            number,
+            number,
+            string,
+            string,
+            string,
+            string | null,
+            string | null,
+            number | null,
+            string,
+            string,
+            string,
+            string,
+        ]
+        return {
+            invocation_id,
+            status,
+            attempts,
+            is_retry: Boolean(is_retry),
+            error_kind,
+            error_message,
+            scheduled_at,
+            started_at,
+            finished_at,
+            duration_ms,
+            event_uuid,
+            distinct_id,
+            person_id,
+            parent_run_id,
+        }
+    })
 }
 
 /**
@@ -96,6 +244,8 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
         clearSelected: true,
         setExpanded: (invocationId: string, expanded: boolean) => ({ invocationId, expanded }),
         replayInvocations: (invocationIds: string[]) => ({ invocationIds }),
+        bulkReplay: (params: BulkReplayParams) => ({ params }),
+        setHasMore: (hasMore: boolean) => ({ hasMore }),
     }),
 
     reducers({
@@ -135,141 +285,53 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                 },
             },
         ],
+        hasMore: [
+            false,
+            {
+                setHasMore: (_, { hasMore }) => hasMore,
+                // Reset whenever filters or function id change — the old
+                // hasMore is meaningless against the new query.
+                setFilters: () => false,
+                resetFilters: () => false,
+            },
+        ],
+        /**
+         * True only until the first successful load completes. Used by the
+         * UI to decide whether to dim the whole table vs. just spin the
+         * Refresh button — refreshes shouldn't make the list "flash away".
+         */
+        hasLoadedOnce: [
+            false,
+            {
+                setHasMore: () => true,
+            },
+        ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         runs: [
             [] as HogFunctionRunRow[],
             {
                 loadRuns: async (_, breakpoint) => {
                     await breakpoint(100)
-
-                    const { filters } = values
-                    // HAVING clauses reference the SELECT aliases — wrapping the column
-                    // again as `argMax(status, version)` makes HogQL substitute `status` for
-                    // its alias (also `argMax(status, version)`) and produce a nested aggregate.
-                    const optionalStatusClause = filters.status?.length
-                        ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(', ')})`)
-                        : hogql.raw('')
-                    const optionalErrorKindClause = filters.error_kind?.length
-                        ? hogql.raw(
-                              `AND error_kind IN (${filters.error_kind
-                                  .map((s) => `'${s.replace(/'/g, "\\'")}'`)
-                                  .join(', ')})`
-                          )
-                        : hogql.raw('')
-                    // is_retry is stored as 0/1 — convert the UI tristate.
-                    const optionalRetryClause =
-                        filters.is_retry === 'only_retries'
-                            ? hogql.raw('AND is_retry = 1')
-                            : filters.is_retry === 'only_originals'
-                              ? hogql.raw('AND is_retry = 0')
-                              : hogql.raw('')
-                    // Free-text search hits invocation_id / event_uuid / distinct_id /
-                    // person_id. Bloom-filter indexes on event_uuid + function_id
-                    // keep this fast for the cardinality we'll see in practice.
-                    const trimmedSearch = filters.search?.trim()
-                    const optionalSearchClause = trimmedSearch
-                        ? hogql.raw(
-                              `AND (
-                                  invocation_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                                  OR event_uuid = '${trimmedSearch.replace(/'/g, "\\'")}'
-                                  OR distinct_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                                  OR person_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                              )`
-                          )
-                        : hogql.raw('')
-
-                    const query = hogql`
-                        SELECT
-                            invocation_id,
-                            argMax(status, version)         AS status,
-                            argMax(attempts, version)       AS attempts,
-                            argMax(is_retry, version)       AS is_retry,
-                            argMax(error_kind, version)     AS error_kind,
-                            argMax(error_message, version)  AS error_message,
-                            max(scheduled_at)               AS scheduled_at,
-                            argMax(started_at, version)     AS started_at,
-                            argMax(finished_at, version)    AS finished_at,
-                            argMax(duration_ms, version)    AS duration_ms,
-                            argMax(event_uuid, version)     AS event_uuid,
-                            argMax(distinct_id, version)    AS distinct_id,
-                            argMax(person_id, version)      AS person_id,
-                            argMax(parent_run_id, version)  AS parent_run_id
-                        FROM posthog.hog_invocation_results
-                        WHERE function_kind = ${props.functionKind}
-                          AND function_id = ${props.id}
-                        GROUP BY invocation_id
-                        HAVING argMax(is_deleted, version) = 0
-                           ${optionalStatusClause}
-                           ${optionalErrorKindClause}
-                           ${optionalRetryClause}
-                           ${optionalSearchClause}
-                        ORDER BY scheduled_at DESC, invocation_id DESC
-                        LIMIT ${RUNS_V2_PAGE_SIZE}
-                    `
-
-                    const response = await api.queryHogQL(
-                        query,
-                        { scene: 'HogFunctionRunsV2', productKey: 'pipeline_destinations' },
-                        {
-                            refresh: 'force_blocking',
-                            filtersOverride: {
-                                date_from: filters.date_from,
-                                date_to: filters.date_to,
-                            },
-                        }
-                    )
-
-                    return (response.results ?? []).map((row): HogFunctionRunRow => {
-                        const [
-                            invocation_id,
-                            status,
-                            attempts,
-                            is_retry,
-                            error_kind,
-                            error_message,
-                            scheduled_at,
-                            started_at,
-                            finished_at,
-                            duration_ms,
-                            event_uuid,
-                            distinct_id,
-                            person_id,
-                            parent_run_id,
-                        ] = row as unknown as [
-                            string,
-                            RunStatus,
-                            number,
-                            number,
-                            string,
-                            string,
-                            string,
-                            string | null,
-                            string | null,
-                            number | null,
-                            string,
-                            string,
-                            string,
-                            string,
-                        ]
-                        return {
-                            invocation_id,
-                            status,
-                            attempts,
-                            is_retry: Boolean(is_retry),
-                            error_kind,
-                            error_message,
-                            scheduled_at,
-                            started_at,
-                            finished_at,
-                            duration_ms,
-                            event_uuid,
-                            distinct_id,
-                            person_id,
-                            parent_run_id,
-                        }
-                    })
+                    const rows = await fetchRunsPage(props, values.filters, 0)
+                    breakpoint()
+                    actions.setHasMore(rows.length >= RUNS_V2_PAGE_SIZE)
+                    return rows
+                },
+                /**
+                 * Append the next page. Uses OFFSET = current row count for
+                 * simplicity — fine for the page sizes this view operates at
+                 * (a handful of pages of 200), keyset is overkill until the
+                 * user starts paging deep enough that OFFSET starts hurting.
+                 */
+                loadMore: async (_, breakpoint) => {
+                    await breakpoint(50)
+                    const offset = values.runs.length
+                    const newRows = await fetchRunsPage(props, values.filters, offset)
+                    breakpoint()
+                    actions.setHasMore(newRows.length >= RUNS_V2_PAGE_SIZE)
+                    return [...values.runs, ...newRows]
                 },
             },
         ],
@@ -363,6 +425,36 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                 actions.clearSelected()
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue replay: ${e?.detail ?? e?.message ?? String(e)}`)
+            }
+        },
+        bulkReplay: async ({ params }) => {
+            const teamId = ApiConfig.getCurrentTeamId()
+            const windowStart = (dateStringToDayJs(params.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
+            const windowEnd = ((params.date_to ? dateStringToDayJs(params.date_to) : null) ?? dayjs()).toISOString()
+
+            const requestBody = {
+                filter: {
+                    window_start: windowStart,
+                    window_end: windowEnd,
+                    status: params.status?.length
+                        ? (params.status as HogInvocationReplayFilterStatusEnumApi[])
+                        : undefined,
+                    error_kind: params.error_kind?.length ? params.error_kind : undefined,
+                    max_count: params.max_count,
+                    max_attempts: params.max_attempts,
+                },
+            }
+
+            try {
+                const response =
+                    props.functionKind === 'hog_function'
+                        ? await hogFunctionsReplayCreate(String(teamId), props.id, requestBody)
+                        : await hogFlowsReplayCreate(String(teamId), props.id, requestBody)
+                lemonToast.success(
+                    `Re-run job ${response.replay_job_id.slice(0, 8)}… queued. Matching invocations will be re-run in the background.`
+                )
+            } catch (e: any) {
+                lemonToast.error(`Failed to enqueue re-run: ${e?.detail ?? e?.message ?? String(e)}`)
             }
         },
     })),

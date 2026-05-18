@@ -431,7 +431,7 @@ export function HogFunctionScene(): JSX.Element {
         !featureFlags[FEATURE_FLAGS.HOG_INVOCATION_RESULTS_RUNS_TAB]
             ? null
             : {
-                  label: 'Runs (preview)',
+                  label: 'Invocations',
                   key: 'runs-v2',
                   content: <HogFunctionRunsV2 id={id} functionKind="hog_function" />,
               },
