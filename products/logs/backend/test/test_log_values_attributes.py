@@ -1,9 +1,8 @@
 import os
 import json
 
-from unittest.mock import patch
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from rest_framework import status
 
