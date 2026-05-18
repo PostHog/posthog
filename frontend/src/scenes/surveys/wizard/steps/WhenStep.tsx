@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -311,12 +311,11 @@ export function WhenStep(): JSX.Element {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
-                    <LemonSwitch
+                    <LemonCheckbox
                         checked={seenSurveyWaitPeriodInDays != null}
                         onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
-                        size="small"
+                        label="Also wait at least"
                     />
-                    <span>Also wait at least</span>
                     <LemonInput
                         type="number"
                         min={1}
