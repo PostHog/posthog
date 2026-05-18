@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconCalendar, IconPerson, IconSend, IconShare } from '@posthog/icons'
@@ -6,6 +7,7 @@ import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemo
 import api from 'lib/api'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Link } from 'lib/lemon-ui/Link'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,6 +20,7 @@ import { PersonType } from '~/types'
 import { userInterviewTopicsRetrieve, userInterviewTopicsIntervieweesList, userInterviewsList } from './generated/api'
 import type { UserInterviewTopicApi, IntervieweeContextApi, UserInterviewApi } from './generated/api.schemas'
 import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
+import { userInterviewLogic } from './userInterviewLogic'
 
 export interface UserInterviewResponseProps {
     topicId: string
@@ -31,6 +34,8 @@ export const scene: SceneExport<UserInterviewResponseProps> = {
 
 export function UserInterviewResponse({ topicId, responseId }: UserInterviewResponseProps): JSX.Element {
     const identifier = decodeURIComponent(responseId)
+    const { linkForIdentifier, linksLoading, linksLoadFailed } = useValues(userInterviewLogic({ id: topicId }))
+    const interviewUrl = linkForIdentifier(identifier)
     const [loading, setLoading] = useState(true)
     const [topic, setTopic] = useState<UserInterviewTopicApi | null>(null)
     const [intervieweeContext, setIntervieweeContext] = useState<IntervieweeContextApi | null>(null)
@@ -166,10 +171,29 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
                                     <span className="font-medium">{identifier}</span>
                                 </div>
                             )}
-                            <div className="flex items-center gap-2">
-                                <IconShare className="text-muted shrink-0" />
-                                <span className="text-sm">Interview link</span>
-                                <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <IconShare className="text-muted shrink-0" />
+                                    <span className="text-sm">Interview link</span>
+                                    <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
+                                </div>
+                                {interviewUrl ? (
+                                    <Link
+                                        to={interviewUrl}
+                                        target="_blank"
+                                        className="block text-xs font-mono break-all pl-6"
+                                    >
+                                        {interviewUrl}
+                                    </Link>
+                                ) : (
+                                    <span className="block text-xs text-muted pl-6">
+                                        {linksLoadFailed
+                                            ? "Couldn't generate link — refresh to retry"
+                                            : linksLoading
+                                              ? 'Generating link…'
+                                              : 'No link available'}
+                                    </span>
+                                )}
                             </div>
                             <div>
                                 <LemonTag type={hasResponse ? 'success' : 'default'}>
