@@ -275,6 +275,10 @@ class TestTeam(BaseTest):
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
 
 
+API_TOKEN_MAX_LENGTH = Team._meta.get_field("api_token").max_length
+assert API_TOKEN_MAX_LENGTH is not None, "api_token CharField must declare a max_length"
+
+
 class TestTeamSetTokenAndSave(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -285,7 +289,7 @@ class TestTeamSetTokenAndSave(BaseTest):
         [
             ("empty", "", "non-empty"),
             ("whitespace_only", "   ", "non-empty"),
-            ("too_long", "a" * 201, "200 characters"),
+            ("too_long", "a" * (API_TOKEN_MAX_LENGTH + 1), f"{API_TOKEN_MAX_LENGTH} characters"),
             ("identical", "phc_old_token_value", "identical"),
         ]
     )
@@ -349,6 +353,18 @@ class TestTeamSetTokenAndSave(BaseTest):
         )
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_trimmed"
+
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    @patch("posthog.models.team.team.set_team_in_cache")
+    def test_set_token_and_save_accepts_token_at_field_max_length(self, _mock_set_cache, _mock_push_vercel) -> None:
+        new_token = "a" * API_TOKEN_MAX_LENGTH
+        self.team.set_token_and_save(
+            new_token=new_token,
+            user=self.user,
+            is_impersonated_session=False,
+        )
+        self.team.refresh_from_db()
+        assert self.team.api_token == new_token
 
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     def test_set_token_and_save_evicts_old_and_warms_new_cache(self, _mock_push_vercel) -> None:
