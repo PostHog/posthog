@@ -7,12 +7,13 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
@@ -36,6 +37,7 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
@@ -298,7 +300,20 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
-    urls.oauthAuthorize(),
+    // /integrations/* — OAuth + third-party round-trips: must complete (callback/landing effects)
+    // even when onboarding is incomplete, else /onboarding swallows the response. E.g.
+    // /integrations/<kind>/callback (urls.integrationsRedirect), stripe confirm-install, vercel link-error.
+    '/integrations',
+    // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
+    '/account-connected',
+    // /oauth/authorize and any /oauth/* callback path.
+    '/oauth',
+    // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
+    '/connect',
+    // /agentic/authorize.
+    '/agentic/authorize',
+    // /cli/authorize, /cli/live (CLI auth round-trip).
+    '/cli',
     '/startups',
     '/coupons',
 ]
@@ -971,6 +986,9 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         loadPinnedTabsFromBackend: async () => {
+            if (isSharedView()) {
+                return
+            }
             try {
                 const response = await api.get<{
                     tabs?: SceneTab[]
@@ -1349,10 +1367,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
                     importedScene = await props.scenes[sceneId]()
                 } catch (error: any) {
-                    if (
-                        error.name === 'ChunkLoadError' || // webpack
-                        error.message?.includes('Failed to fetch dynamically imported module') // esbuild
-                    ) {
+                    if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
                         if (
                             values.lastReloadAt &&
@@ -1520,26 +1535,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
-            if (isAIFirst) {
-                router.actions.replace(
-                    withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
-                )
-                return
-            }
-
-            const primaryDashboardId = teamLogic.values.currentTeam?.primary_dashboard
-            if (primaryDashboardId) {
-                router.actions.replace(
-                    withForwardedSearchParams(
-                        urls.dashboard(primaryDashboardId),
-                        searchParams,
-                        forwardedRedirectQueryParams
-                    )
-                )
-                return
-            }
-
             router.actions.replace(
                 withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
             )
@@ -1572,6 +1567,9 @@ export const sceneLogic = kea<sceneLogicType>([
 
     subscriptions(({ actions, values, cache }) => {
         const schedulePinnedStateSync = (): void => {
+            if (isSharedView()) {
+                return
+            }
             const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
             const homepageForPersistence = getHomepageForPersistence(values.homepage)
             const serializedPinnedState = JSON.stringify({
@@ -1729,12 +1727,27 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
                         return
                     }
+                    // Skip while hidden so backgrounded tabs don't re-mount on every remote nav.
+                    // The visibilitychange handler below catches up when the tab is foregrounded.
+                    if (document.visibilityState !== 'visible') {
+                        return
+                    }
                     syncPinnedTabsFromStorage()
+                }
+
+                const onVisibility = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        syncPinnedTabsFromStorage()
+                    }
                 }
 
                 syncPinnedTabsFromStorage()
                 window.addEventListener('storage', onStorage)
-                return () => window.removeEventListener('storage', onStorage)
+                document.addEventListener('visibilitychange', onVisibility)
+                return () => {
+                    window.removeEventListener('storage', onStorage)
+                    document.removeEventListener('visibilitychange', onVisibility)
+                }
             },
             'pinnedTabsStorageListener',
             // Passive storage listener — no need to tear down/re-setup on visibility change.

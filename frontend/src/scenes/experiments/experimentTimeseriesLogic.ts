@@ -20,7 +20,7 @@ import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 import { COLORS } from './MetricsView/shared/colors'
-import { getVariantInterval } from './MetricsView/shared/utils'
+import { getMetricColors, getVariantInterval } from './MetricsView/shared/utils'
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -52,7 +52,7 @@ export interface ProcessedChartData {
 
 export interface ExperimentTimeseriesLogicProps {
     experiment: Experiment
-    metric?: ExperimentMetric
+    metric: ExperimentMetric | undefined
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
@@ -249,11 +249,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s, props) => [s.processedVariantData, props.experiment],
+            (s, props) => [s.processedVariantData, props.experiment, props.metric],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
-                experiment: Experiment
+                experiment: Experiment,
+                metric: ExperimentMetric | undefined
             ): ((variantKey: string) => ProcessedChartData | null) => {
+                // Swap positive/negative colors when the metric goal is "decrease"
+                const goalColors = getMetricColors(COLORS, metric?.goal)
                 return (variantKey: string) => {
                     const processedData = processedVariantData(variantKey)
                     if (processedData.length === 0) {
@@ -323,11 +326,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const index = context.dataIndex
                                 const dataPoint = trimmedData[index]
                                 if (dataPoint?.significant) {
-                                    // Check if delta is positive or negative
                                     const isPositive = dataPoint.value !== null && dataPoint.value > 0
                                     return isPositive
-                                        ? hexToRGBA(COLORS.BAR_POSITIVE, 0.15)
-                                        : hexToRGBA(COLORS.BAR_NEGATIVE, 0.15)
+                                        ? hexToRGBA(goalColors.positive, 0.15)
+                                        : hexToRGBA(goalColors.negative, 0.15)
                                 }
                                 return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                             }
@@ -338,11 +340,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const index = ctx.p0DataIndex
                                 const dataPoint = trimmedData[index]
                                 if (dataPoint?.significant) {
-                                    // Check if delta is positive or negative
                                     const isPositive = dataPoint.value !== null && dataPoint.value > 0
                                     return isPositive
-                                        ? hexToRGBA(COLORS.BAR_POSITIVE, 0.15)
-                                        : hexToRGBA(COLORS.BAR_NEGATIVE, 0.15)
+                                        ? hexToRGBA(goalColors.positive, 0.15)
+                                        : hexToRGBA(goalColors.negative, 0.15)
                                 }
                                 return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                             },

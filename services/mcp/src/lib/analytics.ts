@@ -1,5 +1,6 @@
-import { env } from 'cloudflare:workers'
 import { PostHog } from 'posthog-node'
+
+import { env } from '@/lib/env'
 
 let _client: PostHog | undefined
 
@@ -52,9 +53,9 @@ export const buildMCPContextProperties = (
 
 export const getPostHogClient = (): PostHog => {
     if (!_client) {
-        _client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY, {
+        _client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY ?? '', {
             disabled: !env.POSTHOG_ANALYTICS_API_KEY || !env.POSTHOG_ANALYTICS_HOST, // Disable if the API key or host is not set
-            host: env.POSTHOG_ANALYTICS_HOST,
+            ...(env.POSTHOG_ANALYTICS_HOST ? { host: env.POSTHOG_ANALYTICS_HOST } : {}),
             flushAt: 1,
             flushInterval: 0,
         })

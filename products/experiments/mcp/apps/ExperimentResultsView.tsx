@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, DataTable, type DataTableColumn, ProgressBar, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { Badge, Card, CardContent, Progress } from '@posthog/quill'
 
 export interface ExperimentExposure {
     variant: string
@@ -29,6 +30,17 @@ export interface ExperimentResultsViewProps {
     data: ExperimentResultsData
 }
 
+function ProbabilityBar({ value }: { value: number }): ReactElement {
+    const pct = Math.max(0, Math.min(100, value * 100))
+    const variant: 'success' | 'default' | 'warning' = value > 0.95 ? 'success' : value > 0.5 ? 'default' : 'warning'
+    return (
+        <div className="flex items-center gap-2 justify-end">
+            <Progress value={pct} variant={variant} className="w-16" />
+            <span className="tabular-nums">{pct.toFixed(1)}%</span>
+        </div>
+    )
+}
+
 export function ExperimentResultsView({ data }: ExperimentResultsViewProps): ReactElement {
     const exposureEntries = data.exposures
         ? Object.entries(data.exposures).map(([variant, count]) => ({ variant, count: count as number }))
@@ -49,29 +61,14 @@ export function ExperimentResultsView({ data }: ExperimentResultsViewProps): Rea
             key: 'probability',
             header: 'Probability',
             align: 'right',
-            render: (row) =>
-                row.probability != null ? (
-                    <div className="flex items-center gap-2 justify-end">
-                        <ProgressBar
-                            value={row.probability * 100}
-                            variant={row.probability > 0.95 ? 'success' : row.probability > 0.5 ? 'info' : 'warning'}
-                            size="sm"
-                            className="w-16"
-                        />
-                        <span className="tabular-nums">{(row.probability * 100).toFixed(1)}%</span>
-                    </div>
-                ) : (
-                    '\u2014'
-                ),
+            render: (row) => (row.probability != null ? <ProbabilityBar value={row.probability} /> : '\u2014'),
         },
         {
             key: 'significant',
             header: 'Significant',
             render: (row) =>
                 row.significant != null ? (
-                    <Badge variant={row.significant ? 'success' : 'neutral'} size="sm">
-                        {row.significant ? 'Yes' : 'No'}
-                    </Badge>
+                    <Badge variant={row.significant ? 'success' : 'default'}>{row.significant ? 'Yes' : 'No'}</Badge>
                 ) : (
                     '\u2014'
                 ),
@@ -80,50 +77,54 @@ export function ExperimentResultsView({ data }: ExperimentResultsViewProps): Rea
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                {data.experiment?.name && (
-                    <span className="text-lg font-semibold text-text-primary">{data.experiment.name}</span>
-                )}
+            <div className="flex flex-col gap-3">
+                {data.experiment?.name && <span className="text-lg font-semibold">{data.experiment.name}</span>}
 
                 {exposureEntries.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <span className="text-sm font-semibold text-text-primary">Exposures</span>
-                            <DataTable<ExperimentExposure>
-                                columns={exposureColumns}
-                                data={exposureEntries}
-                                emptyMessage="No exposure data"
-                            />
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">Exposures</span>
+                                <DataTable<ExperimentExposure>
+                                    columns={exposureColumns}
+                                    data={exposureEntries}
+                                    emptyMessage="No exposure data"
+                                />
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
 
                 {allPrimary.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <span className="text-sm font-semibold text-text-primary">Primary metrics</span>
-                            <DataTable<MetricResult>
-                                columns={metricColumns}
-                                data={allPrimary}
-                                emptyMessage="No primary metric results"
-                            />
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">Primary metrics</span>
+                                <DataTable<MetricResult>
+                                    columns={metricColumns}
+                                    data={allPrimary}
+                                    emptyMessage="No primary metric results"
+                                />
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
 
                 {allSecondary.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <span className="text-sm font-semibold text-text-primary">Secondary metrics</span>
-                            <DataTable<MetricResult>
-                                columns={metricColumns}
-                                data={allSecondary}
-                                emptyMessage="No secondary metric results"
-                            />
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">Secondary metrics</span>
+                                <DataTable<MetricResult>
+                                    columns={metricColumns}
+                                    data={allSecondary}
+                                    emptyMessage="No secondary metric results"
+                                />
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }

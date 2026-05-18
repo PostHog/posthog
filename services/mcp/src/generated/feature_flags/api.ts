@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -337,18 +337,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -654,18 +657,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -762,18 +768,14 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Bulk delete feature flags by filter criteria or explicit IDs.
+ * Test feature flag evaluation against a specific user at an optional point in time.
 
-Accepts either:
-- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
-- {"ids": [...]} - Explicit list of flag IDs (no limit)
-
-Returns same format as bulk_delete for UI compatibility.
-
-Uses bulk operations for efficiency: database updates are batched and cache
-invalidation happens once at the end rather than per-flag.
+This endpoint allows testing how a feature flag would evaluate for a specific user,
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
  */
-export const FeatureFlagsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
         .describe(
@@ -781,95 +783,22 @@ export const FeatureFlagsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
-    filters: zod
-        .object({
-            active: zod.string().optional().describe("Filter by active state. Accepts 'true', 'false', or 'STALE'."),
-            created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
-            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
-            type: zod
-                .string()
-                .optional()
-                .describe("Filter by flag type. One of 'boolean', 'multivariate', 'experiment', 'remote_config'."),
-            evaluation_runtime: zod
-                .string()
-                .optional()
-                .describe("Filter by evaluation runtime. One of 'server', 'client', 'both', or 'all'."),
-            excluded_properties: zod
-                .string()
-                .optional()
-                .describe('JSON-encoded property filter to exclude. Same shape as the list endpoint.'),
-            tags: zod.string().optional().describe('Comma-separated list of tags to filter by.'),
-            has_evaluation_contexts: zod
-                .boolean()
-                .optional()
-                .describe('When true, only matches flags with at least one evaluation context.'),
-        })
-        .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
-        .optional()
-        .describe(
-            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs."
-        ),
-    ids: zod
-        .array(zod.number().min(1))
-        .optional()
-        .describe('Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.'),
-})
-
-/**
- * Get feature flag keys by IDs.
-Accepts a list of feature flag IDs and returns a mapping of ID to key.
- */
-export const FeatureFlagsBulkKeysCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
+export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
+    distinct_id: zod
         .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number().min(1))
         .optional()
+        .describe('User distinct ID to test against (mutually exclusive with person_id)'),
+    person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
+    timestamp: zod.iso
+        .datetime({ offset: true })
+        .nullish()
         .describe(
-            'Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.'
+            'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
         ),
-})
-
-/**
- * Bulk update tags on multiple objects.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
- */
-export const FeatureFlagsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
-
-export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(featureFlagsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
-        ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    groups: zod
+        .unknown()
+        .optional()
+        .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
 })
 
 /**
@@ -970,7 +899,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
@@ -981,15 +910,15 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })
@@ -1042,7 +971,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
@@ -1054,15 +983,15 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })

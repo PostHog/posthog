@@ -1,5 +1,11 @@
-import { compactNumber, humanFriendlyCurrency, humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { formatCurrency } from 'lib/utils/geography/currency'
+import {
+    compactNumber,
+    formatCurrency,
+    humanFriendlyCurrency,
+    humanFriendlyDuration,
+    humanFriendlyNumber,
+    percentage,
+} from './format'
 
 export type YAxisFormat =
     | 'numeric'
@@ -21,12 +27,6 @@ export interface YFormatterConfig {
     currency?: string
 }
 
-// `formatCurrency` requires a `CurrencyCode` enum imported from `~/queries/schema/...`,
-// which `lib/hog-charts` cannot pull in. The runtime call uses `getCurrencySymbol`
-// which already validates the string, so the cast is safe — invalid codes throw and
-// fall through to the `humanFriendlyCurrency` branch below.
-const formatCurrencyAny = formatCurrency as (amount: number, currency: string) => string
-
 export function buildYTickFormatter(config: YFormatterConfig): (value: number) => string {
     const { format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency } = config
     return (value: number): string => {
@@ -46,7 +46,7 @@ export function buildYTickFormatter(config: YFormatterConfig): (value: number) =
                 break
             case 'currency':
                 try {
-                    formatted = currency ? formatCurrencyAny(value, currency) : humanFriendlyCurrency(value)
+                    formatted = currency ? formatCurrency(value, currency) : humanFriendlyCurrency(value)
                 } catch {
                     formatted = humanFriendlyCurrency(value)
                 }

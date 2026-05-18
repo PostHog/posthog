@@ -724,6 +724,9 @@ export const redirects: Record<
     '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
     '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
 
+    // Redirect old path-based /configuration URLs to query param format
+    '/functions/:id/configuration': ({ id }) => urls.hogFunction(id, 'configuration'),
+
     ...productRedirects,
 }
 

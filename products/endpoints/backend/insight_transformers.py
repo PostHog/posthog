@@ -8,8 +8,9 @@ that users expect (matching what the non-materialized path produces).
 
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Union, cast
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -91,11 +92,17 @@ def _strip_hogql_fields(result: dict) -> None:
 
 
 _TEMPORAL_TYPE_RE = re.compile(r"\b(?:Date|DateTime|DateTime64|Date32)\b")
+_DATETIME_TYPE_RE = re.compile(r"\bDateTime(?:64)?\b")
 
 
 def _is_temporal_type(type_str: str) -> bool:
     """True for any Date/DateTime variant, including Nullable/Array/LowCardinality wrappings."""
     return bool(_TEMPORAL_TYPE_RE.search(type_str))
+
+
+def _is_datetime_type(type_str: str) -> bool:
+    """True only for DateTime/DateTime64 (point-in-time), not Date/Date32 (calendar day)."""
+    return bool(_DATETIME_TYPE_RE.search(type_str))
 
 
 def _extract_type_str(entry: Any) -> str | None:
@@ -107,7 +114,19 @@ def _extract_type_str(entry: Any) -> str | None:
     return None
 
 
-def _coerce_temporal_columns(rows: list, types: list | None) -> None:
+def _parse_temporal_value(value: str, team_tz: "ZoneInfo | None") -> datetime:
+    """Parquet drops the timezone metadata from ClickHouse `DateTime('Europe/...')` columns,
+    so naive parsed values are treated as UTC and converted to team_tz before strftime.
+    Already-aware values are converted directly so the function is correct either way."""
+    parsed = datetime.fromisoformat(value)
+    if team_tz is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        parsed = parsed.astimezone(team_tz)
+    return parsed
+
+
+def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None = None) -> None:
     """Parse ISO strings into ``datetime`` objects for every Date/DateTime column.
 
     HogQL's response pipeline stringifies all Date/DateTime values regardless of name,
@@ -118,19 +137,28 @@ def _coerce_temporal_columns(rows: list, types: list | None) -> None:
     """
     if not types:
         return
-    temporal_indices = [i for i, entry in enumerate(types) if (t := _extract_type_str(entry)) and _is_temporal_type(t)]
-    if not temporal_indices:
+    temporal_cols: list[tuple[int, bool]] = []
+    for i, entry in enumerate(types):
+        type_str = _extract_type_str(entry)
+        if not type_str or not _is_temporal_type(type_str):
+            continue
+        temporal_cols.append((i, _is_datetime_type(type_str)))
+    if not temporal_cols:
         return
+    team_tz: ZoneInfo | None = team.timezone_info if team is not None else None
     for i, row in enumerate(rows):
         new_row: list | None = None
-        for col_idx in temporal_indices:
+        for col_idx, is_datetime in temporal_cols:
             if col_idx >= len(row):
                 continue
             value = row[col_idx]
+            convert_tz = team_tz if is_datetime else None
             if isinstance(value, list):
-                coerced: Any = [datetime.fromisoformat(item) if isinstance(item, str) else item for item in value]
+                coerced: Any = [
+                    _parse_temporal_value(item, convert_tz) if isinstance(item, str) else item for item in value
+                ]
             elif isinstance(value, str):
-                coerced = datetime.fromisoformat(value)
+                coerced = _parse_temporal_value(value, convert_tz)
             else:
                 continue
             if new_row is None:
@@ -151,7 +179,7 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
         _strip_hogql_fields(result)
         return
 
-    _coerce_temporal_columns(rows, result.get("types"))
+    _coerce_temporal_columns(rows, result.get("types"), team)
 
     series_index_col = columns.index("__series_index") if "__series_index" in columns else None
     groups: dict[int, list] = defaultdict(list)
@@ -199,7 +227,7 @@ def _transform_lifecycle(result: dict, original_query: dict, team: Team, now: da
         _strip_hogql_fields(result)
         return
 
-    _coerce_temporal_columns(rows, result.get("types"))
+    _coerce_temporal_columns(rows, result.get("types"), team)
 
     response = HogQLQueryResponse(results=rows, columns=columns)
     result["results"] = runner.format_results(response)

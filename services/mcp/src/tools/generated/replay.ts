@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    CreateSessionSummariesIndividuallyBody,
     SessionRecordingPlaylistsCreateBody,
     SessionRecordingPlaylistsListQueryParams,
     SessionRecordingPlaylistsPartialUpdateBody,
@@ -171,30 +170,6 @@ const sessionRecordingPlaylistsList = (): ToolBase<
     },
 })
 
-const SessionRecordingSummarizeSchema = CreateSessionSummariesIndividuallyBody
-
-const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeSchema, Schemas.SessionSummaries> =>
-    withUiApp('session-summary', {
-        name: 'session-recording-summarize',
-        schema: SessionRecordingSummarizeSchema,
-        handler: async (context: Context, params: z.infer<typeof SessionRecordingSummarizeSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.session_ids !== undefined) {
-                body['session_ids'] = params.session_ids
-            }
-            if (params.focus_area !== undefined) {
-                body['focus_area'] = params.focus_area
-            }
-            const result = await context.api.request<Schemas.SessionSummaries>({
-                method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/create_session_summaries_individually/`,
-                body,
-            })
-            return result
-        },
-    })
-
 // --- Query wrapper schemas from schema.json ---
 
 const integer = z.coerce.number().int()
@@ -333,11 +308,11 @@ const AssistantGroupPropertyFilter = z.union([
 
 const AssistantCohortPropertyFilter = z.object({
     key: z.literal('id').default('id'),
-    operator: z.literal('in').default('in'),
+    operator: z.enum(['in', 'not_in']).default('in'),
     type: z
         .literal('cohort')
         .describe(
-            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`'
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples:\n- Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`\n- Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
         )
         .default('cohort'),
     value: integer.describe('The cohort ID to filter by.'),
@@ -642,7 +617,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
-    'session-recording-summarize': sessionRecordingSummarize,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,

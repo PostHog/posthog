@@ -2,52 +2,53 @@
 resolver = "2"
 
 members = [
-    "property-defs-rs",
-    "batch-import-worker",
-    "capture",
-    "capture-logs",
-    "common/alloc",
-    "common/assignment-coordination",
-    "common/k8s-awareness",
-    "common/cache",
-    "common/cookieless",
-    "common/database",
-    "common/dns",
-    "common/health",
-    "common/kafka",
-    "common/liveness",
-    "common/lifecycle",
-    "common/limiters",
-    "common/metrics",
-    "common/profiler",
-    "common/continuous_profiling",
-    "common/redis",
-    "common/s3",
-    "common/serve_metrics",
-    "common/symbol_data",
-    "common/types",
-    "common/compression",
-    "common/hypercache",
-    "feature-flags",
-    "hypercache-server",
-    "cyclotron-core",
-    "cyclotron-node",
-    "cyclotron-janitor",
-    "cymbal",
-    "embedding-worker",
-    "common/geoip",
-    "common/hogvm",
-    "kafka-assigner",
-    "kafka-assigner-proto",
-    "ingestion-consumer",
-    "kafka-deduplicator",
-    "personhog-common",
-    "personhog-coordination",
-    "personhog-leader",
-    "personhog-writer",
-    "personhog-proto",
-    "personhog-replica",
-    "personhog-router",
+  "property-defs-rs",
+  "batch-import-worker",
+  "capture",
+  "capture-logs",
+  "common/alloc",
+  "common/assignment-coordination",
+  "common/k8s-awareness",
+  "common/cache",
+  "common/cookieless",
+  "common/database",
+  "common/dns",
+  "common/health",
+  "common/kafka",
+  "common/liveness",
+  "common/lifecycle",
+  "common/limiters",
+  "common/metrics",
+  "common/profiler",
+  "common/continuous_profiling",
+  "common/redis",
+  "common/s3",
+  "common/serve_metrics",
+  "common/symbol_data",
+  "common/types",
+  "common/compression",
+  "common/hypercache",
+  "feature-flags",
+  "flags-consumer",
+  "hypercache-server",
+  "cyclotron-core",
+  "cyclotron-node",
+  "cyclotron-janitor",
+  "cymbal",
+  "embedding-worker",
+  "common/geoip",
+  "common/hogvm",
+  "kafka-assigner",
+  "kafka-assigner-proto",
+  "ingestion-consumer",
+  "kafka-deduplicator",
+  "personhog-common",
+  "personhog-coordination",
+  "personhog-leader",
+  "personhog-writer",
+  "personhog-proto",
+  "personhog-replica",
+  "personhog-router",
 ]
 
 [workspace.lints.rust]
@@ -83,7 +84,13 @@ debug = "line-tables-only"
 [workspace.dependencies]
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
-async-compression = { version = "0.4", features = ["tokio", "gzip", "deflate", "brotli", "zstd"] }
+async-compression = { version = "0.4", features = [
+  "tokio",
+  "gzip",
+  "deflate",
+  "brotli",
+  "zstd",
+] }
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
@@ -124,19 +131,19 @@ serde_json = { version = "1.0" }
 serde_urlencoded = "0.7.1"
 siphasher = "1.0.1"
 sqlx = { version = "0.8.6", features = [
-    "chrono",
-    "json",
-    "migrate",
-    "postgres",
-    "runtime-tokio",
-    "tls-native-tls",
-    "uuid",
+  "chrono",
+  "json",
+  "migrate",
+  "postgres",
+  "runtime-tokio",
+  "tls-native-tls",
+  "uuid",
 ] }
 time = { version = "0.3.36", features = [
-    "formatting",
-    "macros",
-    "parsing",
-    "serde",
+  "formatting",
+  "macros",
+  "parsing",
+  "serde",
 ] }
 thiserror = { version = "2.0" }
 tokio = { version = "1.51.1", features = ["full"] }
@@ -156,7 +163,14 @@ aws-sdk-s3 = "1.58.0"
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
-redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async", "tls-rustls", "tls-rustls-webpki-roots", "tokio-rustls-comp"] }
+redis = { version = "0.32.7", features = [
+  "tokio-comp",
+  "cluster",
+  "cluster-async",
+  "tls-rustls",
+  "tls-rustls-webpki-roots",
+  "tokio-rustls-comp",
+] }
 regex = "1.11.1"
 fancy-regex = "0.17"
 lz-str = "0.2.1"
@@ -164,10 +178,10 @@ opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = { version = "0.12.3", features = ["zstd"] }
 tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
-    "uuid",
-    "time",
-    "inserter",
-    "rustls-tls",
+  "uuid",
+  "time",
+  "inserter",
+  "rustls-tls",
 ] }
 
 # Used for decrypting django encrypted fields

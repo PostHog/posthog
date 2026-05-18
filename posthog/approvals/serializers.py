@@ -97,14 +97,17 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             try:
                 from ee.models.rbac.role import RoleMembership
 
-                user_role_ids = set(
-                    RoleMembership.objects.filter(
+                # Coerce both sides to strings: role IDs come back from the policy snapshot as JSON strings
+                # but RoleMembership.role_id is a UUID, so a raw set intersection always misses.
+                user_role_ids = {
+                    str(rid)
+                    for rid in RoleMembership.objects.filter(
                         user=user,
                         role__organization=obj.organization,
                     ).values_list("role_id", flat=True)
-                )
+                }
 
-                if user_role_ids & set(approver_roles):
+                if user_role_ids & {str(r) for r in approver_roles}:
                     return True
             except ImportError:
                 pass
