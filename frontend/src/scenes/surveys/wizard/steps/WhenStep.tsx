@@ -315,8 +315,8 @@ export function WhenStep(): JSX.Element {
                         checked={seenSurveyWaitPeriodInDays != null}
                         onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
                         size="small"
-                        label="Also wait at least"
                     />
+                    <span>Also wait at least</span>
                     <LemonInput
                         type="number"
                         min={1}
