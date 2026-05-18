@@ -309,12 +309,14 @@ export function WhenStep(): JSX.Element {
                         </span>
                     </div>
                 )}
+            </WizardSection>
 
-                <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
+            <WizardSection title="Avoid back-to-back surveys">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
                     <LemonCheckbox
                         checked={seenSurveyWaitPeriodInDays != null}
                         onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
-                        label="Hide if a different survey was shown in the last"
+                        label="Don't show this survey if another one was shown to the user in the last"
                     />
                     <LemonInput
                         type="number"
