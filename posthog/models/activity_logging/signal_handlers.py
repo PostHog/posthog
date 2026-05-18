@@ -31,7 +31,11 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.utils import get_ip_address, get_short_user_agent
 
-from products.experiments.backend.models.experiment import ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.experiment import (
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -366,4 +370,25 @@ def handle_experiment_holdout_delete(sender, instance, **kwargs):
         scope="Experiment",
         activity="deleted",
         detail=Detail(name=instance.name, type="holdout"),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=ExperimentToSavedMetric)
+def handle_experiment_to_saved_metric_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.experiment.team.organization_id,
+        team_id=after_update.experiment.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.experiment_id,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        activity=activity,
+        detail=Detail(
+            # need to use ExperimentToSavedMetric here for field exclusions
+            changes=changes_between("ExperimentToSavedMetric", previous=before_update, current=after_update),
+            name=after_update.saved_metric.name,
+            type="saved_metric_config",
+        ),
     )
