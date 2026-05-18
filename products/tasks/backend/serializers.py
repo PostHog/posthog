@@ -190,9 +190,7 @@ class TaskSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict) -> dict:
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None and not attrs.get("signal_report"):
-            raise serializers.ValidationError(
-                {"signal_report_task_relationship": "Requires signal_report when set."}
-            )
+            raise serializers.ValidationError({"signal_report_task_relationship": "Requires signal_report when set."})
         return attrs
 
     def create(self, validated_data):
