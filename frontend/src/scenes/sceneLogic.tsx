@@ -11,7 +11,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { getRelativeNextPath, identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -986,7 +986,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         loadPinnedTabsFromBackend: async () => {
-            if (isSharedView()) {
+            if (isSharedView() || !isUserLoggedIn()) {
                 return
             }
             try {
@@ -1567,7 +1567,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     subscriptions(({ actions, values, cache }) => {
         const schedulePinnedStateSync = (): void => {
-            if (isSharedView()) {
+            if (isSharedView() || !isUserLoggedIn()) {
                 return
             }
             const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
