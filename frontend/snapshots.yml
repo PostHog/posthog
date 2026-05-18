@@ -5602,6 +5602,10 @@ snapshots:
         hash: v1.k794b7964.73d195932e14b7f1ed1492148f30bb401d83f5fe2195454d11b1f8a25d27cf18.b3y1l14OGUaGshoCcw-UeRucPusmKqg_P9hrSKkTVEc
     scenes-app-web-analytics--web-analytics-dashboard--light:
         hash: v1.k794b7964.d39a7db817febb31fd2e2f6be9478a531ed200cca876c15bb4471769321688a6.fuln1AuN_ed6kQrQmdORheyl1Mv0Gs3XE2MKkU6BXso
+    scenes-app-web-analytics--web-analytics-dashboard-loading--dark:
+        hash: v1.k794b7964.5b686cb6b3dc8f35afc5a40b19b54a5c65d5c62423bae2040b74ab8347bff101.m4Kq3_tjQi_x7bcj0cmphcuTIBT2QJt068bOJkJq_Pw
+    scenes-app-web-analytics--web-analytics-dashboard-loading--light:
+        hash: v1.k794b7964.c506ce14be8868021d46d08505c68b4aa02e8ba365c96b1846a6b0c29b8ef012.yiG8H3DQPa0nm5g6439G2rS9pQMzYdT-Pd92LODS_Hg
     scenes-other-billing--billing--dark:
         hash: v1.k794b7964.0fbd211a7ee299a4abb1afb6d3d1e0589eb349c82c59bd5997b16e434356ee18.HyWfDl8iMD41jnar9y2uxNCx2MJJ6DuHch0n18cCWBA
     scenes-other-billing--billing--light:
@@ -6202,6 +6206,26 @@ snapshots:
         hash: v1.k794b7964.c17be7ebf593bcdc6ad760d1ae2035be3dadad1e049d39ef6c72b9e093a03067.KVwJMpXcfhchvEMKnnqsNnyBE6EI5d9YIUWIB-08xfY
     utils-autocapture-preview-image--tab-relative-image-with-current-url--light:
         hash: v1.k794b7964.3e7d7a6fa83916bae8280f36864538241c45bd4122e167b299a046939c802b03.oW1U5X9JYmxSLcn72S6kPmgj_jxgZTKyJa0uZ1kbRJs
+    web-analytics-tile-skeletons--chart--dark:
+        hash: v1.k794b7964.7aa1344291af29b3bea21b1b4fc2962bf865899c63cb8137383d5d6e941a96bf.AElvCuEYtP-fom9VLZcolkkA-soqOxUPJLSlN1SB4NE
+    web-analytics-tile-skeletons--chart--light:
+        hash: v1.k794b7964.6c1e2180c137b29ba8be3d6553ef4b8deec9c22a38f55463e30cba14ed1d34c5.87b9nbXOYouiM_9xvTXn5HOfvNJbsUpzeqlZYeQ4mik
+    web-analytics-tile-skeletons--chart-without-legend--dark:
+        hash: v1.k794b7964.845f692ecaca80fe4356669e8c7a15d45ca4c58006264cb51a1163c487a4f309.JFzWDETTmtXIESeVUH8obYnqLS6Bak-Yjvd996KBGaw
+    web-analytics-tile-skeletons--chart-without-legend--light:
+        hash: v1.k794b7964.77408b3f8b309d4339f0417273a2a931c57029981195c44226f9bbb4d3afc9df.5Z8jDyt7Nwzw-ZNP0csEXunO2LMp7h-bNox6BwlmVJA
+    web-analytics-tile-skeletons--table--dark:
+        hash: v1.k794b7964.7e55e08e26710cb46f3d4c200c0027bc40a90589531bf934530fc6eebcf8d38a.njsC9nK1W0uexxQy20vBX7_elrP95KutZTslkqLm5Ek
+    web-analytics-tile-skeletons--table--light:
+        hash: v1.k794b7964.cea7909490517a00c0e428612fbf3a4d9a79b6ca7613de24b65148ea096df8e2.srWljrNqXjKXFVkZsK-_rKZ33m8DQv6JoivUONUPYDg
+    web-analytics-tile-skeletons--table-two-numeric-columns--dark:
+        hash: v1.k794b7964.ea84556f1ebfa8bc051d346eab11f997b7ed558f0613fa44d840a35e7c8d30f8.zQIheEK45WuwDxLUKqL3i9Yah_mUnLT3szAkkNNcIIw
+    web-analytics-tile-skeletons--table-two-numeric-columns--light:
+        hash: v1.k794b7964.fcc68a5033f618a5c4fb5049d0ca96ed581e769358698d116edba5247c1b23a3.cSZYj73vb-FcetmtYnJr0eVBxpHXOG_9t8u6oBUlYSE
+    web-analytics-tile-skeletons--world-map--dark:
+        hash: v1.k794b7964.8eb35c8f5612531f09bed081e0c6795c3f7f5d6d8937a0f6c990dd2da494ae15.g4cj5qqaLIK-ZaNi3i70I56WBA7L8DrXT5SpoCtfWEk
+    web-analytics-tile-skeletons--world-map--light:
+        hash: v1.k794b7964.7660b0d55f180f30895fa224cf38426bd02cffeebf5f66d95c43c47f2e565b9b.HzammpR2_GJwAwUiQ2IzFR61cI5ji6NA3PPwq6Auzl4
     web-analytics-tiles--browser--dark:
         hash: v1.k794b7964.f9113090553180b179c722ac50c23bccba78eccd9f52118e44d2e75508891caa._n7yHWlX4M5OdGHBMMtM9f5-Um0fVBOgTk0h_4yWY-E
     web-analytics-tiles--browser--light:
