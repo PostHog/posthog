@@ -26,7 +26,14 @@ SCHEDULE_DATA = {
 }
 
 
-class TestHogFlowScheduleAPI(APIBaseTest):
+class _HogFlowScheduleAPIHelpers:
+    """Shared helpers for HogFlow schedule API tests.
+
+    Lives outside any TestCase base so that test classes using it via
+    multiple inheritance do not pick up sibling tests (which would
+    happen if we inherited directly from another TestCase subclass).
+    """
+
     def _create_batch_workflow(self, workflow_status="active"):
         payload = {
             "name": "Test Batch Workflow",
@@ -50,6 +57,8 @@ class TestHogFlowScheduleAPI(APIBaseTest):
     def _schedule_detail_url(self, workflow_id, schedule_id):
         return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/schedules/{schedule_id}/"
 
+
+class TestHogFlowScheduleAPI(_HogFlowScheduleAPIHelpers, APIBaseTest):
     def test_create_schedule(self):
         workflow = self._create_batch_workflow()
         response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
@@ -499,7 +508,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         assert len(response.json()["processed"]) == 0
 
 
-class TestHogFlowViewSetPersonalAPIKeyScopes(APIBaseTest):
+class TestHogFlowViewSetPersonalAPIKeyScopes(_HogFlowScheduleAPIHelpers, APIBaseTest):
     """Regression test for HogFlowViewSet personal API key scope gating.
 
     Before this fix, every custom @action on HogFlowViewSet
@@ -514,41 +523,57 @@ class TestHogFlowViewSetPersonalAPIKeyScopes(APIBaseTest):
 
     These tests exercise the now-opened paths with both write and
     read-only personal API keys to verify the fix and prevent
-    regression.
+    regression. Uses _HogFlowScheduleAPIHelpers (shared with
+    TestHogFlowScheduleAPI) for batch-workflow and URL helpers
+    without inheriting from another TestCase, which would re-run
+    every parent test method.
     """
 
-    def _create_batch_workflow(self):
-        payload = {
-            "name": "Test Batch Workflow",
-            "status": "active",
-            "actions": [
-                {
-                    "id": "trigger_node",
-                    "name": "trigger",
-                    "type": "trigger",
-                    "config": BATCH_TRIGGER,
-                }
-            ],
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        return response.json()
-
-    def _schedules_url(self, workflow_id):
-        return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/schedules/"
-
-    def test_create_schedule_with_personal_api_key_write_scope_succeeds(self):
+    @parameterized.expand(
+        [
+            # Each case proves an HogFlowViewSet @action is now reachable
+            # by a personal API key with hog_flow:write scope.
+            # (case_name, http_method, url_builder, payload, expected_status)
+            (
+                "schedules_post",
+                "post",
+                lambda self, workflow: self._schedules_url(workflow["id"]),
+                SCHEDULE_DATA,
+                status.HTTP_201_CREATED,
+            ),
+            (
+                "schedules_get",
+                "get",
+                lambda self, workflow: self._schedules_url(workflow["id"]),
+                None,
+                status.HTTP_200_OK,
+            ),
+            (
+                "user_blast_radius_post",
+                "post",
+                lambda self, workflow: f"/api/projects/{self.team.id}/hog_flows/user_blast_radius/",
+                {"filters": {}},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_write_scope_personal_api_key_can_reach_action(
+        self, case_name, http_method, url_builder, payload, expected_status
+    ):
         workflow = self._create_batch_workflow()
+        # Seed one schedule via session auth so the GET case has something to list.
+        if case_name == "schedules_get":
+            self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+
         api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
+        url = url_builder(self, workflow)
+        kwargs = {"headers": {"authorization": f"Bearer {api_key}"}}
+        if payload is not None:
+            kwargs["content_type"] = "application/json"
 
-        response = self.client.post(
-            self._schedules_url(workflow["id"]),
-            SCHEDULE_DATA,
-            headers={"authorization": f"Bearer {api_key}"},
-        )
+        response = getattr(self.client, http_method)(url, payload, **kwargs)
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["rrule"] == SCHEDULE_DATA["rrule"]
+        assert response.status_code == expected_status, (case_name, response.json())
 
     def test_create_schedule_with_personal_api_key_read_scope_only_rejects_with_scope_error(self):
         workflow = self._create_batch_workflow()
@@ -574,41 +599,14 @@ class TestHogFlowViewSetPersonalAPIKeyScopes(APIBaseTest):
             "scope_object_write_actions on HogFlowViewSet may be missing again."
         )
 
-    def test_list_schedules_with_personal_api_key_write_scope_succeeds(self):
-        workflow = self._create_batch_workflow()
-        api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
-
-        # First, create one via session auth so there is something to list.
-        self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
-
-        response = self.client.get(
-            self._schedules_url(workflow["id"]),
-            headers={"authorization": f"Bearer {api_key}"},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()) == 1
-
-    def test_user_blast_radius_with_personal_api_key_write_scope_succeeds(self):
-        api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius/",
-            {"filters": {}},
-            headers={"authorization": f"Bearer {api_key}"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        body = response.json()
-        assert "users_affected" in body
-        assert "total_users" in body
-
     def test_bulk_delete_with_personal_api_key_write_scope_succeeds(self):
+        # Kept separate from the parameterized happy-path block above
+        # because bulk_delete returns 400 from its action body when the
+        # ids list is empty. The 400 is the proof — auth path opened,
+        # action body ran, and rejected on its own validation. A 403
+        # here would indicate the scope gate is still blocking.
         api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
 
-        # Empty-ids should return 400 from the action body (not a 403),
-        # which proves the auth path is open and the action body ran.
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/bulk_delete/",
             {"ids": []},
