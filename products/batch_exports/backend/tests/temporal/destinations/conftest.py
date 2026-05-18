@@ -1,3 +1,5 @@
+import pytest
+
 import pytest_asyncio
 
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
@@ -6,6 +8,14 @@ from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     truncate_persons,
     truncate_sessions,
 )
+
+
+# Since we autouse the `clickhouse_db_setup` below we need to mark all tests as
+# requiring the DB, otherwise we can run into some strange errors during test
+# setup
+def pytest_collection_modifyitems(items):
+    for item in items:
+        item.add_marker(pytest.mark.django_db)
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
