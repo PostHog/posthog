@@ -2889,6 +2889,7 @@ const api = {
         async tree(
             query: {
                 spanName: string
+                serviceName: string
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 filterGroup?: PropertyGroupFilter

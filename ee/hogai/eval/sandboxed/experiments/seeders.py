@@ -19,7 +19,13 @@ from products.tasks.backend.services.custom_prompt_internals import CustomPrompt
 logger = logging.getLogger(__name__)
 
 
-__all__ = ["seed_running_experiment", "ROLLOUT_EXPERIMENT_NAME"]
+__all__ = [
+    "ROLLOUT_EXPERIMENT_NAME",
+    "SHARED_METRIC_NAME",
+    "SHARED_METRIC_EVENT",
+    "seed_running_experiment",
+    "seed_shared_metric_purchase_count",
+]
 
 
 # Deterministic name referenced verbatim by the rollout-skill prompt so the
@@ -81,5 +87,52 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
         team_id,
         experiment.id,
         flag.key,
+    )
+    return payload
+
+
+SHARED_METRIC_NAME = "purchase count per user"
+SHARED_METRIC_EVENT = "purchase_completed"
+
+
+def seed_shared_metric_purchase_count(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """Seed one shared metric: mean count of purchase_completed per user, no filters."""
+    from products.experiments.backend.models.experiment import ExperimentSavedMetric
+
+    team_id = context.team_id
+    user_id = context.user_id
+
+    query = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "source": {
+            "kind": "EventsNode",
+            "event": SHARED_METRIC_EVENT,
+            "math": "total",
+        },
+        "uuid": str(uuid.uuid4()),
+    }
+
+    metric = ExperimentSavedMetric.objects.create(
+        team_id=team_id,
+        created_by_id=user_id,
+        name=SHARED_METRIC_NAME,
+        description="Counts purchase_completed events per user.",
+        query=query,
+    )
+
+    payload: dict[str, Any] = {
+        "saved_metric_id": metric.id,
+        "saved_metric_name": metric.name,
+        "event": SHARED_METRIC_EVENT,
+        "metric_type": "mean",
+        "math": "total",
+    }
+    logger.info(
+        "Seeded shared metric for team_id=%s: id=%s name=%s event=%s",
+        team_id,
+        metric.id,
+        metric.name,
+        SHARED_METRIC_EVENT,
     )
     return payload
