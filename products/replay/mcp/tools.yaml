@@ -18,6 +18,12 @@ tools:
     create-session-summaries-individually:
         operation: create_session_summaries_individually
         enabled: false
+    hog-flows-replay-create:
+        operation: hog_flows_replay_create
+        enabled: false
+    hog-functions-replay-create:
+        operation: hog_functions_replay_create
+        enabled: false
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
