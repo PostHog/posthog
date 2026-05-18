@@ -447,7 +447,12 @@ def _capture_user_interview_event(
     extra_properties: dict[str, Any] | None = None,
 ) -> None:
     """Fire a PostHog event for a user-interview lifecycle moment (conversation started/ended).
-    Failures never propagate — analytics never blocks a webhook delivery."""
+    Failures never propagate — analytics never blocks a webhook delivery.
+
+    Vapi emits `status-update` per state transition and may re-fire `in-progress` after
+    transient drops or warm-transfer flows, and end-of-call-report can be retried by Vapi
+    until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
+    delivery at ingest — funnels see one start and one end per call."""
     interviewee_context = sharing_config.interviewee_context
     if interviewee_context is None:
         return
@@ -456,6 +461,8 @@ def _capture_user_interview_event(
         "team_id": sharing_config.team_id,
         "call_id": call_id,
     }
+    if call_id:
+        properties["$insert_id"] = f"{event}:{call_id}"
     if extra_properties:
         properties.update(extra_properties)
     try:

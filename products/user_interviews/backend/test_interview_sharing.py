@@ -667,6 +667,28 @@ class TestVapiWebhook(APIBaseTest):
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_capture):
+        # Vapi re-fires `status-update / in-progress` on transient drops + warm-transfer flows.
+        # We tag every started event with `$insert_id` = "user_interview_conversation_started:<call_id>"
+        # so PostHog dedupes the second delivery at ingest. Both captures fire here (we don't
+        # de-dup client-side); the contract is that they share an insert_id.
+        share = self._create_share()
+        self.client.logout()
+        payload = {
+            "message": {
+                "type": "status-update",
+                "status": "in-progress",
+                "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+            }
+        }
+        self._signed_post("topsecret", payload)
+        self._signed_post("topsecret", payload)
+        self.assertEqual(mock_capture.call_count, 2)
+        for call in mock_capture.call_args_list:
+            self.assertEqual(call.kwargs["properties"]["$insert_id"], "user_interview_conversation_started:call_xyz")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
     def test_webhook_status_update_other_statuses_do_not_capture(self, mock_capture):
         share = self._create_share()
         self.client.logout()
