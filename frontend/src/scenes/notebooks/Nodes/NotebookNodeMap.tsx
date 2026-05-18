@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { Marker } from 'maplibre-gl'
 
+import { IconMapPin } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -55,6 +56,7 @@ type NotebookNodeMapAttributes = {
 export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes>({
     nodeType: NotebookNodeType.Map,
     titlePlaceholder: 'Location',
+    icon: <IconMapPin />,
     Component,
     resizeable: true,
     heightEstimate: 150,

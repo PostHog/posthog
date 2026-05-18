@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconChat, IconX } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -90,6 +90,7 @@ type NotebookNodeZendeskTicketsAttributes = {
 export const NotebookNodeZendeskTickets = createPostHogWidgetNode<NotebookNodeZendeskTicketsAttributes>({
     nodeType: NotebookNodeType.ZendeskTickets,
     titlePlaceholder: 'Zendesk tickets',
+    icon: <IconChat />,
     Component,
     Settings,
     resizeable: false,

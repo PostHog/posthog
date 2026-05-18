@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -75,6 +75,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttri
 export const NotebookNodeTaskCreate = createPostHogWidgetNode<NotebookNodeTaskCreateAttributes>({
     nodeType: NotebookNodeType.TaskCreate,
     titlePlaceholder: 'Suggested task',
+    icon: <IconCheckCircle />,
     startExpanded: false,
     Component,
     resizeable: false,

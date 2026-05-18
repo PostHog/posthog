@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { IconFlask } from '@posthog/icons'
+
 import { NotebookExperimentComponent } from '~/scenes/experiments/notebook'
 import { createPostHogWidgetNode } from '~/scenes/notebooks/Nodes/NodeWrapper'
 import { type NotebookNodeProps, NotebookNodeType } from '~/scenes/notebooks/types'
@@ -22,6 +24,7 @@ type NotebookNodeExperimentAttributes = {
 export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperimentAttributes>({
     nodeType: NotebookNodeType.Experiment,
     titlePlaceholder: 'Experiment',
+    icon: <IconFlask />,
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.experiment(attrs.id),

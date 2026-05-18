@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -360,6 +361,7 @@ export const Settings = ({
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
+    icon: <IconGraph />,
     Component,
     heightEstimate: EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconList } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -44,6 +45,7 @@ const Component = (): JSX.Element | null => {
 export const NotebookNodeGroupProperties = createPostHogWidgetNode({
     nodeType: NotebookNodeType.GroupProperties,
     titlePlaceholder: 'Properties',
+    icon: <IconList />,
     Component,
     resizeable: false,
     expandable: true,

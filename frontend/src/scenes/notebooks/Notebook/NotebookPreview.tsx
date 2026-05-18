@@ -1,36 +1,11 @@
 import { Fragment } from 'react'
 
-import {
-    IconChat,
-    IconFlask,
-    IconGraph,
-    IconHogQL,
-    IconImage,
-    IconNotebook,
-    IconPython,
-    IconRewindPlay,
-    IconSquareRoot,
-} from '@posthog/icons'
+import { IconNotebook } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 
-import { NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
-
-// Icons for the most common embed types.
-// Anything not listed here gets the generic IconNotebook fallback.
-const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
-    [NotebookNodeType.Query]: <IconGraph />,
-    [NotebookNodeType.HogQLSQL]: <IconHogQL />,
-    [NotebookNodeType.DuckSQL]: <IconHogQL />,
-    [NotebookNodeType.Python]: <IconPython />,
-    [NotebookNodeType.Latex]: <IconSquareRoot />,
-    [NotebookNodeType.Recording]: <IconRewindPlay />,
-    [NotebookNodeType.Image]: <IconImage />,
-    [NotebookNodeType.Experiment]: <IconFlask />,
-    [NotebookNodeType.Survey]: <IconChat />,
-}
 
 const MARK_WRAPPERS: Record<string, (children: JSX.Element, attrs?: Record<string, any>) => JSX.Element> = {
     bold: (c) => <strong>{c}</strong>,
@@ -152,7 +127,8 @@ function describeEmbed(type: string): string {
 }
 
 function pickIcon(type: string): JSX.Element {
-    return NODE_ICONS[type as NotebookNodeType] ?? <IconNotebook />
+    // Fallback covers types not registered in KNOWN_NODES (unknown embeds).
+    return KNOWN_NODES[type]?.icon ?? <IconNotebook />
 }
 
 function EmbedPlaceholder({ icon, label }: { icon: JSX.Element; label: string }): JSX.Element {

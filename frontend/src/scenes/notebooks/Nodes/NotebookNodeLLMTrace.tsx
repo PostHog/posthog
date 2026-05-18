@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconAI, IconX } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -177,6 +177,7 @@ type NotebookNodeLLMTraceAttributes = {
 export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTraceAttributes>({
     nodeType: NotebookNodeType.LLMTrace,
     titlePlaceholder: 'Traces',
+    icon: <IconAI />,
     Component,
     Settings,
     resizeable: false,

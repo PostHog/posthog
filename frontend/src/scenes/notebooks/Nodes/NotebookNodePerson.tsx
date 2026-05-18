@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconPerson } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -271,6 +272,7 @@ type NotebookNodePersonAttributes = {
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
     titlePlaceholder: 'Person',
+    icon: <IconPerson />,
     Component,
     expandable: false,
     href: (attrs) => {

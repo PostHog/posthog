@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconTrending } from '@posthog/icons'
+import { IconGroups, IconTrending } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -279,6 +279,7 @@ type NotebookNodeGroupAttributes = {
 export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttributes>({
     nodeType: NotebookNodeType.Group,
     titlePlaceholder: 'Group',
+    icon: <IconGroups />,
     Component,
     heightEstimate: 300,
     minHeight: 100,

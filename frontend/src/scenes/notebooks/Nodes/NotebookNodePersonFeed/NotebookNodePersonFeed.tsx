@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconPerson, IconX } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -93,6 +93,7 @@ type NotebookNodePersonFeedAttributes = {
 export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePersonFeedAttributes>({
     nodeType: NotebookNodeType.PersonFeed,
     titlePlaceholder: 'Feed',
+    icon: <IconPerson />,
     Component,
     resizeable: false,
     expandable: true,

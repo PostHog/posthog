@@ -1,6 +1,7 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconRewindPlay } from '@posthog/icons'
 import { PostHogErrorBoundary } from '@posthog/react'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -133,6 +134,7 @@ export type NotebookNodePlaylistAttributes = {
 export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
     nodeType: NotebookNodeType.RecordingPlaylist,
     titlePlaceholder: 'Session replays',
+    icon: <IconRewindPlay />,
     Component,
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {

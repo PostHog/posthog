@@ -161,6 +161,7 @@ type NotebookNodeCohortAttributes = {
 export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttributes>({
     nodeType: NotebookNodeType.Cohort,
     titlePlaceholder: 'Cohort',
+    icon: <IconPeople />,
     Component,
     heightEstimate: 300,
     minHeight: 100,
