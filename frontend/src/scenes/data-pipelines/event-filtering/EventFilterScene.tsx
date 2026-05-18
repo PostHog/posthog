@@ -266,16 +266,7 @@ export function EventFilterScene(): JSX.Element {
                     )}
 
                     <div className="flex gap-2">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                if (filterForm.mode === 'live' && !allTestsPass) {
-                                    setFilterFormValue('mode', 'dry_run')
-                                }
-                                submitFilterForm()
-                            }}
-                            loading={isFilterFormSubmitting}
-                        >
+                        <LemonButton type="primary" onClick={() => submitFilterForm()} loading={isFilterFormSubmitting}>
                             Save
                         </LemonButton>
                     </div>
