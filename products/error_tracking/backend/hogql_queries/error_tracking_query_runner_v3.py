@@ -424,7 +424,9 @@ class ErrorTrackingQueryV3Builder:
         return exprs
 
     def _outer_where_exprs(self) -> list[ast.Expr]:
-        exprs: list[ast.Expr] = []
+        exprs: list[ast.Expr] = [
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["fp_state", "issue_id"])]),
+        ]
 
         if self.query.issueId:
             exprs.append(
