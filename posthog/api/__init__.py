@@ -841,6 +841,7 @@ register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "
 
 if EE_AVAILABLE:
     from posthog.api import role_external_reference
+
     from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
