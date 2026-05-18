@@ -33,7 +33,18 @@ const submitEmailAndExpectExistingAccount = async (page: Page, email: string): P
     await page.locator('[data-attr=signup-email]').fill(email)
     await page.locator('[data-attr=signup-start]').click()
 
-    await expect(page.getByText('There is already an account with this email address.')).toBeVisible()
+    await expect(page.getByText(`An account with ${email} already exists.`)).toBeVisible()
+    const encodedEmail = encodeURIComponent(email)
+    const loginCta = page.locator('[data-attr=existing-account-log-in]')
+    await expect(loginCta).toBeVisible()
+    const loginHref = await loginCta.getAttribute('href')
+    expect(loginHref).toMatch(/^\/login\?/)
+    expect(loginHref).toContain(`email=${encodedEmail}`)
+    const resetCta = page.locator('[data-attr=existing-account-reset-password]')
+    await expect(resetCta).toBeVisible()
+    const resetHref = await resetCta.getAttribute('href')
+    expect(resetHref).toMatch(/^\/reset\?/)
+    expect(resetHref).toContain(`email=${encodedEmail}`)
     await expect(page.locator('[data-attr=signup-auth-continue]')).not.toBeVisible()
 }
 

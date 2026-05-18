@@ -89,3 +89,53 @@ describe('signupLogic — pending invite banner', () => {
         expect(logic.values.pendingInviteResent).toBe(false)
     })
 })
+
+describe('signupLogic — existing account banner', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [
+                    409,
+                    {
+                        type: 'validation_error',
+                        code: 'account_exists',
+                        detail: 'There is already an account with this email address.',
+                        attr: 'email',
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('captures the email and stays on panel 0 when precheck returns account_exists', async () => {
+        logic.actions.setSignupPanelEmailValue('email', 'already@there.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.existingAccountEmail).toBe('already@there.com')
+        expect(logic.values.panel).toBe(0)
+    })
+
+    it('clears the banner when the user edits the email to a different value', async () => {
+        logic.actions.setExistingAccountEmail('already@there.com')
+        logic.actions.setSignupPanelEmailValue('email', 'something-else@there.com')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.existingAccountEmail).toBeNull()
+    })
+
+    it('keeps the banner when the email is unchanged', async () => {
+        logic.actions.setExistingAccountEmail('already@there.com')
+        logic.actions.setSignupPanelEmailValue('email', 'already@there.com')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.existingAccountEmail).toBe('already@there.com')
+    })
+})

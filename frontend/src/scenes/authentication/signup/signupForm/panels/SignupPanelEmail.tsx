@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { ExistingAccountBanner } from './ExistingAccountBanner'
 import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanelEmail(): JSX.Element | null {
@@ -24,6 +25,7 @@ export function SignupPanelEmail(): JSX.Element | null {
         error,
         pendingInvite,
         signupPanelEmail,
+        existingAccountEmail,
     } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -38,6 +40,7 @@ export function SignupPanelEmail(): JSX.Element | null {
     return (
         <div className="deprecated-space-y-4 Signup__panel__email">
             <RegionSelect />
+            {existingAccountEmail && <ExistingAccountBanner email={existingAccountEmail} />}
             {passkeyError && (
                 <LemonBanner type="error" className="mb-4">
                     {passkeyError}

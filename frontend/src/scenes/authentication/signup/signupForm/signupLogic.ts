@@ -87,6 +87,8 @@ export const signupLogic = kea<signupLogicType>([
         resendPendingInvite: (email: string) => ({ email }),
         setPendingInviteResent: (resent: boolean) => ({ resent }),
         setPendingInviteResending: (resending: boolean) => ({ resending }),
+        // Existing-account banner actions
+        setExistingAccountEmail: (email: string | null) => ({ email }),
     })),
     reducers(() => ({
         panel: [
@@ -174,6 +176,12 @@ export const signupLogic = kea<signupLogicType>([
                 setPendingInviteResending: (_, { resending }) => resending,
             },
         ],
+        existingAccountEmail: [
+            null as string | null,
+            {
+                setExistingAccountEmail: (_, { email }) => email,
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         signupPanelEmail: {
@@ -194,6 +202,7 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
                 actions.setError(null)
+                actions.setExistingAccountEmail(null)
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
                     precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
@@ -201,11 +210,7 @@ export const signupLogic = kea<signupLogicType>([
                     })
                 } catch (e: any) {
                     if (e?.status === 409 || e?.code === 'account_exists') {
-                        const errorMessage = e?.detail || 'There is already an account with this email address.'
-                        actions.setSignupPanelEmailManualErrors({
-                            email: errorMessage,
-                        })
-                        actions.setError(errorMessage)
+                        actions.setExistingAccountEmail(email)
                         actions.setPanel(0)
                         return
                     }
@@ -350,6 +355,7 @@ export const signupLogic = kea<signupLogicType>([
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
                 actions.setSignupPanel1ManualErrors({})
+                actions.setExistingAccountEmail(null)
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
                     precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
@@ -357,9 +363,7 @@ export const signupLogic = kea<signupLogicType>([
                     })
                 } catch (e: any) {
                     if (e?.status === 409 || e?.code === 'account_exists') {
-                        actions.setSignupPanel1ManualErrors({
-                            email: 'There is already an account with this email address.',
-                        })
+                        actions.setExistingAccountEmail(email)
                         actions.setPanel(0)
                         return
                     }
@@ -369,9 +373,7 @@ export const signupLogic = kea<signupLogicType>([
                     return
                 }
                 if (precheckResponse.email_exists || precheckResponse.code === 'account_exists') {
-                    actions.setSignupPanel1ManualErrors({
-                        email: precheckResponse.detail || 'There is already an account with this email address.',
-                    })
+                    actions.setExistingAccountEmail(email)
                     actions.setPanel(0)
                     return
                 }
@@ -549,12 +551,18 @@ export const signupLogic = kea<signupLogicType>([
             if (name.toString() === 'email' && typeof value === 'string') {
                 actions.setEmailNormalized(false)
                 actions.normalizeEmailWithDelay(value)
+                if (values.existingAccountEmail && value !== values.existingAccountEmail) {
+                    actions.setExistingAccountEmail(null)
+                }
             }
         },
         setSignupPanel1Value: ({ name, value }) => {
             if (name.toString() === 'email' && typeof value === 'string') {
                 actions.setEmailNormalized(false)
                 actions.normalizeEmailWithDelay(value)
+                if (values.existingAccountEmail && value !== values.existingAccountEmail) {
+                    actions.setExistingAccountEmail(null)
+                }
             }
         },
         setPasskeyRegistered: ({ registered }) => {

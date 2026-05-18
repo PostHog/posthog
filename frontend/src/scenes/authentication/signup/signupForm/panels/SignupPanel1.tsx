@@ -13,12 +13,20 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { ExistingAccountBanner } from './ExistingAccountBanner'
 import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice, pendingInvite, signupPanel1 } =
-        useValues(signupLogic)
+    const {
+        isSignupPanel1Submitting,
+        validatedPassword,
+        loginUrl,
+        emailCaseNotice,
+        pendingInvite,
+        signupPanel1,
+        existingAccountEmail,
+    } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -33,6 +41,7 @@ export function SignupPanel1(): JSX.Element | null {
     return (
         <div className="deprecated-space-y-4 Signup__panel__1">
             <RegionSelect />
+            {existingAccountEmail && <ExistingAccountBanner email={existingAccountEmail} />}
             {!preflight?.demo && socialAuthAvailable && (
                 <>
                     <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
