@@ -302,8 +302,10 @@ def vapi_webhook(request: Request) -> Response:
         body_bytes=len(request.body),
     )
     if not (provided and expected and hmac.compare_digest(provided, expected)):
-        # Log prefixes (first 8 chars of one-way hashes — safe to log; do not leak secrets) to diagnose
-        # whether the failure is wrong-secret vs different-body vs case-mismatch.
+        # TODO: REMOVE — temporary diagnostic dump of the raw body and the
+        # provided signature so we can locally reproduce Vapi's HMAC and find
+        # the byte-level mismatch that's causing 100% signature_failed. Safe
+        # only because user_interviews is not yet shipped to real users.
         logger.warning(
             "user_interviews_vapi_webhook_signature_failed",
             has_provided_signature=bool(provided),
@@ -311,6 +313,8 @@ def vapi_webhook(request: Request) -> Response:
             provided_prefix=provided[:8] if provided else None,
             provided_length=len(provided) if provided else 0,
             body_bytes=len(request.body),
+            provided_signature=provided,
+            raw_body=request.body.decode("utf-8", errors="replace"),
         )
         return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
