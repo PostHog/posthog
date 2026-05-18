@@ -444,13 +444,13 @@ tools:
             user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
-            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the linked feature flag
-            and cannot be undone via the API. Two release modes — confirm which one the user wants before invoking:
+            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the linked feature flag and
+            cannot be undone via the API. Two release modes — confirm which one the user wants before invoking:
 
 
-            - Default (release_to_everyone=false): updates only the variant distribution so the selected variant
-            gets 100%. Existing release conditions and per-user variant overrides on the flag are preserved untouched —
-            the variant is served only to users who already match them.
+            - Default (release_to_everyone=false): updates only the variant distribution so the selected variant gets
+            100%. Existing release conditions and per-user variant overrides on the flag are preserved untouched — the
+            variant is served only to users who already match them.
 
 
             - release_to_everyone=true: in addition to flipping the variant distribution, prepends a catch-all release
