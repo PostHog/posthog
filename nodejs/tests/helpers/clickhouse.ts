@@ -22,6 +22,10 @@ import { fetch } from '~/utils/request'
 import { logger } from '../../src/utils/logger'
 import { delay, escapeClickHouseString } from '../../src/utils/utils'
 
+const DEFAULT_CLICKHOUSE_SETTINGS = {
+    enable_analyzer: 1,
+} as const
+
 export class Clickhouse {
     private client: ClickHouseClient
 
@@ -42,6 +46,7 @@ export class Clickhouse {
             username: CLICKHOUSE_USER,
             password: CLICKHOUSE_PASSWORD || undefined,
             database: CLICKHOUSE_DATABASE,
+            clickhouse_settings: DEFAULT_CLICKHOUSE_SETTINGS,
             max_open_connections: 50, // Increased from 30 for better concurrency
             // Connection reliability improvements
             request_timeout: 30000, // 30s minutes request timeout

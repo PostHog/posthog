@@ -28,9 +28,9 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person_created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
                                                                                           AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
@@ -41,27 +41,21 @@
                   arrayJoin(temp_concat) as period_status_pairs,
                   period_status_pairs.1 as start_of_period,
                   period_status_pairs.2 as status,
-                  toDateTime(min(person.created_at), 'UTC') AS created_at
+                  toDateTime(min(person_created_at), 'UTC') AS created_at
            FROM events AS e SAMPLE 0.1
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id,
-                     argMax(created_at, version) as created_at
-              FROM person
-              WHERE team_id = 99999
-              GROUP BY id
-              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day
-           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+             AND notEmpty(e.person_id)
+           GROUP BY if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
@@ -101,9 +95,9 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person_created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
                                                                                           AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
@@ -114,27 +108,21 @@
                   arrayJoin(temp_concat) as period_status_pairs,
                   period_status_pairs.1 as start_of_period,
                   period_status_pairs.2 as status,
-                  toDateTime(min(person.created_at), 'UTC') AS created_at
+                  toDateTime(min(person_created_at), 'UTC') AS created_at
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id,
-                     argMax(created_at, version) as created_at
-              FROM person
-              WHERE team_id = 99999
-              GROUP BY id
-              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day
-           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+             AND notEmpty(e.person_id)
+           GROUP BY if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
@@ -174,9 +162,9 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'US/Pacific'), 'US/Pacific')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'US/Pacific'), 'US/Pacific')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person_created_at), 'US/Pacific'), 'US/Pacific')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
                                                                                           AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
@@ -187,27 +175,21 @@
                   arrayJoin(temp_concat) as period_status_pairs,
                   period_status_pairs.1 as start_of_period,
                   period_status_pairs.2 as status,
-                  toDateTime(min(person.created_at), 'US/Pacific') AS created_at
+                  toDateTime(min(person_created_at), 'US/Pacific') AS created_at
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id,
-                     argMax(created_at, version) as created_at
-              FROM person
-              WHERE team_id = 99999
-              GROUP BY id
-              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) + INTERVAL 1 day
-           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+             AND notEmpty(e.person_id)
+           GROUP BY if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))

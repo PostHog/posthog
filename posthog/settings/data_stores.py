@@ -367,19 +367,6 @@ except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 
-def is_enable_analyzer_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_enable_analyzer_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
-
-
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
     if team_id is None:
         return False
