@@ -39,7 +39,7 @@ tools:
             destructive: true
             idempotent: true
         title: Delete account
-        description: >
+        description: |
             Permanently delete a Customer Analytics account by id.
         feature_flag: posthog-csp
     accounts-list:
@@ -89,8 +89,8 @@ tools:
             idempotent: true
         title: Get account
         description: >
-            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
-            (csm, account_executive, account_owner assignments).
+            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
+            account_executive, account_owner assignments).
         feature_flag: posthog-csp
     accounts-update:
         operation: accounts_update
