@@ -58,7 +58,6 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
     actions({
         setTestFormData: (formData: Partial<TestFormData>) => ({ formData }),
         setTestError: (error: string | null) => ({ error }),
-        setShowAllProperties: (showAll: boolean) => ({ showAll }),
         setDatePickerOpen: (open: boolean) => ({ open }),
         setDatePickerValue: (value: Dayjs | null) => ({ value }),
         setSelectedPerson: (person: PersonType | null) => ({ person }),
@@ -80,7 +79,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     if (formData.timestamp?.trim()) {
                         data.timestamp = formData.timestamp.trim()
 
-                        const parsedTimestamp = dayjs(data.timestamp)
+                        const parsedTimestamp = dayjs(data.timestamp, 'YYYY-MM-DDTHH:mm:ss.SSSZ', true)
                         if (!parsedTimestamp.isValid()) {
                             throw new Error('Invalid timestamp format')
                         }
@@ -104,6 +103,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             {
                 setTestError: (_, { error }: { error: string | null }) => error,
                 testFlagEvaluation: () => null,
+                clearTestForm: () => null,
                 testFlagEvaluationFailure: (_, { error, errorObject }: { error: string; errorObject?: unknown }) => {
                     const apiError = errorObject as ApiError
                     if (apiError?.detail) {
@@ -138,13 +138,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             {
                 testFlagEvaluationSuccess: (_, { testEvaluation }) => testEvaluation,
                 clearTestForm: () => null,
-            },
-        ],
-        showAllProperties: [
-            false,
-            {
-                setShowAllProperties: (_, { showAll }) => showAll,
-                clearTestForm: () => false,
+                setTestFormData: () => null,
             },
         ],
         datePickerOpen: [
@@ -182,34 +176,6 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     }
                 }
                 return used
-            },
-        ],
-        // Get properties to show based on showAllProperties toggle and used properties
-        propertiesToShow: [
-            (s) => [s.testResult, s.showAllProperties, s.usedProperties],
-            (result: TestResult | null, showAll: boolean, usedProps: Set<string>): string[] => {
-                if (!result) {
-                    return []
-                }
-                return showAll ? Object.keys(result.person_properties) : Array.from(usedProps)
-            },
-        ],
-        // Get properties sorted with used properties first, then alphabetical
-        sortedProperties: [
-            (s) => [s.propertiesToShow, s.usedProperties],
-            (propertiesToShow: string[], usedProps: Set<string>): string[] => {
-                return propertiesToShow.sort((a, b) => {
-                    // Show used properties first, then alphabetical
-                    const aUsed = usedProps.has(a)
-                    const bUsed = usedProps.has(b)
-                    if (aUsed && !bUsed) {
-                        return -1
-                    }
-                    if (!aUsed && bUsed) {
-                        return 1
-                    }
-                    return a.localeCompare(b)
-                })
             },
         ],
         // Get enriched conditions with derived flags for UI rendering

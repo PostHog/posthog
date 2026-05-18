@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 
+import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import type { Dayjs } from 'lib/dayjs'
@@ -12,35 +13,6 @@ import type { FeatureFlagType, PersonType } from '~/types'
 import type { ConditionAnalysis } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
-function formatPropertyKey(key: string): string {
-    return key
-        .split('_')
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ')
-}
-
-function formatPropertyValue(value: unknown): string {
-    if (value === null || value === undefined) {
-        return 'not set'
-    }
-    if (typeof value === 'string') {
-        return value
-    }
-    if (typeof value === 'boolean') {
-        return value ? 'true' : 'false'
-    }
-    if (typeof value === 'number') {
-        return value.toString()
-    }
-    if (Array.isArray(value)) {
-        return value.map((v) => formatPropertyValue(v)).join(', ')
-    }
-    if (typeof value === 'object') {
-        return JSON.stringify(value)
-    }
-    return String(value)
-}
-
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
 
@@ -48,13 +20,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         testFormData: formData,
         testError: error,
         testResult: result,
-        showAllProperties,
         datePickerOpen,
         datePickerValue,
         testEvaluationLoading: isLoading,
         selectedPerson,
         usedProperties,
-        sortedProperties,
         enrichedConditions,
         hasValidPerson,
     } = useValues(logic)
@@ -62,7 +32,6 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     const {
         setTestFormData,
         setTestError,
-        setShowAllProperties,
         setDatePickerOpen,
         setDatePickerValue,
         setSelectedPerson,
@@ -138,9 +107,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <strong>Person ID:</strong> {formData.person_id || 'Not available'}
                                 </div>
                                 <div>
-                                    <strong>Distinct IDs:</strong> {selectedPerson.distinct_ids?.slice(0, 3).join(', ')}
-                                    {selectedPerson.distinct_ids &&
-                                        selectedPerson.distinct_ids.length > 3 &&
+                                    <strong>Distinct IDs:</strong> {selectedPerson.distinct_ids.slice(0, 3).join(', ')}
+                                    {selectedPerson.distinct_ids.length > 3 &&
                                         ` (+${selectedPerson.distinct_ids.length - 3} more)`}
                                 </div>
                             </div>
@@ -270,8 +238,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <LemonLabel>Flag result</LemonLabel>
                                     <div
                                         className={`px-3 py-2 rounded text-sm font-mono ${
-                                            result.result === true ||
-                                            (typeof result.result === 'string' && result.result !== 'false')
+                                            result.condition_index !== null
                                                 ? 'bg-success-highlight text-success'
                                                 : 'bg-danger-highlight text-danger'
                                         }`}
@@ -406,71 +373,14 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     </div>
 
                                     <div className="max-h-96 overflow-auto">
-                                        {Object.keys(result.person_properties).length === 0 ? (
-                                            <div className="text-center py-4 text-muted">
-                                                <p>No person properties available</p>
-                                                <p className="text-xs mt-1">
-                                                    This person has no properties, or they were not included in the
-                                                    evaluation
-                                                </p>
-                                            </div>
-                                        ) : sortedProperties.length === 0 ? (
-                                            <div className="text-center py-4 text-muted">
-                                                <p>No properties used in conditions</p>
-                                                <p className="text-xs mt-1">
-                                                    This person has {Object.keys(result.person_properties).length}{' '}
-                                                    properties, but none were used in flag conditions.{' '}
-                                                    <button
-                                                        className="text-primary cursor-pointer underline"
-                                                        onClick={() => setShowAllProperties(true)}
-                                                    >
-                                                        Show all properties
-                                                    </button>
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <LemonTable
-                                                columns={[
-                                                    {
-                                                        title: 'Property',
-                                                        key: 'property',
-                                                        render: (_, record: { key: string }) => (
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-medium">
-                                                                    {formatPropertyKey(record.key)}
-                                                                </span>
-                                                                {usedProperties.has(record.key) && (
-                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-highlight text-success border border-success">
-                                                                        Used in condition
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        ),
-                                                    },
-                                                    {
-                                                        title: 'Value',
-                                                        key: 'value',
-                                                        render: (_, record: { key: string }) => (
-                                                            <span
-                                                                className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                    result.person_properties[record.key] === null ||
-                                                                    result.person_properties[record.key] === undefined
-                                                                        ? 'bg-muted text-muted-alt'
-                                                                        : 'bg-bg-light border'
-                                                                }`}
-                                                            >
-                                                                {formatPropertyValue(
-                                                                    result.person_properties[record.key]
-                                                                )}
-                                                            </span>
-                                                        ),
-                                                    },
-                                                ]}
-                                                dataSource={sortedProperties.map((key) => ({ key }))}
-                                                rowKey={(record) => record.key}
-                                                size="small"
-                                            />
-                                        )}
+                                        <PropertiesTable
+                                            properties={result.person_properties}
+                                            type={PropertyDefinitionType.Person}
+                                            searchable={true}
+                                            sortProperties={true}
+                                            highlightedKeys={Array.from(usedProperties)}
+                                            embedded={true}
+                                        />
                                     </div>
                                 </div>
                             </div>
