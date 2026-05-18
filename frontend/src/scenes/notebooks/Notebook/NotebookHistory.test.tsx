@@ -145,7 +145,8 @@ describe('Notebook history revert flow', () => {
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
         expect(logic.values.previewContent).toBeNull()
-        // saveNotebook clears localContent after a successful save; we assert on the wire payload instead
+        // localContent is cleared by saveNotebook once the save resolves
+        expect(logic.values.localContent).toBeNull()
         expect(apiUpdateSpy).toHaveBeenCalledWith(
             SHORT_ID,
             expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
@@ -192,7 +193,8 @@ describe('Notebook history revert flow', () => {
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
         expect(logic.values.previewContent).toBeNull()
-        // saveNotebook clears localContent after a successful save; we assert on the wire payload instead
+        // localContent is cleared by saveNotebook once the save resolves
+        expect(logic.values.localContent).toBeNull()
         expect(apiCreateSpy).toHaveBeenCalledWith(
             `api/projects/@current/notebooks/${SHORT_ID}/collab/save/`,
             expect.objectContaining({ content: HISTORICAL_DOC, client_id: 'test-client' })
