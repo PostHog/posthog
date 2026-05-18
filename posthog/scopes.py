@@ -240,3 +240,23 @@ def get_oauth_scopes_supported() -> list[str]:
         for action in API_SCOPE_ACTIONS
     )
     return list(OIDC_SCOPES) + list(visible)
+
+
+def get_oauth_grantable_scope_descriptions() -> dict[str, str]:
+    """Description map for every scope the OAuth authorization server can mint.
+
+    Mirrors `get_oauth_scopes_supported()` and is used by Django's
+    `OAUTH2_PROVIDER["SCOPES"]` to validate scope requests at `/authorize`.
+    Without this, scopes advertised in OAuth metadata but excluded from PAK UI
+    (`PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS` — e.g. `signal_agent_internal`)
+    would be rejected with `invalid_scope` despite being intentionally
+    OAuth-grantable for server-to-server flows like the Signals agent harness
+    sandbox token.
+    """
+    return {
+        f"{obj}:{action}": f"{action.capitalize()} access to {obj}"
+        for obj in API_SCOPE_OBJECTS
+        if (obj not in INTERNAL_API_SCOPE_OBJECTS or obj in PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS)
+        and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
+        for action in API_SCOPE_ACTIONS
+    }

@@ -5,7 +5,7 @@ from datetime import timedelta
 import structlog
 from corsheaders.defaults import default_headers
 
-from posthog.scopes import get_scope_descriptions
+from posthog.scopes import get_oauth_grantable_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -761,7 +761,7 @@ OAUTH2_PROVIDER = {
         "email": "Access to user's email address",
         "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
-        **get_scope_descriptions(),
+        **get_oauth_grantable_scope_descriptions(),
     },
     # Block dangerous URI schemes that could be used for attacks
     # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
