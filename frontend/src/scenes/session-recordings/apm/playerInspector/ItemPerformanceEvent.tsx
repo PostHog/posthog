@@ -387,22 +387,45 @@ export function BodyDisplay({
         language = Language.JSON
     }
 
-    const isAutoRedaction = /(\[SessionRecording].*redacted)/.test(displayContent)
+    const placeholderReason = /\[SessionRecording].*?(redacted|too large to record)/.exec(displayContent)?.[1]
 
-    return isAutoRedaction ? (
-        <>
-            <p>
-                This content was redacted by PostHog to protect sensitive data.{' '}
-                <Link
-                    to="https://posthog.com/docs/session-replay/network-recording?utm_medium=in-product"
-                    target="_blank"
-                >
-                    Learn how to override PostHog's automatic redaction code.
-                </Link>
-            </p>
-            <pre>received: {displayContent}</pre>
-        </>
-    ) : (
+    if (placeholderReason === 'redacted') {
+        return (
+            <>
+                <p>
+                    This content was redacted by PostHog to protect sensitive data.{' '}
+                    <Link
+                        to="https://posthog.com/docs/session-replay/network-recording?utm_medium=in-product"
+                        target="_blank"
+                    >
+                        Learn how to override PostHog's automatic redaction code.
+                    </Link>
+                </p>
+                <pre>received: {displayContent}</pre>
+            </>
+        )
+    }
+
+    if (placeholderReason === 'too large to record') {
+        return (
+            <>
+                <p>
+                    This body was dropped because it exceeded the SDK's network capture size limit.{' '}
+                    <Link
+                        to="https://posthog.com/docs/session-replay/network-recording?utm_medium=in-product"
+                        target="_blank"
+                    >
+                        Learn how to raise the limit
+                    </Link>
+                    , or adjust capture in your{' '}
+                    <Link to={urls.settings('project-replay', 'replay-network')}>replay network settings</Link>.
+                </p>
+                <pre>received: {displayContent}</pre>
+            </>
+        )
+    }
+
+    return (
         <CodeSnippet language={language} wrap={true} thing="request body" compact={false}>
             {displayContent}
         </CodeSnippet>

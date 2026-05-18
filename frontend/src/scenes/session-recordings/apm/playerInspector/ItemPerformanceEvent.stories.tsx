@@ -149,3 +149,30 @@ export function InitialBodyDisplay(): JSX.Element {
         />
     )
 }
+
+export function RedactedBodyDisplay(): JSX.Element {
+    return (
+        <BodyDisplay
+            content="[SessionRecording] Response body redacted as might contain: password"
+            headers={{ 'content-type': 'application/json' }}
+        />
+    )
+}
+
+export function TooLargeRequestBodyDisplay(): JSX.Element {
+    return (
+        <BodyDisplay
+            content="[SessionRecording] Request body too large to record"
+            headers={{ 'content-type': 'application/json' }}
+        />
+    )
+}
+
+export function TooLargeResponseBodyDisplay(): JSX.Element {
+    return (
+        <BodyDisplay
+            content="[SessionRecording] Response body too large to record"
+            headers={{ 'content-type': 'application/json' }}
+        />
+    )
+}
