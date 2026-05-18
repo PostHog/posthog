@@ -55,8 +55,8 @@ from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,
     _ast_mismatch_shape,
     _probe_backend,
-    _safe_parse,
     _shape_for,
+    corpus_try_parse,
 )
 
 
@@ -171,16 +171,16 @@ def cmd_check(args: argparse.Namespace) -> int:
                         return 2
                 probed.add((oracle, candidate, rule))
             # `_shape_for` returns None for TWO distinct cases: oracle
-            # and candidate agree (genuinely fixed), OR the oracle now
-            # rejects the query. Every corpus entry was recorded
-            # *because* the oracle accepted it, so an oracle rejection
-            # is a behaviour change in the oracle itself — classifying
-            # it as "fixed" would let a regressed oracle masquerade as
-            # a clean run. Check the oracle independently first and
-            # bucket those separately. (The startup probe only checks
-            # the oracle is reachable via a trivial `"1"` parse — it
-            # can't catch a per-query behaviour change.)
-            o_status, _, _ = _safe_parse(entry["query"], rule, oracle)
+            # and candidate agree (genuinely fixed), OR the oracle no
+            # longer cleanly accepts the query. Every corpus entry was
+            # recorded *because* the oracle accepted it, so an oracle
+            # reject/crash is a behaviour change in the oracle itself —
+            # classifying it as "fixed" would let a regressed oracle
+            # masquerade as a clean run. Check the oracle independently
+            # first and bucket those separately. (The startup probe
+            # only checks the oracle is reachable via a trivial `"1"`
+            # parse — it can't catch a per-query behaviour change.)
+            o_status, _, _ = corpus_try_parse(entry["query"], rule, oracle)
             if o_status != "ok":
                 counts["oracle_rejects"] += 1
                 if len(sample["oracle_rejects"]) < args.max_samples:
