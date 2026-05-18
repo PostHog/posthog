@@ -2693,9 +2693,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Row is renamed to the qualified form so it lives alongside newly-discovered tables from
         # other schemas (e.g. public.example_table) without colliding on the unqualified name.
-        legacy = ExternalDataSchema.objects.get(
-            team_id=self.team.pk, source_id=source.pk, name="poblic.example_table"
-        )
+        legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="poblic.example_table")
         metadata = legacy.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "poblic", (
             f"legacy row pinned to wrong schema: {metadata.get('source_schema')!r}"
