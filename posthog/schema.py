@@ -20374,6 +20374,14 @@ class TraceSpansTreeQuery(BaseModel):
     kind: Literal["TraceSpansTreeQuery"] = "TraceSpansTreeQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansTreeQueryResponse | None = None
+    serviceName: str = Field(
+        ...,
+        description=(
+            "Service name that scopes the returned tree. Applied to the spans CTE so"
+            " the call-tree only contains spans from this service, even when matched"
+            " traces span multiple services."
+        ),
+    )
     serviceNames: list[str] | None = None
     spanName: str = Field(
         ...,
