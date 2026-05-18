@@ -1,5 +1,6 @@
 import type { CommonConfig } from '../common/config'
 import {
+    KAFKA_AI_INGESTION,
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -205,8 +206,8 @@ export type IngestionConsumerConfig = {
 
     // Combined-mode topic for the AI consumer. Production AI pods set
     // INGESTION_CONSUMER_CONSUME_TOPIC directly; this knob exists so the
-    // combined-mode dev/hobby process can spin up an AI consumer alongside
-    // analytics without hardcoding the topic name.
+    // combined-mode dev/hobby process can override the dedicated AI topic
+    // without rebuilding.
     AI_INGESTION_CONSUME_TOPIC: string
     AI_INGESTION_GROUP_ID: string
 }
@@ -310,9 +311,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_PIPELINE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
 
-        // Combined-mode AI consumer config — default to the analytics topic
-        // until capture starts routing AI events separately.
-        AI_INGESTION_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+        // Combined-mode AI consumer config — defaults to the dedicated ai_ingestion topic.
+        AI_INGESTION_CONSUME_TOPIC: KAFKA_AI_INGESTION,
         AI_INGESTION_GROUP_ID: 'ai-ingestion-consumer',
     }
 }
