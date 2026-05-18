@@ -97,13 +97,13 @@ describe('initMcpAnalytics', () => {
     }
 
     function getTrackOptions(): {
-        identify: () => Promise<unknown>
+        identify: { userId: string }
         eventTags: () => Promise<Record<string, string>>
         eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
     } {
         const call = vi.mocked(track).mock.calls[0]!
         return call[1] as {
-            identify: () => Promise<unknown>
+            identify: { userId: string }
             eventTags: () => Promise<Record<string, string>>
             eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
         }
@@ -118,27 +118,17 @@ describe('initMcpAnalytics', () => {
         expect(track).toHaveBeenCalledWith(
             server,
             expect.objectContaining({
-                apiKey: TEST_API_KEY,
+                posthogClient: expect.any(Object),
                 context: false,
                 enableAITracing: true,
                 enableTracing: true,
-                host: TEST_HOST,
-                identify: expect.any(Function),
+                identify: expect.objectContaining({ userId: expect.any(String) }),
                 eventTags: expect.any(Function),
                 eventProperties: expect.any(Function),
-                posthogOptions: {
-                    flushAt: 1,
-                    flushInterval: 0,
-                    host: TEST_HOST,
-                },
                 reportMissing: false,
             })
         )
-        expect(result).toMatchObject({
-            action: 'initialized',
-            contextEnabled: false,
-            reportMissingEnabled: false,
-        })
+        expect(result).toMatchObject({ action: 'initialized' })
     })
 
     it('enables required context only when explicitly requested', async () => {
@@ -158,11 +148,7 @@ describe('initMcpAnalytics', () => {
                 reportMissing: false,
             })
         )
-        expect(result).toMatchObject({
-            action: 'initialized',
-            contextEnabled: true,
-            reportMissingEnabled: false,
-        })
+        expect(result).toMatchObject({ action: 'initialized' })
     })
 
     it('enables get_more_tools (reportMissing) only when explicitly requested', async () => {
@@ -180,10 +166,7 @@ describe('initMcpAnalytics', () => {
                 reportMissing: true,
             })
         )
-        expect(result).toMatchObject({
-            action: 'initialized',
-            reportMissingEnabled: true,
-        })
+        expect(result).toMatchObject({ action: 'initialized' })
     })
 
     it.each(['POSTHOG_ANALYTICS_API_KEY', 'POSTHOG_ANALYTICS_HOST'] as const)(
@@ -206,7 +189,7 @@ describe('initMcpAnalytics', () => {
 
         await initMcpAnalytics(server, identity)
 
-        expect(await getTrackOptions().identify()).toEqual({ userId: 'user-123' })
+        expect(getTrackOptions().identify).toEqual({ userId: 'user-123' })
     })
 
     it('eventTags callback returns $session_id and $ai_session_id when available', async () => {
