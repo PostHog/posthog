@@ -15960,7 +15960,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -26732,7 +26732,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
