@@ -61,7 +61,9 @@ class ValidateFunnelExclusions:
 
     def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
         funnels_filter = context.query.funnelsFilter
-        exclusions = funnels_filter.exclusions if funnels_filter is not None else None
+        if funnels_filter is None:
+            return
+        exclusions = funnels_filter.exclusions
         if exclusions is None:
             return
 
