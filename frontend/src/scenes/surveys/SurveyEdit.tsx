@@ -29,7 +29,6 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -1367,14 +1366,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               </h3>
                                                               <LemonField
                                                                   name="linked_flag_id"
-                                                                  label="Link feature flag (optional)"
-                                                                  info={
-                                                                      <>
-                                                                          Connecting to a feature flag will
-                                                                          automatically enable this survey for everyone
-                                                                          in the feature flag.
-                                                                      </>
-                                                                  }
+                                                                  label="Feature flag targeting"
+                                                                  info="Optionally limit this survey to users who have a specific feature flag enabled. Connecting a flag enables the survey for everyone the flag is on for."
                                                               >
                                                                   {({ value, onChange }) => (
                                                                       <div
@@ -1436,8 +1429,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           {value && (
                                                                               <LemonButton
                                                                                   className="ml-2"
-                                                                                  icon={<IconCancel />}
+                                                                                  type="tertiary"
                                                                                   size="small"
+                                                                                  icon={<IconTrash />}
                                                                                   onClick={() => {
                                                                                       onChange(null)
                                                                                       setSurveyValue(
@@ -1452,8 +1446,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           ...conditions,
                                                                                       })
                                                                                   }}
-                                                                                  aria-label="close"
-                                                                              />
+                                                                              >
+                                                                                  Clear
+                                                                              </LemonButton>
                                                                           )}
                                                                       </div>
                                                                   )}
@@ -1716,7 +1711,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       </>
                                                                   )}
                                                               </LemonField>
-                                                              <LemonField.Pure label="Properties">
+                                                              <LemonField.Pure
+                                                                  label="Audience filters"
+                                                                  info="Limit this survey to users (or groups) whose properties match the conditions below."
+                                                              >
                                                                   <BindLogic
                                                                       logic={featureFlagLogic}
                                                                       props={{
