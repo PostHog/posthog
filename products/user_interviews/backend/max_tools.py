@@ -8,6 +8,8 @@ from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.exceptions_capture import capture_exception
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 
 from ee.hogai.tool import MaxTool
 
@@ -166,7 +168,7 @@ class CreateUserInterviewTopicTool(MaxTool):
     )
     args_schema: type[BaseModel] = CreateUserInterviewTopicArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("user_interview", "editor")]
 
     async def _arun_impl(
