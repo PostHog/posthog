@@ -22,7 +22,6 @@ PENDING_UPDATES_HOGQL_CONTEXT_KEY = "error_tracking_fingerprints"
 
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "fp_hash": IntegerDatabaseField(name="fp_hash", nullable=False),
     "fingerprint": StringDatabaseField(name="fingerprint", nullable=False),
     "issue_id": StringDatabaseField(name="issue_id", nullable=True),
     "issue_name": StringDatabaseField(name="issue_name", nullable=True),
@@ -80,9 +79,9 @@ def join_with_error_tracking_fingerprint_issue_state_table(
     return join_expr
 
 
-# Direct `argMax(x, version)` is safe: non-deleted rows always carry a complete
-# state snapshot, so the legacy `tupleElement(argMax(tuple(x), v))` null-skip
-# guard is unnecessary here.
+# Non-deleted rows carry a complete state snapshot per version, so the legacy
+# `tupleElement(argMax(tuple(x), v))` null-skip wrap is unnecessary — direct
+# `argMax(x, version)` is correct here.
 _ARGMAX_FIELDS: tuple[str, ...] = (
     "issue_id",
     "issue_name",
@@ -111,6 +110,10 @@ def select_from_error_tracking_fingerprint_issue_state_table(
         expr=ast.Call(name="cityHash64", args=[ast.Field(chain=[RAW_TABLE_NAME, "fingerprint"])]),
     )
 
+    # Wrap in `toNullable(...)` so unmatched LEFT OUTER JOIN rows produce real
+    # NULLs (CH `join_use_nulls=0` returns type defaults for non-Nullable cols
+    # like `issue_id UUID` / `issue_status VARCHAR`, which silently breaks
+    # `isNotNull(...)` filters downstream).
     select_exprs: list[ast.Expr] = [fp_hash_alias]
     for field_name in requested_fields:
         if field_name == "fp_hash":
@@ -120,10 +123,15 @@ def select_from_error_tracking_fingerprint_issue_state_table(
                 ast.Alias(
                     alias=field_name,
                     expr=ast.Call(
-                        name="argMax",
+                        name="toNullable",
                         args=[
-                            ast.Field(chain=[RAW_TABLE_NAME, field_name]),
-                            ast.Field(chain=[RAW_TABLE_NAME, "version"]),
+                            ast.Call(
+                                name="argMax",
+                                args=[
+                                    ast.Field(chain=[RAW_TABLE_NAME, field_name]),
+                                    ast.Field(chain=[RAW_TABLE_NAME, "version"]),
+                                ],
+                            )
                         ],
                     ),
                 )
@@ -224,7 +232,12 @@ class RawErrorTrackingFingerprintIssueStateTable(Table):
 
 
 class ErrorTrackingFingerprintIssueStateTable(LazyTable):
-    fields: dict[str, FieldOrTable] = ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS
+    # `fp_hash` is a computed alias produced by `lazy_select`, not a physical
+    # column — so it lives here, not on the raw table.
+    fields: dict[str, FieldOrTable] = {
+        **ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS,
+        "fp_hash": IntegerDatabaseField(name="fp_hash", nullable=False),
+    }
 
     def lazy_select(
         self,

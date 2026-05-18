@@ -32,7 +32,12 @@ def _bin_idx_expr(date_from: datetime.datetime, date_to: datetime.datetime, reso
     end = ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)])
     elapsed = ast.Call(name="dateDiff", args=[ast.Constant(value="seconds"), start, ast.Field(chain=["timestamp"])])
     total = ast.Call(name="dateDiff", args=[ast.Constant(value="seconds"), start, end])
-    bin_size = ast.Call(name="intDiv", args=[total, ast.Constant(value=resolution)])
+    # `greatest(1, ...)` guards against sub-`resolution`-second windows where
+    # `intDiv(total, resolution)` would be 0 and crash the inner intDiv.
+    bin_size = ast.Call(
+        name="greatest",
+        args=[ast.Constant(value=1), ast.Call(name="intDiv", args=[total, ast.Constant(value=resolution)])],
+    )
     raw = ast.Call(name="intDiv", args=[elapsed, bin_size])
     return ast.Call(name="least", args=[ast.Constant(value=resolution - 1), raw])
 
