@@ -1,6 +1,9 @@
 from django.contrib import admin
 
+from posthog.models import DuckgresServer
 
+
+@admin.register(DuckgresServer)
 class DuckgresServerAdmin(admin.ModelAdmin):
     list_display = (
         "id",

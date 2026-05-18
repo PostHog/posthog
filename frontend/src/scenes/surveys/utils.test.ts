@@ -36,6 +36,7 @@ import {
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
+    splitChoicesOnPaste,
     validateCSSProperty,
 } from './utils'
 
@@ -1377,5 +1378,46 @@ describe('timezone handling in survey date queries', () => {
         const result = getSurveyEndDateForQuery(survey)
 
         expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59$/)
+    })
+})
+
+describe('splitChoicesOnPaste', () => {
+    it('returns null when only one segment is pasted', () => {
+        expect(splitChoicesOnPaste('single value', [''], 0, false)).toBeNull()
+        expect(splitChoicesOnPaste('Yes, sometimes', [''], 0, false)).toBeNull()
+    })
+
+    it('splits newline-separated values into the choices array', () => {
+        expect(splitChoicesOnPaste('one\ntwo\nthree', [''], 0, false)).toEqual(['one', 'two', 'three'])
+    })
+
+    it('splits tab-separated values (spreadsheet rows)', () => {
+        expect(splitChoicesOnPaste('one\ttwo\tthree', [''], 0, false)).toEqual(['one', 'two', 'three'])
+    })
+
+    it('trims and drops empty segments', () => {
+        expect(splitChoicesOnPaste('  one  \n\n  two  \n', [''], 0, false)).toEqual(['one', 'two'])
+    })
+
+    it('inserts segments in place of the target choice and keeps surrounding choices', () => {
+        expect(splitChoicesOnPaste('two\nthree', ['one', 'placeholder', 'four'], 1, false)).toEqual([
+            'one',
+            'two',
+            'three',
+            'four',
+        ])
+    })
+
+    it('preserves the open-ended "Other" entry when pasting into a regular slot', () => {
+        expect(splitChoicesOnPaste('two\nthree', ['one', '', 'Other'], 1, true)).toEqual([
+            'one',
+            'two',
+            'three',
+            'Other',
+        ])
+    })
+
+    it('preserves the open-ended "Other" entry when pasting into the open-ended slot itself', () => {
+        expect(splitChoicesOnPaste('two\nthree', ['one', 'Other'], 1, true)).toEqual(['one', 'two', 'three', 'Other'])
     })
 })

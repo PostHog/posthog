@@ -3,10 +3,108 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const ExperimentSavedMetricsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentSavedMetricsCreateBodyNameMax = 400
+
+export const experimentSavedMetricsCreateBodyDescriptionMax = 400
+
+export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentSavedMetricsCreateBodyNameMax)
+            .describe('Name of the shared metric. Must be unique within the project (case-insensitive).'),
+        description: zod
+            .string()
+            .max(experimentSavedMetricsCreateBodyDescriptionMax)
+            .nullish()
+            .describe('Short description of what the metric measures.'),
+        query: zod
+            .unknown()
+            .describe(
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+            ),
+        tags: zod.array(zod.unknown()).optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+export const ExperimentSavedMetricsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentSavedMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentSavedMetricsPartialUpdateBodyNameMax = 400
+
+export const experimentSavedMetricsPartialUpdateBodyDescriptionMax = 400
+
+export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentSavedMetricsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Name of the shared metric. Must be unique within the project (case-insensitive).'),
+        description: zod
+            .string()
+            .max(experimentSavedMetricsPartialUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Short description of what the metric measures.'),
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+            ),
+        tags: zod.array(zod.unknown()).optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+export const ExperimentSavedMetricsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment saved metric.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * List experiments for the current project. Supports filtering by status and archival state.
