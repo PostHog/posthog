@@ -1848,6 +1848,10 @@ snapshots:
         hash: v1.k794b7964.d669cc7bd939e7cd9bae4003a228e194a6c383d827feb04baf491a89dfc0b698.eD11DZ4cr8p1GMBdBaTW1doXInEVj9CIhnyMP8RNpFo
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
+    insights-trendsbarchart--aggregated-compare-breakdown--dark:
+        hash: v1.k794b7964.665af86c19c56e64090968d389ad70f6c31723e48a5c33dd09471fd7f7803ee1.t7lftFAyNVc_TMUt4thz6VWm9dbx1fVSXYwzEhbKYBw
+    insights-trendsbarchart--aggregated-compare-breakdown--light:
+        hash: v1.k794b7964.5af2e4097a7ae88260510ae1241589c25aa3bd21ab7700f9e544b4222a307382.QRE1QgbF1lgcnLkjiCYIT9rEgCUVOegdsbSOeZ77Acw
     insights-trendsbarchart--compare--dark:
         hash: v1.k794b7964.68689d02aa245c2ccd04888b1c2bc578136eda4117f2fff911bde3f5c276b9da.svBnhEDDJ61_Vp6T3AUEjT3wlS2aamf9o-YNooKTRlw
     insights-trendsbarchart--compare--light:
