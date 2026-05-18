@@ -52,7 +52,7 @@ export interface ProcessedChartData {
 
 export interface ExperimentTimeseriesLogicProps {
     experiment: Experiment
-    metric?: ExperimentMetric
+    metric: ExperimentMetric | undefined
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
