@@ -10,14 +10,12 @@ import { PersonType } from '~/types'
 import { featureFlagsTestEvaluationCreate } from 'products/feature_flags/frontend/generated/api'
 import type {
     FeatureFlagConditionAnalysisApi,
-    FeatureFlagConditionPropertyAnalysisApi,
     FeatureFlagTestEvaluationRequestApi,
     FeatureFlagTestEvaluationResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { featureFlagTestingLogicType } from './featureFlagTestingLogicType'
 
-export type PropertyAnalysis = FeatureFlagConditionPropertyAnalysisApi
 export type ConditionAnalysis = FeatureFlagConditionAnalysisApi
 export type TestResult = FeatureFlagTestEvaluationResponseApi
 
@@ -233,6 +231,11 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     }
                 })
             },
+        ],
+        // Check if form has valid person selected
+        hasValidPerson: [
+            (s) => [s.testFormData],
+            (formData: TestFormData): boolean => Boolean(formData.person_id?.trim()),
         ],
     }),
 ])

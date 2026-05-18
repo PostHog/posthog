@@ -56,6 +56,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         usedProperties,
         sortedProperties,
         enrichedConditions,
+        hasValidPerson,
     } = useValues(logic)
 
     const {
@@ -70,15 +71,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     } = useActions(logic)
 
     const handleSubmit = (): void => {
-        if (!selectedPerson || !formData.person_id?.trim()) {
+        if (!hasValidPerson) {
             setTestError('Please select a person')
             return
         }
         testFlagEvaluation({ flagId: featureFlag.id!, formData })
-    }
-
-    const handleClear = (): void => {
-        clearTestForm()
     }
 
     return (
@@ -217,13 +214,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             type="primary"
                             loading={isLoading}
                             onClick={handleSubmit}
-                            disabledReason={
-                                !selectedPerson || !formData.person_id?.trim() ? 'Please select a person' : undefined
-                            }
+                            disabledReason={!hasValidPerson ? 'Please select a person' : undefined}
                         >
                             Test evaluation
                         </LemonButton>
-                        <LemonButton onClick={handleClear} disabled={isLoading}>
+                        <LemonButton onClick={clearTestForm} disabled={isLoading}>
                             Clear
                         </LemonButton>
                     </div>
