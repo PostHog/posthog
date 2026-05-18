@@ -1,14 +1,39 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import NotionSourceConfig
 from posthog.temporal.data_imports.sources.notion.notion import NotionResumeConfig
 from posthog.temporal.data_imports.sources.notion.settings import data_source_rows_schema_name
 from posthog.temporal.data_imports.sources.notion.source import NotionSource
 
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
 
 class TestNotionSource:
+    def test_source_type_is_notion(self) -> None:
+        assert NotionSource().source_type == ExternalDataSourceType.NOTION
+
+    def test_get_source_config_exposes_a_single_notion_oauth_field(self) -> None:
+        # The OAuth field name is the contract between this source and the generated
+        # config / OAuth integration lookup — a rename here silently breaks the whole
+        # source, and `kind` must stay "notion" for the integration to resolve.
+        config = NotionSource().get_source_config
+
+        assert config.label == "Notion"
+        assert config.featureFlag == "dwh-notion"
+        assert config.releaseStatus == "alpha"
+
+        assert len(config.fields) == 1
+        oauth_field = config.fields[0]
+        assert isinstance(oauth_field, SourceFieldOauthConfig)
+        assert oauth_field.name == "notion_integration_id"
+        assert oauth_field.label == "Notion workspace"
+        assert oauth_field.required is True
+        assert oauth_field.kind == "notion"
+
     @patch("posthog.temporal.data_imports.sources.notion.source._list_data_sources")
     @patch.object(NotionSource, "_get_access_token")
     def test_get_schemas_returns_static_plus_data_sources(
