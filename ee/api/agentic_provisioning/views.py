@@ -1299,7 +1299,7 @@ def _resolve_or_create_project_team(
     try:
         TeamProvisioningConfig.objects.update_or_create(
             team=new_team,
-            defaults={"stripe_project_id": project_id},
+            defaults={"stripe_project_id": project_id, "application": access_token.application},
         )
     except IntegrityError:
         new_team.delete()
@@ -1353,19 +1353,21 @@ def _resolve_provisioning_resource(
       team has been deleted (degenerate stale-scope state).
     - ``(None, scoped_teams, "forbidden")`` otherwise.
 
-    A team is eligible for auto-add when the customer has previously provisioned
-    it through this partner flow (its ``TeamProvisioningConfig.stripe_project_id``
-    is set, the team is in the same org as a currently-scoped team) and the user
-    still has access. This closes the gap where a customer re-OAuths the partner
-    and gets a fresh access token scoped only to their default team, leaving
-    previously-provisioned teams inaccessible on `update_service` /
-    `rotate_credentials` / `resolve` / `remove` until they retrigger the
-    project-resolution flow.
+    A team is eligible for auto-add when **this** partner (matching the access
+    token's OAuth application) previously provisioned it, the team is in the
+    same org as a currently-scoped team, and the user still has access. This
+    closes the gap where a customer re-OAuths the partner and gets a fresh
+    access token scoped only to their default team, leaving previously-
+    provisioned teams inaccessible on `update_service` / `rotate_credentials`
+    / `resolve` / `remove` until they retrigger the project-resolution flow.
 
-    Note: ``TeamProvisioningConfig`` rows are auto-created for every team by a
-    post_save signal, so row existence alone is not a meaningful check. The
-    partner-provisioned indicator is ``stripe_project_id`` being set (which only
-    ``_resolve_or_create_project_team`` sets, in this file).
+    Partner binding: ``TeamProvisioningConfig.application`` is set in
+    ``_resolve_or_create_project_team`` when the team is provisioned. Requiring
+    it to match ``access_token.application_id`` prevents partner B from
+    auto-adding a team provisioned by partner A in the same org. Legacy rows
+    (pre-attribution, ``application_id`` NULL) are not eligible for auto-add;
+    those partners can still operate on teams already in scope, and re-call
+    ``/resources`` to bootstrap fresh scope.
     """
     from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -1392,6 +1394,9 @@ def _resolve_provisioning_resource(
     if not scoped_teams:
         return None, scoped_teams, "forbidden"
 
+    if access_token.application_id is None:
+        return None, scoped_teams, "forbidden"
+
     try:
         team = Team.objects.select_related("organization").get(id=team_id)
     except Team.DoesNotExist:
@@ -1402,7 +1407,11 @@ def _resolve_provisioning_resource(
     if team.organization_id not in scoped_org_ids:
         return None, scoped_teams, "forbidden"
 
-    if not TeamProvisioningConfig.objects.filter(team_id=team_id, stripe_project_id__isnull=False).exists():
+    if not TeamProvisioningConfig.objects.filter(
+        team_id=team_id,
+        application_id=access_token.application_id,
+        stripe_project_id__isnull=False,
+    ).exists():
         return None, scoped_teams, "forbidden"
 
     if not _user_can_access_team(user, team):

@@ -160,6 +160,9 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         from posthog.models.team.team import Team
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+
         # Team that was provisioned earlier by this partner but isn't in this
         # access token's scope (e.g. customer re-OAuth'd, dropping it).
         existing_team = Team.objects.create_with_data(
@@ -168,11 +171,9 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
             name="Pre-existing project",
         )
         TeamProvisioningConfig.objects.update_or_create(
-            team=existing_team, defaults={"stripe_project_id": "proj_existing"}
+            team=existing_team,
+            defaults={"stripe_project_id": "proj_existing", "application": access_token.application},
         )
-
-        token = self._get_bearer_token()
-        access_token = OAuthAccessToken.objects.get(token=token)
         assert existing_team.id not in (access_token.scoped_teams or [])
 
         res = self._post_signed_with_bearer(
@@ -185,9 +186,13 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         assert existing_team.id in access_token.scoped_teams
 
     def test_update_service_rejects_team_in_other_org(self):
+        from posthog.models.oauth import OAuthAccessToken
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
 
         other_org = Organization.objects.create(name="Other org")
         foreign_team = Team.objects.create_with_data(
@@ -196,16 +201,57 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
             name="Foreign project",
         )
         TeamProvisioningConfig.objects.update_or_create(
-            team=foreign_team, defaults={"stripe_project_id": "proj_foreign"}
+            team=foreign_team,
+            defaults={"stripe_project_id": "proj_foreign", "application": access_token.application},
         )
 
-        token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{foreign_team.id}/update_service",
             data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 403
+
+    def test_update_service_rejects_team_provisioned_by_other_partner(self):
+        # Cross-partner scope escalation guard: team T was provisioned by
+        # partner A in org O. Partner B's bearer token is also scoped to org
+        # O (different team). B must not be able to auto-add T to its scope.
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+        from posthog.models.team.team import Team
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_partner_app = OAuthApplication.objects.create(
+            name="Other Partner",
+            client_id="other_partner_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            provisioning_partner_type="other_partner",
+        )
+        other_partner_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Other partner's project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=other_partner_team,
+            defaults={"stripe_project_id": "proj_other", "application": other_partner_app},
+        )
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.application_id != other_partner_app.id
+
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{other_partner_team.id}/update_service",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 403
+        access_token.refresh_from_db()
+        assert other_partner_team.id not in (access_token.scoped_teams or [])
 
     def test_update_service_rejects_same_org_team_not_provisioned_by_partner(self):
         from posthog.models.team.team import Team
