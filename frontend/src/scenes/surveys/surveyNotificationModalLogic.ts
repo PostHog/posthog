@@ -14,6 +14,12 @@ import {
     HOG_FUNCTION_SUB_TEMPLATES,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { NEW_SURVEY } from 'scenes/surveys/constants'
+import {
+    SurveyResponseFilter,
+    buildResponseFilterProperties,
+    parseResponseFiltersFromProperties,
+    stripResponseFiltersFromProperties,
+} from 'scenes/surveys/responseFilters'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
     buildSurveyExampleInvocationGlobals,
@@ -27,6 +33,7 @@ import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,
+    EventPropertyFilter,
     EventType,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -69,6 +76,7 @@ export interface SurveyNotificationForm {
     webhookUrl: string
     webhookMethod: string
     webhookBody: string
+    responseFilters: SurveyResponseFilter[]
 }
 
 export interface SurveyNotificationModalLogicProps {
@@ -84,7 +92,7 @@ export type OpenSurveyNotificationDialogPayload = {
     intent?: SurveyNotificationModalIntent
 }
 type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
-type SurveyNotificationFormErrors = Partial<Record<keyof SurveyNotificationForm, string>>
+type SurveyNotificationFormErrors = Partial<Record<Exclude<keyof SurveyNotificationForm, 'responseFilters'>, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3
 export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
@@ -231,6 +239,7 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
         webhookUrl: '',
         webhookMethod: 'POST',
         webhookBody: JSON.stringify(buildWebhookBodyTemplate(survey.questions), null, 2),
+        responseFilters: [],
     }
 }
 
@@ -529,6 +538,18 @@ function getSlackIncludeButtons(notification: HogFunctionType): boolean {
         : false
 }
 
+function getSentEventPropertiesFromNotification(notification: HogFunctionType): EventPropertyFilter[] {
+    const sentEvent = notification.filters?.events?.find((event) => event.id === SurveyEventName.SENT)
+    const properties = sentEvent?.properties ?? []
+    return properties.filter(
+        (property): property is EventPropertyFilter =>
+            typeof property === 'object' &&
+            property !== null &&
+            'type' in property &&
+            (property as { type?: unknown }).type === PropertyFilterType.Event
+    )
+}
+
 function buildSurveyNotificationFormFromNotification(
     notification: HogFunctionType,
     survey: SurveyNotificationContext,
@@ -540,6 +561,9 @@ function buildSurveyNotificationFormFromNotification(
         ? remapSurveyResponseProperties(notification.inputs, survey)
         : notification.inputs
     const remappedNotification = { ...notification, inputs: remappedInputs }
+    const responseFilters = remapResponses
+        ? []
+        : parseResponseFiltersFromProperties(getSentEventPropertiesFromNotification(notification), survey.questions)
 
     return {
         ...defaults,
@@ -559,6 +583,7 @@ function buildSurveyNotificationFormFromNotification(
             null,
             2
         ),
+        responseFilters,
     }
 }
 
@@ -643,11 +668,42 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(surveyId),
+        filters: getSurveyNotificationFilters(surveyId, buildResponseFilterProperties(form.responseFilters)),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
     }
+}
+
+function mergeResponseFiltersIntoExistingFilters(
+    existingFilters: HogFunctionType['filters'],
+    fallbackFilters: HogFunctionType['filters'],
+    responseFilters: SurveyResponseFilter[]
+): HogFunctionType['filters'] {
+    const base = existingFilters ?? fallbackFilters
+    if (!base) {
+        return fallbackFilters
+    }
+    const responseProperties = buildResponseFilterProperties(responseFilters)
+    const events = (base.events ?? []).map((event) => {
+        if (event.id !== SurveyEventName.SENT) {
+            return event
+        }
+        const preservedProperties = stripResponseFiltersFromProperties(
+            (event.properties ?? []).filter(
+                (property): property is EventPropertyFilter =>
+                    typeof property === 'object' &&
+                    property !== null &&
+                    'type' in property &&
+                    (property as { type?: unknown }).type === PropertyFilterType.Event
+            )
+        )
+        return {
+            ...event,
+            properties: [...preservedProperties, ...responseProperties],
+        }
+    })
+    return { ...base, events }
 }
 
 function updateSurveyNotificationPayload({
@@ -684,7 +740,7 @@ function updateSurveyNotificationPayload({
         },
         mappings: notification.mappings,
         masking: notification.masking,
-        filters: notification.filters ?? payload.filters,
+        filters: mergeResponseFiltersIntoExistingFilters(notification.filters, payload.filters, form.responseFilters),
         hog: notification.hog ?? payload.hog,
         icon_url: notification.icon_url ?? payload.icon_url,
     }
@@ -733,7 +789,7 @@ function createCopiedSurveyNotificationPayload({
         },
         mappings: remapSurveyResponseProperties(notification.mappings, survey),
         masking: notification.masking,
-        filters: getSurveyNotificationFilters(survey.id),
+        filters: getSurveyNotificationFilters(survey.id, buildResponseFilterProperties(form.responseFilters)),
         hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,
         icon_url: notification.icon_url ?? template.icon_url,
         enabled: true,
