@@ -282,6 +282,17 @@ func TestClassify_stoppedNonAutostartCountsAsReady(t *testing.T) {
 			wantStatus: "pending",
 			wantReady:  []string{"web (stopped)"},
 		},
+		{
+			// New `phrocs wait` talking to an older daemon whose snapshot has no
+			// `autostart` key. Default must be true so stopped procs still surface
+			// as notReady instead of being silently skipped.
+			name: "older daemon snapshot without autostart key",
+			procs: map[string]any{
+				"web": map[string]any{"status": "stopped", "ready": false},
+			},
+			wantStatus: "pending",
+			wantReady:  []string{"web (stopped)"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -116,7 +116,13 @@ func classify(procs map[string]any) (verdict string, crashed []string, notReady 
 		snap, _ := v.(map[string]any)
 		status, _ := snap["status"].(string)
 		ready, _ := snap["ready"].(bool)
-		autostart, _ := snap["autostart"].(bool)
+		autostartRaw, hasAutostart := snap["autostart"]
+		autostart, _ := autostartRaw.(bool)
+		if !hasAutostart {
+			// Older daemons predate the `autostart` field; default to true so
+			// `stopped` procs still register as notReady (matches ShouldAutostart default).
+			autostart = true
+		}
 		if status == "crashed" {
 			crashed = append(crashed, name)
 			continue
