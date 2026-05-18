@@ -541,6 +541,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     actions({
         setFilters: (filters: Partial<HogInvocationsFilters>) => ({ filters }),
         resetFilters: true,
+        refresh: true,
         toggleSelected: (invocationId: string) => ({ invocationId }),
         clearSelected: true,
         setSelectedIds: (ids: string[]) => ({ ids }),
@@ -729,13 +730,15 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     }),
 
     listeners(({ props, actions, values, cache }) => ({
-        setFilters: () => {
+        refresh: () => {
             actions.loadRuns(null)
             actions.loadSparkline(null)
         },
+        setFilters: () => {
+            actions.refresh()
+        },
         resetFilters: () => {
-            actions.loadRuns(null)
-            actions.loadSparkline(null)
+            actions.refresh()
         },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)

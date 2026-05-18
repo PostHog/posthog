@@ -232,9 +232,8 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
         sparklineLoading,
     } = useValues(logic)
     const {
-        loadRuns,
         loadMore,
-        loadSparkline,
+        refresh,
         setFilters,
         toggleSelected,
         clearSelected,
@@ -246,9 +245,8 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
     const [rerunModalOpen, setRerunModalOpen] = useState(false)
 
     useEffect(() => {
-        loadRuns(null)
-        loadSparkline(null)
-    }, [loadRuns, loadSparkline])
+        refresh()
+    }, [refresh])
 
     if (!id) {
         return null
@@ -402,35 +400,36 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             title: '',
             key: 'actions',
             width: 0,
-            render: (_, row) => (
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    disabledReason={
-                        isReplayWrapperKind(row.function_kind)
-                            ? "Can't re-run a re-run"
-                            : row.status === 'running'
-                              ? "Can't replay a run that's still in flight"
-                              : undefined
-                    }
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Replay this invocation?',
-                            content:
-                                "We'll queue a replay job for this run from its stored payload. " +
-                                'Inputs are re-resolved from the current function config, so any secret ' +
-                                'rotations will be picked up.',
-                            primaryButton: {
-                                children: 'Replay',
-                                onClick: () => replayInvocations([row.invocation_id]),
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
-                >
-                    Replay
-                </LemonButton>
-            ),
+            render: (_, row) => {
+                if (isReplayWrapperKind(row.function_kind)) {
+                    return null
+                }
+                return (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        disabledReason={
+                            row.status === 'running' ? "Can't replay a run that's still in flight" : undefined
+                        }
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'Replay this invocation?',
+                                content:
+                                    "We'll queue a replay job for this run from its stored payload. " +
+                                    'Inputs are re-resolved from the current function config, so any secret ' +
+                                    'rotations will be picked up.',
+                                primaryButton: {
+                                    children: 'Replay',
+                                    onClick: () => replayInvocations([row.invocation_id]),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }}
+                    >
+                        Replay
+                    </LemonButton>
+                )
+            },
         },
     ]
 
@@ -497,8 +496,8 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                         size="small"
                         type="secondary"
                         icon={<IconRefresh />}
-                        loading={runsLoading}
-                        onClick={() => loadRuns(null)}
+                        loading={runsLoading || sparklineLoading}
+                        onClick={() => refresh()}
                     >
                         Refresh
                     </LemonButton>
