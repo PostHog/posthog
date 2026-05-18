@@ -31,15 +31,6 @@ export const sessionsActive = new Gauge({
     help: 'Active streamable HTTP sessions on this pod.',
 })
 
-// Reservation outcome at the back-pressure layer. `accepted` increments on
-// every successful `reserve()`; `rejected` fires when the pod cap is hit and
-// `compact()` couldn't free a slot — the saturation signal to alert on.
-export const sessionReservationsTotal = new Counter({
-    name: 'mcp_session_reservations_total',
-    help: 'Outcomes from SessionStore.reserve().',
-    labelNames: ['result'] as const,
-})
-
 // MCP tool dispatch outcomes. `status` is `success` | `error` | `validation_error`.
 // Cardinality on `tool` is bounded by the registered tool catalog.
 export const toolCallsTotal = new Counter({

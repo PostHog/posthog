@@ -80,43 +80,27 @@ export class StreamableMcpHandler {
     }
 
     private async openSession(c: HonoCtx, props: RequestProperties): Promise<Response> {
-        // During shutdown, refuse new sessions so kube-proxy can drain us. Active
-        // sessions on this pod keep running until they finish or the budget elapses.
         if (this.lifecycle.shuttingDown) {
             return new Response('Server shutting down', { status: 503 })
         }
-        const reservation = this.store.reserve()
-        if (!reservation) {
+        if (this.store.isFull()) {
             return new Response('Too many active sessions', { status: 503 })
         }
-        let initialized = false
-        try {
-            const mcpServer = new HonoMcpServer(this.redis, props)
-            await mcpServer.init()
-            const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
-                sessionIdGenerator: () => uuidv4(),
-                onsessioninitialized: (sid: string): void => {
-                    initialized = true
-                    reservation.release()
-                    this.store.set(sid, transport, props.userHash)
-                },
-            })
-            transport.onclose = () => {
-                if (transport.sessionId) {
-                    this.store.delete(transport.sessionId)
-                }
+
+        const mcpServer = new HonoMcpServer(this.redis, props)
+        await mcpServer.init()
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => uuidv4(),
+            onsessioninitialized: (sid: string): void => {
+                this.store.set(sid, transport, props.userHash)
+            },
+        })
+        transport.onclose = () => {
+            if (transport.sessionId) {
+                this.store.delete(transport.sessionId)
             }
-            await mcpServer.server.connect(transport)
-            const response = await transport.handleRequest(c.req.raw)
-            if (!initialized) {
-                reservation.release()
-            }
-            return passThrough(response)
-        } catch (error) {
-            if (!initialized) {
-                reservation.release()
-            }
-            throw error
         }
+        await mcpServer.server.connect(transport)
+        return passThrough(await transport.handleRequest(c.req.raw))
     }
 }

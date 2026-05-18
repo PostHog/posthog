@@ -1,7 +1,7 @@
 import type { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
 import { MAX_SESSIONS_PER_INSTANCE, SESSION_TTL_MS } from './constants'
-import { sessionReservationsTotal, sessionsActive } from './metrics'
+import { sessionsActive } from './metrics'
 
 type Entry = {
     transport: WebStandardStreamableHTTPServerTransport
@@ -9,25 +9,10 @@ type Entry = {
     tokenHash: string
 }
 
-export type Reservation = {
-    /** Call when the reservation is no longer needed (boot error, abandoned init). */
-    release: () => void
-}
-
-/**
- * In-memory transport registry for the Streamable HTTP `/mcp` endpoint.
- *
- * Sessions are keyed by the SDK-issued `mcp-session-id`, isolated per token
- * (so id-guessing across tenants is a non-event), and evicted on idle TTL.
- * Concurrent `reserve()` calls share a pending counter so the per-pod cap
- * holds even when many opens race.
- *
- */
 const GC_INTERVAL_MS = 5 * 60 * 1000
 
 export class SessionStore {
     private entries = new Map<string, Entry>()
-    private pending = 0
     private gcTimer: ReturnType<typeof setInterval> | undefined
 
     startGc(): void {
@@ -44,27 +29,12 @@ export class SessionStore {
         }
     }
 
-    /** Reserve a slot for a new session; returns null when the cap is reached. */
-    reserve(): Reservation | null {
-        if (this.entries.size + this.pending >= MAX_SESSIONS_PER_INSTANCE) {
-            this.compact()
-            if (this.entries.size + this.pending >= MAX_SESSIONS_PER_INSTANCE) {
-                sessionReservationsTotal.inc({ result: 'rejected' })
-                return null
-            }
+    isFull(): boolean {
+        if (this.entries.size < MAX_SESSIONS_PER_INSTANCE) {
+            return false
         }
-        this.pending += 1
-        sessionReservationsTotal.inc({ result: 'accepted' })
-        let released = false
-        return {
-            release: () => {
-                if (released) {
-                    return
-                }
-                released = true
-                this.pending -= 1
-            },
-        }
+        this.compact()
+        return this.entries.size >= MAX_SESSIONS_PER_INSTANCE
     }
 
     set(id: string, transport: WebStandardStreamableHTTPServerTransport, tokenHash: string): void {
@@ -72,7 +42,6 @@ export class SessionStore {
         sessionsActive.set(this.entries.size)
     }
 
-    /** Lookup with idle-TTL eviction and per-token isolation. Active use refreshes lastUsedAt. */
     get(id: string, tokenHash: string): WebStandardStreamableHTTPServerTransport | undefined {
         const entry = this.entries.get(id)
         if (!entry) {
@@ -96,18 +65,12 @@ export class SessionStore {
         }
     }
 
-    /** Force-close every live transport. Used during graceful shutdown. */
     closeAll(): void {
         for (const [id, entry] of this.entries) {
             this.evict(id, entry)
         }
     }
 
-    get size(): number {
-        return this.entries.size
-    }
-
-    /** Drop every entry whose TTL has elapsed. O(n); only called on `reserve()` contention. */
     private compact(): void {
         const cutoff = Date.now() - SESSION_TTL_MS
         for (const [id, entry] of this.entries) {
