@@ -9,9 +9,8 @@ export type ShouldWarnBeforeLeavingNotebookInput = {
 }
 
 /**
- * Pure decision helper for the unsaved-changes prompt. Returns `true` if the user should be
- * warned before navigating away. Extracted from the `beforeUnload` builder so it can be unit
- * tested without mounting the full `notebookLogic` (which connects a dozen other logics).
+ * Helper for the unsaved-changes prompt. Returns `true` if the user should be warned before
+ * navigating away.
  *
  * `isLocalOnly` covers scratchpad / canvas / templates (no server save ever happens).
  * `isEditable` covers viewer-level access, history-preview mode, and shared/exported read-only
