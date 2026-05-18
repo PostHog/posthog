@@ -19,7 +19,7 @@ from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
 from posthog.models import AlertConfiguration, Insight
-from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
+from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult, compute_relative_change
 
 
 # TODO: move the TrendResult UI type to schema.ts and use that instead
@@ -249,20 +249,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 prev_prev_interval_value = _pick_interval_value_from_trend_result(query, result, -2)
 
                 if check_current_interval:
-                    if threshold.type == InsightThresholdType.ABSOLUTE:
-                        increase = current_interval_value - prev_interval_value
-                    elif threshold.type == InsightThresholdType.PERCENTAGE:
-                        if prev_interval_value == 0 and current_interval_value == 0:
-                            increase = 0
-                        elif prev_interval_value == 0:
-                            increase = float("inf")
-                        else:
-                            increase = (current_interval_value - prev_interval_value) / prev_interval_value
-                    else:
-                        raise ValueError(
-                            f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
-                        )
-
+                    increase = compute_relative_change(
+                        AlertConditionType.RELATIVE_INCREASE,
+                        threshold.type,
+                        current_interval_value,
+                        prev_interval_value,
+                    )
                     breaches = _breach_messages(
                         threshold.bounds,
                         increase,
@@ -278,20 +270,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                         return AlertEvaluationResult(value=increase, breaches=breaches)
                 else:
                     # fallback to check previous intervals
-                    if threshold.type == InsightThresholdType.ABSOLUTE:
-                        increase = prev_interval_value - prev_prev_interval_value
-                    elif threshold.type == InsightThresholdType.PERCENTAGE:
-                        if prev_prev_interval_value == 0 and prev_interval_value == 0:
-                            increase = 0
-                        elif prev_prev_interval_value == 0:
-                            increase = float("inf")
-                        else:
-                            increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
-                    else:
-                        raise ValueError(
-                            f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
-                        )
-
+                    increase = compute_relative_change(
+                        AlertConditionType.RELATIVE_INCREASE,
+                        threshold.type,
+                        prev_interval_value,
+                        prev_prev_interval_value,
+                    )
                     breaches = _breach_messages(
                         threshold.bounds,
                         increase,
@@ -349,19 +333,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 prev_interval_value = _pick_interval_value_from_trend_result(query, result, -1)
                 prev_prev_interval_value = _pick_interval_value_from_trend_result(query, result, -2)
 
-                if threshold.type == InsightThresholdType.ABSOLUTE:
-                    decrease = prev_prev_interval_value - prev_interval_value
-                elif threshold.type == InsightThresholdType.PERCENTAGE:
-                    if prev_prev_interval_value == 0 and prev_interval_value == 0:
-                        decrease = 0
-                    elif prev_prev_interval_value == 0:
-                        decrease = float("inf")
-                    else:
-                        decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
-                else:
-                    raise ValueError(
-                        f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
-                    )
+                decrease = compute_relative_change(
+                    AlertConditionType.RELATIVE_DECREASE,
+                    threshold.type,
+                    prev_interval_value,
+                    prev_prev_interval_value,
+                )
 
                 breaches = _breach_messages(
                     threshold.bounds,

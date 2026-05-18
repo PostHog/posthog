@@ -12,7 +12,7 @@ from celery.canvas import chain
 from dateutil.relativedelta import relativedelta
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.schema import AlertCalculationInterval, AlertState, HogQLQuery, TrendsQuery
+from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
@@ -434,8 +434,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
                     return check_trends_alert_with_detector(alert, insight, query, alert.detector_config)
                 return check_trends_alert(alert, insight, query)
             case "HogQLQuery":
-                query = HogQLQuery.model_validate(query)
-                return check_hogql_alert(alert, insight, query)
+                return check_hogql_alert(alert, insight)
             case _:
                 raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
 

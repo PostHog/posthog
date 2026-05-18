@@ -488,12 +488,15 @@ class AlertSerializer(serializers.ModelSerializer):
         return value
 
     def _hogql_alerts_enabled(self) -> bool:
+        # `User` has `current_organization` (and the matching `current_organization_id`) plus an
+        # `organization` property — there's no plain `organization_id` field, so read via the property.
         user = self.context["request"].user
+        org = user.organization
         return bool(
             posthoganalytics.feature_enabled(
                 "hogql-insight-alerts",
                 str(user.distinct_id),
-                groups={"organization": str(user.organization_id)} if user.organization_id else {},
+                groups={"organization": str(org.id)} if org else {},
             )
         )
 

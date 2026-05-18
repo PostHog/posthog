@@ -217,14 +217,44 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     # --- Validation errors ------------------------------------------------
 
-    def test_relative_with_single_row_errors(
+    @parameterized.expand(
+        [
+            (
+                "single_row_relative",
+                "SELECT 1",
+                AlertConditionType.RELATIVE_INCREASE,
+                "at least two rows",
+                True,  # mock_send_errors should be called
+            ),
+            (
+                "multi_column",
+                "SELECT 1, 2",
+                AlertConditionType.ABSOLUTE_VALUE,
+                "exactly one column",
+                False,
+            ),
+            (
+                "non_numeric_column",
+                "SELECT 'hello'",
+                AlertConditionType.ABSOLUTE_VALUE,
+                "numeric column",
+                False,
+            ),
+        ]
+    )
+    def test_validation_errors(
         self,
-        mock_send_breaches: MagicMock,
+        _name: str,
+        sql: str,
+        condition_type: AlertConditionType,
+        expected_error_fragment: str,
+        expect_error_notification: bool,
+        _mock_send_breaches: MagicMock,
         mock_send_errors: MagicMock,
         _mock_feature_enabled: MagicMock,
     ) -> None:
-        insight = self.create_hogql_insight("SELECT 1")
-        alert = self.create_alert(insight, condition_type=AlertConditionType.RELATIVE_INCREASE, upper=1.0)
+        insight = self.create_hogql_insight(sql)
+        alert = self.create_alert(insight, condition_type=condition_type, upper=10.0)
 
         check_alert(alert["id"])
 
@@ -233,44 +263,10 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.error is not None
-        assert "at least two rows" in alert_check.error["message"]
-        mock_send_errors.assert_called_once_with(ANY, alert_check.error)
+        assert expected_error_fragment in alert_check.error["message"]
 
-    def test_multi_column_query_errors(
-        self,
-        _mock_send_breaches: MagicMock,
-        _mock_send_errors: MagicMock,
-        _mock_feature_enabled: MagicMock,
-    ) -> None:
-        insight = self.create_hogql_insight("SELECT 1, 2")
-        alert = self.create_alert(insight, upper=10)
-
-        check_alert(alert["id"])
-
-        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
-        assert updated_alert.state == AlertState.ERRORED
-
-        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.error is not None
-        assert "exactly one column" in alert_check.error["message"]
-
-    def test_non_numeric_column_errors(
-        self,
-        _mock_send_breaches: MagicMock,
-        _mock_send_errors: MagicMock,
-        _mock_feature_enabled: MagicMock,
-    ) -> None:
-        insight = self.create_hogql_insight("SELECT 'hello'")
-        alert = self.create_alert(insight, upper=10)
-
-        check_alert(alert["id"])
-
-        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
-        assert updated_alert.state == AlertState.ERRORED
-
-        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.error is not None
-        assert "numeric column" in alert_check.error["message"]
+        if expect_error_notification:
+            mock_send_errors.assert_called_once_with(ANY, alert_check.error)
 
 
 @freeze_time(FROZEN_TIME)

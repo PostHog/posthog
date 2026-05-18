@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.schema import AlertCondition, AlertConditionType, HogQLQuery, InsightThreshold, InsightThresholdType
+from posthog.schema import AlertCondition, AlertConditionType, InsightThreshold, InsightThresholdType
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -10,7 +10,7 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult, compute_relative_c
 _HOGQL_SUBJECT = "The SQL insight value"
 
 
-def check_hogql_alert(alert: AlertConfiguration, insight: Insight, query: HogQLQuery) -> AlertEvaluationResult:
+def check_hogql_alert(alert: AlertConfiguration, insight: Insight) -> AlertEvaluationResult:
     condition = AlertCondition.model_validate(alert.condition)
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
 
