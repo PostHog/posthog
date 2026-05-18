@@ -61,16 +61,6 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
-        try:
-            conversations_settings = instance.team.conversations_settings or {}
-            if conversations_settings.get("notification_recipients"):
-                send_new_ticket_notification.delay(
-                    ticket_id=str(instance.id),
-                    team_id=instance.team_id,
-                )
-        except Exception as e:
-            capture_exception(e, {"ticket_id": str(instance.id)})
-
     transaction.on_commit(do_emit)
 
 
@@ -147,6 +137,18 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                     report_user_action(user, "support message sent", props, team=ticket.team)
             else:
                 report_team_action(ticket.team, "support message received", props)
+            # Send email notification on first customer message (i.e. new ticket)
+            if ticket.message_count == 1 and not is_team_message:
+                try:
+                    conversations_settings = ticket.team.conversations_settings or {}
+                    if conversations_settings.get("notification_recipients"):
+                        send_new_ticket_notification.delay(
+                            ticket_id=item_id,
+                            team_id=team_id,
+                            first_message_content=(content or "")[:500],
+                        )
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": item_id})
         except Ticket.DoesNotExist:
             pass
         except Exception as e:
