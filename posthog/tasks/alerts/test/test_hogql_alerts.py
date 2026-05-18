@@ -100,7 +100,7 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
         expected_message_fragment: Optional[str],
         mock_send_breaches: MagicMock,
         mock_send_errors: MagicMock,
-        mock_feature_enabled: MagicMock,
+        _mock_feature_enabled: MagicMock,
     ) -> None:
         insight = self.create_hogql_insight(sql)
         alert = self.create_alert(insight, lower=lower, upper=upper)
@@ -187,7 +187,7 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
         expected_message_fragment: Optional[str],
         mock_send_breaches: MagicMock,
         mock_send_errors: MagicMock,
-        mock_feature_enabled: MagicMock,
+        _mock_feature_enabled: MagicMock,
     ) -> None:
         insight = self.create_hogql_insight(sql)
         alert = self.create_alert(
@@ -221,7 +221,7 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
         self,
         mock_send_breaches: MagicMock,
         mock_send_errors: MagicMock,
-        mock_feature_enabled: MagicMock,
+        _mock_feature_enabled: MagicMock,
     ) -> None:
         insight = self.create_hogql_insight("SELECT 1")
         alert = self.create_alert(insight, condition_type=AlertConditionType.RELATIVE_INCREASE, upper=1.0)
@@ -238,9 +238,9 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     def test_multi_column_query_errors(
         self,
-        mock_send_breaches: MagicMock,
-        mock_send_errors: MagicMock,
-        mock_feature_enabled: MagicMock,
+        _mock_send_breaches: MagicMock,
+        _mock_send_errors: MagicMock,
+        _mock_feature_enabled: MagicMock,
     ) -> None:
         insight = self.create_hogql_insight("SELECT 1, 2")
         alert = self.create_alert(insight, upper=10)
@@ -256,9 +256,9 @@ class TestHogQLAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     def test_non_numeric_column_errors(
         self,
-        mock_send_breaches: MagicMock,
-        mock_send_errors: MagicMock,
-        mock_feature_enabled: MagicMock,
+        _mock_send_breaches: MagicMock,
+        _mock_send_errors: MagicMock,
+        _mock_feature_enabled: MagicMock,
     ) -> None:
         insight = self.create_hogql_insight("SELECT 'hello'")
         alert = self.create_alert(insight, upper=10)

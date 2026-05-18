@@ -271,13 +271,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         }
 
     def _underlying_query_kind(self) -> str | None:
-        """Unwraps the insight's query through any DataTable/DataVisualization/InsightVizNode wrapper
-        and returns the innermost kind (TrendsQuery / HogQLQuery / …). None if the insight or query is absent."""
-        insight = self.insight if self.insight_id else None
-        query = getattr(insight, "query", None) if insight is not None else None
-        while isinstance(query, dict) and query.get("source"):
-            query = query["source"]
-        return query.get("kind") if isinstance(query, dict) else None
+        if not self.insight_id:
+            return None
+        return self.insight._unwrapped_query_kind()
 
     def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
         from posthog.event_usage import report_user_action

@@ -121,11 +121,12 @@ export function EditAlertModal({
     const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
     const { alert, alertLoading } = useValues(_alertLogic)
 
-    // For new alerts, fall back to the bound insightLogic to read the query kind. doNotLoad keeps this from
-    // triggering a second fetch when our key differs from the caller's instance.
-    const boundInsight = useValues(
-        insightLogic(insightLogicProps ?? { dashboardItemId: insightShortId, doNotLoad: true })
-    ).insight
+    // For new alerts the insight isn't yet on the alert payload, so read it from the same insightLogic
+    // the caller is using. The kea key only depends on dashboardItemId/dashboardId — falling back to
+    // { dashboardItemId: insightShortId } reuses the existing instance when present rather than mounting a
+    // second one.
+    const boundInsightLogicProps = insightLogicProps ?? { dashboardItemId: insightShortId }
+    const boundInsight = useValues(insightLogic(boundInsightLogicProps)).insight
     const insightQuery = alert?.insight?.query ?? boundInsight?.query ?? null
     const isHogQLBackedInsight = isHogQLBackedQuery(insightQuery)
 

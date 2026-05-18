@@ -263,7 +263,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
                             alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
                         alert.skip_weekend,
-                    // only TrendsAlertConfig has check_ongoing_interval; HogQLAlertConfig passes through unchanged.
                     config: isTrendsAlertConfig(alert.config)
                         ? {
                               ...alert.config,
