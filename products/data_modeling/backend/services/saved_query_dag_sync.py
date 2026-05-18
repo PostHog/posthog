@@ -124,7 +124,13 @@ def sync_saved_query_to_dag(
     extra_properties = extra_properties or {}
     team = saved_query.team
     if dag is None:
-        dag = DAG.get_or_create_default(team)
+        # Route by the saved query's sync frequency so multi-frequency teams keep
+        # each cohort in its own DAG. Unscheduled saved queries fall back to the
+        # team's Default DAG.
+        if saved_query.sync_frequency_interval is not None:
+            dag = DAG.get_or_create_for_frequency(team, saved_query.sync_frequency_interval)
+        else:
+            dag = DAG.get_or_create_default(team)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")

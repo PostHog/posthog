@@ -16,6 +16,32 @@ from datetime import timedelta
 
 from temporalio.client import ScheduleCalendarSpec, ScheduleRange, ScheduleSpec
 
+from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+
+_SYNC_FREQUENCY_TO_SHORT_NAME: dict[str, str] = {
+    "15min": "15m",
+    "30min": "30m",
+    "1hour": "1h",
+    "6hour": "6h",
+    "12hour": "12h",
+    "24hour": "1d",
+    "7day": "7d",
+    "30day": "30d",
+}
+
+
+def sync_frequency_interval_to_short_name(interval: timedelta) -> str:
+    """Render a sync-frequency interval as a short suffix (e.g. '15m', '1h', '1d', '7d').
+
+    Used to name frequency-cohort DAGs. Delegates to data_warehouse's
+    `sync_frequency_interval_to_sync_frequency` for the canonical long-form name,
+    then maps to the short form. Raises ValueError for unsupported intervals.
+    """
+    long_name = sync_frequency_interval_to_sync_frequency(interval)
+    if long_name is None or long_name not in _SYNC_FREQUENCY_TO_SHORT_NAME:
+        raise ValueError(f"Frequency interval {interval} has no short-name mapping")
+    return _SYNC_FREQUENCY_TO_SHORT_NAME[long_name]
+
 
 def _deterministic_int(entity_id: uuid.UUID, salt: str) -> int:
     """SHA-256 based deterministic integer from entity_id + salt."""

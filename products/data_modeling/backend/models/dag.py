@@ -7,10 +7,17 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.data_modeling.backend.schedule import sync_frequency_interval_to_short_name
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
 DEFAULT_DAG_NAME = "Default"
+
+
+def build_cohort_dag_name(base_name: str, interval: timedelta) -> str:
+    """Compose a cohort DAG name like 'Default (1h)' for a given base + frequency."""
+    return f"{base_name} ({sync_frequency_interval_to_short_name(interval)})"
 
 
 class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -27,6 +34,17 @@ class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     @classmethod
     def get_or_create_default(cls, team: Team) -> DAG:
         dag, _ = cls.objects.get_or_create(team=team, name=DEFAULT_DAG_NAME)
+        return dag
+
+    @classmethod
+    def get_or_create_for_frequency(cls, team: Team, interval: timedelta, *, base_name: str = DEFAULT_DAG_NAME) -> DAG:
+        """Return the cohort DAG for `team` at `interval`, creating it if missing.
+
+        Sets sync_frequency_interval on creation so downstream schedule-building
+        code can read it directly from the DAG.
+        """
+        name = build_cohort_dag_name(base_name, interval)
+        dag, _ = cls.objects.get_or_create(team=team, name=name, defaults={"sync_frequency_interval": interval})
         return dag
 
     @property
