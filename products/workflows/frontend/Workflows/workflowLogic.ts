@@ -884,6 +884,9 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
+            if (!logic.props.id || logic.props.id === 'new') {
+                return false
+            }
             if (logic.props.editTemplateId) {
                 return false
             }
