@@ -15,6 +15,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { cleanModifiers } from '~/queries/cleanModifiers'
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
@@ -84,7 +85,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                     }
                 } else {
                     if (typeof queryParam === 'object') {
-                        actions.setQuery(queryParam)
+                        // Strip deprecated `HogQLQueryModifiers` keys so stale bookmarks /
+                        // tab state from before a modifier was removed don't get rejected by
+                        // the server-side `extra='forbid'` validator.
+                        actions.setQuery(cleanModifiers(queryParam))
                     } else {
                         lemonToast.error('Invalid query in URL')
                         console.error({ queryParam })
