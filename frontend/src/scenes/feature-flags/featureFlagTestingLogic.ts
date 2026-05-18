@@ -79,7 +79,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     if (formData.timestamp?.trim()) {
                         data.timestamp = formData.timestamp.trim()
 
-                        const parsedTimestamp = dayjs(data.timestamp, 'YYYY-MM-DDTHH:mm:ss.SSSZ', true)
+                        // Accept ISO string format from date picker and validate it's a valid date
+                        const parsedTimestamp = dayjs(data.timestamp)
                         if (!parsedTimestamp.isValid()) {
                             throw new Error('Invalid timestamp format')
                         }
