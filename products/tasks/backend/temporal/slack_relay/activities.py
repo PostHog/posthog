@@ -106,7 +106,7 @@ class RelaySlackMessageInput:
     text: str
     user_message_ts: str | None = None
     delete_progress: bool = True
-    reaction_emoji: str = "hedgehog"
+    reaction_emoji: str = "loading-2"
 
 
 @activity.defn

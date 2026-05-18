@@ -69,7 +69,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
-                handler.update_reaction("hedgehog")
+                handler.update_reaction("loading-2")
                 handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
