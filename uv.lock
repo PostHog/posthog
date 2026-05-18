@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-11T14:12:55.335201685Z"
+exclude-newer = "2026-05-11T20:02:45.550193Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -2990,14 +2990,14 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.50"
+version = "1.3.52"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/13/1c/04038be4a7e255f1528ae12926e26585bbe069083b19714c74ba8321faba/hogql_parser-1.3.50.tar.gz", hash = "sha256:9bb9ae62bbe078a1352290580cfd7cf7bf3108571b63ff8b97f8b9dba7c64672", size = 90572, upload-time = "2026-05-18T14:12:26.688Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/b1/990bd3edb7568dd0b0c20ac15c7b1ea1c557ec6909227e1e7a506e59b423/hogql_parser-1.3.52.tar.gz", hash = "sha256:7d9a0ffb85257f62d8e39f23a03f0da4040250a96bc06218e8bd94f313d7ddcd", size = 90575, upload-time = "2026-05-18T19:50:45.282Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/38/5089a6006bdb7729921e3e200b5966cd307b94047bead04e885d86ff8899/hogql_parser-1.3.50-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:19a1d3d102c612e4d262ac0da10f9c1c1d0c2032b4e6c12e36319fbb7c1797ea", size = 663762, upload-time = "2026-05-18T14:12:11.829Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/82/cf237e6da679f8119984f2673fc7f64ec8707c9f36db08ef0c9c6a536f08/hogql_parser-1.3.50-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:538f60db44b90540b7db8145f7ab70bbe66cc1bb21e9a65342b175980a8b6896", size = 666599, upload-time = "2026-05-18T14:12:13.459Z" },
-    { url = "https://files.pythonhosted.org/packages/c2/e7/34aeb1e8ea1a27e470cf2c3352934158a746ed5b9626c46ead5359777454/hogql_parser-1.3.50-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:916ae115d1cfaf9566ced49f002e37faa4d523cb013989afe3c4c13cdb42a2c9", size = 5045502, upload-time = "2026-05-18T14:12:15.328Z" },
-    { url = "https://files.pythonhosted.org/packages/a9/73/41f85af906a0cefc742190eaa6a650925279dde3b38de5e196af34b5a1f0/hogql_parser-1.3.50-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:8cd8a58b123ba2fea106c7fea8210faac0fddba00bb61141fc74438132bb3dab", size = 5154590, upload-time = "2026-05-18T14:12:17.462Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/90/cd15e1e8d2824d962d3f1f98d54578f6917c29380877c6e1bdc26e6adc94/hogql_parser-1.3.52-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:98d133d14584d430e6aaaf7dae094a84fb1ebf5768781f3b9ddac49afe7d22a1", size = 663088, upload-time = "2026-05-18T19:50:30.214Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/6e/ab1a9ce7a88f66f3cbf4fde4c3e7255a92c4b1a2e89c1ab017cbfdea6a95/hogql_parser-1.3.52-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:af9c36ca5fe6782e8b541dac4a057c6eef9b4486729e48b5c3a76b34900a7b1d", size = 665556, upload-time = "2026-05-18T19:50:32.127Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/fd/a3cd665e4b70806d5f02896fa4ec578d9f7dacfc241dc2b765a6e9f76676/hogql_parser-1.3.52-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:208a90cbb813a111b6152df068dd804e3c48b36ad811b1e4606130eb18801ff9", size = 5038740, upload-time = "2026-05-18T19:50:34.187Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/5b/3bacda55a7d533b413c9f7a0b67b97df700f1aaa1f51bae8d5425d05fa5f/hogql_parser-1.3.52-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:a5858e15ab12ff0b7bb97a7c28e29634d603a5b4753058e294b8957517767c3f", size = 5143553, upload-time = "2026-05-18T19:50:36.355Z" },
 ]
 
 [[package]]
@@ -5521,7 +5521,7 @@ requires-dist = [
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.50" },
+    { name = "hogql-parser", specifier = "==1.3.52" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonref", specifier = "==1.1.0" },

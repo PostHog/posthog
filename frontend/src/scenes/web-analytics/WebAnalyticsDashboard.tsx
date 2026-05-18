@@ -505,14 +505,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: (
-                <div className="flex items-center gap-1">
-                    Live
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
-                    </LemonTag>
-                </div>
-            ),
+            label: 'Live',
             link: '/web/live',
         },
     ]
@@ -649,18 +642,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                {
-                    key: ProductTab.PAGE_REPORTS,
-                    label: (
-                        <div className="flex items-center gap-1">
-                            Page reports
-                            <LemonTag type="warning" className="uppercase">
-                                Beta
-                            </LemonTag>
-                        </div>
-                    ),
-                    link: '/web/page-reports',
-                },
+                { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
                 ...liveTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
                 ...healthTab(featureFlags),

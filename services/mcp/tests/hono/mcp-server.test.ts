@@ -76,12 +76,7 @@ describe('HonoMcpServer', () => {
         it('should cache region from props', async () => {
             const server = new HonoMcpServer(mockRedis, { ...baseProps, region: 'eu' })
             await server.getBaseUrl()
-            expect(mockRedis.set).toHaveBeenCalledWith(
-                'mcp:user:test-hash:region',
-                '"eu"',
-                'EX',
-                expect.any(Number)
-            )
+            expect(mockRedis.set).toHaveBeenCalledWith('mcp:user:test-hash:region', '"eu"', 'EX', expect.any(Number))
         })
 
         it('should use custom API base URL from env', async () => {
@@ -125,7 +120,7 @@ describe('HonoMcpServer', () => {
             const server = new HonoMcpServer(mockRedis, baseProps)
             vi.spyOn(server, 'getDistinctId').mockRejectedValue(new Error('fail'))
 
-            const { AnalyticsEvent } = await import('@/lib/analytics')
+            const { AnalyticsEvent } = await import('@/lib/posthog/analytics')
             await expect(server.trackEvent(AnalyticsEvent.MCP_INIT)).resolves.toBeUndefined()
         })
     })
