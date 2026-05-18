@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconCalendar, IconPerson, IconSend } from '@posthog/icons'
+import { IconArrowLeft, IconCalendar, IconPerson, IconSend, IconShare } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -17,6 +17,7 @@ import { PersonType } from '~/types'
 
 import { userInterviewTopicsRetrieve, userInterviewTopicsIntervieweesList, userInterviewsList } from './generated/api'
 import type { UserInterviewTopicApi, IntervieweeContextApi, UserInterviewApi } from './generated/api.schemas'
+import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 
 export interface UserInterviewResponseProps {
     topicId: string
@@ -165,6 +166,11 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
                                     <span className="font-medium">{identifier}</span>
                                 </div>
                             )}
+                            <div className="flex items-center gap-2">
+                                <IconShare className="text-muted shrink-0" />
+                                <span className="text-sm">Interview link</span>
+                                <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
+                            </div>
                             <div>
                                 <LemonTag type={hasResponse ? 'success' : 'default'}>
                                     {hasResponse ? 'Responded' : 'Awaiting response'}
