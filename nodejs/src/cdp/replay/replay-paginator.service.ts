@@ -1,4 +1,5 @@
 import { ClickHouseClient } from '@clickhouse/client'
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { parseJSON } from '../../utils/json-parse'
@@ -9,6 +10,7 @@ import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.s
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import {
     CyclotronJobInvocation,
@@ -75,6 +77,17 @@ export interface PageOutcome {
 }
 
 /**
+ * Context the worker passes alongside the parsed state on each page. Lets the
+ * paginator stamp wrapper lifecycle rows with the right `invocation_id`
+ * (= cyclotron job id) and a stable `scheduled_at` for the wrapper across pages.
+ */
+export interface ReplayJobContext {
+    jobId: string
+    /** When the wrapper job was first created in cyclotron — anchor for the wrapper's `scheduled_at`. */
+    createdAt: DateTime
+}
+
+/**
  * Processes a single page of work for a replay wrapper job. Pure-ish — the
  * caller (the worker) handles the cyclotron-v2 ack/reschedule flow with the
  * returned state. Splitting the page-of-work logic out of the worker keeps
@@ -87,7 +100,8 @@ export class ReplayPaginatorService {
         private hogFlowManager: HogFlowManagerService,
         private hogInputsService: HogInputsService,
         private invocationResultsRowsService: HogInvocationResultsService,
-        private cyclotronJobQueue: CyclotronJobQueue
+        private cyclotronJobQueue: CyclotronJobQueue,
+        private monitoringService: HogFunctionMonitoringService
     ) {}
 
     /**
@@ -95,7 +109,7 @@ export class ReplayPaginatorService {
      * state. `state.progress.done = true` means the worker should `ack()` the
      * wrapper job; otherwise it should `reschedule({ state })` to continue.
      */
-    async processPage(teamId: number, state: ReplayJobState): Promise<PageOutcome> {
+    async processPage(teamId: number, state: ReplayJobState, context: ReplayJobContext): Promise<PageOutcome> {
         const { function_kind, function_id, progress } = state
 
         try {
@@ -154,9 +168,15 @@ export class ReplayPaginatorService {
                 cursor: this.advanceCursor(state, toProcess),
                 done: this.isDone(state, rows.length, toProcess.length),
                 last_error: undefined,
+                pages_processed: (progress.pages_processed ?? 0) + 1,
             }
 
             counterReplayPageProcessed.labels(function_kind, rows.length === 0 ? 'empty' : 'ok').inc()
+
+            // Update the wrapper lifecycle row + emit a progress log so the
+            // Invocations tab reflects the running total without the user
+            // hitting Refresh between pages.
+            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined)
 
             return { state: { ...state, progress: nextProgress } }
         } catch (err) {
@@ -170,8 +190,118 @@ export class ReplayPaginatorService {
             // Surface the error in job state but don't mark done — the worker
             // will reschedule, the janitor's transition_count guards against
             // infinite loops on poisoned jobs.
-            return { state: { ...state, progress: { ...progress, last_error: errMessage } } }
+            const errorProgress = { ...progress, last_error: errMessage }
+            await this.writeWrapperUpdate(teamId, state, context, errorProgress, err)
+            return { state: { ...state, progress: errorProgress } }
         }
+    }
+
+    /**
+     * Write a wrapper lifecycle row + log line reflecting the result of one
+     * page. Status is `'running'` for in-flight pages, `'succeeded'` /
+     * `'failed'` for the final page. Errors flow into the lifecycle row's
+     * `error_kind` / `error_message` for failed terminal writes only — a
+     * recoverable per-page error gets logged but the row stays `running` so
+     * the worker can reschedule and try again.
+     *
+     * Public so the worker can write a terminal `failed` row from its catch
+     * handler when the whole wrapper is being given up on.
+     */
+    async writeWrapperUpdate(
+        teamId: number,
+        state: ReplayJobState,
+        context: ReplayJobContext,
+        nextProgress: ReplayJobProgress,
+        pageError: unknown | undefined
+    ): Promise<void> {
+        const status: 'running' | 'succeeded' | 'failed' = nextProgress.done ? 'succeeded' : 'running'
+        const now = new Date()
+        this.invocationResultsRowsService.queueReplayWrapperRow({
+            teamId,
+            parentFunctionKind: state.function_kind,
+            functionId: state.function_id,
+            replayJobId: context.jobId,
+            status,
+            pagesProcessed: nextProgress.pages_processed ?? 0,
+            filter: state.request.filter,
+            scheduledAt: context.createdAt.toJSDate(),
+            startedAt: context.createdAt.toJSDate(),
+            finishedAt: status !== 'running' ? now : undefined,
+            error: pageError,
+        })
+
+        const pageErrorMessage = pageError ? (pageError instanceof Error ? pageError.message : String(pageError)) : null
+        const message = nextProgress.done
+            ? `Re-run finished. queued=${nextProgress.queued} skipped=${nextProgress.skipped}`
+            : pageErrorMessage
+              ? `Re-run page failed: ${pageErrorMessage}. Worker will retry.`
+              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} cursor=${
+                    nextProgress.cursor
+                        ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
+                        : 'end'
+                }`
+
+        this.monitoringService.queueLogs(
+            [
+                {
+                    team_id: teamId,
+                    log_source: state.function_kind,
+                    log_source_id: state.function_id,
+                    instance_id: context.jobId,
+                    timestamp: DateTime.fromJSDate(now),
+                    level: pageErrorMessage ? 'warn' : nextProgress.done ? 'info' : 'info',
+                    message,
+                },
+            ],
+            state.function_kind
+        )
+
+        await Promise.all([this.invocationResultsRowsService.flush(), this.monitoringService.flush()])
+    }
+
+    /**
+     * Write the terminal `failed` wrapper lifecycle row from the worker's
+     * unrecoverable catch path. Logs the cause and flushes so the failure is
+     * visible immediately on the Invocations tab.
+     */
+    async writeWrapperFailure(
+        teamId: number,
+        state: ReplayJobState,
+        context: ReplayJobContext,
+        error: unknown
+    ): Promise<void> {
+        const errMessage = error instanceof Error ? error.message : String(error)
+        const now = new Date()
+        this.invocationResultsRowsService.queueReplayWrapperRow({
+            teamId,
+            parentFunctionKind: state.function_kind,
+            functionId: state.function_id,
+            replayJobId: context.jobId,
+            status: 'failed',
+            pagesProcessed: state.progress.pages_processed ?? 0,
+            filter: state.request.filter,
+            scheduledAt: context.createdAt.toJSDate(),
+            startedAt: context.createdAt.toJSDate(),
+            finishedAt: now,
+            error,
+        })
+
+        this.monitoringService.queueLogs(
+            [
+                {
+                    team_id: teamId,
+                    log_source: state.function_kind,
+                    log_source_id: state.function_id,
+                    instance_id: context.jobId,
+                    timestamp: DateTime.fromJSDate(now),
+                    level: 'error',
+                    message: `Re-run aborted: ${errMessage}`,
+                },
+            ],
+            state.function_kind
+        )
+
+        await Promise.all([this.invocationResultsRowsService.flush(), this.monitoringService.flush()])
     }
 
     private remainingBudget(state: ReplayJobState): number {

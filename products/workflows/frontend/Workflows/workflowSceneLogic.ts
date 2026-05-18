@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import type { workflowSceneLogicType } from './workflowSceneLogicType'
 
-export const WorkflowTabs = ['workflow', 'logs', 'runs-v2', 'metrics', 'history', 'blocked_runs'] as const
+export const WorkflowTabs = ['workflow', 'logs', 'invocations', 'metrics', 'history', 'blocked_runs'] as const
 export type WorkflowTab = (typeof WorkflowTabs)[number]
 
 export interface WorkflowSceneLogicProps {

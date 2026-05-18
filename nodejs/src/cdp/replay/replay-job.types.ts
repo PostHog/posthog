@@ -20,6 +20,20 @@ export const REPLAY_QUEUE_NAME = 'replay'
 
 export type ReplayFunctionKind = 'hog_function' | 'hog_flow'
 
+/**
+ * `function_kind` value we stamp on the wrapper row that the worker writes to
+ * `hog_invocation_results` to surface a re-run in the Invocations UI alongside
+ * the function's normal invocations. Suffixing avoids overloading the existing
+ * kind enum and keeps "is this a wrapper?" a trivial check on the frontend.
+ */
+export type ReplayWrapperFunctionKind = 'hog_function_replay' | 'hog_flow_replay'
+
+export const replayWrapperKindFor = (kind: ReplayFunctionKind): ReplayWrapperFunctionKind =>
+    kind === 'hog_flow' ? 'hog_flow_replay' : 'hog_function_replay'
+
+export const isReplayWrapperKind = (kind: string): kind is ReplayWrapperFunctionKind =>
+    kind === 'hog_function_replay' || kind === 'hog_flow_replay'
+
 export type ReplayStatusValue = 'running' | 'succeeded' | 'failed'
 
 /**
@@ -70,6 +84,12 @@ export interface ReplayJobProgress {
     done: boolean
     /** Last error from a page; non-fatal — the next reschedule retries. */
     last_error?: string
+    /**
+     * Number of pages that have committed progress to this job. Bumped per
+     * call to `processPage`. Surfaces on the wrapper lifecycle row as `attempts`
+     * so the Invocations UI can show "this re-run has worked X pages so far".
+     */
+    pages_processed?: number
 }
 
 export interface ReplayJobState {

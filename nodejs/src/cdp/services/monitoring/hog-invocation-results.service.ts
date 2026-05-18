@@ -7,6 +7,7 @@ import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import type { CdpOutput } from '../../cdp-services'
+import { ReplayFilter, ReplayFunctionKind, replayWrapperKindFor } from '../../replay/replay-job.types'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -43,7 +44,10 @@ export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | Cdp
  */
 export interface HogInvocationResultRow {
     team_id: number
-    function_kind: 'hog_function' | 'hog_flow'
+    // `*_replay` kinds tag the wrapper row that drives a re-run, so the
+    // Invocations list can surface in-flight re-runs alongside the function's
+    // normal invocations. See `replay-job.types.ts` for the helper.
+    function_kind: 'hog_function' | 'hog_flow' | 'hog_function_replay' | 'hog_flow_replay'
     function_id: string
     invocation_id: string
     parent_run_id: string
@@ -316,6 +320,69 @@ export class HogInvocationResultsService {
             distinct_id: trigger.distinct_id,
             person_id: trigger.person_id,
             invocation_globals: serializeInvocationGlobals(invocation),
+            version: microsecondsSinceEpoch(),
+            is_deleted: 0,
+        }
+
+        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+        this.queuedRows.push(row)
+        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
+    }
+
+    /**
+     * Queue a lifecycle row for a re-run wrapper job.
+     *
+     * Conceptually a wrapper is a meta-invocation: one row per re-run rather
+     * than one per replayed invocation. Stamping it on `hog_invocation_results`
+     * (with `function_kind = *_replay`) means the same Invocations tab is the
+     * only debugging surface for both real invocations and the wrappers that
+     * spawned them — no separate polling, no separate UI.
+     *
+     * Fields we deliberately leave empty: `event_uuid` / `distinct_id` /
+     * `person_id` — a wrapper isn't triggered by a single event. The filter
+     * blob goes in `invocation_globals` (never exposed via HogQL — same
+     * security guarantee as for normal invocations).
+     */
+    queueReplayWrapperRow(args: {
+        teamId: number
+        parentFunctionKind: ReplayFunctionKind
+        functionId: string
+        replayJobId: string
+        status: 'running' | 'succeeded' | 'failed'
+        pagesProcessed: number
+        filter: ReplayFilter
+        scheduledAt: Date
+        startedAt?: Date
+        finishedAt?: Date
+        error?: unknown
+    }): void {
+        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return
+        }
+
+        const { kind: errorKind, message: errorMessage } = classifyError(args.error)
+        const durationMs =
+            args.startedAt && args.finishedAt ? Math.max(0, args.finishedAt.getTime() - args.startedAt.getTime()) : null
+
+        const row: HogInvocationResultRow = {
+            team_id: args.teamId,
+            function_kind: replayWrapperKindFor(args.parentFunctionKind),
+            function_id: args.functionId,
+            invocation_id: args.replayJobId,
+            parent_run_id: '',
+            status: args.status,
+            attempts: args.pagesProcessed,
+            is_retry: 0,
+            scheduled_at: isoMicroseconds(args.scheduledAt),
+            started_at: args.startedAt ? isoMicroseconds(args.startedAt) : null,
+            finished_at: args.finishedAt ? isoMicroseconds(args.finishedAt) : null,
+            duration_ms: durationMs,
+            error_kind: errorKind,
+            error_message: errorMessage,
+            event_uuid: '',
+            distinct_id: '',
+            person_id: '',
+            invocation_globals: JSON.stringify(args.filter),
             version: microsecondsSinceEpoch(),
             is_deleted: 0,
         }

@@ -28,12 +28,14 @@ import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
 import {
     BulkReplayParams,
-    HogFunctionRunRow,
-    HogFunctionRunsV2LogicProps,
-    RUNS_V2_REPLAY_MAX_COUNT,
+    HogInvocationRow,
+    HogInvocationsLogicProps,
+    HOG_INVOCATIONS_REPLAY_MAX_COUNT,
     RunStatus,
-    hogFunctionRunsV2Logic,
-} from './hogFunctionRunsV2Logic'
+    hogInvocationsLogic,
+    isReplayWrapperKind,
+} from './hogInvocationsLogic'
+import { InvocationsBetaBanner } from './InvocationsTabBanners'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
@@ -79,8 +81,8 @@ const shortId = (id: string): string =>
  * enqueues a cyclotron wrapper job. The toast surfaces the `replay_job_id`;
  * new lifecycle rows show up here once the worker drains the job.
  */
-export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicProps): JSX.Element | null {
-    const logic = hogFunctionRunsV2Logic({ id, functionKind })
+export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): JSX.Element | null {
+    const logic = hogInvocationsLogic({ id, functionKind })
     const {
         runs,
         runsLoading,
@@ -112,7 +114,7 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
         return null
     }
 
-    const columns: LemonTableColumns<HogFunctionRunRow> = [
+    const columns: LemonTableColumns<HogInvocationRow> = [
         {
             title: '',
             key: 'select',
@@ -121,7 +123,13 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
                 <LemonCheckbox
                     checked={Boolean(selectedIds[row.invocation_id])}
                     onChange={() => toggleSelected(row.invocation_id)}
-                    disabledReason={row.status === 'running' ? "Can't replay a run that's still in flight" : undefined}
+                    disabledReason={
+                        isReplayWrapperKind(row.function_kind)
+                            ? "Can't re-run a re-run"
+                            : row.status === 'running'
+                              ? "Can't replay a run that's still in flight"
+                              : undefined
+                    }
                 />
             ),
         },
@@ -133,7 +141,14 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
             render: (_, row) => (
                 <div className="flex items-center gap-1">
                     <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-                    {row.is_retry ? (
+                    {isReplayWrapperKind(row.function_kind) ? (
+                        <LemonTag
+                            type="primary"
+                            title="This row tracks a bulk re-run, not an individual invocation. Expand for logs."
+                        >
+                            re-run
+                        </LemonTag>
+                    ) : row.is_retry ? (
                         <LemonTag type="muted" title="This run was a replay of an earlier invocation">
                             replay
                         </LemonTag>
@@ -239,7 +254,13 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    disabledReason={row.status === 'running' ? "Can't replay a run that's still in flight" : undefined}
+                    disabledReason={
+                        isReplayWrapperKind(row.function_kind)
+                            ? "Can't re-run a re-run"
+                            : row.status === 'running'
+                              ? "Can't replay a run that's still in flight"
+                              : undefined
+                    }
                     onClick={() => {
                         LemonDialog.open({
                             title: 'Replay this invocation?',
@@ -263,6 +284,7 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
 
     return (
         <div className="flex-1 deprecated-space-y-2 flex flex-col">
+            <InvocationsBetaBanner />
             <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
@@ -350,8 +372,10 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
                 <div className="flex items-center justify-between border rounded p-2 bg-bg-light">
                     <div className="text-sm">
                         {selectedCount} selected
-                        {selectedCount > RUNS_V2_REPLAY_MAX_COUNT ? (
-                            <span className="text-danger ml-2">Maximum is {RUNS_V2_REPLAY_MAX_COUNT} per request.</span>
+                        {selectedCount > HOG_INVOCATIONS_REPLAY_MAX_COUNT ? (
+                            <span className="text-danger ml-2">
+                                Maximum is {HOG_INVOCATIONS_REPLAY_MAX_COUNT} per request.
+                            </span>
                         ) : null}
                     </div>
                     <div className="flex items-center gap-2">
@@ -364,8 +388,8 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
                             disabledReason={
                                 replayableSelectedIds.length === 0
                                     ? 'Selected runs are all still in flight'
-                                    : selectedCount > RUNS_V2_REPLAY_MAX_COUNT
-                                      ? `Selected ${selectedCount} > limit ${RUNS_V2_REPLAY_MAX_COUNT}`
+                                    : selectedCount > HOG_INVOCATIONS_REPLAY_MAX_COUNT
+                                      ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_REPLAY_MAX_COUNT}`
                                       : undefined
                             }
                             onClick={() => {
@@ -427,56 +451,61 @@ export function HogFunctionRunsV2({ id, functionKind }: HogFunctionRunsV2LogicPr
 
 /**
  * Detail panel rendered when a row is expanded. Pulls the logs for this
- * single invocation via the existing `LogsViewer` (no HogQL change needed —
- * `log_entries` uses `instance_id = invocation_id`).
+ * invocation via the existing `LogsViewer` (`log_entries.instance_id = invocation_id`).
+ *
+ * Designed not to duplicate anything already visible on the collapsed row —
+ * only the values that aren't shown above (full IDs, started/finished
+ * timestamps, parent run, full error, re-run filter) land here.
  */
 function RunDetail({
     record,
     functionKind,
     hogFunctionId,
 }: {
-    record: HogFunctionRunRow
-    functionKind: HogFunctionRunsV2LogicProps['functionKind']
+    record: HogInvocationRow
+    functionKind: HogInvocationsLogicProps['functionKind']
     hogFunctionId: string
 }): JSX.Element {
+    const isReplayWrapper = isReplayWrapperKind(record.function_kind)
     const logsLogicProps: LogsViewerLogicProps = {
         sourceType: functionKind,
         sourceId: hogFunctionId,
         // Pin the logs viewer to this one invocation — log_entries uses
         // instance_id = invocation_id.
-        logicKey: `runsv2-${record.invocation_id}`,
+        logicKey: `invocations-${record.invocation_id}`,
         defaultFilters: { instanceId: record.invocation_id },
         groupByInstanceId: false,
     }
 
     return (
-        <div className="p-4 deprecated-space-y-3 bg-bg-light">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-                <Field label="Invocation ID" value={record.invocation_id} mono />
-                <Field label="Status" value={record.status} />
-                <Field label="Attempts" value={String(record.attempts)} mono />
-                <Field label="Replay" value={record.is_retry ? 'Yes — this run was a replay' : 'No — original run'} />
-                <Field label="Scheduled at" value={record.scheduled_at} mono />
-                <Field label="Started at" value={record.started_at ?? '—'} mono />
-                <Field label="Finished at" value={record.finished_at ?? '—'} mono />
-                <Field label="Duration" value={formatDurationMs(record.duration_ms)} mono />
-                {record.event_uuid ? <Field label="Trigger event" value={record.event_uuid} mono /> : null}
-                {record.distinct_id ? <Field label="Distinct ID" value={record.distinct_id} mono /> : null}
-                {record.person_id ? <Field label="Person ID" value={record.person_id} mono /> : null}
-                {record.parent_run_id ? <Field label="Parent run" value={record.parent_run_id} mono /> : null}
+        <div className="p-3 deprecated-space-y-2 bg-surface-secondary">
+            <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
+                <DetailField label={isReplayWrapper ? 'Re-run job ID' : 'Invocation ID'} mono>
+                    <CopyToClipboardInline explicitValue={record.invocation_id} selectable>
+                        {record.invocation_id}
+                    </CopyToClipboardInline>
+                </DetailField>
+                {record.started_at ? <DetailField label="Started" mono value={record.started_at} /> : null}
+                {record.finished_at ? <DetailField label="Finished" mono value={record.finished_at} /> : null}
+                {record.parent_run_id ? <DetailField label="Parent run" mono value={record.parent_run_id} /> : null}
+                {isReplayWrapper ? null : record.distinct_id ? (
+                    <DetailField label="Distinct ID" mono value={record.distinct_id} />
+                ) : null}
+                {isReplayWrapper ? null : record.person_id ? (
+                    <DetailField label="Person ID" mono value={record.person_id} />
+                ) : null}
             </div>
 
             {record.status === 'failed' && record.error_message ? (
-                <div className="border rounded p-2 bg-bg-base">
-                    <div className="text-xs text-muted-alt mb-1">
-                        {record.error_kind ? `${record.error_kind} — error_message:` : 'error_message:'}
+                <div className="border border-danger rounded p-2 bg-danger-highlight">
+                    <div className="text-xs text-danger font-semibold mb-1">
+                        {record.error_kind ? record.error_kind : 'error'}
                     </div>
-                    <pre className="text-xs whitespace-pre-wrap break-all m-0">{record.error_message}</pre>
+                    <pre className="text-xs text-danger whitespace-pre-wrap break-all m-0">{record.error_message}</pre>
                 </div>
             ) : null}
 
-            <div className="border rounded p-2 bg-bg-base">
-                <div className="text-xs text-muted-alt mb-2">Logs for this invocation</div>
+            <div className="border rounded bg-surface-primary">
                 <LogsViewer
                     {...logsLogicProps}
                     hideDateFilter
@@ -488,11 +517,21 @@ function RunDetail({
     )
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }): JSX.Element {
+function DetailField({
+    label,
+    value,
+    mono,
+    children,
+}: {
+    label: string
+    value?: string
+    mono?: boolean
+    children?: ReactNode
+}): JSX.Element {
     return (
         <>
             <div className="text-muted-alt">{label}</div>
-            <div className={mono ? 'font-mono text-xs break-all' : undefined}>{value}</div>
+            <div className={mono ? 'font-mono break-all' : undefined}>{children ?? value}</div>
         </>
     )
 }
@@ -591,11 +630,11 @@ function RerunModal({
                         placeholder="Leave empty for all"
                     />
                 </Row>
-                <Row label="Max invocations to re-run" help={`Server caps at ${RUNS_V2_REPLAY_MAX_COUNT}.`}>
+                <Row label="Max invocations to re-run" help={`Server caps at ${HOG_INVOCATIONS_REPLAY_MAX_COUNT}.`}>
                     <LemonInput
                         type="number"
                         min={1}
-                        max={RUNS_V2_REPLAY_MAX_COUNT}
+                        max={HOG_INVOCATIONS_REPLAY_MAX_COUNT}
                         value={maxCount}
                         onChange={(v) => setMaxCount(typeof v === 'number' ? v : undefined)}
                         placeholder="Unlimited (up to server cap)"

@@ -13,27 +13,41 @@ import { hogFunctionsReplayCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationReplayFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
 import { hogFlowsReplayCreate } from 'products/workflows/frontend/generated/api'
 
-import type { hogFunctionRunsV2LogicType } from './hogFunctionRunsV2LogicType'
+import type { hogInvocationsLogicType } from './hogInvocationsLogicType'
 
 /**
  * Maximum lifecycle rows we pull from ClickHouse for the list. Tuned against
  * `hog_invocation_results.index_granularity = 1024`; one granule plus headroom
  * keeps the keyset scan cheap while still giving the user a full screen of work.
  */
-export const RUNS_V2_PAGE_SIZE = 200
+export const HOG_INVOCATIONS_PAGE_SIZE = 200
 
 /**
  * Server-side cap on a single replay request, mirrors HOG_INVOCATION_REPLAY_MAX_COUNT
  * in `nodejs/src/cdp/replay/replay-job.types.ts`. Keep them in sync.
  */
-export const RUNS_V2_REPLAY_MAX_COUNT = 1000
+export const HOG_INVOCATIONS_REPLAY_MAX_COUNT = 1000
 
 export type RunStatus = 'running' | 'succeeded' | 'failed'
 
-export type RunsV2FunctionKind = 'hog_function' | 'hog_flow'
+export type HogInvocationsFunctionKind = 'hog_function' | 'hog_flow'
 
-export interface HogFunctionRunRow {
+/**
+ * Row-kind stamped on the lifecycle row. `_replay` variants flag the wrapper
+ * job that drives a bulk re-run — surfaced in the same Invocations list with
+ * a different visual treatment and per-row replay disabled.
+ */
+export type RunRowKind = 'hog_function' | 'hog_flow' | 'hog_function_replay' | 'hog_flow_replay'
+
+export const isReplayWrapperKind = (kind: RunRowKind): boolean =>
+    kind === 'hog_function_replay' || kind === 'hog_flow_replay'
+
+const replayWrapperKindFor = (kind: HogInvocationsFunctionKind): RunRowKind =>
+    kind === 'hog_flow' ? 'hog_flow_replay' : 'hog_function_replay'
+
+export interface HogInvocationRow {
     invocation_id: string
+    function_kind: RunRowKind
     status: RunStatus
     attempts: number
     is_retry: boolean
@@ -49,7 +63,7 @@ export interface HogFunctionRunRow {
     parent_run_id: string
 }
 
-export interface HogFunctionRunsV2Filters {
+export interface HogInvocationsFilters {
     date_from: string
     date_to?: string
     status?: RunStatus[]
@@ -58,10 +72,10 @@ export interface HogFunctionRunsV2Filters {
     search?: string
 }
 
-export interface HogFunctionRunsV2LogicProps {
+export interface HogInvocationsLogicProps {
     /** HogFunction.id or HogFlow.id */
     id: string
-    functionKind: RunsV2FunctionKind
+    functionKind: HogInvocationsFunctionKind
 }
 
 /**
@@ -79,7 +93,7 @@ export interface BulkReplayParams {
     max_attempts?: number
 }
 
-const DEFAULT_FILTERS: HogFunctionRunsV2Filters = {
+const DEFAULT_FILTERS: HogInvocationsFilters = {
     date_from: '-24h',
     date_to: undefined,
     status: undefined,
@@ -89,14 +103,42 @@ const DEFAULT_FILTERS: HogFunctionRunsV2Filters = {
 }
 
 /**
+ * How long to wait between auto-refreshes while at least one visible row is
+ * mid-flight (real invocation or re-run wrapper, doesn't matter — both surface
+ * as `status='running'`). Long enough that we don't hammer ClickHouse on a
+ * function with constantly-changing state, short enough that the user sees
+ * re-run progress without hitting Refresh.
+ */
+const AUTO_REFRESH_INTERVAL_MS = 5000
+
+const scheduleAutoRefresh = (
+    cache: { disposables: { add: (setup: () => () => void, key?: string) => void; dispose?: (key: string) => void } },
+    actions: { loadRuns: (payload: null) => void },
+    values: { hasRunningRows: boolean }
+): void => {
+    if (!values.hasRunningRows) {
+        // Nothing in flight — let any pending tick expire naturally.
+        return
+    }
+    // `cache.disposables.add` with a key replaces the previous timer if one is
+    // already pending, so back-to-back loads don't accumulate ticks. The
+    // plugin tears it down on logic unmount and auto-pauses on hidden tabs,
+    // which is exactly the behavior we want here.
+    cache.disposables.add(() => {
+        const timeoutId = setTimeout(() => actions.loadRuns(null), AUTO_REFRESH_INTERVAL_MS)
+        return () => clearTimeout(timeoutId)
+    }, 'autoRefresh')
+}
+
+/**
  * Pulls one page of collapsed lifecycle rows from `hog_invocation_results`.
  * Shared by initial load and "Load more" — only the OFFSET differs.
  */
 async function fetchRunsPage(
-    props: HogFunctionRunsV2LogicProps,
-    filters: HogFunctionRunsV2Filters,
+    props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters,
     offset: number
-): Promise<HogFunctionRunRow[]> {
+): Promise<HogInvocationRow[]> {
     // HAVING clauses reference the SELECT aliases below — wrapping the column
     // again as `argMax(status, version)` makes HogQL substitute `status` for
     // its alias (also `argMax(status, version)`) and produce a nested aggregate.
@@ -128,9 +170,15 @@ async function fetchRunsPage(
           )
         : hogql.raw('')
 
+    // Pull both real invocations and their re-run wrappers — same function_id,
+    // wrappers stamped with the `_replay` suffix so the UI can mark them and
+    // disable per-row replay. function_kind has to come out of the row so we
+    // can branch on it client-side.
+    const replayWrapperKind = replayWrapperKindFor(props.functionKind)
     const query = hogql`
         SELECT
             invocation_id,
+            function_kind                   AS function_kind,
             argMax(status, version)         AS status,
             argMax(attempts, version)       AS attempts,
             argMax(is_retry, version)       AS is_retry,
@@ -145,22 +193,22 @@ async function fetchRunsPage(
             argMax(person_id, version)      AS person_id,
             argMax(parent_run_id, version)  AS parent_run_id
         FROM posthog.hog_invocation_results
-        WHERE function_kind = ${props.functionKind}
+        WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
           AND function_id = ${props.id}
-        GROUP BY invocation_id
+        GROUP BY invocation_id, function_kind
         HAVING argMax(is_deleted, version) = 0
            ${optionalStatusClause}
            ${optionalErrorKindClause}
            ${optionalRetryClause}
            ${optionalSearchClause}
         ORDER BY scheduled_at DESC, invocation_id DESC
-        LIMIT ${RUNS_V2_PAGE_SIZE}
+        LIMIT ${HOG_INVOCATIONS_PAGE_SIZE}
         OFFSET ${offset}
     `
 
     const response = await api.queryHogQL(
         query,
-        { scene: 'HogFunctionRunsV2', productKey: 'pipeline_destinations' },
+        { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
         {
             refresh: 'force_blocking',
             filtersOverride: {
@@ -170,9 +218,10 @@ async function fetchRunsPage(
         }
     )
 
-    return (response.results ?? []).map((row): HogFunctionRunRow => {
+    return (response.results ?? []).map((row): HogInvocationRow => {
         const [
             invocation_id,
+            function_kind,
             status,
             attempts,
             is_retry,
@@ -188,6 +237,7 @@ async function fetchRunsPage(
             parent_run_id,
         ] = row as unknown as [
             string,
+            RunRowKind,
             RunStatus,
             number,
             number,
@@ -204,6 +254,7 @@ async function fetchRunsPage(
         ]
         return {
             invocation_id,
+            function_kind,
             status,
             attempts,
             is_retry: Boolean(is_retry),
@@ -232,13 +283,13 @@ async function fetchRunsPage(
  * with the `replay_job_id` and the new rows show up in the list once the
  * worker drains them.
  */
-export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
-    path((id) => ['scenes', 'hog-functions', 'runs-v2', 'hogFunctionRunsV2Logic', id]),
-    props({} as HogFunctionRunsV2LogicProps),
+export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
+    path((id) => ['scenes', 'hog-functions', 'invocations', 'hogInvocationsLogic', id]),
+    props({} as HogInvocationsLogicProps),
     key((props) => `${props.functionKind}:${props.id}`),
 
     actions({
-        setFilters: (filters: Partial<HogFunctionRunsV2Filters>) => ({ filters }),
+        setFilters: (filters: Partial<HogInvocationsFilters>) => ({ filters }),
         resetFilters: true,
         toggleSelected: (invocationId: string) => ({ invocationId }),
         clearSelected: true,
@@ -310,13 +361,13 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
 
     loaders(({ props, values, actions }) => ({
         runs: [
-            [] as HogFunctionRunRow[],
+            [] as HogInvocationRow[],
             {
                 loadRuns: async (_, breakpoint) => {
                     await breakpoint(100)
                     const rows = await fetchRunsPage(props, values.filters, 0)
                     breakpoint()
-                    actions.setHasMore(rows.length >= RUNS_V2_PAGE_SIZE)
+                    actions.setHasMore(rows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return rows
                 },
                 /**
@@ -330,7 +381,7 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                     const offset = values.runs.length
                     const newRows = await fetchRunsPage(props, values.filters, offset)
                     breakpoint()
-                    actions.setHasMore(newRows.length >= RUNS_V2_PAGE_SIZE)
+                    actions.setHasMore(newRows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return [...values.runs, ...newRows]
                 },
             },
@@ -351,12 +402,13 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
         selectedCount: [(s) => [s.selectedIds], (selectedIds) => Object.keys(selectedIds).length],
         canBulkReplay: [
             (s) => [s.selectedCount],
-            (selectedCount) => selectedCount > 0 && selectedCount <= RUNS_V2_REPLAY_MAX_COUNT,
+            (selectedCount) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_REPLAY_MAX_COUNT,
         ],
         // For the replay button's status filter — we never want to replay a
-        // 'running' row (it's still in flight). The button is disabled for
-        // non-terminal rows in the UI; this selector is also used to filter
-        // bulk selection down to valid candidates before posting.
+        // 'running' row (it's still in flight), and re-run wrappers can't be
+        // re-run themselves. The button is disabled in the UI for both cases;
+        // this selector is also used to filter bulk selection down to valid
+        // candidates before posting.
         replayableSelectedIds: [
             (s) => [s.selectedIds, s.runs],
             (selectedIds, runs): string[] => {
@@ -369,26 +421,39 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                     const row = byId.get(id)
                     // Allow replay if row not loaded (the user has scrolled past
                     // or filtered it out) — the worker enforces its own checks.
-                    return !row || row.status !== 'running'
+                    return !row || (row.status !== 'running' && !isReplayWrapperKind(row.function_kind))
                 })
             },
         ],
+        /**
+         * True while any currently-visible row is still in flight. Drives the
+         * Invocations tab's auto-refresh — a re-run wrapper that's mid-flight
+         * will be a `running` row, so this naturally covers both real
+         * invocations the user just kicked off and live re-runs.
+         */
+        hasRunningRows: [(s) => [s.runs], (runs): boolean => runs.some((r) => r.status === 'running')],
     }),
 
-    listeners(({ props, actions, values }) => ({
+    listeners(({ props, actions, values, cache }) => ({
         setFilters: () => {
             actions.loadRuns(null)
         },
         resetFilters: () => {
             actions.loadRuns(null)
         },
+        loadRunsSuccess: () => {
+            scheduleAutoRefresh(cache, actions, values)
+        },
+        loadMoreSuccess: () => {
+            scheduleAutoRefresh(cache, actions, values)
+        },
         replayInvocations: async ({ invocationIds }) => {
             if (invocationIds.length === 0) {
                 lemonToast.warning('Nothing to replay')
                 return
             }
-            if (invocationIds.length > RUNS_V2_REPLAY_MAX_COUNT) {
-                lemonToast.error(`Replay request capped at ${RUNS_V2_REPLAY_MAX_COUNT} invocations per request`)
+            if (invocationIds.length > HOG_INVOCATIONS_REPLAY_MAX_COUNT) {
+                lemonToast.error(`Replay request capped at ${HOG_INVOCATIONS_REPLAY_MAX_COUNT} invocations per request`)
                 return
             }
 

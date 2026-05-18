@@ -8,6 +8,7 @@ import { ListHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { InvocationsLegacyTabBanner } from 'scenes/hog-functions/invocations/InvocationsTabBanners'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -191,6 +192,7 @@ export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
 
     return (
         <div data-attr="workflow-logs">
+            <InvocationsLegacyTabBanner legacyTab="Invocations (legacy)" />
             {workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />}
         </div>
     )

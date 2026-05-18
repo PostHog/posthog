@@ -41,9 +41,9 @@ import {
 } from './configuration/components/HogFunctionConfigurationButtons'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogInvocations } from './invocations/HogInvocations'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
-import { HogFunctionRunsV2 } from './runs-v2/HogFunctionRunsV2'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
 const HOG_FUNCTION_SCENE_TABS = [
@@ -52,7 +52,7 @@ const HOG_FUNCTION_SCENE_TABS = [
     'logs',
     'testing',
     'runs',
-    'runs-v2',
+    'invocations',
     'backfills',
     'history',
 ] as const
@@ -432,8 +432,8 @@ export function HogFunctionScene(): JSX.Element {
             ? null
             : {
                   label: 'Invocations',
-                  key: 'runs-v2',
-                  content: <HogFunctionRunsV2 id={id} functionKind="hog_function" />,
+                  key: 'invocations',
+                  content: <HogInvocations id={id} functionKind="hog_function" />,
               },
         type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
             ? null

@@ -99,7 +99,8 @@ export class CdpReplayWorkerConsumer extends CdpConsumerBase<PluginsServerConfig
             // config, since we strip `inputs` from the persisted globals.
             this.hogInputsService,
             this.invocationResultsService.invocationResultsRowsService,
-            this.cyclotronJobQueue
+            this.cyclotronJobQueue,
+            this.invocationResultsService.monitoringService
         )
 
         this.worker = new CyclotronV2Worker({
@@ -173,8 +174,9 @@ export class CdpReplayWorkerConsumer extends CdpConsumerBase<PluginsServerConfig
             })
         }, HEARTBEAT_INTERVAL_MS)
 
+        const context = { jobId: job.id, createdAt: job.created }
         try {
-            const outcome = await this.paginator.processPage(job.teamId, state)
+            const outcome = await this.paginator.processPage(job.teamId, state, context)
             const nextState = outcome.state
 
             if (nextState.progress.done) {
@@ -201,6 +203,15 @@ export class CdpReplayWorkerConsumer extends CdpConsumerBase<PluginsServerConfig
             })
             captureException(e)
             counterReplayJobsAcked.labels('error').inc()
+            // Surface the terminal failure on the Invocations tab before we
+            // ack the cyclotron job — otherwise the wrapper row would be left
+            // stuck on `status='running'` forever.
+            await this.paginator?.writeWrapperFailure(job.teamId, state, context, e).catch((logErr) => {
+                logger.error('Replay worker failed to write wrapper failure row', {
+                    job_id: job.id,
+                    error: logErr instanceof Error ? logErr.message : String(logErr),
+                })
+            })
             await job.fail()
         } finally {
             clearInterval(heartbeat)

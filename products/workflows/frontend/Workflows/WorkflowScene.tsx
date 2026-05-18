@@ -22,10 +22,10 @@ import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { BlockedRunsBanner } from './BlockedRunsBanner'
 import { BlockedRunsReplay } from './BlockedRunsReplay'
 import { Workflow } from './Workflow'
+import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
-import { WorkflowRunsV2 } from './WorkflowRunsV2'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
@@ -88,8 +88,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         runsV2Enabled
             ? {
                   label: 'Invocations (preview)',
-                  key: 'runs-v2',
-                  content: <WorkflowRunsV2 id={workflowSceneProps.id!} />,
+                  key: 'invocations',
+                  content: <WorkflowInvocations id={workflowSceneProps.id!} />,
               }
             : null,
         {

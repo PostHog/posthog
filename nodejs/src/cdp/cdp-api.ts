@@ -767,12 +767,40 @@ export class CdpApi {
                     }
                 }
 
-                const replayJobId = await this.replayJobManager.enqueue(
-                    team.id,
-                    functionKind,
-                    id,
-                    req.body as ReplayRequest
+                const replayRequest = req.body as ReplayRequest
+                const replayJobId = await this.replayJobManager.enqueue(team.id, functionKind, id, replayRequest)
+
+                // Surface the wrapper job in the Invocations list immediately —
+                // a 'running' lifecycle row + a `replay_queued` log line. Both
+                // share the same `instance_id = replay_job_id` so the logs
+                // viewer in the row's expand panel picks them up automatically.
+                const now = new Date()
+                this.invocationResultsService.invocationResultsRowsService.queueReplayWrapperRow({
+                    teamId: team.id,
+                    parentFunctionKind: functionKind,
+                    functionId: id,
+                    replayJobId,
+                    status: 'running',
+                    pagesProcessed: 0,
+                    filter: replayRequest.filter,
+                    scheduledAt: now,
+                    startedAt: now,
+                })
+                this.invocationResultsService.monitoringService.queueLogs(
+                    [
+                        {
+                            team_id: team.id,
+                            log_source: functionKind,
+                            log_source_id: id,
+                            instance_id: replayJobId,
+                            timestamp: DateTime.fromJSDate(now),
+                            level: 'info',
+                            message: `Re-run queued. Filter: ${JSON.stringify(replayRequest.filter)}`,
+                        },
+                    ],
+                    functionKind
                 )
+                await this.invocationResultsService.flush()
 
                 logger.info('⚡️', 'Replay job enqueued', {
                     function_kind: functionKind,
