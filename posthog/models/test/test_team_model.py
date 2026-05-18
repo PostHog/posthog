@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import models
 
 from parameterized import parameterized
 
@@ -275,8 +276,10 @@ class TestTeam(BaseTest):
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
 
 
-API_TOKEN_MAX_LENGTH = Team._meta.get_field("api_token").max_length
-assert API_TOKEN_MAX_LENGTH is not None, "api_token CharField must declare a max_length"
+_api_token_field = Team._meta.get_field("api_token")
+assert isinstance(_api_token_field, models.CharField)
+assert _api_token_field.max_length is not None, "api_token CharField must declare a max_length"
+API_TOKEN_MAX_LENGTH: int = _api_token_field.max_length
 
 
 class TestTeamSetTokenAndSave(BaseTest):

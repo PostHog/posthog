@@ -844,9 +844,10 @@ class Team(UUIDTClassicModel):
         new_token = new_token.strip()
         if not new_token:
             raise ValueError("New API token must be non-empty.")
-        api_token_max_length = self._meta.get_field("api_token").max_length
-        if api_token_max_length is None:
+        api_token_field = self._meta.get_field("api_token")
+        if not isinstance(api_token_field, models.CharField) or api_token_field.max_length is None:
             raise RuntimeError("Team.api_token field must declare a max_length")
+        api_token_max_length = api_token_field.max_length
         if len(new_token) > api_token_max_length:
             raise ValueError(f"New API token exceeds {api_token_max_length} characters.")
         if new_token == self.api_token:
