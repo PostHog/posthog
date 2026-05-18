@@ -19,9 +19,11 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TeamSerializer,
+    TestAccountFiltersField,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     validate_team_attrs,
+    validate_test_account_filters,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -90,6 +92,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    test_account_filters = TestAccountFiltersField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Filter groups that identify internal/test traffic to be excluded from insights.",
+    )
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -387,6 +394,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:

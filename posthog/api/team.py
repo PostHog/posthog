@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from pydantic import TypeAdapter
@@ -23,6 +23,13 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.schema import AttributionMode, HogQLQueryModifiers
 
+from posthog.api.documentation import (
+    ArrayPropertyFilterSerializer,
+    DatePropertyFilterSerializer,
+    ExistencePropertyFilterSerializer,
+    NumericPropertyFilterSerializer,
+    StringPropertyFilterSerializer,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -399,6 +406,27 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     return cast(list[dict[str, object]], value)
 
 
+_TestAccountFilterUnion = PolymorphicProxySerializer(
+    component_name="TestAccountFilter",
+    serializers=[
+        StringPropertyFilterSerializer,
+        NumericPropertyFilterSerializer,
+        ArrayPropertyFilterSerializer,
+        DatePropertyFilterSerializer,
+        ExistencePropertyFilterSerializer,
+    ],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(serializers.ListSerializer(child=_TestAccountFilterUnion))
+class TestAccountFiltersField(serializers.ListField):
+    # Runtime validation stays a plain ListField(child=DictField()); pydantic enforces the
+    # actual shape in `validate_test_account_filters`. The decorator gives MCP / OpenAPI
+    # consumers a typed `oneOf` array so LLM agents stop stringifying the value.
+    pass
+
+
 _default_theme_id_cache: int | None = None
 
 
@@ -485,6 +513,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    test_account_filters = TestAccountFiltersField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Filter groups that identify internal/test traffic to be excluded from insights.",
+    )
 
     class Meta:
         model = Team
