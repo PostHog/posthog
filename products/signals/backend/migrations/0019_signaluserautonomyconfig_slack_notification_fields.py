@@ -5,8 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("posthog", "1155_sharingconfiguration_interviewee_context"),
         ("signals", "0018_alter_signalreportartefact_type"),

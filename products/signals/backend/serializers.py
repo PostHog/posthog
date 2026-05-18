@@ -158,9 +158,9 @@ class _UserSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
     user = _UserSerializer(read_only=True)
-    slack_notification_integration_id = serializers.PrimaryKeyRelatedField(
-        source="slack_notification_integration",
+    slack_notification_integration_id = serializers.IntegerField(
         read_only=True,
+        allow_null=True,
         help_text="ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.",
     )
 

@@ -999,20 +999,20 @@ class SignalUserAutonomyConfigView(APIView):
             integration_id = validated.get("slack_notification_integration_id")
             integration = None
             if integration_id is not None:
-                # Scope integration to teams the caller has access to.
-                accessible_team_ids = list(
+                # Scope to teams the caller has access to: look up the
+                # candidate integration first, then verify its team is in the
+                # caller's reachable set. Separate fetch + per-team-id check
+                # is what the semgrep IDOR rule wants — a blanket
+                # `team_id__in=` filter would be flagged.
+                accessible_team_ids = set(
                     user.organization_memberships.values_list("organization__teams__id", flat=True)
                 )
-                try:
-                    integration = Integration.objects.get(
-                        pk=integration_id,
-                        kind="slack",
-                        team_id__in=accessible_team_ids,
-                    )
-                except Integration.DoesNotExist:
+                candidate = Integration.objects.filter(pk=integration_id, kind="slack").first()
+                if candidate is None or candidate.team_id not in accessible_team_ids:
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )
+                integration = candidate
             defaults["slack_notification_integration"] = integration
         config, _created = SignalUserAutonomyConfig.objects.update_or_create(
             user=user,
