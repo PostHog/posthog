@@ -1363,6 +1363,13 @@ export type TrendsFormulaNode = {
     custom_name?: string
 }
 
+export enum LegendPosition {
+    Right = 'right',
+    Bottom = 'bottom',
+    Top = 'top',
+    Left = 'left',
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
@@ -1376,6 +1383,12 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /**
+     * Where the legend renders relative to the chart when `showLegend` is true.
+     * Presentation-only — excluded from the insight cache key.
+     * @default right
+     */
+    legendPosition?: LegendPosition
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -1447,6 +1460,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'formula',
     'display',
     'showLegend',
+    'legendPosition',
     'breakdown_histogram_bin_count',
     'aggregationAxisFormat',
     'aggregationAxisPrefix',

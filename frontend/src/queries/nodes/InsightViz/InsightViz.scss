@@ -112,8 +112,14 @@
         height: 100%;
         padding: 0.5rem;
 
-        &--with-legend {
+        &--with-legend-right,
+        &--with-legend-left {
             flex-direction: row;
+        }
+
+        &--with-legend-bottom,
+        &--with-legend-top {
+            flex-direction: column;
         }
 
         .InsightVizDisplay__content__left {
@@ -132,6 +138,15 @@
             max-width: 45%;
             max-height: var(--insight-viz-min-height);
             margin: 1rem;
+        }
+
+        &--with-legend-bottom .InsightVizDisplay__content__right,
+        &--with-legend-top .InsightVizDisplay__content__right {
+            align-items: flex-start;
+            width: 100%;
+            max-width: 100%;
+            max-height: 35%;
+            margin: 0.5rem 1rem;
         }
     }
 

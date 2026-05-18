@@ -39,7 +39,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, LegendPosition, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -135,6 +135,7 @@ export function InsightVizDisplay({
         isPaths,
         hasDetailedResultsTable,
         showLegend,
+        legendPosition,
         hasFormula,
         supportsDisplay,
         samplingFactor,
@@ -438,25 +439,53 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
-                        <div
-                            className={clsx(
-                                'InsightVizDisplay__content',
-                                supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
-                            )}
-                        >
-                            {BlockingEmptyState ? (
-                                BlockingEmptyState
-                            ) : supportsDisplay && showLegend ? (
-                                <>
-                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right empty:hidden">
-                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
-                                    </div>
-                                </>
-                            ) : (
-                                <>{renderActiveView()}</>
-                            )}
-                        </div>
+                        {(() => {
+                            const position = legendPosition ?? LegendPosition.Right
+                            const isHorizontalLegend =
+                                position === LegendPosition.Top || position === LegendPosition.Bottom
+                            const legendFirst =
+                                position === LegendPosition.Top || position === LegendPosition.Left
+                            const chartSlot = (
+                                <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                            )
+                            const legendSlot = (
+                                <div className="InsightVizDisplay__content__right empty:hidden">
+                                    {display === ChartDisplayType.BoxPlot ? (
+                                        <BoxPlotLegend />
+                                    ) : (
+                                        <InsightLegend horizontal={isHorizontalLegend} />
+                                    )}
+                                </div>
+                            )
+                            return (
+                                <div
+                                    className={clsx(
+                                        'InsightVizDisplay__content',
+                                        supportsDisplay &&
+                                            showLegend &&
+                                            `InsightVizDisplay__content--with-legend-${position}`
+                                    )}
+                                >
+                                    {BlockingEmptyState ? (
+                                        BlockingEmptyState
+                                    ) : supportsDisplay && showLegend ? (
+                                        legendFirst ? (
+                                            <>
+                                                {legendSlot}
+                                                {chartSlot}
+                                            </>
+                                        ) : (
+                                            <>
+                                                {chartSlot}
+                                                {legendSlot}
+                                            </>
+                                        )
+                                    ) : (
+                                        <>{renderActiveView()}</>
+                                    )}
+                                </div>
+                            )
+                        })()}
                     </>
                 )}
             </div>

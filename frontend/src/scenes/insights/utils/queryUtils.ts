@@ -226,6 +226,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
         const sanitizedInsightFilter = {
             ...insightFilter,
             showLegend: undefined,
+            legendPosition: undefined,
             showPercentStackView: undefined,
             showValuesOnSeries: undefined,
             aggregationAxisFormat: undefined,

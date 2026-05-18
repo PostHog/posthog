@@ -84,6 +84,7 @@ def to_dict(query: BaseModel) -> dict:
                     if key
                     not in [
                         "showLegend",
+                        "legendPosition",
                         "showPercentStackView",
                         "showValuesOnSeries",
                         "aggregationAxisFormat",

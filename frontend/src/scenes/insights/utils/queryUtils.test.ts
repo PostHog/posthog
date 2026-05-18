@@ -1,6 +1,7 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { LegendPosition, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 
 import {
+    compareQuery,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
@@ -214,5 +215,24 @@ describe('isBoxPlotMissingProperty', () => {
                 { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
             ])
         ).toBe(false)
+    })
+})
+
+describe('compareQuery with ignoreVisualizationOnlyChanges', () => {
+    const baseTrends: TrendsQuery = {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+    }
+
+    it('treats two queries that differ only by legendPosition as semantically equal', () => {
+        const right: TrendsQuery = {
+            ...baseTrends,
+            trendsFilter: { showLegend: true, legendPosition: LegendPosition.Right },
+        }
+        const bottom: TrendsQuery = {
+            ...baseTrends,
+            trendsFilter: { showLegend: true, legendPosition: LegendPosition.Bottom },
+        }
+        expect(compareQuery(right, bottom, { ignoreVisualizationOnlyChanges: true })).toBe(true)
     })
 })

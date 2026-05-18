@@ -7,11 +7,15 @@ import { App } from 'scenes/App'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { useStorybookMocks } from '~/mocks/browser'
-import { InsightVizNode, Node } from '~/queries/schema/schema-general'
+import { InsightVizNode, LegendPosition, Node } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { QueryBasedInsightModel } from '~/types'
 
-function setLegendFilter(query: Node | null | undefined, showLegend: boolean): Node | null | undefined {
+function setLegendFilter(
+    query: Node | null | undefined,
+    showLegend: boolean,
+    legendPosition?: LegendPosition
+): Node | null | undefined {
     if (!isInsightVizNode(query)) {
         return query
     }
@@ -21,7 +25,7 @@ function setLegendFilter(query: Node | null | undefined, showLegend: boolean): N
             ...query,
             source: {
                 ...query.source,
-                trendsFilter: { ...query.source.trendsFilter, showLegend },
+                trendsFilter: { ...query.source.trendsFilter, showLegend, legendPosition },
             },
         } as InsightVizNode
     } else if (isLifecycleQuery(query.source)) {
@@ -48,7 +52,8 @@ export function createInsightStory(
     insight: Partial<QueryBasedInsightModel>,
     mode: 'view' | 'edit' = 'view',
     showLegend: boolean = false,
-    options: InsightStoryOptions = {}
+    options: InsightStoryOptions = {},
+    legendPosition?: LegendPosition
 ): StoryFn<typeof App> {
     const count = shortCounter++
     return function InsightStory() {
@@ -66,7 +71,7 @@ export function createInsightStory(
                                 ...insight,
                                 short_id: `${insight.short_id}${count}`,
                                 id: (insight.id ?? 0) + 1 + count,
-                                query: setLegendFilter(insight.query, showLegend),
+                                query: setLegendFilter(insight.query, showLegend, legendPosition),
                             },
                         ],
                     }),

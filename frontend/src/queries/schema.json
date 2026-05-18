@@ -22378,6 +22378,10 @@
             ],
             "type": "object"
         },
+        "LegendPosition": {
+            "enum": ["right", "bottom", "top", "left"],
+            "type": "string"
+        },
         "LifecycleDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -38269,6 +38273,11 @@
                 "hideWeekends": {
                     "default": false,
                     "type": "boolean"
+                },
+                "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
+                    "default": "right",
+                    "description": "Where the legend renders relative to the chart when `showLegend` is true.\nPresentation-only — excluded from the insight cache key."
                 },
                 "minDecimalPlaces": {
                     "type": "number"

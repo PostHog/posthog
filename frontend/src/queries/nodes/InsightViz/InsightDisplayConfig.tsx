@@ -19,6 +19,7 @@ import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LegendPositionFilter } from 'scenes/insights/EditorFilters/LegendPositionFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -145,6 +146,9 @@ export function InsightDisplayConfig(): JSX.Element {
                       items: isBoxPlot
                           ? [
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(hasLegend && showLegend && isTrends
+                                    ? [{ label: () => <LegendPositionFilter /> }]
+                                    : []),
                                 {
                                     label: () => (
                                         <LemonCheckbox
@@ -178,6 +182,9 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(hasLegend && showLegend && isTrends
+                                    ? [{ label: () => <LegendPositionFilter /> }]
+                                    : []),
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
                                     : []),
