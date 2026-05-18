@@ -67,6 +67,7 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import (
+    consolidate_postgres_legacy_rows,
     filter_dwh_columns_by_enabled_columns,
     get_direct_postgres_location,
     postgres_schema_metadata,
@@ -253,38 +254,56 @@ def _pin_legacy_postgres_rows_to_default_schema(source: ExternalDataSource, old_
     rows_by_name = {row.name: row for row in rows}
 
     for row in rows:
+        # Already qualified — nothing to rename. (Note: an earlier version of this helper bailed
+        # out as soon as `schema_metadata.source_table_name` was populated, but `reconcile_postgres_schemas`
+        # writes that key for legacy rows on every refresh now, so the metadata-presence guard would
+        # leave the row unqualified forever — alongside a duplicate qualified row created by the
+        # same refresh. The only safe skip signal is the qualified name itself.)
         if "." in row.name:
             continue
         sync_type_config = row.sync_type_config or {}
-        existing_metadata = sync_type_config.get("schema_metadata")
-        if isinstance(existing_metadata, dict) and existing_metadata.get("source_table_name"):
-            # Already pinned (e.g. CDC schema or a prior migration ran). Don't touch.
-            continue
+        existing_metadata_raw = sync_type_config.get("schema_metadata")
+        existing_metadata: dict[str, Any] = (
+            dict(existing_metadata_raw) if isinstance(existing_metadata_raw, dict) else {}
+        )
 
         original_name = row.name
-        qualified_name = f"{old_schema}.{original_name}"
+        # Prefer the reconcile-populated source_schema (accurate match against the live DB) over
+        # the cleared default — they usually match, but a CDC schema or a hand-edited row could
+        # legitimately point to a different schema.
+        effective_source_schema = existing_metadata.get("source_schema") or old_schema
+        effective_source_table_name = existing_metadata.get("source_table_name") or original_name
+        qualified_name = f"{effective_source_schema}.{effective_source_table_name}"
 
-        merged_metadata: dict[str, Any] = dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
-        merged_metadata["source_catalog"] = merged_metadata.get("source_catalog")
-        merged_metadata["source_schema"] = old_schema
-        merged_metadata["source_table_name"] = original_name
+        merged_metadata: dict[str, Any] = dict(existing_metadata)
+        merged_metadata.setdefault("source_catalog", existing_metadata.get("source_catalog"))
+        merged_metadata["source_schema"] = effective_source_schema
+        merged_metadata["source_table_name"] = effective_source_table_name
         merged_metadata.setdefault("columns", [])
         merged_metadata.setdefault("foreign_keys", [])
 
         new_sync_type_config = {
             **sync_type_config,
             "schema_metadata": merged_metadata,
-            # Lock the Delta storage path to the legacy unqualified key so existing data stays in
-            # place. validate_schema_and_update_table reads this back instead of recomputing.
-            "dwh_storage_key": original_name,
         }
+        # Lock the Delta storage path to the legacy unqualified key so existing data stays in
+        # place. validate_schema_and_update_table reads this back instead of recomputing.
+        # Don't clobber an existing value — that's already the storage key in use.
+        if "dwh_storage_key" not in sync_type_config:
+            new_sync_type_config["dwh_storage_key"] = original_name
 
         # If a qualified duplicate exists (e.g. created during a prior refresh that ran before this
-        # migration), drop it — the legacy row is the canonical one with data attached.
+        # migration), drop it — the legacy row is the canonical one with data attached. Skip if the
+        # duplicate already has its own DataWarehouseTable (user manually synced into it); destroying
+        # data is worse than living with two rows.
         existing_qualified = rows_by_name.get(qualified_name)
-        if existing_qualified is not None and existing_qualified.id != row.id:
+        if existing_qualified is not None and existing_qualified.id != row.id and existing_qualified.table_id is None:
             existing_qualified.soft_delete()
             rows_by_name.pop(qualified_name, None)
+        elif existing_qualified is not None and existing_qualified.id != row.id:
+            # Duplicate has data — can't rename legacy onto its name without a UNIQUE collision and
+            # can't drop the duplicate. Skip this row.
+            continue
 
         row.name = qualified_name
         row.sync_type_config = new_sync_type_config
@@ -1599,6 +1618,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     # pre-existing data, so only direct-query mode auto-renames here.
                     allow_rename=instance.is_direct_query,
                 )
+
+            # Warehouse-mode Postgres only: dedupe legacy unqualified rows against any qualified
+            # duplicates a prior refresh may have created, and rename the keeper in place so its
+            # Delta path (anchored on the new ``dwh_storage_key``) is preserved. Idempotent — runs
+            # every refresh, no-ops once everything's qualified. Direct-query mode handles this
+            # via ``rename_direct_postgres_schemas_to_match_source_schemas`` with ``allow_rename=True``.
+            if instance.source_type == ExternalDataSourceType.POSTGRES and not instance.is_direct_query:
+                consolidation_substitutions = consolidate_postgres_legacy_rows(
+                    source=instance,
+                    team_id=self.team_id,
+                )
+                # Chain the two substitution dicts. The rename helper says {discovered_X: existing_Y};
+                # if consolidate just renamed Y → Z, the discovered name now resolves to Z. Without
+                # this, schema_names below would still point at the old Y and sync_old_schemas would
+                # recreate a row under Y alongside the renamed Z one.
+                for old_name, new_name in consolidation_substitutions.items():
+                    for discovered, existing in list(name_substitutions.items()):
+                        if existing == old_name:
+                            name_substitutions[discovered] = new_name
+                name_substitutions = {**name_substitutions, **consolidation_substitutions}
+                # Drop self-maps — they're no-ops that would otherwise leak through and remap the
+                # discovered name to itself unnecessarily.
+                name_substitutions = {k: v for k, v in name_substitutions.items() if k != v}
 
             # Apply any name substitutions returned by the rename helper so sync_old_schemas_with_new_schemas
             # treats existing legacy rows (e.g. "auth_group") as already covering the discovered qualified

@@ -531,8 +531,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             is_initial_sync=not schema.initial_sync_complete,
             enabled_columns=schema.enabled_columns,
         )
-        # `DataWarehouseTable.url_pattern` is derived from `normalize(schema.name)`, so the Delta
-        # write path (driven by `SourceResponse.name`) must match — otherwise HogQL reads from the
-        # wrong location and returns no rows for multi-schema rows like `public.auth_group`.
-        response.name = NamingConvention.normalize_identifier(inputs.schema_name)
+        # `DataWarehouseTable.url_pattern` is derived from `dwh_storage_key` when present (legacy
+        # rows migrated by `consolidate_postgres_legacy_rows`) or `normalize(schema.name)` otherwise.
+        # The Delta write path (driven by `SourceResponse.name`) must match the url_pattern — without
+        # this match, HogQL reads from the wrong location and returns no rows. For migrated legacy
+        # rows the storage key locks both sides to the original unqualified path.
+        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
+        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        response.name = NamingConvention.normalize_identifier(storage_schema_name)
         return response

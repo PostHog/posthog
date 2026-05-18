@@ -163,7 +163,13 @@ class TestPostgresSourceForPipelineSchemaResolution:
             schema=schema,
         )
 
-    def _make_schema_model(self, name: str, schema_metadata: dict | None = None, source_model=None):
+    def _make_schema_model(
+        self,
+        name: str,
+        schema_metadata: dict | None = None,
+        source_model=None,
+        sync_type_config: dict | None = None,
+    ):
         schema = mock.MagicMock()
         schema.name = name
         schema.id = "00000000-0000-0000-0000-000000000000"
@@ -173,6 +179,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema.enabled_columns = None
         schema.chunk_size_override = None
         schema.schema_metadata = schema_metadata
+        schema.sync_type_config = sync_type_config or {}
         schema.source = source_model or mock.MagicMock()
         return schema
 
@@ -228,6 +235,70 @@ class TestPostgresSourceForPipelineSchemaResolution:
             kwargs = postgres_source_mock.call_args.kwargs
             assert kwargs["schema"] == "real_schema"
             assert kwargs["table_names"] == ["real_table"]
+
+    def test_dwh_storage_key_drives_response_name_so_delta_writes_to_legacy_path(self, source):
+        # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
+        # the row carries `dwh_storage_key="example_table"`. `validate_schema_and_update_table` uses
+        # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
+        # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
+        # points at `.../example_table/` and HogQL reads from an empty location.
+        from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+        schema_model = self._make_schema_model(
+            "public.example_table",
+            schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
+            sync_type_config={"dwh_storage_key": "example_table"},
+        )
+        inputs = self._make_inputs("public.example_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            response = mock.MagicMock()
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = response
+
+            source.source_for_pipeline(config, inputs)
+
+            assert response.name == NamingConvention.normalize_identifier("example_table"), (
+                f"response.name must derive from dwh_storage_key to keep Delta writes anchored to the "
+                f"legacy folder; got {response.name!r}"
+            )
+
+    def test_response_name_uses_schema_name_when_no_storage_key(self, source):
+        # New (non-migrated) rows have no dwh_storage_key — response.name falls back to the row's
+        # current name so the Delta path matches `url_pattern` (also derived from the row's name).
+        from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+        schema_model = self._make_schema_model(
+            "poblic.new_table",
+            schema_metadata={"source_schema": "poblic", "source_table_name": "new_table"},
+            sync_type_config={},
+        )
+        inputs = self._make_inputs("poblic.new_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            response = mock.MagicMock()
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = response
+
+            source.source_for_pipeline(config, inputs)
+
+            assert response.name == NamingConvention.normalize_identifier("poblic.new_table")
 
     def test_unqualified_name_falls_back_to_config_schema(self, source):
         # Legacy row "example_table" with no metadata + config.schema="public" → ("public", "example_table").

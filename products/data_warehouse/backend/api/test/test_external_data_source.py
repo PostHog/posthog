@@ -2373,12 +2373,13 @@ class TestExternalDataSource(APIBaseTest):
         assert schema.enabled_columns == expected_persisted
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
-    def test_refresh_schemas_does_not_rename_legacy_warehouse_rows(self, mock_get_source):
+    def test_refresh_schemas_qualifies_legacy_warehouse_rows_in_place(self, mock_get_source):
         # A pre-PR warehouse Postgres source had `schema=public` on the source config and
         # `ExternalDataSchema.name="auth_group"` (no schema prefix). After this PR, discovery
-        # returns the qualified `public.auth_group`. We MUST NOT rename the row — renaming changes
-        # the Delta path on the next sync and orphans the existing data. Instead, we populate
-        # `schema_metadata` so `source_for_pipeline` continues routing to the right physical table.
+        # returns the qualified `public.auth_group`. `consolidate_postgres_legacy_rows` qualifies
+        # the legacy row in place and stores `dwh_storage_key="auth_group"` so the next sync
+        # writes to the original Delta path — no orphaned data, but the row picks up the new
+        # qualified naming so tables from other schemas can coexist without a name collision.
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -2425,22 +2426,24 @@ class TestExternalDataSource(APIBaseTest):
 
         legacy_schema.refresh_from_db()
         legacy_table.refresh_from_db()
-        # Name preserved -> Delta path on next sync stays at the original location.
-        assert legacy_schema.name == "auth_group"
+        # Row gets the qualified name so multi-schema discovery doesn't collide later.
+        assert legacy_schema.name == "public.auth_group"
+        # dwh_storage_key locks the Delta path to the legacy folder so existing data is preserved.
+        assert legacy_schema.sync_type_config.get("dwh_storage_key") == "auth_group"
         # schema_metadata pinned so source_for_pipeline knows the canonical (schema, table) tuple.
         metadata = legacy_schema.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "public"
         assert metadata.get("source_table_name") == "auth_group"
-        # DataWarehouseTable link + url_pattern untouched.
+        # DataWarehouseTable link + url_pattern untouched — no data orphaning.
         assert legacy_schema.table_id == legacy_table.id
         assert legacy_table.name == "legacypostgres_auth_group"
         assert legacy_table.url_pattern == "https://bucket/team_X_postgres_auth_group/*"
-        # Discovery returned `public.auth_group` but we should NOT have created a duplicate row
-        # — the existing `auth_group` row already represents that source-side table.
+        # Discovery returned `public.auth_group` and we consolidated the legacy row into it —
+        # no duplicate qualified row, no soft-deleted unqualified row.
         live_schemas = ExternalDataSchema.objects.filter(
             team_id=self.team.pk, source_id=source.pk, deleted=False
         ).values_list("name", flat=True)
-        assert list(live_schemas) == ["auth_group"]
+        assert list(live_schemas) == ["public.auth_group"]
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_idempotent_on_legacy_warehouse_rows(self, mock_get_source):
@@ -2487,11 +2490,14 @@ class TestExternalDataSource(APIBaseTest):
                 "name", flat=True
             )
         )
-        assert names == ["auth_group"]
-        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="auth_group")
+        # First refresh qualifies the legacy row in place; second refresh is a no-op (name already
+        # qualified, no duplicate to consolidate).
+        assert names == ["public.auth_group"]
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="public.auth_group")
         metadata = schema.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "public"
         assert metadata.get("source_table_name") == "auth_group"
+        assert schema.sync_type_config.get("dwh_storage_key") == "auth_group"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_refreshes_legacy_warehouse_metadata_when_columns_change(self, mock_get_source):
@@ -2549,7 +2555,9 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="auth_group")
+        # First refresh qualifies the row in place; second refresh's metadata write should still
+        # land on the same row.
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="public.auth_group")
         metadata_columns = (schema.sync_type_config.get("schema_metadata") or {}).get("columns") or []
         column_names = [c["name"] for c in metadata_columns]
         assert column_names == ["id", "new_column"]
@@ -2610,13 +2618,22 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
 
-        # Legacy row stays under its unqualified name but gets pinned to (public, example_table).
-        legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="example_table")
+        # `rename_direct_postgres_schemas_to_match_source_schemas` matches the legacy unqualified
+        # row by location to the discovered `public.example_table` (legacy falls back to "public"
+        # when no default schema is set), then `consolidate_postgres_legacy_rows` qualifies the
+        # legacy row in place using the pinned `source_schema`. `dwh_storage_key="example_table"`
+        # keeps the Delta path anchored to the legacy folder so no data is orphaned.
+        legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="public.example_table")
         legacy_metadata = legacy.sync_type_config.get("schema_metadata") or {}
         assert legacy_metadata.get("source_schema") == "public"
         assert legacy_metadata.get("source_table_name") == "example_table"
+        assert legacy.sync_type_config.get("dwh_storage_key") == "example_table"
+        # The unqualified row is gone — it was renamed in place.
+        assert not ExternalDataSchema.objects.filter(
+            team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
+        ).exists()
 
-        # The newly-discovered `poblic.example_table` is a brand-new row pointing at the right place.
+        # The other discovered table from a different schema becomes its own brand-new row.
         new_row = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="poblic.example_table")
         new_metadata = new_row.sync_type_config.get("schema_metadata") or {}
         assert new_metadata.get("source_schema") == "poblic", (
