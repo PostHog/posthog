@@ -327,7 +327,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     @property
     def are_alerts_supported(self) -> bool:
-        return self._unwrapped_query_kind() in ("TrendsQuery", "HogQLQuery")
+        # Trends-only. HogQL-backed alerts are gated behind the `hogql-insight-alerts` flag and live
+        # entirely in `AlertSerializer.validate_insight` so legacy callers (Max upsert_alert, insight
+        # update preserving alerts on type change) don't silently accept HogQL without the flag check.
+        return self._unwrapped_query_kind() == "TrendsQuery"
 
     @property
     def is_hogql_backed(self) -> bool:

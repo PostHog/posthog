@@ -481,17 +481,21 @@ class AlertSerializer(serializers.ModelSerializer):
     def validate_insight(self, value):
         if not value:
             return value
-        if not value.are_alerts_supported:
-            raise ValidationError("Alerts are not supported for this insight.")
-        if value.is_hogql_backed and not self._hogql_alerts_enabled():
-            raise ValidationError("SQL insight alerts are not enabled for your account.")
-        return value
+        if value.are_alerts_supported:
+            return value
+        if value.is_hogql_backed:
+            if not self._hogql_alerts_enabled():
+                raise ValidationError("SQL insight alerts are not enabled for your account.")
+            return value
+        raise ValidationError("Alerts are not supported for this insight.")
 
     def _hogql_alerts_enabled(self) -> bool:
-        # `User` has `current_organization` (and the matching `current_organization_id`) plus an
-        # `organization` property — there's no plain `organization_id` field, so read via the property.
+        # Use the target alert's organization (from team scope), not the user's current_organization —
+        # otherwise a user belonging to multiple orgs could flip their current org to a flag-on org and
+        # create a HogQL alert in a different team where the flag is disabled.
         user = self.context["request"].user
-        org = user.organization
+        get_organization = self.context.get("get_organization")
+        org = get_organization() if get_organization else None
         return bool(
             posthoganalytics.feature_enabled(
                 "hogql-insight-alerts",
