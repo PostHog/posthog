@@ -62,7 +62,10 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
     if (key === 'service_name' || key === 'service.name') {
         return record.service_name ?? record.resource_attributes?.[key]
     }
-    if (key === 'severity_text') {
+    if (key === 'severity_text' || key === 'level') {
+        // The logs UI surfaces severity under the `level` attribute name (common
+        // log-framework convention); ingestion stores it on the first-class
+        // `severity_text` column. Resolve both to the same source.
         return record.severity_text ?? record.attributes?.[key]
     }
     if (key === 'message' || filter.type === PROPERTY_FILTER_TYPE_LOG) {

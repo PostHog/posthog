@@ -93,6 +93,13 @@ describe('matchFilterGroup', () => {
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(true)
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'info' }))).toBe(false)
         })
+        it('level is an alias for severity_text (UI surfaces it this way)', () => {
+            const g = group({
+                values: [{ key: 'level', type: 'log_attribute', operator: 'exact', value: ['info', 'INFO'] }],
+            })
+            expect(matchFilterGroup(g, baseRecord({ severity_text: 'info' }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(false)
+        })
         it('message resolves to LogRecord.body', () => {
             const g = group({ values: [{ key: 'message', type: 'log', operator: 'icontains', value: 'health' }] })
             expect(matchFilterGroup(g, baseRecord({ body: 'GET /healthz' }))).toBe(true)
