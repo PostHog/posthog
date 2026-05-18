@@ -264,10 +264,13 @@ export default function ExporterInterviewScene({
                 }
                 // Daily.co's normal end-of-call eviction surfaces as an `error` event in the
                 // Vapi SDK ("Meeting ended due to ejection: Meeting has ended"), often racing
-                // with the `call-end` event. Track whether the call has ended so we can
-                // suppress the spurious error transition that would otherwise flash an
-                // error panel right as the interview wraps up.
+                // with the `call-end` event. Suppress that race so the error panel doesn't
+                // flash as the interview wraps up — but ONLY when the call actually got off
+                // the ground. A pre-connection failure that happens to mention "Meeting has
+                // ended" (e.g. joining an already-ended room) must still surface as an
+                // error so the user gets the retry affordance.
                 const callEndedRef = { current: false }
+                const callConnectedRef = { current: false }
                 const isBenignEndOfCallError = (msg: string): boolean =>
                     msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
                 vapi.on('call-end', () => {
@@ -276,7 +279,13 @@ export default function ExporterInterviewScene({
                 })
                 vapi.on('error', (e: unknown) => {
                     const message = e instanceof Error ? e.message : ''
-                    if (callEndedRef.current || isBenignEndOfCallError(message)) {
+                    // call-end already fired — definitely post-end, swallow.
+                    if (callEndedRef.current) {
+                        return
+                    }
+                    // Benign message + we'd reached in-call → call is ending, swallow.
+                    // Benign message but never connected → real failure, surface it.
+                    if (callConnectedRef.current && isBenignEndOfCallError(message)) {
                         return
                     }
                     vapi.stop()
@@ -315,6 +324,9 @@ export default function ExporterInterviewScene({
                     vapi.stop()
                     return
                 }
+                // Mark that the call actually connected — gates the benign-error suppression
+                // so pre-connection "Meeting has ended" failures still surface to the user.
+                callConnectedRef.current = true
                 setState((current) => (current === 'connecting' ? 'in-call' : current))
             } catch (e) {
                 if (!isMountedRef.current) {
