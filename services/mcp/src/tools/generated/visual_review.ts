@@ -5,15 +5,20 @@ import type { Schemas } from '@/api/generated'
 import {
     VisualReviewReposListQueryParams,
     VisualReviewReposRetrieveParams,
+    VisualReviewRunsApproveCreateBody,
+    VisualReviewRunsApproveCreateParams,
     VisualReviewRunsListQueryParams,
     VisualReviewRunsRetrieveParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotHistoryListQueryParams,
     VisualReviewRunsSnapshotsListParams,
     VisualReviewRunsSnapshotsListQueryParams,
+    VisualReviewRunsTolerateCreateBody,
+    VisualReviewRunsTolerateCreateParams,
     VisualReviewRunsToleratedHashesListParams,
     VisualReviewRunsToleratedHashesListQueryParams,
 } from '@/generated/visual_review/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -49,6 +54,37 @@ const visualReviewReposRetrieve = (): ToolBase<typeof VisualReviewReposRetrieveS
         const result = await context.api.request<Schemas.Repo>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisualReviewRunsApproveCreateSchema = VisualReviewRunsApproveCreateParams.omit({ project_id: true }).extend(
+    VisualReviewRunsApproveCreateBody.shape
+)
+
+const visualReviewRunsApproveCreate = (): ToolBase<
+    typeof VisualReviewRunsApproveCreateSchema,
+    Schemas.AutoApproveResult
+> => ({
+    name: 'visual-review-runs-approve-create',
+    schema: VisualReviewRunsApproveCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsApproveCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.snapshots !== undefined) {
+            body['snapshots'] = params.snapshots
+        }
+        if (params.approve_all !== undefined) {
+            body['approve_all'] = params.approve_all
+        }
+        if (params.commit_to_github !== undefined) {
+            body['commit_to_github'] = params.commit_to_github
+        }
+        const result = await context.api.request<Schemas.AutoApproveResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/approve/`,
+            body,
         })
         return result
     },
@@ -157,20 +193,43 @@ const VisualReviewRunsSnapshotsListSchema = VisualReviewRunsSnapshotsListParams.
 const visualReviewRunsSnapshotsList = (): ToolBase<
     typeof VisualReviewRunsSnapshotsListSchema,
     WithPostHogUrl<Schemas.PaginatedSnapshotList>
-> => ({
-    name: 'visual-review-runs-snapshots-list',
-    schema: VisualReviewRunsSnapshotsListSchema,
-    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsSnapshotsListSchema>) => {
+> =>
+    withUiApp('visual-review-snapshots', {
+        name: 'visual-review-runs-snapshots-list',
+        schema: VisualReviewRunsSnapshotsListSchema,
+        handler: async (context: Context, params: z.infer<typeof VisualReviewRunsSnapshotsListSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.PaginatedSnapshotList>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
+                query: {
+                    limit: params.limit,
+                    offset: params.offset,
+                },
+            })
+            return await withPostHogUrl(context, result, '/visual_review')
+        },
+    })
+
+const VisualReviewRunsTolerateCreateSchema = VisualReviewRunsTolerateCreateParams.omit({ project_id: true }).extend(
+    VisualReviewRunsTolerateCreateBody.shape
+)
+
+const visualReviewRunsTolerateCreate = (): ToolBase<typeof VisualReviewRunsTolerateCreateSchema, Schemas.Snapshot> => ({
+    name: 'visual-review-runs-tolerate-create',
+    schema: VisualReviewRunsTolerateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsTolerateCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSnapshotList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
+        const body: Record<string, unknown> = {}
+        if (params.snapshot_id !== undefined) {
+            body['snapshot_id'] = params.snapshot_id
+        }
+        const result = await context.api.request<Schemas.Snapshot>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/tolerate/`,
+            body,
         })
-        return await withPostHogUrl(context, result, '/visual_review')
+        return result
     },
 })
 
@@ -202,10 +261,12 @@ const visualReviewRunsToleratedHashesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-list': visualReviewReposList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
+    'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-list': visualReviewRunsList,
     'visual-review-runs-retrieve': visualReviewRunsRetrieve,
     'visual-review-runs-snapshot-history-list': visualReviewRunsSnapshotHistoryList,
     'visual-review-runs-snapshots-list': visualReviewRunsSnapshotsList,
+    'visual-review-runs-tolerate-create': visualReviewRunsTolerateCreate,
     'visual-review-runs-tolerated-hashes-list': visualReviewRunsToleratedHashesList,
 }
