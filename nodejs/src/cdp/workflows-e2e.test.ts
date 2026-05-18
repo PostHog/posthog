@@ -133,7 +133,7 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 
     afterEach(async () => {
-        await Promise.all([eventsConsumer?.stop().then(() => void 0), hogflowWorker?.stop().then(() => void 0)])
+        await Promise.all([eventsConsumer?.stop() ?? Promise.resolve(), hogflowWorker?.stop() ?? Promise.resolve()])
         await kafkaProducer.disconnect()
         await closeHub(hub)
         mockProducerObserver.resetKafkaProducer()
