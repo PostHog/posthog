@@ -268,9 +268,7 @@ export class HonoMcpServer {
                     ...(this.props.mcpConsumer ? { mcp_consumer: this.props.mcpConsumer } : {}),
                     ...(this.props.transport ? { mcp_transport: this.props.transport } : {}),
                     ...(this.props.mcpSessionId ? { mcp_session_id: this.props.mcpSessionId } : {}),
-                    ...(this.props.mcpConversationId
-                        ? { mcp_conversation_id: this.props.mcpConversationId }
-                        : {}),
+                    ...(this.props.mcpConversationId ? { mcp_conversation_id: this.props.mcpConversationId } : {}),
                     ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
                     ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
                     mcp_runtime: 'hono',
@@ -373,9 +371,7 @@ export class HonoMcpServer {
                     error,
                     tool.name,
                     distinctId,
-                    this.props.sessionId
-                        ? await this.sessionManager.getSessionUuid(this.props.sessionId)
-                        : undefined
+                    this.props.sessionId ? await this.sessionManager.getSessionUuid(this.props.sessionId) : undefined
                 )
             }
         }
@@ -429,15 +425,7 @@ export class HonoMcpServer {
     }
 
     private async initInner(): Promise<void> {
-        const {
-            features,
-            tools,
-            version: clientVersion,
-            organizationId,
-            projectId,
-            readOnly,
-            mode,
-        } = this.props
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = this.props
 
         await this.resolveClientInfo()
 

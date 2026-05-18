@@ -19,7 +19,7 @@ import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-resu
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
-    CUSTOM_API_BASE_URL,
+    getCustomApiBaseUrl,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
     getBaseUrlForRegion,
@@ -225,8 +225,9 @@ export class MCP extends McpAgent<Env> {
     }
 
     async getBaseUrl(): Promise<string> {
-        if (CUSTOM_API_BASE_URL) {
-            return CUSTOM_API_BASE_URL
+        const customBaseUrl = getCustomApiBaseUrl()
+        if (customBaseUrl) {
+            return customBaseUrl
         }
 
         // Check region from request props first (passed via URL param), then cache, then detect

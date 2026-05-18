@@ -1,5 +1,6 @@
-import { env } from 'cloudflare:workers'
 import { PostHog } from 'posthog-node'
+
+import { env } from '@/lib/env'
 
 let _client: PostHog | undefined
 

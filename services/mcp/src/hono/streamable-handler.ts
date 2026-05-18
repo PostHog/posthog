@@ -53,6 +53,7 @@ export class StreamableMcpHandler {
             if (transport) {
                 return passThrough(await transport.handleRequest(c.req.raw))
             }
+            return new Response('Session not found', { status: 404 })
         }
         return this.openSession(c, props)
     }

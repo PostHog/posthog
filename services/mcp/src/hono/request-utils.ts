@@ -1,11 +1,7 @@
 import { getPostHogClient } from '@/lib/analytics'
 import { mapErrorToAuthResponse, mapKnownErrorMessage, validateBearerToken } from '@/lib/auth-errors'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
-import {
-    parseRequestProperties,
-    type RequestProperties,
-    type Transport,
-} from '@/lib/request-properties'
+import { parseRequestProperties, type RequestProperties, type Transport } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
@@ -18,14 +14,33 @@ export async function authenticateAndParse(
     transport: Transport
 ): Promise<{ props: RequestProperties } | { error: Response }> {
     const token = c.req.header('Authorization')?.split(' ')[1]
-    const effectiveRegion = getRegionFromRequest(c.req.raw)
+    const raw = c.req.raw
+    const effectiveRegion = getRegionFromRequest(raw)
 
-    const tokenError = validateBearerToken(token, c.req.raw, effectiveRegion)
+    const tokenError = validateBearerToken(token, raw, effectiveRegion)
     if (tokenError) {
         return { error: tokenError }
     }
-    const clientInfo = await extractClientInfoFromBody(c.req.raw)
-    const props = parseRequestProperties(c.req.raw, clientInfo, transport)
+
+    const hasBody = raw.method !== 'GET' && raw.method !== 'HEAD' && raw.method !== 'DELETE'
+    const bodyText = hasBody ? await raw.text() : null
+    const freshRequest = new Request(raw.url, {
+        method: raw.method,
+        headers: raw.headers,
+        ...(bodyText ? { body: bodyText } : {}),
+    })
+    Object.defineProperty(c.req, 'raw', { value: freshRequest, writable: true })
+
+    const clientInfo = hasBody
+        ? await extractClientInfoFromBody(
+              new Request(raw.url, {
+                  method: raw.method,
+                  headers: raw.headers,
+                  body: bodyText,
+              })
+          )
+        : {}
+    const props = parseRequestProperties(freshRequest, clientInfo, transport)
 
     // Fields the CF worker extracts in index.ts that the shared parser doesn't
     // handle yet. Assigned at runtime so the Hono MCP server can read them via

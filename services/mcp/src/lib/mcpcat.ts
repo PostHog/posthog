@@ -1,8 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { env } from 'cloudflare:workers'
 import { track } from 'mcpcat'
 
 import type { MCPAnalyticsContext } from '@/lib/analytics'
+import { env } from '@/lib/env'
 
 /** Provider interface for resolving user/session identity and workspace context. */
 export type McpCatIdentityProvider = {

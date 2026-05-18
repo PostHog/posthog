@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers'
+import { env } from '@/lib/env'
 
 export {
     USER_AGENT,
@@ -22,6 +22,6 @@ import { resolveAuthorizationServerUrl } from './oauth-constants'
  * The code automatically handles US/EU region routing via getAuthorizationServerUrl().
  * Only set this for self-hosted PostHog deployments.
  */
-export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
+export const getCustomApiBaseUrl = (): string | undefined => env.POSTHOG_API_BASE_URL
 
-export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(CUSTOM_API_BASE_URL)
+export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(getCustomApiBaseUrl())

@@ -1,10 +1,10 @@
+import { spawn, type ChildProcess } from 'child_process'
+import { context, type Plugin } from 'esbuild'
 // esbuild watch + node respawn — same bundling pipeline as build-hono.ts so
 // dev and prod behave identically. tsx isn't used directly because it can't
 // load the `.md` template imports or stub the `cloudflare:workers` builtin.
 import { existsSync } from 'fs'
 import { resolve } from 'path'
-import { spawn, type ChildProcess } from 'child_process'
-import { context, type Plugin } from 'esbuild'
 
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
 
@@ -18,12 +18,27 @@ if (!process.env.NODE_EXTRA_CA_CERTS && process.env.SSL_CERT_FILE) {
 }
 
 let child: ChildProcess | undefined
-const launch = (): void => {
-    if (child) {
-        child.removeAllListeners()
-        child.kill('SIGTERM')
-    }
-    child = spawn(process.execPath, [honoOutfile], { stdio: 'inherit', env: process.env })
+
+const killChild = (): Promise<void> => {
+    return new Promise((resolve) => {
+        if (!child) {
+            resolve()
+            return
+        }
+        const proc = child
+        child = undefined
+        proc.removeAllListeners()
+        proc.on('exit', () => resolve())
+        proc.kill('SIGTERM')
+    })
+}
+
+const launch = async (): Promise<void> => {
+    await killChild()
+    child = spawn(process.execPath, [honoOutfile], {
+        stdio: 'inherit',
+        env: { ...process.env, SHUTDOWN_PRESTOP_DELAY_MS: '0' },
+    })
     child.on('exit', (code, signal) => {
         if (signal === 'SIGTERM') {
             return
@@ -42,7 +57,7 @@ const restartPlugin: Plugin = {
                 console.error(`[dev-hono] build failed with ${result.errors.length} error(s); not restarting`)
                 return
             }
-            launch()
+            void launch()
         })
     },
 }

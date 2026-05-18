@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { env } from 'cloudflare:workers'
 
+import { env } from '@/lib/env'
 import { type McpCatIdentityProvider, redactSensitiveInformation } from '@/lib/mcpcat'
 
 export type PostHogMcpAnalyticsIdentityProvider = McpCatIdentityProvider
@@ -20,9 +20,7 @@ export type PostHogMcpAnalyticsOptions = {
     // isn't an exec call or the inner tool isn't recognized. Type accepts
     // `| undefined` explicitly so callers can pass the value through
     // unconditionally under `exactOptionalPropertyTypes: true`.
-    resolveExecInnerToolCall?:
-        | ((request: unknown) => { name: string; description: string } | undefined)
-        | undefined
+    resolveExecInnerToolCall?: ((request: unknown) => { name: string; description: string } | undefined) | undefined
     // In single-exec mode the SDK's $mcp_listed_tool_names on mcp_tools_list
     // collapses to just the dispatcher's name (`exec`) because that's the
     // only tool the server actually advertises over MCP. Passing the full
