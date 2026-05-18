@@ -914,19 +914,61 @@ export interface FeatureFlagVersionResponseApi {
 }
 
 /**
+ * * `true` - true
+ * `false` - false
+ * `STALE` - STALE
+ */
+export type ActiveEnumApi = (typeof ActiveEnumApi)[keyof typeof ActiveEnumApi]
+
+export const ActiveEnumApi = {
+    True: 'true',
+    False: 'false',
+    Stale: 'STALE',
+} as const
+
+/**
+ * * `boolean` - boolean
+ * `multivariant` - multivariant
+ * `experiment` - experiment
+ * `remote_config` - remote_config
+ */
+export type BulkDeleteFiltersTypeEnumApi =
+    (typeof BulkDeleteFiltersTypeEnumApi)[keyof typeof BulkDeleteFiltersTypeEnumApi]
+
+export const BulkDeleteFiltersTypeEnumApi = {
+    Boolean: 'boolean',
+    Multivariant: 'multivariant',
+    Experiment: 'experiment',
+    RemoteConfig: 'remote_config',
+} as const
+
+/**
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** Filter by active state. Accepts 'true', 'false', or 'STALE'. */
-    active?: string
+    /** Filter by active state.
+
+  * `true` - true
+  * `false` - false
+  * `STALE` - STALE */
+    active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
     /** Search by feature flag key or name (case-insensitive). */
     search?: string
-    /** Filter by flag type. One of 'boolean', 'multivariate', 'experiment', 'remote_config'. */
-    type?: string
-    /** Filter by evaluation runtime. One of 'server', 'client', 'both', or 'all'. */
-    evaluation_runtime?: string
+    /** Filter by flag type.
+
+  * `boolean` - boolean
+  * `multivariant` - multivariant
+  * `experiment` - experiment
+  * `remote_config` - remote_config */
+    type?: BulkDeleteFiltersTypeEnumApi
+    /** Filter by evaluation runtime.
+
+  * `server` - Server
+  * `client` - Client
+  * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi
     /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
     excluded_properties?: string
     /** Comma-separated list of tags to filter by. */
@@ -962,9 +1004,9 @@ export interface BulkDeleteDeletedItemApi {
     key: string
     /** Rollout state captured before deletion.
 
-* `fully_rolled_out` - fully_rolled_out
-* `not_rolled_out` - not_rolled_out
-* `partial` - partial */
+  * `fully_rolled_out` - fully_rolled_out
+  * `not_rolled_out` - not_rolled_out
+  * `partial` - partial */
     rollout_state: RolloutStateEnumApi
     /**
      * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
@@ -991,7 +1033,7 @@ export interface BulkDeleteResponseApi {
 
 export interface BulkKeysRequestApi {
     /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
-    ids?: number[]
+    ids?: unknown[]
 }
 
 /**

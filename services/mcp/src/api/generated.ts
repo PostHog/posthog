@@ -1189,6 +1189,20 @@ export namespace Schemas {
       breakpoints: ActiveBreakpoint[];
     }
 
+    /**
+     * * `true` - true
+    * `false` - false
+    * `STALE` - STALE
+     */
+    export type ActiveEnum = typeof ActiveEnum[keyof typeof ActiveEnum];
+
+
+    export const ActiveEnum = {
+      True: 'true',
+      False: 'false',
+      Stale: 'STALE',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -6361,14 +6375,14 @@ export namespace Schemas {
       key: string;
       /** Rollout state captured before deletion.
 
-    * `fully_rolled_out` - fully_rolled_out
-    * `not_rolled_out` - not_rolled_out
-    * `partial` - partial */
+      * `fully_rolled_out` - fully_rolled_out
+      * `not_rolled_out` - not_rolled_out
+      * `partial` - partial */
       rollout_state: RolloutStateEnum;
       /**
-       * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
-       * @nullable
-       */
+         * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
+         * @nullable
+         */
       active_variant: string | null;
     }
 
@@ -6382,19 +6396,62 @@ export namespace Schemas {
     }
 
     /**
+     * * `boolean` - boolean
+    * `multivariant` - multivariant
+    * `experiment` - experiment
+    * `remote_config` - remote_config
+     */
+    export type BulkDeleteFiltersTypeEnum = typeof BulkDeleteFiltersTypeEnum[keyof typeof BulkDeleteFiltersTypeEnum];
+
+
+    export const BulkDeleteFiltersTypeEnum = {
+      Boolean: 'boolean',
+      Multivariant: 'multivariant',
+      Experiment: 'experiment',
+      RemoteConfig: 'remote_config',
+    } as const;
+
+    /**
+     * * `server` - Server
+    * `client` - Client
+    * `all` - All
+     */
+    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
+
+
+    export const EvaluationRuntimeEnum = {
+      Server: 'server',
+      Client: 'client',
+      All: 'all',
+    } as const;
+
+    /**
      * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
      */
     export interface BulkDeleteFilters {
-      /** Filter by active state. Accepts 'true', 'false', or 'STALE'. */
-      active?: string;
+      /** Filter by active state.
+
+      * `true` - true
+      * `false` - false
+      * `STALE` - STALE */
+      active?: ActiveEnum;
       /** Filter to flags created by a specific user ID. */
       created_by_id?: number;
       /** Search by feature flag key or name (case-insensitive). */
       search?: string;
-      /** Filter by flag type. One of 'boolean', 'multivariate', 'experiment', 'remote_config'. */
-      type?: string;
-      /** Filter by evaluation runtime. One of 'server', 'client', 'both', or 'all'. */
-      evaluation_runtime?: string;
+      /** Filter by flag type.
+
+      * `boolean` - boolean
+      * `multivariant` - multivariant
+      * `experiment` - experiment
+      * `remote_config` - remote_config */
+      type?: BulkDeleteFiltersTypeEnum;
+      /** Filter by evaluation runtime.
+
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum;
       /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
       excluded_properties?: string;
       /** Comma-separated list of tags to filter by. */
@@ -6419,7 +6476,7 @@ export namespace Schemas {
 
     export interface BulkKeysRequest {
       /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
-      ids?: number[];
+      ids?: unknown[];
     }
 
     /**
@@ -12831,20 +12888,6 @@ export namespace Schemas {
      * Feature flag payload for this early access feature
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
-
-    /**
-     * * `server` - Server
-    * `client` - Client
-    * `all` - All
-     */
-    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
-
-
-    export const EvaluationRuntimeEnum = {
-      Server: 'server',
-      Client: 'client',
-      All: 'all',
-    } as const;
 
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 

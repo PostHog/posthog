@@ -489,7 +489,7 @@ invalidation happens once at the end rather than per-flag.
  */
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,
-    bulkDeleteRequestApi: BulkDeleteRequestApi,
+    bulkDeleteRequestApi?: BulkDeleteRequestApi,
     options?: RequestInit
 ): Promise<BulkDeleteResponseApi> => {
     return apiMutator<BulkDeleteResponseApi>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
@@ -510,7 +510,7 @@ Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
 export const featureFlagsBulkKeysCreate = async (
     projectId: string,
-    bulkKeysRequestApi: BulkKeysRequestApi,
+    bulkKeysRequestApi?: BulkKeysRequestApi,
     options?: RequestInit
 ): Promise<BulkKeysResponseApi> => {
     return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
