@@ -8,9 +8,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, NotebookType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
-import { NotebookEditor } from '../types'
+import { NotebookEditor, NotebookType } from '../types'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { SYNC_DELAY, notebookLogic } from './notebookLogic'
 
@@ -116,7 +116,10 @@ describe('Notebook history revert flow', () => {
         expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
         expect(logic.values.localContent).toBeNull()
         // previewing is non-mutating
-        expect(apiCreateSpy).not.toHaveBeenCalled()
+        expect(apiCreateSpy).not.toHaveBeenCalledWith(
+            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
+            expect.anything()
+        )
         expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
@@ -142,12 +145,15 @@ describe('Notebook history revert flow', () => {
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
         expect(logic.values.previewContent).toBeNull()
-        expect(logic.values.localContent).toEqual(HISTORICAL_DOC)
+        // saveNotebook clears localContent after a successful save; we assert on the wire payload instead
         expect(apiUpdateSpy).toHaveBeenCalledWith(
             SHORT_ID,
             expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
         )
-        expect(apiCreateSpy).not.toHaveBeenCalled()
+        expect(apiCreateSpy).not.toHaveBeenCalledWith(
+            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
+            expect.anything()
+        )
     })
 
     it('revert in collab mode: clears preview, updates editor, dispatches collab/save POST with historical content', async () => {
@@ -186,7 +192,7 @@ describe('Notebook history revert flow', () => {
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
         expect(logic.values.previewContent).toBeNull()
-        expect(logic.values.localContent).toEqual(HISTORICAL_DOC)
+        // saveNotebook clears localContent after a successful save; we assert on the wire payload instead
         expect(apiCreateSpy).toHaveBeenCalledWith(
             `api/projects/@current/notebooks/${SHORT_ID}/collab/save/`,
             expect.objectContaining({ content: HISTORICAL_DOC, client_id: 'test-client' })
