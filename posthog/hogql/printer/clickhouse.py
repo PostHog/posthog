@@ -828,28 +828,33 @@ class ClickHousePrinter(BasePrinter):
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
             return None
 
+        # The IN values may be a single string constant, a tuple/array of string constants, or a single
+        # constant holding a list of strings (the shape a `{placeholder}` produces).
         if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
-            values: list[ast.Constant] = [node.right]
-        elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
-            values = []
+            string_values: list[str] = [node.right.value]
+        elif isinstance(node.right, ast.Constant) and isinstance(node.right.value, (list, tuple)):
+            if not all(isinstance(value, str) for value in node.right.value):
+                return None
+            string_values = list(node.right.value)
+        elif isinstance(node.right, (ast.Tuple, ast.Array)):
+            string_values = []
             for value in node.right.exprs:
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    values.append(value)
+                    string_values.append(value.value)
                 else:
                     return None
         else:
             return None
 
-        if len(values) == 0:
+        if len(string_values) == 0:
             return None
 
         # non-nullable materialized columns store NULL as 'null' or '', so bail out if the values contain this
-        for value in values:
-            if value.value in MAT_COL_NULL_SENTINELS:
-                return None
+        if any(value in MAT_COL_NULL_SENTINELS for value in string_values):
+            return None
 
         materialized_column_sql = str(property_source)
-        values_sql = ", ".join(self.visit(v) for v in values)
+        values_sql = ", ".join(self.context.add_value(value) for value in string_values)
 
         # The index expression is lower(coalesce(col, '')) for nullable columns, lower(col) otherwise.
         # coalesce() removes NULL, so no ifNull / IS NOT NULL guard is needed: a NULL row coalesces to ''
