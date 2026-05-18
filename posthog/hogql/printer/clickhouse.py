@@ -806,11 +806,8 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_optimized_materialized_column_lower_in_operation(self, node: ast.CompareOperation) -> str | None:
         """
-        Returns an optimized printed expression for `lower(<property>) IN (...)` comparisons.
-
-        The bloom_filter_lower and ngram_lower indexes are both built on `lower(column)` (or
-        `lower(coalesce(column, ''))` for nullable columns) and both serve equality / IN lookups, so we
-        print the comparison against that exact expression for ClickHouse to pick whichever index exists.
+        Optimized printed expression for `lower(<property>) IN (...)`, matching the lower() expression the
+        bloom_filter_lower / ngram_lower indexes are built on so ClickHouse can pick whichever one exists.
         """
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
             return None
@@ -828,8 +825,7 @@ class ClickHousePrinter(BasePrinter):
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
             return None
 
-        # The IN values may be a single string constant, a tuple/array of string constants, or a single
-        # constant holding a list of strings (the shape a `{placeholder}` produces).
+        # IN values: a string constant, a tuple/array of constants, or a constant list (from a {placeholder})
         if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
             string_values: list[str] = [node.right.value]
         elif isinstance(node.right, ast.Constant) and isinstance(node.right.value, (list, tuple)):
@@ -856,9 +852,7 @@ class ClickHousePrinter(BasePrinter):
         materialized_column_sql = str(property_source)
         values_sql = ", ".join(self.context.add_value(value) for value in string_values)
 
-        # The index expression is lower(coalesce(col, '')) for nullable columns, lower(col) otherwise.
-        # coalesce() removes NULL, so no ifNull / IS NOT NULL guard is needed: a NULL row coalesces to ''
-        # which the sentinel bail-out above excludes from the values, so it can never spuriously match.
+        # Match the index expression; coalesce() removes NULL so no ifNull / IS NOT NULL guard is needed
         if property_source.is_nullable:
             indexed_expr = f"lower(coalesce({materialized_column_sql}, ''))"
         else:

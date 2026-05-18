@@ -70,9 +70,7 @@ from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
-# Case-insensitive batch email lookup. lower(properties.email) IN (...) lets the printer use a
-# lower() skip index on the materialized email column. Exposed so tests can assert index usage
-# against the exact query that runs in production.
+# Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
 PERSON_EMAIL_LOOKUP_QUERY = """
 SELECT id, properties.email
 FROM persons

@@ -1110,13 +1110,9 @@ def get_indexes_from_explain(query: str, values: dict | None = None) -> list[dic
 def get_inner_person_subquery_clickhouse_sql(clickhouse_sql: str) -> str:
     """Extract the pushed-down person-filter subquery from a compiled persons query.
 
-    When you filter the `persons` virtual table by a property, the printer pushes the filter into a
-    `where_optimization` IN-subquery that scans the raw `person` table. ClickHouse evaluates that
-    set-building subquery eagerly, so EXPLAIN of the full query never shows the subquery's index
-    analysis - tests must EXPLAIN the subquery directly.
-
-    Pass a `HogQLQueryResponse.clickhouse` string (the SQL that actually ran). Test-only, not robust:
-    fails loudly (AssertionError) if the `where_optimization` subquery cannot be located.
+    Filtering `persons` by a property pushes the filter into a `where_optimization` IN-subquery that
+    ClickHouse evaluates eagerly, so EXPLAIN of the full query never shows the subquery's index analysis.
+    Pass a `HogQLQueryResponse.clickhouse` string; test-only, fails loudly if the subquery is not found.
     """
     match = re.search(r"\(\s*SELECT\s+where_optimization", clickhouse_sql)
     assert match is not None, (

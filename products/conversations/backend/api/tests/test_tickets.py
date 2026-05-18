@@ -1349,8 +1349,7 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
                 self.team, ["indexed@example.com"], modifiers=modifiers
             )
 
-            # Run the exact lookup query and EXPLAIN its person-filter subquery, so the index assertion
-            # tracks the SQL that actually ran rather than a hand-written approximation.
+            # EXPLAIN the person-filter subquery of the exact query that ran, not a hand-written approximation
             result = execute_hogql_query(
                 PERSON_EMAIL_LOOKUP_QUERY,
                 placeholders={"emails": ast.Constant(value=["indexed@example.com"])},

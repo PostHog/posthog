@@ -4535,8 +4535,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_materialized_column_lower_in_not_optimized_without_a_lower_index(self) -> None:
-        # Without a bloom_filter_lower or ngram_lower index there's nothing to hit, so we leave the generic
-        # IN handling in place
+        # Without a bloom_filter_lower or ngram_lower index there's nothing to hit - leave the generic path
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("lower(properties.test_prop) in ('value1', 'value2')")
             assert "has(" not in printed, printed
@@ -4584,10 +4583,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert "index" in str(exc_info.value).lower()
 
     def test_lower_in_optimization_on_persons(self) -> None:
-        # The user-facing query the optimization targets. The persons table pushes the WHERE filter into a
-        # set-building IN-subquery; ClickHouse evaluates that subquery eagerly (EXPLAIN of the outer query
-        # even shows it already resolved to a constant set), so no EXPLAIN option surfaces the subquery's
-        # own index analysis. We extract that subquery from the SQL that actually ran and EXPLAIN it.
+        # The persons table hides the property filter in a subquery; the helper extracts it (see its docstring)
         with materialized("person", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             _create_person(
                 distinct_ids=["p_foo"], team=self.team, properties={"email": "Foo@Example.com"}, immediate=True
@@ -4619,8 +4615,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_lower_in_uses_bloom_filter_lower_index_on_events(self) -> None:
-        # Events are a single direct scan, so EXPLAIN of the executed query exposes the skip index
-        # directly (the persons dedup hides it in an IN-subquery EXPLAIN PLAN does not expand).
+        # Events are a single direct scan, so EXPLAIN of the executed query exposes the skip index directly
         with materialized("events", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
 
@@ -4861,8 +4856,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("nullable", True), ("non_nullable", False)])
     def test_lower_in_optimization_handles_null_and_sentinel_rows(self, _, is_nullable) -> None:
-        # The lower(prop) IN rewrite must stay correct for rows whose property is NULL/missing, an empty
-        # string, or the literal string "null" - the cases the coalesce / IS NOT NULL guards exist for.
+        # The rewrite must stay correct for NULL/missing, empty-string, and literal-"null" property rows
         with materialized("events", "test_prop", is_nullable=is_nullable, create_bloom_filter_lower_index=True):
             events: list[tuple[str, dict]] = [
                 ("mixed_case", {"test_prop": "Hello@PostHog.com"}),
