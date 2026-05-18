@@ -79,7 +79,11 @@ PRODUCTS_APPS = [
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
-    "django.contrib.admin",
+    # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
+    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
+    # keeps every product/admin import out of `django.setup()`.
+    "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -434,6 +438,7 @@ SPECTACULAR_SETTINGS = {
         "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.api.SEARCH_DOCUMENT_TYPES",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

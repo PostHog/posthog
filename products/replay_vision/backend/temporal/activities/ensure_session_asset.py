@@ -8,11 +8,12 @@ from posthog.models.exported_asset import ExportedAsset
 
 from products.replay_vision.backend.temporal.types import EnsureSessionAssetInputs, EnsureSessionAssetOutput
 
-# Render params match the session-summary path so the rasterize fingerprint cache hits across products.
+# `mouse_tail=False` for cleaner LLM input.
 _EXPORT_FORMAT = "video/mp4"
 _PLAYBACK_SPEED = 8
 _RECORDING_FPS = 3
 _SHOW_METADATA_FOOTER = True
+_MOUSE_TAIL = False
 _ASSET_EXPIRES_AFTER_DAYS = 90
 
 
@@ -24,6 +25,10 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
             team_id=inputs.team_id,
             export_format=_EXPORT_FORMAT,
             export_context__session_recording_id=inputs.session_id,
+            export_context__playback_speed=_PLAYBACK_SPEED,
+            export_context__recording_fps=_RECORDING_FPS,
+            export_context__show_metadata_footer=_SHOW_METADATA_FOOTER,
+            export_context__mouse_tail=_MOUSE_TAIL,
             is_system=True,
         )
         .order_by("id")
@@ -41,6 +46,7 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
             "playback_speed": _PLAYBACK_SPEED,
             "recording_fps": _RECORDING_FPS,
             "show_metadata_footer": _SHOW_METADATA_FOOTER,
+            "mouse_tail": _MOUSE_TAIL,
         },
         created_at=created_at,
         expires_after=created_at + dt.timedelta(days=_ASSET_EXPIRES_AFTER_DAYS),

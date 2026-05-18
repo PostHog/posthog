@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
+import { IconArrowLeft, IconCheck, IconChevronRight, IconClock, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -217,6 +218,39 @@ function DetailRow({ label, value }: { label: string; value: string }): JSX.Elem
     )
 }
 
+function InterviewLinkCopyButton({ identifier, topicId }: { identifier: string; topicId: string }): JSX.Element {
+    const { linkForIdentifier, linksLoading, linksLoadFailed } = useValues(userInterviewLogic({ id: topicId }))
+    const interviewUrl = linkForIdentifier(identifier)
+
+    const handleCopy = (e: React.MouseEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!interviewUrl) {
+            return
+        }
+        void copyToClipboard(interviewUrl, 'interview link')
+    }
+
+    const disabledReason = interviewUrl
+        ? undefined
+        : linksLoadFailed
+          ? "Couldn't generate link — refresh to retry"
+          : linksLoading
+            ? 'Generating link…'
+            : 'No link available'
+
+    return (
+        <LemonButton
+            type="tertiary"
+            size="xsmall"
+            icon={<IconCopy />}
+            onClick={handleCopy}
+            disabledReason={disabledReason}
+            tooltip="Copy interview link"
+        />
+    )
+}
+
 function PersonRow({
     identifier,
     topicId,
@@ -237,6 +271,7 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>
                                 Responded

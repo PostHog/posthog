@@ -1004,3 +1004,7 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    wait:for:postgres:tables:
+        bin_script: wait-for-postgres-tables
+        description: 'Block until the named Postgres tables exist'
+        hidden: true
