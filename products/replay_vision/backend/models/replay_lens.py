@@ -13,12 +13,6 @@ class LensType(models.TextChoices):
     INDEXER = "indexer", "Indexer"
 
 
-class LensStatus(models.TextChoices):
-    ACTIVE = "active", "Active"
-    PAUSED = "paused", "Paused"
-    ERROR = "error", "Error"
-
-
 class LensProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
@@ -54,15 +48,10 @@ class ReplayLens(UUIDModel):
     provider = models.CharField(max_length=32, choices=LensProvider.choices, default=LensProvider.GOOGLE)
     model = models.CharField(max_length=64, choices=LensModel.choices)
 
-    status = models.CharField(
-        max_length=16,
-        choices=LensStatus.choices,
-        default=LensStatus.ACTIVE,
-        help_text="Lifecycle state. Only `active` lenses are scheduled; `paused` and `error` lenses have their schedules removed by the reconciler.",
+    enabled = models.BooleanField(
+        default=True,
+        help_text="When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work.",
     )
-    status_reason = models.TextField(blank=True, default="")
-
-    is_builtin = models.BooleanField(default=False)
     emits_signals = models.BooleanField(default=False)
 
     lens_version = models.PositiveIntegerField(
@@ -87,10 +76,9 @@ class ReplayLens(UUIDModel):
             ),
         ]
         indexes = [
-            models.Index(fields=["team", "status"], name="rl_team_status_idx"),
+            models.Index(fields=["team", "enabled"], name="rl_team_enabled_idx"),
         ]
 
-    # Fields that bump `lens_version` when changed — only those affecting what the lens does.
     _VERSION_TRACKED_FIELDS = (
         "lens_type",
         "lens_config",
@@ -102,8 +90,7 @@ class ReplayLens(UUIDModel):
     )
 
     def save(self, *args, **kwargs) -> None:
-        # Bump lens_version when any tracked field actually changed; SELECT FOR UPDATE
-        # inside transaction.atomic() so concurrent saves can't both bump from the same baseline.
+        # SELECT FOR UPDATE so concurrent saves can't both bump lens_version from the same baseline.
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]

@@ -5,13 +5,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.replay_vision.backend.models import ReplayLens, ReplayLensObservation
-from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensStatus, LensType
-from products.replay_vision.backend.models.replay_lens_observation import ObservationStatus, ObservationTrigger
+from products.replay_vision.backend.models import ReplayLens, ReplayObservation
+from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 
 
 def _make_lens(team, **overrides) -> ReplayLens:
-    """Shared lens factory for both test classes; pass `team=self.team` from a BaseTest."""
     defaults = {
         "team": team,
         "name": "my-lens",
@@ -30,11 +29,10 @@ class TestReplayLens(BaseTest):
     def test_create_with_required_fields(self) -> None:
         lens = self._create_lens()
         self.assertEqual(lens.lens_type, LensType.MONITOR)
-        self.assertEqual(lens.status, LensStatus.ACTIVE)
+        self.assertTrue(lens.enabled)
         self.assertEqual(lens.provider, LensProvider.GOOGLE)
         self.assertEqual(lens.sampling_rate, 1.0)
         self.assertEqual(lens.lens_version, 1)
-        self.assertFalse(lens.is_builtin)
         self.assertFalse(lens.emits_signals)
         self.assertIsNotNone(lens.last_swept_at)
 
@@ -120,11 +118,11 @@ class TestReplayLens(BaseTest):
     def test_lens_version_does_not_bump_with_non_tracked_update_fields(self) -> None:
         lens = self._create_lens()
         lens.lens_config = {"prompt": "in-memory only"}  # tracked change in memory
-        lens.status = LensStatus.PAUSED
-        lens.save(update_fields=["status"])  # save only status — tracked change shouldn't bump
+        lens.enabled = False
+        lens.save(update_fields=["enabled"])  # save only enabled — tracked change shouldn't bump
         lens.refresh_from_db()
         self.assertEqual(lens.lens_version, 1)
-        self.assertEqual(lens.status, LensStatus.PAUSED)
+        self.assertFalse(lens.enabled)
 
     def test_lens_version_bumps_with_tracked_update_field_persists(self) -> None:
         lens = self._create_lens()
@@ -135,13 +133,13 @@ class TestReplayLens(BaseTest):
         self.assertEqual(lens.lens_config, {"prompt": "persisted"})
 
 
-class TestReplayLensObservation(BaseTest):
+class TestReplayObservation(BaseTest):
     def _create_lens(self, **overrides) -> ReplayLens:
         return _make_lens(self.team, **overrides)
 
-    def _create_observation(self, lens: ReplayLens, session_id: str = "abc-123") -> ReplayLensObservation:
+    def _create_observation(self, lens: ReplayLens, session_id: str = "abc-123") -> ReplayObservation:
         # team is auto-populated from lens by save() override.
-        return ReplayLensObservation.objects.create(
+        return ReplayObservation.objects.create(
             lens=lens,
             session_id=session_id,
             lens_version=lens.lens_version,
@@ -181,11 +179,11 @@ class TestReplayLensObservation(BaseTest):
         self._create_observation(lens)
         lens_id = lens.id
         lens.delete()
-        self.assertEqual(ReplayLensObservation.objects.filter(lens_id=lens_id).count(), 0)
+        self.assertEqual(ReplayObservation.objects.filter(lens_id=lens_id).count(), 0)
 
     def test_team_id_auto_populated_from_lens(self) -> None:
         lens = self._create_lens()
-        obs = ReplayLensObservation.objects.create(
+        obs = ReplayObservation.objects.create(
             lens=lens,
             session_id="auto-team",
             lens_version=lens.lens_version,
@@ -198,7 +196,7 @@ class TestReplayLensObservation(BaseTest):
         lens = self._create_lens()
         other_team = self.organization.teams.create(name="other")
         with self.assertRaises(ValueError):
-            ReplayLensObservation.objects.create(
+            ReplayObservation.objects.create(
                 lens=lens,
                 team=other_team,
                 session_id="mismatch",
@@ -230,9 +228,9 @@ class TestReplayLensObservation(BaseTest):
             kwargs["completed_at"] = timezone.now()
         if expect_error:
             with self.assertRaises(IntegrityError):
-                ReplayLensObservation.objects.create(**kwargs)
+                ReplayObservation.objects.create(**kwargs)
         else:
-            ReplayLensObservation.objects.create(**kwargs)
+            ReplayObservation.objects.create(**kwargs)
 
     def test_team_delete_cascades_to_lens_and_observations(self) -> None:
         other_team = self.organization.teams.create(name="cascade-target")
@@ -247,14 +245,14 @@ class TestReplayLensObservation(BaseTest):
         lens_id = lens.id
         other_team.delete()
         self.assertFalse(ReplayLens.objects.filter(id=lens_id).exists())
-        self.assertEqual(ReplayLensObservation.objects.filter(lens_id=lens_id).count(), 0)
+        self.assertEqual(ReplayObservation.objects.filter(lens_id=lens_id).count(), 0)
 
     def test_user_delete_nulls_triggered_by_user(self) -> None:
         from django.contrib.auth import get_user_model
 
         ephemeral = get_user_model().objects.create_user(email="ephemeral@example.com", password="x", first_name="Eph")
         lens = self._create_lens()
-        obs = ReplayLensObservation.objects.create(
+        obs = ReplayObservation.objects.create(
             lens=lens,
             session_id="user-cascade",
             lens_version=lens.lens_version,

@@ -1,8 +1,16 @@
 import type { ReactElement } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { formatNumber } from '../utils'
+
+// TODO(quill): same blocker as `lib/DataTable.tsx` — Quill ships no `Table`
+// primitive. This is the chart-results variant: a fixed-height query-result
+// table with a chart-style empty illustration. It would also collapse into a
+// future Quill `Table` once the primitive lands; until then it stays
+// distinct from `lib/DataTable.tsx` because it has different defaults
+// (smaller cell width, max-row truncation, illustrated empty state).
 
 const MAX_ROWS = 20
 const MAX_CELL_WIDTH = 200
@@ -34,11 +42,25 @@ export function DataTable({ columns, rows, maxRows = MAX_ROWS }: DataTableProps)
     const hasMore = displayRows.length < rows.length
 
     if (columns.length === 0 && rows.length === 0) {
-        return <EmptyState icon="table" description="No rows to display" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                    <EmptyDescription>No rows to display</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     if (rows.length === 0) {
-        return <EmptyState icon="table" description="Query returned no rows" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                    <EmptyDescription>Query returned no rows</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     return (

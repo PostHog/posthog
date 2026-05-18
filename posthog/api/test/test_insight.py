@@ -2815,31 +2815,32 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()["id"]
         return cohort_one_id
 
+    @parameterized.expand([("single_id", 1), ("bulk_ids", 3)])
     @freeze_time("2022-03-22T00:00:00.000Z")
-    def test_create_insight_viewed(self) -> None:
+    def test_create_insight_viewed(self, _name: str, count: int) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
-
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
-            team=self.team,
-            short_id="12345678",
-        )
+        insights = [
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"viewed{i}")
+            for i in range(count)
+        ]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/viewed",
-            {"insight_ids": [insight.id]},
+            {"insight_ids": [insight.id for insight in insights]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), count)
 
-        created_insight_viewed = InsightViewed.objects.all()[0]
-        self.assertEqual(created_insight_viewed.insight, insight)
-        self.assertEqual(created_insight_viewed.team, self.team)
-        self.assertEqual(created_insight_viewed.user, self.user)
-        self.assertEqual(
-            created_insight_viewed.last_viewed_at,
-            datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
-        )
+        created_by_insight = {viewed.insight_id: viewed for viewed in InsightViewed.objects.all()}
+        self.assertEqual(set(created_by_insight.keys()), {insight.id for insight in insights})
+        for viewed in created_by_insight.values():
+            self.assertEqual(viewed.team, self.team)
+            self.assertEqual(viewed.user, self.user)
+            self.assertEqual(
+                viewed.last_viewed_at,
+                datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
 
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -2885,6 +2886,102 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(InsightViewed.objects.count(), 0)
+
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("empty_list", {"insight_ids": []}),
+            ("not_a_list", {"insight_ids": "abc"}),
+            ("non_int_element", {"insight_ids": ["abc", 1]}),
+            ("over_max_length", {"insight_ids": list(range(1, 2502))}),
+        ]
+    )
+    def test_insight_viewed_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            payload,
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def test_bulk_upserts_existing_insight_viewed_rows(self) -> None:
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        insights = [
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"upsert{i}")
+            for i in range(3)
+        ]
+
+        # Pre-create rows for the first two insights at T1.
+        with freeze_time("2022-03-22T00:00:00.000Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insights[0].id, insights[1].id]},
+            )
+
+        # Submit all three at T2 — the first two should be UPDATEd, the third INSERTed.
+        with freeze_time("2022-03-23T00:00:00.000Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id for insight in insights]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), 3)
+        for viewed in InsightViewed.objects.all():
+            self.assertEqual(viewed.last_viewed_at, datetime(2022, 3, 23, 0, 0, tzinfo=ZoneInfo("UTC")))
+
+    def test_bulk_filters_unauthorized_and_deleted_insight_ids(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        own_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="own1"
+        )
+        other_team_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=other_team, short_id="other"
+        )
+        deleted_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="dead", deleted=True
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [own_insight.id, other_team_insight.id, deleted_insight.id]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), 1)
+        self.assertEqual(InsightViewed.objects.first().insight_id, own_insight.id)  # type: ignore[union-attr]
+
+    def test_bulk_insight_viewed_query_count_does_not_grow_with_insight_count(self) -> None:
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        few = [
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"few{i}")
+            for i in range(2)
+        ]
+        many = [
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"many{i}")
+            for i in range(10)
+        ]
+
+        with capture_db_queries() as ctx_few:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id for insight in few]},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        with capture_db_queries() as ctx_many:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id for insight in many]},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        few_inserts = [q for q in ctx_few.captured_queries if 'INSERT INTO "posthog_insightviewed"' in q["sql"]]
+        many_inserts = [q for q in ctx_many.captured_queries if 'INSERT INTO "posthog_insightviewed"' in q["sql"]]
+
+        self.assertEqual(len(few_inserts), 1, f"expected exactly 1 INSERT for few, got {len(few_inserts)}")
+        self.assertEqual(len(many_inserts), 1, f"expected exactly 1 INSERT for many, got {len(many_inserts)}")
 
     def test_get_recently_viewed_insights(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})

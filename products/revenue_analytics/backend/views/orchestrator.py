@@ -24,11 +24,11 @@ SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE
 
 
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:
-    with timings.measure("for_events"):
+    with timings.measure("for_events", emit_span=True):
         for event in team.revenue_analytics_config.events:
             yield SourceHandle(type="events", team=team, event=event)
 
-    with timings.measure("for_schema_sources"):
+    with timings.measure("for_schema_sources", emit_span=True):
         queryset = (
             ExternalDataSource.objects.filter(
                 team_id=team.pk,

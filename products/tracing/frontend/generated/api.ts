@@ -12,9 +12,28 @@ import type {
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
+    _TracingAggregationRequestApi,
     _TracingQueryRequestApi,
     _TracingTraceRequestApi,
+    _TracingTreeRequestApi,
 } from './api.schemas'
+
+export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/aggregate/`
+}
+
+export const tracingSpansAggregateCreate = async (
+    projectId: string,
+    _tracingAggregationRequestApi: _TracingAggregationRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansAggregateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingAggregationRequestApi),
+    })
+}
 
 export const getTracingSpansAttributesRetrieveUrl = (
     projectId: string,
@@ -125,6 +144,23 @@ export const tracingSpansTraceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingTraceRequestApi),
+    })
+}
+
+export const getTracingSpansTreeCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/tree/`
+}
+
+export const tracingSpansTreeCreate = async (
+    projectId: string,
+    _tracingTreeRequestApi: _TracingTreeRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansTreeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingTreeRequestApi),
     })
 }
 
