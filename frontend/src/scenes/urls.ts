@@ -174,18 +174,9 @@ export const urls = {
         withProducts,
     }: {
         campaign?: string
-        /** Primary product the user is onboarding into. Drives the post-completion redirect. */
         productKey?: string
-        /**
-         * Step type (legacy) — produces `?step=<key>`. The flow logic resolves a bare step
-         * type to the primary product's matching descriptor for backwards-compat with
-         * older bookmarks and inbound links (e.g. setup-task `getUrl` callsites).
-         */
         stepKey?: OnboardingStepKey
-        /**
-         * Namespaced step ID for the new flow model (e.g. `install:logs`). Takes precedence
-         * over `stepKey` when both are passed.
-         */
+        // Namespaced step ID (e.g. `install:logs`). Takes precedence over `stepKey` when both are passed.
         step?: string
         sdk?: SDKKey
         /** Other products to include in the flow alongside the primary (comma-joined in the URL). */

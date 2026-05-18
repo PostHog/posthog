@@ -7,13 +7,6 @@ import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingD
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingFlowContext, OnboardingStepDescriptor } from './types'
 
-/**
- * Trailing steps that every flow gets, layered on after the per-product providers run.
- *
- * Today these are appended in `OnboardingWrapper`'s `useEffect`. Centralising them here
- * removes the duplication every product otherwise needed, and lets the flow selector
- * stay deterministic.
- */
 export function appendSharedTrailingSteps(
     steps: OnboardingStepDescriptor[],
     ctx: OnboardingFlowContext,
@@ -22,10 +15,7 @@ export function appendSharedTrailingSteps(
 ): OnboardingStepDescriptor[] {
     const result = [...steps]
 
-    // Data warehouse step is appended only for Product Analytics primaries — preserved
-    // verbatim from the legacy `shouldShowDataWarehouseStep` selector. Skip when
-    // DATA_WAREHOUSE is already in secondaries: its own provider emits the same step,
-    // and rendering both would force the user to walk through Import data twice.
+    // Skip when DATA_WAREHOUSE is a secondary — its provider already emits the Import data step.
     if (ctx.primary === ProductKey.PRODUCT_ANALYTICS && !ctx.secondaries.includes(ProductKey.DATA_WAREHOUSE)) {
         result.push({
             id: `${OnboardingStepKey.LINK_DATA}:${ctx.primary}`,

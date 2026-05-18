@@ -712,22 +712,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
     })),
     actionToUrl(({ values, actions }) => ({
         setStepId: ({ stepId }) => {
-            // Preserve unrelated query params (e.g. `?sdk=python`, `?handoff=mobile`).
-            // Drop:
-            //   - `step`/`with`/`productKey`: rebuilt by `urls.onboarding`
-            //   - `secondary`: legacy alias for `with`; if we kept it here it would
-            //     persist alongside the new `with=` for the rest of the SPA session
-            //     and clutter shared/copied URLs
-            //   - `success`/`upgraded`: billing-callback signals consumed once via
-            //     `setSubscribedDuringOnboarding`; keeping them in the URL re-fires
-            //     the `subscribed during onboarding` analytics event on every
-            //     subsequent step navigation
+            // `success`/`upgraded` are billing-callback signals consumed once; keeping them in
+            // the URL re-fires the `subscribed during onboarding` event on every step nav.
             const existingParams = router.values.searchParams ?? {}
             const {
                 step: _step,
                 with: _with,
                 productKey: _productKey,
-                secondary: _secondary,
                 success: _success,
                 upgraded: _upgraded,
                 ...passthrough
@@ -735,7 +726,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             void _step
             void _with
             void _productKey
-            void _secondary
             void _success
             void _upgraded
             // Drop the stepId from the URL if it's not resolvable in the current flow.
@@ -780,9 +770,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             const success = params.success
             const upgraded = params.upgraded
             const step = params.step
-            // Backwards-compat: pre-refactor links used `?secondary=...`. Read both, with
-            // `with` taking precedence when present.
-            const withRaw = params.with ?? params.secondary
+            const withRaw = params.with
 
             // Order matters: `setProductKey` may dispatch `resetOnboardingFlowState`
             // (which resets `subscribedDuringOnboarding` to false) when transitioning

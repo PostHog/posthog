@@ -19,7 +19,7 @@ import { INSTALL_DEDUP_KEYS } from './types'
  *   1. Flow shape per single product and representative multi-product combos
  *   2. Install-step dedup behaviour (POSTHOG_JS, OPENTELEMETRY, no-dedup)
  *   3. Bucket sort: all installs first, posthog-js install first among them
- *   4. URL parsing defenses (cap, dedupe, filter, legacy `?secondary=` alias)
+ *   4. URL parsing defenses (cap, dedupe, filter)
  *   5. Navigation correctness (next/prev, bad stepId reconciliation)
  *   6. Completion: visited-product credit, idempotency, additionalProductKeys merge
  */
@@ -475,13 +475,6 @@ describe('onboardingLogic — flow composition', () => {
                 router.actions.push('/onboarding/web_analytics?with=logs,product_analytics')
             }).toDispatchActions(['setSecondaryProductKeys'])
             expect(logic.values.secondaryProductKeys).toEqual([ProductKey.LOGS, ProductKey.PRODUCT_ANALYTICS])
-        })
-
-        it('accepts legacy ?secondary= as alias for ?with=', async () => {
-            await expectLogic(logic, () => {
-                router.actions.push('/onboarding/web_analytics?secondary=logs')
-            }).toDispatchActions(['setSecondaryProductKeys'])
-            expect(logic.values.secondaryProductKeys).toEqual([ProductKey.LOGS])
         })
 
         it('filters the primary product out of ?with= (avoids self-secondary)', async () => {

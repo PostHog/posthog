@@ -1,4 +1,6 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
@@ -8,26 +10,21 @@ import { urls } from 'scenes/urls'
 
 import { onboardingLogic } from './onboardingLogic'
 
-/**
- * Renders the current step of an onboarding flow. The flow itself — the list of step
- * descriptors — is built by `onboardingLogic.flow` from the user's selected products
- * and is fully data-driven (no JSX-children walking, no per-product wrapper component).
- */
 export function OnboardingFlowHost(): JSX.Element {
     const { product, productKey, currentFlowStep, flow, waitForBilling } = useValues(onboardingLogic)
     const { billingLoading } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const isLoading = (billingLoading && waitForBilling) || !product || !currentFlowStep
     const isMisconfigured = productKey && product && !billingLoading && currentTeam !== null && flow.length === 0
+    const isLoading = !isMisconfigured && ((billingLoading && waitForBilling) || !product || !currentFlowStep)
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center my-20" role="status" aria-label="Loading onboarding">
-                <Spinner className="text-2xl text-secondary w-10 h-10" />
-            </div>
-        )
-    }
+    useEffect(() => {
+        if (isMisconfigured) {
+            posthog.captureException(new Error('Onboarding flow misconfigured: product registered but no flow steps'), {
+                productKey,
+            })
+        }
+    }, [isMisconfigured, productKey])
 
     if (isMisconfigured) {
         return (
@@ -36,6 +33,14 @@ export function OnboardingFlowHost(): JSX.Element {
                     We couldn't load the onboarding flow for this product. Try{' '}
                     <Link to={urls.onboarding()}>going back to product selection</Link>.
                 </LemonBanner>
+            </div>
+        )
+    }
+
+    if (isLoading || !currentFlowStep) {
+        return (
+            <div className="flex items-center justify-center my-20" role="status" aria-label="Loading onboarding">
+                <Spinner className="text-2xl text-secondary w-10 h-10" />
             </div>
         )
     }

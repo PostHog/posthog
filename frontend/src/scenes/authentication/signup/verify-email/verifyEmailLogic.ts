@@ -10,30 +10,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
-/** Delay between a successful verification and redirecting to the app.
- * Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss. */
+// Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss.
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
-/**
- * Decide where to send a verified user when no `?next=` redirect is present.
- *
- * Fresh signups (no completed onboarding for any product) go straight to `/onboarding`,
- * skipping the brief homepage flash that the legacy `/` redirect produced before
- * sceneLogic detected they needed onboarding and re-redirected.
- *
- * Already-onboarded users (typically refreshing the verify URL after a previous
- * successful verification) go to `urls.default()` so they don't land on the
- * product-selection page and accidentally re-run onboarding.
- */
 const resolvePostVerifyDefault = (values: {
     user?: { team?: { has_completed_onboarding_for?: Record<string, boolean> } | null } | null
 }): string => {
-    // If `loadUser` hasn't completed by the time we resolve a redirect target (a
-    // race that can happen when verify completes quickly), prefer the safe
-    // `urls.default()` over `urls.onboarding()`. sceneLogic will route the
-    // already-onboarded user away from `/` once user state hydrates; the
-    // opposite mistake (sending an onboarded user back through onboarding) is
-    // worse because they may inadvertently flip product-completion state.
     if (!values.user) {
         return urls.default()
     }
@@ -89,8 +71,6 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         location.href = nextUrl || resolvePostVerifyDefault(values)
                         return { success: true, token, uuid }
                     } catch (e: any) {
-                        // If the token is invalid but the user is already logged in and verified,
-                        // treat this as success (likely a page refresh after the first successful POST)
                         const user = (values as any).user
                         if (user?.is_email_verified) {
                             actions.setView('success')

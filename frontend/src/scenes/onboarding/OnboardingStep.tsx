@@ -53,9 +53,6 @@ export const OnboardingStep = ({
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
     const skip = (): void => {
-        // Pass productKey so dashboards can split step funnels by product. The arg is
-        // optional on the action; pre-existing consumers that read only `step_key`
-        // are unaffected.
         reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
