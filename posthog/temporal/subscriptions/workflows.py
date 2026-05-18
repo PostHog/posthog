@@ -276,11 +276,44 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 ),
             )
 
-            if not prepare_result.exported_asset_ids:
+            if not prepare_result.exported_asset_ids and not prepare_result.is_ai_prompt:
                 # No assets to export — SKIPPED status, finalized in finally
                 return
 
             delivery_exported_asset_ids = prepare_result.exported_asset_ids
+
+            # AI prompt subscriptions skip the per-insight export + snapshot phases;
+            # the LLM output is the report.
+            if prepare_result.is_ai_prompt:
+                is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
+                deliver_result = await temporalio.workflow.execute_activity(
+                    deliver_subscription,
+                    DeliverSubscriptionInputs(
+                        subscription_id=inputs.subscription_id,
+                        exported_asset_ids=[],
+                        total_insight_count=0,
+                        is_new_subscription_target=is_new,
+                        previous_value=inputs.previous_value,
+                        invite_message=inputs.invite_message,
+                        change_summary=None,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=30),
+                        maximum_interval=dt.timedelta(minutes=5),
+                        maximum_attempts=3,
+                    ),
+                )
+                delivery_recipient_results = [
+                    {
+                        "recipient": r.recipient,
+                        "status": r.status,
+                        **({"error": r.error} if r.error else {}),
+                    }
+                    for r in deliver_result.recipient_results
+                ]
+                final_status = DeliveryStatus.COMPLETED
+                return
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
             export_tasks = []

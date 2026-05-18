@@ -36,6 +36,12 @@ from posthog.temporal.subscriptions.types import (
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
+from ee.tasks.subscriptions.ai_subscription.delivery import (
+    generate_ai_subscription_markdown,
+    render_ai_email_html,
+    send_email_ai_subscription_report,
+    send_slack_ai_subscription_report,
+)
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
@@ -238,6 +244,20 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             team_id=team.id,
         )
 
+    if subscription.content_type == Subscription.ContentType.AI_PROMPT:
+        await LOGGER.ainfo(
+            "create_export_assets.ai_prompt_short_circuit",
+            subscription_id=inputs.subscription_id,
+        )
+        return CreateExportAssetsResult(
+            exported_asset_ids=[],
+            total_insight_count=0,
+            team_id=team.id,
+            distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
+            target_type=subscription.target_type,
+            is_ai_prompt=True,
+        )
+
     if dashboard:
         tiles = await database_sync_to_async(
             lambda: list(
@@ -383,7 +403,11 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         target_type=subscription.target_type,
         asset_count=len(inputs.exported_asset_ids),
         is_new=inputs.is_new_subscription_target,
+        content_type=subscription.content_type,
     )
+
+    if subscription.content_type == Subscription.ContentType.AI_PROMPT:
+        return await _deliver_ai_subscription(subscription, inputs, recipient_results)
 
     if (
         get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
@@ -575,6 +599,120 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         "deliver_subscription.completed",
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
+    )
+    return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+
+async def _deliver_ai_subscription(
+    subscription: Subscription,
+    inputs: DeliverSubscriptionInputs,
+    recipient_results: list[RecipientResult],
+) -> DeliverSubscriptionResult:
+    """Generate an AI report from the subscription's prompt and ship it to email or Slack.
+
+    Per-recipient outcomes are appended to `recipient_results` in the same shape as the
+    insight/dashboard delivery path so the downstream `update_delivery_record` activity
+    can persist them on the SubscriptionDelivery row. Transient errors (LLM 429, network
+    blip) bubble up so the activity's Temporal retry policy can recover them; terminal
+    errors (Slack permission revoked) auto-disable the subscription and return.
+    """
+    # Let transient LLM / DB errors propagate so Temporal can retry. `PromptRejectedError`
+    # (deterministic) is the one exception we know retries can't recover.
+    from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+
+    try:
+        markdown = await database_sync_to_async(generate_ai_subscription_markdown, thread_sensitive=False)(
+            subscription
+        )
+    except PromptRejectedError as exc:
+        LOGGER.warning(
+            "deliver_subscription.ai_prompt_rejected",
+            subscription_id=subscription.id,
+            reason=str(exc),
+        )
+        _capture_delivery_failed_event(subscription, exc)
+        recipient_results.append(
+            RecipientResult(
+                recipient=subscription.target_value,
+                status="failed",
+                error={"message": str(exc), "type": "PromptRejectedError"},
+            )
+        )
+        return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+    if subscription.target_type == "email":
+        emails = subscription.target_value.split(",")
+        if inputs.is_new_subscription_target and inputs.previous_value is not None:
+            emails = list(set(emails) - set(inputs.previous_value.split(",")))
+        rendered_html = render_ai_email_html(markdown)
+        for email in emails:
+            email = email.strip()
+            if not email:
+                continue
+            try:
+                await database_sync_to_async(send_email_ai_subscription_report, thread_sensitive=False)(
+                    email=email, subscription=subscription, markdown=markdown, rendered_html=rendered_html
+                )
+                recipient_results.append(RecipientResult(recipient=email, status="success", error=None))
+            except Exception as exc:
+                # Per-recipient failure is captured and reported; we don't re-raise because
+                # one bad recipient shouldn't fail the others (matches the non-AI path).
+                LOGGER.error(
+                    "deliver_subscription.ai_email_failed",
+                    subscription_id=subscription.id,
+                    email=email,
+                    exc_info=True,
+                )
+                capture_exception(exc)
+                _capture_delivery_failed_event(subscription, exc)
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=email,
+                        status="failed",
+                        error={"message": str(exc), "type": type(exc).__name__},
+                    )
+                )
+        return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+    if subscription.target_type == "slack":
+        try:
+            await database_sync_to_async(send_slack_ai_subscription_report, thread_sensitive=False)(
+                subscription=subscription, markdown=markdown
+            )
+            recipient_results.append(
+                RecipientResult(recipient=subscription.target_value, status="success", error=None)
+            )
+            return DeliverSubscriptionResult(recipient_results=recipient_results)
+        except Exception as exc:
+            slack_error_code = exc.response.get("error") if isinstance(exc, SlackApiError) else None
+            is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS
+            LOGGER.error(
+                "deliver_subscription.ai_slack_failed",
+                subscription_id=subscription.id,
+                slack_error=slack_error_code,
+                exc_info=True,
+            )
+            capture_exception(exc)
+            _capture_delivery_failed_event(subscription, exc)
+            if is_user_config_error:
+                # Won't self-heal without user action — auto-disable so the subscription
+                # stops re-firing every cycle and burning LLM tokens.
+                return await _auto_disable_and_return(
+                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
+                )
+            raise  # Transient Slack errors — let Temporal retry
+
+    LOGGER.warning(
+        "deliver_subscription.ai_unsupported_target",
+        subscription_id=subscription.id,
+        target_type=subscription.target_type,
+    )
+    recipient_results.append(
+        RecipientResult(
+            recipient=subscription.target_value,
+            status="failed",
+            error={"message": f"{subscription.target_type} is not supported for AI subscriptions", "type": "unsupported"},
+        )
     )
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 

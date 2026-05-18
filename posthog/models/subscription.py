@@ -66,6 +66,11 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    class ContentType(models.TextChoices):
+        INSIGHT = "insight"
+        DASHBOARD = "dashboard"
+        AI_PROMPT = "ai_prompt"
+
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
@@ -75,6 +80,13 @@ class Subscription(models.Model):
         SubscriptionFrequency.MONTHLY: MONTHLY,
         SubscriptionFrequency.YEARLY: YEARLY,
     }
+
+    content_type = models.CharField(
+        max_length=20,
+        choices=ContentType.choices,
+        default=ContentType.INSIGHT,
+        db_index=False,
+    )
 
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -92,6 +104,9 @@ class Subscription(models.Model):
         blank=True,
         db_index=False,
     )
+
+    prompt = models.TextField(null=True, blank=True)
+    ai_config = models.JSONField(null=True, blank=True, default=None)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -130,6 +145,7 @@ class Subscription(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+            models.Index(fields=["content_type"], name="posthog_sub_content_type_idx"),
         ]
 
     def __init__(self, *args, **kwargs):
@@ -208,6 +224,8 @@ class Subscription(models.Model):
             return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
         elif self.dashboard:
             return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
+        elif self.content_type == self.ContentType.AI_PROMPT:
+            return absolute_uri(f"/project/{self.team_id}/subscriptions/{self.id}")
         return None
 
     @property
@@ -220,6 +238,9 @@ class Subscription(models.Model):
             )
         elif self.dashboard:
             return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
+        elif self.content_type == self.ContentType.AI_PROMPT:
+            display = self.title or (self.prompt or "")[:60] or "AI report"
+            return SubscriptionResourceInfo("AI Report", display, self.url or "")
 
         return None
 
@@ -264,12 +285,14 @@ class Subscription(models.Model):
         """
         return {
             "id": self.id,
+            "content_type": self.content_type,
             "target_type": self.target_type,
             "num_emails_invited": len(self.target_value.split(",")) if self.target_type == "email" else None,
             "frequency": self.frequency,
             "interval": self.interval,
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
+            "prompt_length": len(self.prompt or "") if self.content_type == self.ContentType.AI_PROMPT else None,
         }
 
 
@@ -280,6 +303,36 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
     if instance.created_by and instance.resource_info:
         event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
+
+    # AI subscriptions carry higher blast radius (prompts can spend money, output is LLM-authored)
+    # so we record them in the activity log even though insight/dashboard subscriptions are not.
+    # Skip scheduler-driven saves — those only touch `next_delivery_date` and attributing them
+    # to `created_by` would produce a misleading audit trail.
+    if instance.content_type != Subscription.ContentType.AI_PROMPT or not instance.created_by:
+        return
+    update_fields = kwargs.get("update_fields")
+    is_scheduler_save = update_fields is not None and set(update_fields) <= {"next_delivery_date"}
+    if not created and is_scheduler_save:
+        return
+    try:
+        from posthog.models.activity_logging.activity_log import Detail, log_activity
+
+        log_activity(
+            organization_id=instance.team.organization_id,
+            team_id=instance.team_id,
+            user=instance.created_by,
+            was_impersonated=False,
+            item_id=instance.id,
+            scope="Subscription",
+            activity="created" if created else "updated",
+            detail=Detail(
+                name=instance.title or (instance.prompt or "")[:60],
+                short_id=None,
+                changes=None,
+            ),
+        )
+    except Exception as exc:  # never let activity logging break a save
+        capture_exception(exc)
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):

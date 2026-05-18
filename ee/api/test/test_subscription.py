@@ -88,12 +88,15 @@ class TestSubscriptionTemporal(APILicensedTest):
         data = response.json()
         assert data == {
             "id": data["id"],
+            "content_type": "insight",
             "dashboard": None,
             "insight": self.insight.id,
             "insight_short_id": self.insight.short_id,
             # Serializer uses f"{name or derived_name}"; when both are None that is the string "None", not null.
             "resource_name": data["resource_name"],
             "dashboard_export_insights": [],
+            "prompt": None,
+            "ai_config": None,
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -1754,3 +1757,122 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert first_ids | second_ids == {
             str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
         }
+
+
+@patch("ee.api.subscription.sync_connect")
+@patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True)
+@patch("ee.api.subscription.is_cloud", return_value=True)
+class TestAISubscriptionAPI(APILicensedTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+    def _enable_ai(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+    def _make_ai_payload(self, **overrides):
+        payload = {
+            "content_type": "ai_prompt",
+            "prompt": "What are the biggest event gains week-over-week?",
+            "target_type": "email",
+            "target_value": "ai@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Weekly AI report",
+        }
+        payload.update(overrides)
+        return payload
+
+    def _mock_temporal(self, mock_sync):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+        return mock_client
+
+    def test_creates_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["content_type"] == "ai_prompt"
+        assert data["prompt"] == "What are the biggest event gains week-over-week?"
+        assert data["insight"] is None
+        assert data["dashboard"] is None
+
+    def test_rejects_without_ai_consent(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AI data processing" in str(response.json())
+
+    def test_rejects_when_not_cloud_or_debug(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        mock_is_cloud.return_value = False
+        self._mock_temporal(mock_sync)
+        with self.settings(DEBUG=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions",
+                self._make_ai_payload(),
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "PostHog Cloud" in str(response.json())
+
+    def test_rejects_when_flag_off(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        mock_flag.return_value = False
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not enabled" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("empty_prompt", {"prompt": "   "}),
+            ("oversize_prompt", {"prompt": "x" * 4001}),
+            ("insight_set_too", {"prompt": "ok", "insight": -1}),
+            ("dashboard_set_too", {"prompt": "ok", "dashboard": -1}),
+        ]
+    )
+    def test_rejects_invalid_ai_payloads(self, name, overrides, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        if overrides.get("insight") == -1:
+            insight = Insight.objects.create(team=self.team, created_by=self.user)
+            overrides["insight"] = insight.id
+        if overrides.get("dashboard") == -1:
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="d")
+            overrides["dashboard"] = dashboard.id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(**overrides),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_can_update_ai_subscription_prompt(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+
+        update_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"prompt": "Show me new error events"},
+        )
+        assert update_resp.status_code == status.HTTP_200_OK, update_resp.json()
+        assert update_resp.json()["prompt"] == "Show me new error events"

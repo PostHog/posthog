@@ -129,4 +129,36 @@ describe('subscriptionLogic', () => {
             dashboard_export_insights: 'Select at least one insight',
         })
     })
+
+    it('rejects empty prompt when content_type is ai_prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({ content_type: 'ai_prompt', prompt: '   ', title: 'AI test' })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toBeTruthy()
+    })
+
+    it('rejects prompts exceeding 4000 characters when content_type is ai_prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            content_type: 'ai_prompt',
+            prompt: 'x'.repeat(4001),
+            title: 'AI test',
+        })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toContain('4000')
+    })
+
+    it('accepts a valid AI prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            content_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+        })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toBeUndefined()
+    })
 })

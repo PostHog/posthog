@@ -25,6 +25,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -81,12 +82,17 @@ export function EditSubscription({
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const hourlySubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_HOURLY_FREQUENCY')
 
     const emailDisabled = !preflight?.email_service_available
+    const isAiPrompt = subscription?.content_type === 'ai_prompt'
+    const aiAllowed =
+        Boolean(currentOrganization?.is_ai_data_processing_approved) &&
+        (Boolean(preflight?.cloud) || Boolean(preflight?.is_debug))
 
     // Show the hourly option whenever the feature flag is on for this user/org, OR
     // when the subscription being edited is already hourly (so the user can read /
@@ -223,6 +229,38 @@ export function EditSubscription({
                                 )}
                             </LemonField>
                         )}
+
+                        <LemonField name="content_type" label="What to send">
+                            <LemonSelect
+                                options={[
+                                    {
+                                        value: 'insight',
+                                        label: 'Insight or dashboard snapshot',
+                                    },
+                                    {
+                                        value: 'ai_prompt',
+                                        label: 'AI-generated report (beta)',
+                                        disabledReason: !aiAllowed
+                                            ? 'Enable AI data processing in your Organization settings to use AI subscriptions.'
+                                            : undefined,
+                                    },
+                                ]}
+                            />
+                        </LemonField>
+
+                        {isAiPrompt ? (
+                            <LemonField
+                                name="prompt"
+                                label="Prompt"
+                                help="Describe what the AI should look for. The same prompt runs every time the subscription fires."
+                            >
+                                <LemonTextArea
+                                    placeholder="e.g. Which events grew the most week-over-week? Highlight any unusual spikes."
+                                    minRows={3}
+                                    maxLength={4000}
+                                />
+                            </LemonField>
+                        ) : null}
 
                         <LemonField name="target_type" label="Destination">
                             <LemonSelect options={targetTypeOptions} />

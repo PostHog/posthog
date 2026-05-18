@@ -15,6 +15,8 @@ import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
+const AI_PROMPT_MAX_LENGTH = 4000
+
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
         const msg = (error.detail || error.message || '').trim()
@@ -27,6 +29,7 @@ function subscriptionSaveErrorMessage(error: unknown): string {
 }
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
+    content_type: 'insight',
     frequency: 'weekly',
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
@@ -112,6 +115,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title,
                 start_date,
                 dashboard_export_insights,
+                content_type,
+                prompt,
             }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
@@ -120,6 +125,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_type: !['slack', 'email', 'webhook'].includes(target_type)
                     ? 'Unsupported target type'
                     : undefined,
+                prompt:
+                    content_type === 'ai_prompt'
+                        ? !prompt?.trim()
+                            ? 'A prompt is required for AI subscriptions'
+                            : prompt.length > AI_PROMPT_MAX_LENGTH
+                              ? `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`
+                              : undefined
+                        : undefined,
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'
@@ -143,12 +156,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         : undefined,
             }),
             submit: async (subscription, breakpoint) => {
-                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                const isAi = subscription.content_type === 'ai_prompt'
+                const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
                 const payload = {
                     ...subscription,
-                    insight: insightId,
-                    dashboard: props.dashboardId,
+                    insight: isAi ? null : insightId,
+                    dashboard: isAi ? null : props.dashboardId,
                 }
 
                 breakpoint()

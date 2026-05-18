@@ -5023,17 +5023,22 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+export type SubscriptionContentType = 'insight' | 'dashboard' | 'ai_prompt'
+
 // TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
 // This hand-written interface predates the generated type and now requires
 // dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
+    content_type: SubscriptionContentType
     insight?: number
     dashboard?: number
     insight_short_id?: string | null
     resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
+    prompt?: string | null
+    ai_config?: Record<string, unknown> | null
     target_type: string
     target_value: string
     frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'

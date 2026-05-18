@@ -78,6 +78,11 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    # Set by `create_export_assets` for AI subscriptions, which have no insights
+    # to export. The workflow uses this to skip Phase 2 (export) + Phase 2.5
+    # (snapshot) and go straight to `deliver_subscription`, instead of the
+    # default empty-assets SKIPPED short-circuit.
+    is_ai_prompt: bool = False
     # Deprecated (TODO slug: subscriptions-patched-cleanup) — kept only so
     # that in-flight Temporal workflows (whose history contains an old-format
     # result) still deserialize on new workers during a rolling deploy. New

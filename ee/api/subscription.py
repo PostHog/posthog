@@ -26,7 +26,9 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.constants import (
+    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
     SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY,
     AvailableFeature,
@@ -47,6 +49,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.tasks.subscriptions.ai_subscription.spec_generator import PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
@@ -126,11 +129,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         model = Subscription
         fields = [
             "id",
+            "content_type",
             "dashboard",
             "insight",
             "insight_short_id",
             "resource_name",
             "dashboard_export_insights",
+            "prompt",
+            "ai_config",
             "target_type",
             "target_value",
             "frequency",
@@ -203,16 +209,64 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     def validate(self, attrs):
-        if not self.initial_data:
-            # Create
-            if not attrs.get("dashboard") and not attrs.get("insight"):
-                raise ValidationError("Either dashboard or insight is required for an export.")
+        existing = self.instance
+        content_type = (
+            attrs.get("content_type")
+            or (existing.content_type if existing else None)
+            or Subscription.ContentType.INSIGHT
+        )
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
 
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        has_insight = attrs.get("insight") or (existing and existing.insight_id)
+        has_dashboard = attrs.get("dashboard") or (existing and existing.dashboard_id)
+        has_prompt = (attrs.get("prompt") or (existing.prompt if existing else None) or "").strip()
+
+        if content_type == Subscription.ContentType.INSIGHT:
+            if not has_insight:
+                raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
+            if attrs.get("dashboard") or attrs.get("prompt"):
+                raise ValidationError("Insight subscriptions cannot also set dashboard or prompt.")
+        elif content_type == Subscription.ContentType.DASHBOARD:
+            if not has_dashboard:
+                raise ValidationError({"dashboard": ["Dashboard is required for dashboard subscriptions."]})
+            if attrs.get("insight") or attrs.get("prompt"):
+                raise ValidationError("Dashboard subscriptions cannot also set insight or prompt.")
+        elif content_type == Subscription.ContentType.AI_PROMPT:
+            if attrs.get("insight") or attrs.get("dashboard"):
+                raise ValidationError("AI subscriptions cannot also set insight or dashboard.")
+            if not has_prompt:
+                raise ValidationError({"prompt": ["Prompt is required for AI subscriptions."]})
+            if len(has_prompt) > AI_PROMPT_MAX_LENGTH:
+                raise ValidationError({"prompt": [f"Prompt cannot exceed {AI_PROMPT_MAX_LENGTH} characters."]})
+
+            # Cloud / consent / feature-flag gates only fire when transitioning INTO ai_prompt
+            # (new create, or content_type change). Existing AI subscriptions remain editable
+            # after consent revoke or flag-off — owners can still disable/delete them, and
+            # the delivery path is the authoritative cost gate.
+            transitioning_to_ai = existing is None or existing.content_type != Subscription.ContentType.AI_PROMPT
+            if transitioning_to_ai:
+                if not settings.DEBUG and not is_cloud():
+                    raise ValidationError("AI subscriptions are only available in PostHog Cloud.")
+
+                organization = self.context["get_organization"]()
+                if not organization.is_ai_data_processing_approved:
+                    raise ValidationError(
+                        "Your organization must approve AI data processing before creating AI subscriptions."
+                    )
+
+                if not posthoganalytics.feature_enabled(
+                    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+                    str(organization.id),
+                    groups={"organization": str(organization.id)},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                ):
+                    raise ValidationError("AI subscriptions are not enabled for your organization.")
 
         self._validate_dashboard_export_subscription(attrs)
 
