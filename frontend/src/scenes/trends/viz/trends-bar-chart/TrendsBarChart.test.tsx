@@ -155,6 +155,19 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         expect(personsModal.title()).not.toMatch(/Wednesday/)
     })
 
+    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
+        renderInsight({
+            query: aggregatedBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(() => {
+            expect(personsModal.get()).toBeInTheDocument()
+        })
+    })
+
     it('fires context.onDataPointClick without a day argument', async () => {
         // Per-band breakdown resolution is covered at the unit-handler level — the
         // hog-charts hover/click helpers don't yet handle horizontal axis-orientation, so

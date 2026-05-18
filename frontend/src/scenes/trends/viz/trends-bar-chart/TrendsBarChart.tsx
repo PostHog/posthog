@@ -47,7 +47,7 @@ interface TrendsBarChartProps {
 
 const EMPTY_LABELS: string[] = []
 const TIME_SERIES_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
-const AGGREGATED_TOOLTIP_CONFIG = { pinnable: true }
+const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
 
 const buildBarMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
     action: r.action,
