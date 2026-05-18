@@ -175,7 +175,6 @@ from . import (
     query,
     quick_filters,
     resource_transfer,
-    role_external_reference,
     scheduled_change,
     schema_property_group,
     search,
@@ -733,12 +732,6 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
-    r"role_external_references",
-    role_external_reference.RoleExternalReferenceViewSet,
-    "organization_role_external_references",
-    ["organization_id"],
-)
-organizations_router.register(
     r"welcome",
     welcome.WelcomeViewSet,
     "organization_welcome",
@@ -847,6 +840,7 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from posthog.api import role_external_reference
     from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
@@ -854,6 +848,13 @@ if EE_AVAILABLE:
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+
+    organizations_router.register(
+        r"role_external_references",
+        role_external_reference.RoleExternalReferenceViewSet,
+        "organization_role_external_references",
+        ["organization_id"],
+    )
 
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(
