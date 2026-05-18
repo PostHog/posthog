@@ -91,7 +91,14 @@ class Command(BaseCommand):
         hypercache = RemoteConfig.get_hypercache()
 
         # Read api_token from the related Team in the same query to avoid N+1 lookups.
-        queryset = RemoteConfig.objects.select_related("team").only("team__api_token", "config").order_by("team_id")
+        # Exclude empty configs at the DB level so `total` matches the work to be done
+        # (the next organic sync will write the __missing__ sentinel for empty rows).
+        queryset = (
+            RemoteConfig.objects.select_related("team")
+            .only("team__api_token", "config")
+            .exclude(config={})
+            .order_by("team_id")
+        )
         if team_ids is not None:
             queryset = queryset.filter(team_id__in=team_ids)
 
@@ -99,16 +106,12 @@ class Command(BaseCommand):
         self.stdout.write(f"Backfilling {total} RemoteConfig row(s){' (dry run)' if dry_run else ''}")
 
         warmed = 0
-        skipped_empty = 0
         failed = 0
         start = time.monotonic()
 
         # Use .iterator() with chunk_size to stream rows instead of materializing all in memory.
         for remote_config in queryset.iterator(chunk_size=batch_size):
             team = remote_config.team
-            if not remote_config.config:
-                skipped_empty += 1
-                continue
 
             if dry_run:
                 warmed += 1
@@ -130,9 +133,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"  ...warmed {warmed}/{total} ({rate:.0f}/s)")
 
         elapsed = time.monotonic() - start
-        self.stdout.write(
-            self.style.SUCCESS(f"Done in {elapsed:.1f}s. warmed={warmed} skipped_empty={skipped_empty} failed={failed}")
-        )
+        self.stdout.write(self.style.SUCCESS(f"Done in {elapsed:.1f}s. warmed={warmed} failed={failed}"))
 
         if failed:
             raise CommandError(f"{failed} row(s) failed to warm — see logs")

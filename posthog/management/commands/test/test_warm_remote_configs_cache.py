@@ -7,6 +7,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
@@ -66,7 +68,7 @@ class TestWarmRemoteConfigsCache(BaseTest):
         call_command("warm_remote_configs_cache", stdout=out)
 
         assert self._cached_value(self.team.api_token) is None
-        assert "skipped_empty=1" in out.getvalue()
+        assert "Backfilling 0 RemoteConfig row(s)" in out.getvalue()
         assert "warmed=0" in out.getvalue()
 
     def test_dry_run_does_not_write_to_cache(self):
@@ -91,12 +93,15 @@ class TestWarmRemoteConfigsCache(BaseTest):
         assert self._cached_value(self.team.api_token) is not None
         assert self._cached_value(other_team.api_token) is None
 
-    def test_invalid_batch_size_raises(self):
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("over_max", 20_000),
+        ]
+    )
+    def test_invalid_batch_size_raises(self, _name, batch_size):
         with self.assertRaisesMessage(CommandError, "--batch-size"):
-            call_command("warm_remote_configs_cache", batch_size=0, stdout=StringIO())
-
-        with self.assertRaisesMessage(CommandError, "--batch-size"):
-            call_command("warm_remote_configs_cache", batch_size=20_000, stdout=StringIO())
+            call_command("warm_remote_configs_cache", batch_size=batch_size, stdout=StringIO())
 
     def test_failed_writes_raise_command_error(self):
         with patch(
