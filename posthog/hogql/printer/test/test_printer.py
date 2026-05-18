@@ -4503,8 +4503,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "lower(properties.test_prop) in ('value1', 'value2')",
-                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, ''))), "
-                f"events.{mat_col.name} IS NOT NULL)",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, '')))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -4512,7 +4511,16 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "lower(properties.test_prop) not in ('value1', 'value2')",
-                f"ifNull(notIn(lower(coalesce(events.{mat_col.name}, '')), tuple(%(hogql_val_0)s, %(hogql_val_1)s)), 1)",
+                f"notIn(lower(coalesce(events.{mat_col.name}, '')), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_in_matches_case_insensitive_lower_call(self) -> None:
+        # HogQL `lower` is case-insensitive, so `LOWER(...)` must still hit the optimization
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "LOWER(properties.test_prop) in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -4596,8 +4604,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             index_name = get_bloom_filter_lower_index_name(mat_col.name)
             subquery = (
                 f"SELECT id FROM person WHERE team_id = {self.team.pk} "
-                f"AND has(['foo@example.com', 'bar@example.com'], lower(coalesce({mat_col.name}, ''))) "
-                f"AND {mat_col.name} IS NOT NULL"
+                f"AND has(['foo@example.com', 'bar@example.com'], lower(coalesce({mat_col.name}, '')))"
             )
             index_info = get_index_from_explain(subquery, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used for:\n{subquery}"
@@ -4824,6 +4831,45 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
+
+    @parameterized.expand([("nullable", True), ("non_nullable", False)])
+    def test_lower_in_optimization_handles_null_and_sentinel_rows(self, _, is_nullable) -> None:
+        # The lower(prop) IN rewrite must stay correct for rows whose property is NULL/missing, an empty
+        # string, or the literal string "null" - the cases the coalesce / IS NOT NULL guards exist for.
+        with materialized("events", "test_prop", is_nullable=is_nullable, create_bloom_filter_lower_index=True):
+            events: list[tuple[str, dict]] = [
+                ("mixed_case", {"test_prop": "Hello@PostHog.com"}),
+                ("lower_case", {"test_prop": "hello@posthog.com"}),
+                ("other", {"test_prop": "OTHER"}),
+                ("literal_null_str", {"test_prop": "null"}),
+                ("empty_str", {"test_prop": ""}),
+                ("missing_key", {}),
+                ("json_null", {"test_prop": None}),
+            ]
+            for distinct_id, properties in events:
+                _create_event(team=self.team, distinct_id=distinct_id, event="e", properties=properties)
+            all_ids = {distinct_id for distinct_id, _ in events}
+
+            def run(op: str) -> tuple[set[str], str]:
+                result = execute_hogql_query(
+                    team=self.team,
+                    query=(
+                        f"SELECT distinct_id FROM events "
+                        f"WHERE lower(properties.test_prop) {op} ('hello@posthog.com') ORDER BY distinct_id"
+                    ),
+                    modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+                )
+                assert result.clickhouse
+                return {d for (d,) in result.results}, result.clickhouse
+
+            # Case-insensitive IN: matches the mixed-case and already-lowercase rows, nothing else.
+            in_matches, in_sql = run("IN")
+            assert "has(" in in_sql, f"expected the bloom_filter_lower rewrite to fire: {in_sql}"
+            assert in_matches == {"mixed_case", "lower_case"}
+
+            # NOT IN returns the exact complement, including the NULL / missing / empty-string rows.
+            not_in_matches, _ = run("NOT IN")
+            assert not_in_matches == all_ids - {"mixed_case", "lower_case"}
 
     def test_recursive_cte_raises(self):
         query = """

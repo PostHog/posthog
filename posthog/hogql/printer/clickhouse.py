@@ -814,7 +814,8 @@ class ClickHousePrinter(BasePrinter):
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
             return None
 
-        if not (isinstance(node.left, ast.Call) and node.left.name == "lower" and len(node.left.args) == 1):
+        # HogQL `lower` is case-insensitive, so `LOWER(...)` keeps the user-typed casing on the Call
+        if not (isinstance(node.left, ast.Call) and node.left.name.lower() == "lower" and len(node.left.args) == 1):
             return None
 
         property_source = self._get_materialized_string_property_source(node.left.args[0])
@@ -850,20 +851,19 @@ class ClickHousePrinter(BasePrinter):
         materialized_column_sql = str(property_source)
         values_sql = ", ".join(self.visit(v) for v in values)
 
+        # The index expression is lower(coalesce(col, '')) for nullable columns, lower(col) otherwise.
+        # coalesce() removes NULL, so no ifNull / IS NOT NULL guard is needed: a NULL row coalesces to ''
+        # which the sentinel bail-out above excludes from the values, so it can never spuriously match.
         if property_source.is_nullable:
-            # Match the index expression exactly; the IS NOT NULL guard restores NULL semantics
             indexed_expr = f"lower(coalesce({materialized_column_sql}, ''))"
-            if node.op == ast.CompareOperationOp.In:
-                # has() with a constant array keeps the skip index usable (unlike in() under transform_null_in=1)
-                return f"and(has([{values_sql}], {indexed_expr}), {materialized_column_sql} IS NOT NULL)"
-            else:
-                return f"ifNull(notIn({indexed_expr}, tuple({values_sql})), 1)"
         else:
             indexed_expr = f"lower({materialized_column_sql})"
-            if node.op == ast.CompareOperationOp.In:
-                return f"has([{values_sql}], {indexed_expr})"
-            else:
-                return f"notIn({indexed_expr}, tuple({values_sql}))"
+
+        if node.op == ast.CompareOperationOp.In:
+            # has() with a constant array keeps the skip index usable (unlike in() under transform_null_in=1)
+            return f"has([{values_sql}], {indexed_expr})"
+        else:
+            return f"notIn({indexed_expr}, tuple({values_sql}))"
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
