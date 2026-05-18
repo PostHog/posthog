@@ -525,6 +525,53 @@ class TestProvisioningResources(ProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestProvisioningResourceRemove(ProvisioningTestBase):
+    def test_remove_strips_team_from_sibling_tokens(self):
+        # Removing a resource has to revoke the team from every live token
+        # the partner installation holds for that user. Otherwise a sibling
+        # bearer that still has the team in scope can short-circuit past the
+        # auto-add guard and keep operating on the removed team.
+        from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"stripe_project_id": "proj_remove_me", "application": access_token.application},
+        )
+
+        # Sibling token for the same user+application also has the team in scope.
+        sibling_at = OAuthAccessToken.objects.create(
+            application=access_token.application,
+            user=access_token.user,
+            token="sibling_access_token_value",
+            expires=access_token.expires,
+            scope=access_token.scope,
+            scoped_teams=[self.team.id, 99999],
+        )
+        sibling_rt = OAuthRefreshToken.objects.create(
+            application=access_token.application,
+            user=access_token.user,
+            token="sibling_refresh_token_value",
+            access_token=sibling_at,
+            scoped_teams=[self.team.id, 99999],
+        )
+
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/remove",
+            token=token,
+        )
+        assert res.status_code == 200, res.json()
+        assert res.json()["status"] == "removed"
+
+        sibling_at.refresh_from_db()
+        sibling_rt.refresh_from_db()
+        assert self.team.id not in (sibling_at.scoped_teams or [])
+        assert self.team.id not in (sibling_rt.scoped_teams or [])
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestCreateProvisionedPat(ProvisioningTestBase):
     @parameterized.expand(
         [
