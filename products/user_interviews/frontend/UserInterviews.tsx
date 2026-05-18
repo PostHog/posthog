@@ -71,7 +71,7 @@ function SearchResultCard({ result }: { result: UserInterviewSearchResultApi }):
     )
 }
 
-function SearchResults({
+export function SearchResults({
     results,
     loading,
 }: {
