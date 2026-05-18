@@ -39,7 +39,14 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
-            return apiKeyResult.data
+            const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
+            // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
+            // normalize at the boundary — downstream code treats these as arrays.
+            return {
+                scopes,
+                scoped_teams: scoped_teams ?? [],
+                scoped_organizations: scoped_organizations ?? [],
+            }
         }
 
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
@@ -61,8 +68,8 @@ export class StateManager {
 
         return {
             scopes: scope ? scope.split(' ') : [],
-            scoped_teams,
-            scoped_organizations,
+            scoped_teams: scoped_teams ?? [],
+            scoped_organizations: scoped_organizations ?? [],
         }
     }
 
