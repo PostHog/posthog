@@ -9,6 +9,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getUserIsBeingDeleted } from 'lib/userDeletionState'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
@@ -100,6 +101,12 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Account deletion races logout navigation — team-scoped loaders re-fire
+                // against the now-deleted user, get 404s, and would surface confusing
+                // "<action> failed: Project not found." toasts. Suppress them entirely.
+                if (getUserIsBeingDeleted()) {
+                    return
+                }
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (

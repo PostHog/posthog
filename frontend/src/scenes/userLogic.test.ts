@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { getUserIsBeingDeleted, setUserIsBeingDeleted } from 'lib/userDeletionState'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -184,6 +185,35 @@ describe('userLogic', () => {
                     },
                 }),
             })
+        })
+    })
+
+    describe('account deletion', () => {
+        beforeEach(() => {
+            setUserIsBeingDeleted(false)
+            // logout posts a form to /logout — stub out form.submit so jsdom doesn't navigate
+            jest.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            setUserIsBeingDeleted(false)
+            jest.restoreAllMocks()
+        })
+
+        it('flips the userIsBeingDeleted flag on deleteUserSuccess so post-deletion toasts are suppressed', () => {
+            expect(getUserIsBeingDeleted()).toBe(false)
+
+            userLogic.actions.deleteUserSuccess(null)
+
+            expect(getUserIsBeingDeleted()).toBe(true)
+        })
+
+        it('leaves the userIsBeingDeleted flag untouched on deleteUserFailure', () => {
+            expect(getUserIsBeingDeleted()).toBe(false)
+
+            userLogic.actions.deleteUserFailure('Bad request')
+
+            expect(getUserIsBeingDeleted()).toBe(false)
         })
     })
 })

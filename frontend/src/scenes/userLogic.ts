@@ -7,6 +7,7 @@ import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { setUserIsBeingDeleted } from 'lib/userDeletionState'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -330,6 +331,10 @@ export const userLogic = kea<userLogicType>([
             })
         },
         deleteUserSuccess: () => {
+            // Silence subsequent loader failures during the race between successful
+            // deletion and the form-POST logout navigation — team-scoped loaders re-fire
+            // against the now-deleted user and would otherwise surface confusing toasts.
+            setUserIsBeingDeleted(true)
             actions.logout()
             lemonToast.success('Account deleted', {
                 toastId: 'deleteUser',
