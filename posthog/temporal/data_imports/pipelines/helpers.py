@@ -46,9 +46,9 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
 
 
 def build_table_name(source: ExternalDataSource, schema_name: str):
-    # Replace dots so multi-schema warehouse names like `public.auth_group` produce a HogQL-safe
-    # identifier: `pfxpostgres_public__auth_group` instead of `pfxpostgres_public.auth_group`,
-    # which would otherwise parse as `<table>.<column>` in HogQL.
+    # Dots in `schema_name` would parse as `<table>.<column>` in HogQL, so any source that ever
+    # produces a dotted schema name (today: Postgres multi-schema like `public.auth_group`) needs
+    # them rewritten. No-op for pre-existing single-schema sources whose names never contained dots.
     safe_schema_name = schema_name.replace(".", "__")
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 

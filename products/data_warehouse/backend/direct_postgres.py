@@ -406,19 +406,16 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
     team_id: int,
     allow_rename: bool = True,
 ) -> dict[str, str]:
-    """Match discovered source schemas back to existing rows so a multi-schema discovery doesn't
-    soft-delete the unqualified row and orphan its DataWarehouseTable.
+    """Match discovered schemas to existing rows by source location so the caller's
+    `sync_old_schemas_with_new_schemas` treats them as already covered (no duplicate row, no
+    accidental soft-delete of the legacy row).
 
-    Returns a ``{discovered_name: existing_row_name}`` map so the caller can substitute the
-    discovered names before invoking ``sync_old_schemas_with_new_schemas`` — without that
-    substitution, the unqualified row would be soft-deleted and a fresh qualified row would be
-    created in its place, breaking the legacy DataWarehouseTable link.
+    `allow_rename=True` (direct mode): the row's `name` is rewritten to the discovered qualified
+    name in place.
 
-    When ``allow_rename`` is ``False`` we leave ``ExternalDataSchema.name`` alone but still
-    populate ``schema_metadata`` so ``source_for_pipeline`` routes the sync to the right physical
-    table. Renaming the row changes the Delta path that ``pipeline_sync`` writes to on the next
-    sync, which orphans pre-existing Delta files for warehouse-mode sources. Direct-query mode
-    (which has always eager-renamed) opts in via ``allow_rename=True``.
+    `allow_rename=False` (warehouse mode): only `schema_metadata` is pinned. Renaming the row
+    would change the Delta path on the next sync — warehouse migration goes through
+    `postgres_warehouse_migration` which preserves the path via `dwh_storage_key`.
     """
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
@@ -497,173 +494,5 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
         schema_models_by_name.pop(old_name, None)
         schema_models_by_name[source_schema.name] = rename_candidate
         renamed_schema_ids.add(str(rename_candidate.id))
-
-    return name_substitutions
-
-
-def _extract_source_location_from_row(row: Any) -> tuple[str | None, str | None]:
-    """Return ``(source_schema, source_table_name)`` for an `ExternalDataSchema` row.
-
-    Prefers ``schema_metadata`` (authoritative when reconcile has run); falls back to dot-splitting
-    a qualified ``name``. Returns ``(None, None)`` when neither signal is available — e.g. a fresh
-    unqualified legacy row without metadata.
-    """
-    metadata = (row.sync_type_config or {}).get("schema_metadata")
-    source_schema: str | None = None
-    source_table_name: str | None = None
-    if isinstance(metadata, dict):
-        source_schema = metadata.get("source_schema") if isinstance(metadata.get("source_schema"), str) else None
-        source_table_name = (
-            metadata.get("source_table_name") if isinstance(metadata.get("source_table_name"), str) else None
-        )
-    if (not source_schema or not source_table_name) and "." in row.name:
-        inferred_schema, _, inferred_table = row.name.partition(".")
-        source_schema = source_schema or inferred_schema or None
-        source_table_name = source_table_name or inferred_table or None
-    return source_schema, source_table_name
-
-
-def consolidate_postgres_legacy_rows(
-    *,
-    source: ExternalDataSource,
-    team_id: int,
-) -> dict[str, str]:
-    """Move legacy unqualified Postgres rows onto the new qualified naming without re-syncing.
-
-    Idempotent. Runs every refresh for warehouse-mode Postgres sources. Handles two states the
-    previous schema-clear-only migration missed:
-
-    * The user cleared ``job_inputs.schema`` *before* this migration shipped, leaving both an
-      unqualified row (``example_table``, has Delta data) and a refresh-created qualified
-      duplicate (``poblic.example_table``, empty) — pin-on-PATCH never re-fires because
-      ``job_inputs.schema`` is already blank.
-    * Schema is still set but the user wants to migrate ahead of clearing it — qualifying based
-      on the configured default schema is safe because reconcile already pointed metadata at the
-      right physical table.
-
-    Matching strategy: pair legacy rows to qualified rows by ``source_table_name`` (NOT by full
-    ``DirectPostgresLocation``). A legacy row may not have ``schema_metadata`` populated yet —
-    reconcile only writes metadata when locations agree, and locations disagree precisely in the
-    bug scenario (legacy falls back to ``"public"`` while the discovered row points to
-    ``"poblic"``). Cross-pairing on table name alone is the only signal that survives that gap.
-
-    For each legacy row:
-
-    * Qualified duplicate found (shared ``source_table_name``) → soft-delete the qualified
-      duplicate (it has no Delta data), rename the legacy in place using the duplicate's
-      ``source_schema``, and stash ``dwh_storage_key=<original_name>`` so the Delta path stays
-      anchored to the legacy folder.
-    * No duplicate, ``job_inputs.schema`` set → qualify to ``"<default_schema>.<name>"`` and
-      stash ``dwh_storage_key`` the same way. Safe because the configured schema is precisely
-      where the table is being read from today.
-    * No duplicate, no default schema → leave alone (we have no signal to pick a schema).
-
-    Returns ``{old_name: new_name}`` for any rows that were renamed or soft-deleted (used by
-    callers that need to remap their schema-name dicts before passing them to
-    ``sync_old_schemas_with_new_schemas``).
-    """
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-
-    rows = list(
-        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related("table")
-    )
-
-    qualified_rows_by_table_name: dict[str, list[tuple[str, ExternalDataSchema]]] = {}
-    unqualified_rows: list[ExternalDataSchema] = []
-    for row in rows:
-        if "." in row.name:
-            source_schema, source_table_name = _extract_source_location_from_row(row)
-            if source_schema is None or source_table_name is None:
-                continue
-            qualified_rows_by_table_name.setdefault(source_table_name, []).append((source_schema, row))
-        else:
-            unqualified_rows.append(row)
-
-    default_schema = _normalize_default_schema((source.job_inputs or {}).get("schema"))
-    name_substitutions: dict[str, str] = {}
-
-    for legacy in unqualified_rows:
-        # Read legacy's own metadata first — `_pin_legacy_postgres_rows_to_default_schema` (PATCH
-        # update path) and `reconcile_postgres_schemas` (refresh path) may already have populated
-        # `source_schema` to the truthful value. Treat that as the most reliable signal and avoid
-        # overwriting it below.
-        legacy_sync_type_config = legacy.sync_type_config or {}
-        legacy_existing_metadata_raw = legacy_sync_type_config.get("schema_metadata")
-        legacy_existing_metadata: dict[str, Any] = (
-            dict(legacy_existing_metadata_raw) if isinstance(legacy_existing_metadata_raw, dict) else {}
-        )
-        legacy_metadata_source_schema = (
-            legacy_existing_metadata.get("source_schema")
-            if isinstance(legacy_existing_metadata.get("source_schema"), str)
-            and legacy_existing_metadata.get("source_schema")
-            else None
-        )
-        legacy_metadata_source_table_name = (
-            legacy_existing_metadata.get("source_table_name")
-            if isinstance(legacy_existing_metadata.get("source_table_name"), str)
-            and legacy_existing_metadata.get("source_table_name")
-            else None
-        )
-
-        qualified_matches = qualified_rows_by_table_name.get(legacy.name, [])
-        # Disambiguate multi-match using legacy's pinned metadata — if legacy already knows it's
-        # from `poblic`, prefer the `poblic.example_table` qrow over the `public.example_table` one.
-        if len(qualified_matches) > 1 and legacy_metadata_source_schema is not None:
-            filtered = [m for m in qualified_matches if m[0] == legacy_metadata_source_schema]
-            if len(filtered) == 1:
-                qualified_matches = filtered
-
-        if len(qualified_matches) == 1:
-            # Exactly one qualified row shares the legacy's table_name — it's typically the
-            # refresh-created duplicate. Drop it ONLY if it has no DataWarehouseTable attached;
-            # otherwise the user manually synced into it and the duplicate has real data we
-            # must not destroy. Skip consolidation in that case and let the user resolve.
-            target_source_schema, qrow = qualified_matches[0]
-            if qrow.table_id is not None:
-                continue
-            target_name = qrow.name
-            qrow.soft_delete()
-            name_substitutions[qrow.name] = target_name
-        elif len(qualified_matches) > 1:
-            # Multiple qualified rows still point at the same table_name across different schemas
-            # even after metadata disambiguation. Can't safely pick a canonical schema — leave the
-            # legacy row alone and let the user resolve via the UI.
-            continue
-        elif legacy_metadata_source_schema is not None:
-            # Legacy already has a pinned source_schema (e.g. from a prior `_pin_legacy_postgres_rows_to_default_schema`
-            # call when the user cleared `job_inputs.schema`). Trust it over the live default.
-            target_source_schema = legacy_metadata_source_schema
-            target_name = f"{legacy_metadata_source_schema}.{legacy_metadata_source_table_name or legacy.name}"
-        elif default_schema is not None:
-            target_source_schema = default_schema
-            target_name = f"{default_schema}.{legacy.name}"
-        else:
-            # No qualified duplicate, no pinned metadata, no default schema configured — nothing to
-            # migrate against.
-            continue
-
-        merged_metadata: dict[str, Any] = dict(legacy_existing_metadata)
-        merged_metadata.setdefault("source_catalog", legacy_existing_metadata.get("source_catalog"))
-        # Preserve the truthful metadata if it was already set — don't clobber a deliberately-set
-        # `source_schema` (e.g. CDC row with explicit schema) with the default-schema fallback.
-        merged_metadata["source_schema"] = legacy_metadata_source_schema or target_source_schema
-        merged_metadata["source_table_name"] = legacy_metadata_source_table_name or legacy.name
-        merged_metadata.setdefault("columns", [])
-        merged_metadata.setdefault("foreign_keys", [])
-
-        new_sync_type_config: dict[str, Any] = {
-            **legacy_sync_type_config,
-            "schema_metadata": merged_metadata,
-        }
-        if "dwh_storage_key" not in legacy_sync_type_config:
-            # Lock the Delta storage path to the legacy unqualified key so existing files stay
-            # readable. validate_schema_and_update_table reads this back instead of recomputing.
-            new_sync_type_config["dwh_storage_key"] = legacy.name
-
-        original_name = legacy.name
-        legacy.name = target_name
-        legacy.sync_type_config = new_sync_type_config
-        legacy.save(update_fields=["name", "sync_type_config", "updated_at"])
-        name_substitutions[original_name] = target_name
 
     return name_substitutions

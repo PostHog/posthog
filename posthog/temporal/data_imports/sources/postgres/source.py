@@ -415,9 +415,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         access_method: str,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        # Both warehouse and direct now accept blank `schema` — discovery walks every non-system
-        # schema in that case. Each `ExternalDataSchema` row pins its own `(schema, table)` via
-        # `schema_metadata` populated by `reconcile_postgres_schemas`.
         return self.validate_credentials(config, team_id, schema_name=schema_name)
 
     def get_connection_metadata(
