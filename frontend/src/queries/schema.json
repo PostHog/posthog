@@ -22379,7 +22379,7 @@
             "type": "object"
         },
         "LegendPosition": {
-            "enum": ["right", "bottom", "top", "left"],
+            "enum": ["top", "right", "bottom", "left"],
             "type": "string"
         },
         "LifecycleDataWarehouseNode": {

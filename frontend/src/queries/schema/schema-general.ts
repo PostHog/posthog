@@ -1364,9 +1364,9 @@ export type TrendsFormulaNode = {
 }
 
 export enum LegendPosition {
+    Top = 'top',
     Right = 'right',
     Bottom = 'bottom',
-    Top = 'top',
     Left = 'left',
 }
 

@@ -103,6 +103,7 @@ export function InsightDisplayConfig(): JSX.Element {
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const legendPositionItems = hasLegend && showLegend && isTrends ? [{ label: () => <LegendPositionFilter /> }] : []
     const isLineGraph =
         display === ChartDisplayType.ActionsLineGraph ||
         display === ChartDisplayType.ActionsAreaGraph ||
@@ -146,9 +147,7 @@ export function InsightDisplayConfig(): JSX.Element {
                       items: isBoxPlot
                           ? [
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                                ...(hasLegend && showLegend && isTrends
-                                    ? [{ label: () => <LegendPositionFilter /> }]
-                                    : []),
+                                ...legendPositionItems,
                                 {
                                     label: () => (
                                         <LemonCheckbox
@@ -182,9 +181,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                                ...(hasLegend && showLegend && isTrends
-                                    ? [{ label: () => <LegendPositionFilter /> }]
-                                    : []),
+                                ...legendPositionItems,
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
                                     : []),

@@ -1877,9 +1877,9 @@ export namespace Schemas {
 
 
     export const LegendPosition = {
+      Top: 'top',
       Right: 'right',
       Bottom: 'bottom',
-      Top: 'top',
       Left: 'left',
     } as const;
 

@@ -2752,9 +2752,9 @@ class LLMTracePerson(BaseModel):
 
 
 class LegendPosition(StrEnum):
+    TOP = "top"
     RIGHT = "right"
     BOTTOM = "bottom"
-    TOP = "top"
     LEFT = "left"
 
 

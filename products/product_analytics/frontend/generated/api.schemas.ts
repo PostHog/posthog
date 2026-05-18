@@ -1431,9 +1431,9 @@ export interface GoalLineApi {
 export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
 
 export const LegendPositionApi = {
+    Top: 'top',
     Right: 'right',
     Bottom: 'bottom',
-    Top: 'top',
     Left: 'left',
 } as const
 
