@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [("posthog", "1156_cohort_team_filters_help_text")]
 
     operations = [
