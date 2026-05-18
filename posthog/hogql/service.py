@@ -4,6 +4,7 @@ import os
 import re
 import hmac
 import json
+import zlib
 import struct
 import asyncio
 import logging
@@ -20,13 +21,15 @@ from django.utils import timezone
 import sqlparse
 from rest_framework.exceptions import AuthenticationFailed
 
-from posthog.schema import HogQLQueryResponse
+from posthog.schema import DatabaseSchemaField, DatabaseSerializedFieldType, HogQLQueryResponse
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.parser import CacheOrigin, parse_select
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 from posthog.hogql.user_query_validator import validate_user_query
 
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -68,6 +71,11 @@ SQLSTATE_INTERNAL_ERROR = "XX000"
 
 class HogQLServiceError(Exception):
     sqlstate = SQLSTATE_INTERNAL_ERROR
+    query: str | None
+
+    def __init__(self, message: str, *, query: str | None = None):
+        super().__init__(message)
+        self.query = query
 
 
 class HogQLServiceAuthenticationError(HogQLServiceError):
@@ -140,6 +148,15 @@ class QueryResult:
 @dataclass(frozen=True)
 class PgParameter:
     value: Any
+
+
+@dataclass(frozen=True)
+class CatalogTable:
+    oid: int
+    schema: str
+    name: str
+    table_type: str
+    fields: list[DatabaseSchemaField]
 
 
 @dataclass
@@ -342,8 +359,9 @@ class HogQLServiceQueryExecutor:
         if builtin_result is not None:
             return builtin_result
 
+        hogql_sql = strip_public_schema_references(stripped_sql)
         try:
-            query_ast = parse_select(stripped_sql, cache_origin=CacheOrigin.USER)
+            query_ast = parse_select(hogql_sql, cache_origin=CacheOrigin.USER)
             validate_user_query(query_ast, team=context.team)
             response = execute_hogql_query(
                 query=query_ast,
@@ -355,10 +373,10 @@ class HogQLServiceQueryExecutor:
                 pretty=False,
             )
         except (ExposedHogQLError, QueryError, ResolutionError, ValueError) as error:
-            raise HogQLServiceQueryError(str(error)) from error
+            raise HogQLServiceQueryError(str(error), query=stripped_sql) from error
 
         if response.error:
-            raise HogQLServiceQueryError(response.error)
+            raise HogQLServiceQueryError(response.error, query=stripped_sql)
 
         return self._response_to_query_result(response)
 
@@ -387,6 +405,25 @@ class HogQLServiceQueryExecutor:
             return QueryResult(columns=[], rows=[], command_tag="ROLLBACK")
         if normalized.startswith("set ") or normalized.startswith("reset ") or normalized.startswith("discard "):
             return QueryResult(columns=[], rows=[], command_tag="SET")
+        if normalized == "show all":
+            rows = [(name, value, "") for name, value in self._setting_values(context).items()]
+            return QueryResult(
+                columns=[ResultColumn(name="name"), ResultColumn(name="setting"), ResultColumn(name="description")],
+                rows=rows,
+                command_tag=f"SHOW {len(rows)}",
+            )
+
+        compatibility_select = self._compatibility_select(normalized)
+        if compatibility_select is not None:
+            columns, rows = compatibility_select
+            return QueryResult(
+                columns=[
+                    ResultColumn(name=column, type_oid=python_value_to_postgres_oid(row_value(rows, column_index)))
+                    for column_index, column in enumerate(columns)
+                ],
+                rows=rows,
+                command_tag=f"SELECT {len(rows)}",
+            )
 
         show_value = self._show_value(normalized, context)
         if show_value is not None:
@@ -397,11 +434,18 @@ class HogQLServiceQueryExecutor:
                 command_tag="SHOW",
             )
 
+        catalog_result = self._catalog_query(sql, normalized, context)
+        if catalog_result is not None:
+            return catalog_result
+
         builtin_select = self._builtin_select(normalized, context)
         if builtin_select is not None:
             columns, rows = builtin_select
             return QueryResult(
-                columns=[ResultColumn(name=column) for column in columns],
+                columns=[
+                    ResultColumn(name=column, type_oid=python_value_to_postgres_oid(row_value(rows, column_index)))
+                    for column_index, column in enumerate(columns)
+                ],
                 rows=rows,
                 command_tag=f"SELECT {len(rows)}",
             )
@@ -409,8 +453,22 @@ class HogQLServiceQueryExecutor:
         return None
 
     def _show_value(self, normalized: str, context: HogQLServiceSessionContext) -> tuple[str, str] | None:
-        values = {
+        values = self._setting_values(context)
+        match = re.fullmatch(r"show\s+([a-zA-Z_][a-zA-Z0-9_]*|transaction\s+isolation\s+level)", normalized)
+        if not match:
+            return None
+        parameter_name = match.group(1).replace(" ", "_")
+        if parameter_name == "transaction_isolation_level":
+            parameter_name = "transaction_isolation"
+        value = values.get(parameter_name)
+        if value is None:
+            return None
+        return parameter_name, value
+
+    def _setting_values(self, context: HogQLServiceSessionContext) -> dict[str, str]:
+        return {
             "server_version": "16.0 (PostHog HogQL service)",
+            "server_version_num": "160000",
             "server_encoding": "UTF8",
             "client_encoding": "UTF8",
             "datestyle": "ISO, MDY",
@@ -419,28 +477,118 @@ class HogQLServiceQueryExecutor:
             "timezone": context.team.timezone,
             "transaction_isolation": "read committed",
             "default_transaction_read_only": "on",
+            "search_path": "public",
+            "statement_timeout": "0",
+            "lock_timeout": "0",
+            "idle_in_transaction_session_timeout": "0",
+            "extra_float_digits": "1",
         }
-        match = re.fullmatch(r"show\s+([a-zA-Z_][a-zA-Z0-9_]*)", normalized)
-        if not match:
-            return None
-        parameter_name = match.group(1)
-        value = values.get(parameter_name)
-        if value is None:
-            return None
-        return parameter_name, value
 
     def _builtin_select(
         self, normalized: str, context: HogQLServiceSessionContext
     ) -> tuple[list[str], list[tuple[Any, ...]]] | None:
+        no_from_select = self._builtin_no_from_select(normalized, context)
+        if no_from_select is not None:
+            return no_from_select
+
         if normalized in {"select version()", "select pg_catalog.version()"}:
             return ["version"], [("PostgreSQL 16.0 compatible PostHog HogQL service",)]
         if normalized in {"select current_database()", "select pg_catalog.current_database()"}:
             return ["current_database"], [(context.database,)]
-        if normalized in {"select current_schema()", "select pg_catalog.current_schema()"}:
+        if normalized in {"select current_catalog"}:
+            return ["current_catalog"], [(context.database,)]
+        if normalized in {"select current_schema()", "select pg_catalog.current_schema()", "select current_schema"}:
             return ["current_schema"], [("public",)]
+        if normalized in {"select current_schemas(false)", "select pg_catalog.current_schemas(false)"}:
+            return ["current_schemas"], [(["public"],)]
+        if normalized in {"select current_schemas(true)", "select pg_catalog.current_schemas(true)"}:
+            return ["current_schemas"], [(["pg_catalog", "public"],)]
         if normalized in {"select current_user", "select session_user"}:
             return ["current_user"], [(context.database_user,)]
+        if normalized in {"select pg_backend_pid()", "select pg_catalog.pg_backend_pid()"}:
+            return ["pg_backend_pid"], [(os.getpid(),)]
+
+        current_setting_match = re.fullmatch(
+            r"select\s+(?:pg_catalog\.)?current_setting\('([^']+)'(?:,\s*true)?\)",
+            normalized,
+        )
+        if current_setting_match:
+            setting_name = current_setting_match.group(1).replace(" ", "_")
+            return ["current_setting"], [(self._setting_values(context).get(setting_name),)]
         return None
+
+    def _builtin_no_from_select(
+        self, normalized: str, context: HogQLServiceSessionContext
+    ) -> tuple[list[str], list[tuple[Any, ...]]] | None:
+        if not normalized.startswith("select ") or find_top_level_keyword(normalized, "from") is not None:
+            return None
+
+        select_items = [parse_select_item(item) for item in split_top_level_commas(normalized.removeprefix("select "))]
+        values: list[Any] = []
+        for expression, _label in select_items:
+            value = evaluate_builtin_expression(expression, context)
+            if value is UNHANDLED_BUILTIN_EXPRESSION:
+                return None
+            values.append(value)
+        return [label for _expression, label in select_items], [tuple(values)]
+
+    def _compatibility_select(self, normalized: str) -> tuple[list[str], list[tuple[Any, ...]]] | None:
+        timestamp_sources = (
+            r"now\(\)|current_timestamp|transaction_timestamp\(\)|statement_timestamp\(\)|clock_timestamp\(\)"
+        )
+        if re.match(r"select\s+round\s*\(\s*extract\s*\(\s*epoch\s+from\b", normalized):
+            return ["round"], [(round(timezone.now().timestamp() * 1000),)]
+        if re.match(r"select\s+extract\s*\(\s*epoch\s+from\b", normalized):
+            return ["extract"], [(timezone.now().timestamp(),)]
+        if re.fullmatch(
+            rf"select\s+round\(extract\(epoch\s+from\s+({timestamp_sources})\)\s*\*\s*1000\)",
+            normalized,
+        ):
+            return ["round"], [(round(timezone.now().timestamp() * 1000),)]
+        if re.fullmatch(rf"select\s+extract\(epoch\s+from\s+({timestamp_sources})\)", normalized):
+            return ["extract"], [(timezone.now().timestamp(),)]
+        return None
+
+    def _catalog_query(self, sql: str, normalized: str, context: HogQLServiceSessionContext) -> QueryResult | None:
+        source = catalog_source(normalized)
+        if source is None:
+            return None
+
+        rows, default_columns = self._catalog_rows(source, context)
+        rows = filter_catalog_rows(rows, normalized)
+        columns, result_rows = project_catalog_rows(sql, rows, default_columns, context)
+        result_columns = [
+            ResultColumn(name=column, type_oid=python_value_to_postgres_oid(row_value(result_rows, column_index)))
+            for column_index, column in enumerate(columns)
+        ]
+        return QueryResult(columns=result_columns, rows=result_rows, command_tag=f"SELECT {len(result_rows)}")
+
+    def _catalog_rows(self, source: str, context: HogQLServiceSessionContext) -> tuple[list[dict[str, Any]], list[str]]:
+        tables = load_catalog_tables(context)
+        schemas = sorted({table.schema for table in tables} | {"information_schema", "pg_catalog", "public"})
+
+        if source == "information_schema.schemata":
+            return information_schema_schemata_rows(context, schemas), INFORMATION_SCHEMA_SCHEMATA_COLUMNS
+        if source == "information_schema.tables":
+            return information_schema_table_rows(context, tables), INFORMATION_SCHEMA_TABLE_COLUMNS
+        if source == "information_schema.columns":
+            return information_schema_column_rows(context, tables), INFORMATION_SCHEMA_COLUMN_COLUMNS
+        if source == "pg_catalog.pg_namespace":
+            return pg_namespace_rows(schemas), PG_NAMESPACE_COLUMNS
+        if source == "pg_catalog.pg_class":
+            return pg_class_rows(tables), PG_CLASS_COLUMNS
+        if source == "pg_catalog.pg_attribute":
+            return pg_attribute_rows(tables), PG_ATTRIBUTE_COLUMNS
+        if source == "pg_catalog.pg_type":
+            return pg_type_rows(), PG_TYPE_COLUMNS
+        if source == "pg_catalog.pg_database":
+            return pg_database_rows(context), PG_DATABASE_COLUMNS
+        if source == "pg_catalog.pg_roles":
+            return pg_roles_rows(context), EMPTY_CATALOG_COLUMNS["pg_catalog.pg_roles"]
+        if source == "pg_user":
+            return pg_user_rows(context), EMPTY_CATALOG_COLUMNS["pg_user"]
+
+        return [], EMPTY_CATALOG_COLUMNS.get(source, [])
 
 
 class PostgresWireCodec:
@@ -552,6 +700,7 @@ class HogQLPostgresWireSession:
         except (asyncio.IncompleteReadError, ConnectionResetError):
             return
         except HogQLServiceError as error:
+            self._log_service_error(error, message_type=None)
             self.writer.write(PostgresWireCodec.error_response(str(error), error.sqlstate))
             await self.writer.drain()
         except Exception:
@@ -633,12 +782,37 @@ class HogQLPostgresWireSession:
             try:
                 await self._handle_message(message_type, payload)
             except HogQLServiceError as error:
+                self._log_service_error(error, message_type=message_type)
                 self.writer.write(PostgresWireCodec.error_response(str(error), error.sqlstate))
                 if message_type != b"Q":
                     self.skip_until_sync = True
                 else:
                     self.writer.write(PostgresWireCodec.ready_for_query())
                 await self.writer.drain()
+
+    def _log_service_error(self, error: HogQLServiceError, message_type: bytes | None) -> None:
+        context = self.context
+        append_service_log(
+            f"ERROR sqlstate={error.sqlstate} message_type={message_type!r} "
+            f"database={context.database if context else None} team_id={context.team.id if context else None} "
+            f"connection_id={context.connection_id if context else None} user={context.database_user if context else None} "
+            f"query={error.query!r} error={error!s}"
+        )
+        logger.warning(
+            "HogQL service error: sqlstate=%s query=%r",
+            error.sqlstate,
+            error.query,
+            extra={
+                "hogql_service_sqlstate": error.sqlstate,
+                "hogql_service_message_type": message_type.decode("ascii", "replace") if message_type else None,
+                "hogql_service_query": error.query,
+                "hogql_service_database": context.database if context else None,
+                "hogql_service_team_id": context.team.id if context else None,
+                "hogql_service_connection_id": context.connection_id if context else None,
+                "hogql_service_user": context.database_user if context else None,
+            },
+            exc_info=True,
+        )
 
     async def _read_message(self) -> tuple[bytes, bytes] | None:
         message_type = await self.reader.read(1)
@@ -817,7 +991,40 @@ class HogQLPostgresWireSession:
         assert self.context is not None
         if len(sql.encode("utf-8")) > self.max_query_bytes:
             raise HogQLServiceProtocolError("Query is too large.")
-        return await asyncio.to_thread(self.query_executor.execute, sql, self.context)
+        append_service_log(
+            f"QUERY database={self.context.database} team_id={self.context.team.id} "
+            f"connection_id={self.context.connection_id} user={self.context.database_user} query={sql!r}"
+        )
+        logger.info(
+            "HogQL service query: %r",
+            sql,
+            extra={
+                "hogql_service_query": sql,
+                "hogql_service_database": self.context.database,
+                "hogql_service_team_id": self.context.team.id,
+                "hogql_service_connection_id": self.context.connection_id,
+                "hogql_service_user": self.context.database_user,
+            },
+        )
+        try:
+            return await asyncio.to_thread(self.query_executor.execute, sql, self.context)
+        except HogQLServiceError as error:
+            if error.query is None:
+                error.query = sql
+            raise
+        except Exception:
+            logger.exception(
+                "Unhandled HogQL service query error: query=%r",
+                sql,
+                extra={
+                    "hogql_service_query": sql,
+                    "hogql_service_database": self.context.database,
+                    "hogql_service_team_id": self.context.team.id,
+                    "hogql_service_connection_id": self.context.connection_id,
+                    "hogql_service_user": self.context.database_user,
+                },
+            )
+            raise
 
     async def _send_result(self, result: QueryResult, send_row_description: bool) -> None:
         if send_row_description and result.columns:
@@ -839,6 +1046,7 @@ class HogQLPostgresServer:
         server = await asyncio.start_server(self._handle_client, self.config.host, self.config.port)
         addresses = ", ".join(str(socket.getsockname()) for socket in server.sockets or [])
         message = f"HogQL Postgres wire service listening on {addresses}"
+        append_service_log(message)
         logger.info(message)
         if self.on_listening is not None:
             self.on_listening(message)
@@ -873,6 +1081,939 @@ def parse_database_name(database: str) -> tuple[str, str | None]:
         raise HogQLServiceAuthenticationError("Database must be a PostHog team_id or team_id/connection_id.")
 
     return team_id, connection_id
+
+
+def append_service_log(message: str) -> None:
+    log_file = os.environ.get("HOGQL_SERVICE_LOG_FILE", "/tmp/posthog-hogql-service.log")
+    try:
+        with open(log_file, "a") as file:
+            file.write(f"{timezone.now().isoformat()} {message}\n")
+    except OSError:
+        logger.debug("Failed to write HogQL service log file", exc_info=True)
+
+
+INFORMATION_SCHEMA_SCHEMATA_COLUMNS = [
+    "catalog_name",
+    "schema_name",
+    "schema_owner",
+    "default_character_set_catalog",
+    "default_character_set_schema",
+    "default_character_set_name",
+    "sql_path",
+]
+INFORMATION_SCHEMA_TABLE_COLUMNS = [
+    "table_catalog",
+    "table_schema",
+    "table_name",
+    "table_type",
+    "self_referencing_column_name",
+    "reference_generation",
+    "user_defined_type_catalog",
+    "user_defined_type_schema",
+    "user_defined_type_name",
+    "is_insertable_into",
+    "is_typed",
+    "commit_action",
+]
+INFORMATION_SCHEMA_COLUMN_COLUMNS = [
+    "table_catalog",
+    "table_schema",
+    "table_name",
+    "column_name",
+    "ordinal_position",
+    "column_default",
+    "is_nullable",
+    "data_type",
+    "character_maximum_length",
+    "character_octet_length",
+    "numeric_precision",
+    "numeric_precision_radix",
+    "numeric_scale",
+    "datetime_precision",
+    "interval_type",
+    "interval_precision",
+    "character_set_catalog",
+    "character_set_schema",
+    "character_set_name",
+    "collation_catalog",
+    "collation_schema",
+    "collation_name",
+    "domain_catalog",
+    "domain_schema",
+    "domain_name",
+    "udt_catalog",
+    "udt_schema",
+    "udt_name",
+    "scope_catalog",
+    "scope_schema",
+    "scope_name",
+    "maximum_cardinality",
+    "dtd_identifier",
+    "is_self_referencing",
+    "is_identity",
+    "identity_generation",
+    "identity_start",
+    "identity_increment",
+    "identity_maximum",
+    "identity_minimum",
+    "identity_cycle",
+    "is_generated",
+    "generation_expression",
+    "is_updatable",
+]
+PG_NAMESPACE_COLUMNS = ["oid", "nspname", "nspowner", "nspacl"]
+PG_CLASS_COLUMNS = [
+    "oid",
+    "relname",
+    "relnamespace",
+    "reltype",
+    "relowner",
+    "relkind",
+    "relpages",
+    "reltuples",
+    "relhasindex",
+    "relisshared",
+    "relpersistence",
+    "relchecks",
+    "relhasrules",
+    "relhastriggers",
+    "relhassubclass",
+    "relrowsecurity",
+    "relforcerowsecurity",
+    "relispopulated",
+    "reloptions",
+    "nspname",
+    "table_schema",
+    "table_name",
+    "table_type",
+]
+PG_ATTRIBUTE_COLUMNS = [
+    "attrelid",
+    "attname",
+    "atttypid",
+    "attstattarget",
+    "attlen",
+    "attnum",
+    "attndims",
+    "attcacheoff",
+    "atttypmod",
+    "attbyval",
+    "attstorage",
+    "attalign",
+    "attnotnull",
+    "atthasdef",
+    "attidentity",
+    "attgenerated",
+    "attisdropped",
+    "attislocal",
+    "attinhcount",
+    "attcollation",
+    "nspname",
+    "relname",
+    "typname",
+    "format_type",
+    "data_type",
+    "table_schema",
+    "table_name",
+    "column_name",
+    "ordinal_position",
+]
+PG_TYPE_COLUMNS = [
+    "oid",
+    "typname",
+    "typnamespace",
+    "typowner",
+    "typlen",
+    "typbyval",
+    "typtype",
+    "typcategory",
+    "typispreferred",
+    "typisdefined",
+    "typdelim",
+    "typrelid",
+    "typelem",
+    "typarray",
+    "typinput",
+    "typoutput",
+    "typreceive",
+    "typsend",
+    "typmodin",
+    "typmodout",
+    "typanalyze",
+    "typalign",
+    "typstorage",
+    "typnotnull",
+    "typbasetype",
+    "typtypmod",
+    "typndims",
+    "typcollation",
+]
+PG_DATABASE_COLUMNS = [
+    "oid",
+    "datname",
+    "datdba",
+    "encoding",
+    "datcollate",
+    "datctype",
+    "datistemplate",
+    "datallowconn",
+]
+EMPTY_CATALOG_COLUMNS = {
+    "information_schema.table_constraints": [
+        "constraint_catalog",
+        "constraint_schema",
+        "constraint_name",
+        "table_schema",
+        "table_name",
+        "constraint_type",
+    ],
+    "information_schema.key_column_usage": [
+        "constraint_catalog",
+        "constraint_schema",
+        "constraint_name",
+        "table_schema",
+        "table_name",
+        "column_name",
+        "ordinal_position",
+    ],
+    "information_schema.constraint_column_usage": [
+        "constraint_catalog",
+        "constraint_schema",
+        "constraint_name",
+        "table_schema",
+        "table_name",
+        "column_name",
+    ],
+    "information_schema.views": ["table_catalog", "table_schema", "table_name", "view_definition"],
+    "information_schema.routines": ["specific_catalog", "specific_schema", "specific_name", "routine_name"],
+    "information_schema.parameters": ["specific_catalog", "specific_schema", "specific_name", "parameter_name"],
+    "information_schema.sequences": ["sequence_catalog", "sequence_schema", "sequence_name"],
+    "pg_catalog.pg_index": ["indexrelid", "indrelid", "indisunique", "indisprimary", "indisexclusion", "indkey"],
+    "pg_catalog.pg_constraint": ["oid", "conname", "contype", "conrelid", "confrelid", "conkey"],
+    "pg_catalog.pg_description": ["objoid", "classoid", "objsubid", "description"],
+    "pg_catalog.pg_attrdef": ["adrelid", "adnum", "adbin"],
+    "pg_catalog.pg_inherits": ["inhrelid", "inhparent", "inhseqno"],
+    "pg_catalog.pg_proc": ["oid", "proname", "pronamespace", "prorettype"],
+    "pg_catalog.pg_roles": ["oid", "rolname", "rolsuper", "rolinherit", "rolcreaterole", "rolcreatedb", "rolcanlogin"],
+    "pg_catalog.pg_trigger": ["oid", "tgrelid", "tgname", "tgfoid", "tgenabled"],
+    "pg_catalog.pg_am": ["oid", "amname", "amhandler", "amtype"],
+    "pg_catalog.pg_enum": ["oid", "enumtypid", "enumsortorder", "enumlabel"],
+    "pg_catalog.pg_auth_members": ["roleid", "member", "grantor", "admin_option"],
+    "pg_catalog.pg_locks": ["locktype", "database", "relation", "transactionid", "pid", "mode", "granted"],
+    "pg_catalog.pg_shdescription": ["objoid", "classoid", "description"],
+    "pg_catalog.pg_tablespace": ["oid", "spcname", "spcowner", "spcacl", "spcoptions", "xmin"],
+    "pg_catalog.pg_timezone_names": ["name", "abbrev", "utc_offset", "is_dst"],
+    "pg_user": [
+        "usename",
+        "usesysid",
+        "usecreatedb",
+        "usesuper",
+        "userepl",
+        "usebypassrls",
+        "passwd",
+        "valuntil",
+        "useconfig",
+    ],
+}
+CATALOG_ALIAS_KEYS = {
+    "table_cat": "table_catalog",
+    "table_schem": "table_schema",
+    "table_schema": "table_schema",
+    "table_name": "table_name",
+    "table_type": "table_type",
+    "remarks": "description",
+    "column_name": "column_name",
+    "data_type": "data_type",
+    "type_name": "data_type",
+    "column_size": "character_maximum_length",
+    "decimal_digits": "numeric_scale",
+    "num_prec_radix": "numeric_precision_radix",
+    "nullable": "nullable",
+    "is_nullable": "is_nullable",
+    "schema_name": "schema_name",
+    "table_oid": "oid",
+    "column_oid": "attrelid",
+}
+UNHANDLED_BUILTIN_EXPRESSION = object()
+
+
+def evaluate_builtin_expression(expression: str, context: HogQLServiceSessionContext) -> Any:
+    normalized = normalize_catalog_expression(expression)
+    if normalized in {"current_database()", "pg_catalog.current_database()"}:
+        return context.database
+    if normalized in {"current_catalog"}:
+        return context.database
+    if normalized in {"current_schema()", "pg_catalog.current_schema()", "current_schema"}:
+        return "public"
+    if normalized in {"current_schemas(false)", "pg_catalog.current_schemas(false)"}:
+        return ["public"]
+    if normalized in {"current_schemas(true)", "pg_catalog.current_schemas(true)"}:
+        return ["pg_catalog", "public"]
+    if normalized in {"current_user", "session_user"}:
+        return context.database_user
+    if normalized in {"pg_backend_pid()", "pg_catalog.pg_backend_pid()"}:
+        return os.getpid()
+    if normalized.startswith("current_setting(") or normalized.startswith("pg_catalog.current_setting("):
+        setting_match = re.match(r"(?:pg_catalog\.)?current_setting\('([^']+)'(?:,\s*true)?\)", normalized)
+        if setting_match:
+            return HogQLServiceQueryExecutor()._setting_values(context).get(setting_match.group(1).replace(" ", "_"))
+    if normalized == "null":
+        return None
+    if normalized in {"true", "'yes'"}:
+        return True
+    if normalized in {"false", "'no'"}:
+        return False
+    if re.fullmatch(r"-?\d+", normalized):
+        return int(normalized)
+    if normalized.startswith("'") and normalized.endswith("'"):
+        return normalized[1:-1].replace("''", "'")
+    return UNHANDLED_BUILTIN_EXPRESSION
+
+
+def catalog_source(normalized: str) -> str | None:
+    if re.search(r"\bfrom\s+information_schema\.schemata\b", normalized):
+        return "information_schema.schemata"
+    if re.search(r"\bfrom\s+information_schema\.tables\b", normalized):
+        return "information_schema.tables"
+    if re.search(r"\bfrom\s+information_schema\.columns\b", normalized):
+        return "information_schema.columns"
+
+    for source in EMPTY_CATALOG_COLUMNS:
+        if re.search(rf"\bfrom\s+{re.escape(source)}\b", normalized):
+            return source
+
+    if re.search(r"\b(pg_catalog\.)?pg_attribute\b", normalized):
+        return "pg_catalog.pg_attribute"
+    if re.search(r"\b(pg_catalog\.)?pg_class\b", normalized):
+        return "pg_catalog.pg_class"
+    if re.search(r"\b(pg_catalog\.)?pg_namespace\b", normalized):
+        return "pg_catalog.pg_namespace"
+    if re.search(r"\b(pg_catalog\.)?pg_type\b", normalized):
+        return "pg_catalog.pg_type"
+    if re.search(r"\b(pg_catalog\.)?pg_database\b", normalized):
+        return "pg_catalog.pg_database"
+    if re.search(r"\b(pg_catalog\.)?pg_roles\b", normalized):
+        return "pg_catalog.pg_roles"
+    return None
+
+
+def load_catalog_tables(context: HogQLServiceSessionContext) -> list[CatalogTable]:
+    modifiers = create_default_modifiers_for_team(context.team)
+    database = Database.create_for(
+        team=context.team,
+        user=context.user,
+        modifiers=modifiers,
+        connection_id=context.connection_id,
+    )
+    hogql_context = HogQLContext(
+        team=context.team,
+        user=context.user,
+        database=database,
+        modifiers=modifiers,
+    )
+    serialized_tables = database.serialize(hogql_context)
+    tables: list[CatalogTable] = []
+    for table_name, table in serialized_tables.items():
+        schema_name, relation_name = split_catalog_table_name(table_name)
+        tables.append(
+            CatalogTable(
+                oid=stable_catalog_oid(f"table:{schema_name}.{relation_name}"),
+                schema=schema_name,
+                name=relation_name,
+                table_type=postgres_table_type(str(table.type)),
+                fields=list(table.fields.values()),
+            )
+        )
+    return sorted(tables, key=lambda table: (table.schema, table.name))
+
+
+def split_catalog_table_name(table_name: str) -> tuple[str, str]:
+    if "." not in table_name:
+        return "public", table_name
+    schema_name, relation_name = table_name.split(".", 1)
+    return schema_name or "public", relation_name
+
+
+def postgres_table_type(table_type: str) -> str:
+    if table_type in {"view", "managed_view", "materialized_view", "endpoint"}:
+        return "VIEW"
+    return "BASE TABLE"
+
+
+def information_schema_schemata_rows(context: HogQLServiceSessionContext, schemas: list[str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "catalog_name": context.database,
+            "schema_name": schema,
+            "schema_owner": context.database_user,
+            "default_character_set_catalog": None,
+            "default_character_set_schema": None,
+            "default_character_set_name": "UTF8",
+            "sql_path": None,
+            "nspname": schema,
+            "oid": stable_catalog_oid(f"schema:{schema}"),
+        }
+        for schema in schemas
+    ]
+
+
+def information_schema_table_rows(
+    context: HogQLServiceSessionContext, tables: list[CatalogTable]
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "table_catalog": context.database,
+            "table_schema": table.schema,
+            "table_name": table.name,
+            "table_type": table.table_type,
+            "self_referencing_column_name": None,
+            "reference_generation": None,
+            "user_defined_type_catalog": None,
+            "user_defined_type_schema": None,
+            "user_defined_type_name": None,
+            "is_insertable_into": "NO",
+            "is_typed": "NO",
+            "commit_action": None,
+            "oid": table.oid,
+            "nspname": table.schema,
+            "relname": table.name,
+            "description": None,
+        }
+        for table in tables
+    ]
+
+
+def information_schema_column_rows(
+    context: HogQLServiceSessionContext, tables: list[CatalogTable]
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for table in tables:
+        for ordinal_position, field in enumerate(table.fields, start=1):
+            pg_type = postgres_type_for_field(field)
+            rows.append(
+                {
+                    "table_catalog": context.database,
+                    "table_schema": table.schema,
+                    "table_name": table.name,
+                    "column_name": field.name,
+                    "ordinal_position": ordinal_position,
+                    "column_default": None,
+                    "is_nullable": "YES",
+                    "data_type": pg_type["data_type"],
+                    "character_maximum_length": pg_type["character_maximum_length"],
+                    "character_octet_length": pg_type["character_octet_length"],
+                    "numeric_precision": pg_type["numeric_precision"],
+                    "numeric_precision_radix": pg_type["numeric_precision_radix"],
+                    "numeric_scale": pg_type["numeric_scale"],
+                    "datetime_precision": pg_type["datetime_precision"],
+                    "interval_type": None,
+                    "interval_precision": None,
+                    "character_set_catalog": None,
+                    "character_set_schema": None,
+                    "character_set_name": None,
+                    "collation_catalog": None,
+                    "collation_schema": None,
+                    "collation_name": None,
+                    "domain_catalog": None,
+                    "domain_schema": None,
+                    "domain_name": None,
+                    "udt_catalog": context.database,
+                    "udt_schema": "pg_catalog",
+                    "udt_name": pg_type["udt_name"],
+                    "scope_catalog": None,
+                    "scope_schema": None,
+                    "scope_name": None,
+                    "maximum_cardinality": None,
+                    "dtd_identifier": str(ordinal_position),
+                    "is_self_referencing": "NO",
+                    "is_identity": "NO",
+                    "identity_generation": None,
+                    "identity_start": None,
+                    "identity_increment": None,
+                    "identity_maximum": None,
+                    "identity_minimum": None,
+                    "identity_cycle": "NO",
+                    "is_generated": "NEVER",
+                    "generation_expression": None,
+                    "is_updatable": "NO",
+                    "attrelid": table.oid,
+                    "attname": field.name,
+                    "atttypid": pg_type["oid"],
+                    "attnum": ordinal_position,
+                    "typname": pg_type["udt_name"],
+                    "format_type": pg_type["data_type"],
+                    "nullable": 1,
+                    "description": None,
+                }
+            )
+    return rows
+
+
+def pg_namespace_rows(schemas: list[str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "oid": stable_catalog_oid(f"schema:{schema}"),
+            "nspname": schema,
+            "schema_name": schema,
+            "nspowner": 10,
+            "nspacl": None,
+        }
+        for schema in schemas
+    ]
+
+
+def pg_class_rows(tables: list[CatalogTable]) -> list[dict[str, Any]]:
+    return [
+        {
+            "oid": table.oid,
+            "relname": table.name,
+            "relnamespace": stable_catalog_oid(f"schema:{table.schema}"),
+            "reltype": stable_catalog_oid(f"type:{table.schema}.{table.name}"),
+            "relowner": 10,
+            "relkind": "v" if table.table_type == "VIEW" else "r",
+            "relpages": 0,
+            "reltuples": -1.0,
+            "relhasindex": False,
+            "relisshared": False,
+            "relpersistence": "p",
+            "relchecks": 0,
+            "relhasrules": False,
+            "relhastriggers": False,
+            "relhassubclass": False,
+            "relrowsecurity": False,
+            "relforcerowsecurity": False,
+            "relispopulated": True,
+            "reloptions": None,
+            "nspname": table.schema,
+            "table_schema": table.schema,
+            "table_name": table.name,
+            "table_type": table.table_type,
+            "description": None,
+        }
+        for table in tables
+    ]
+
+
+def pg_attribute_rows(tables: list[CatalogTable]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for table in tables:
+        for ordinal_position, field in enumerate(table.fields, start=1):
+            pg_type = postgres_type_for_field(field)
+            rows.append(
+                {
+                    "attrelid": table.oid,
+                    "attname": field.name,
+                    "atttypid": pg_type["oid"],
+                    "attstattarget": -1,
+                    "attlen": -1,
+                    "attnum": ordinal_position,
+                    "attndims": 0,
+                    "attcacheoff": -1,
+                    "atttypmod": -1,
+                    "attbyval": False,
+                    "attstorage": "x",
+                    "attalign": "i",
+                    "attnotnull": False,
+                    "atthasdef": False,
+                    "attidentity": "",
+                    "attgenerated": "",
+                    "attisdropped": False,
+                    "attislocal": True,
+                    "attinhcount": 0,
+                    "attcollation": 0,
+                    "nspname": table.schema,
+                    "relname": table.name,
+                    "typname": pg_type["udt_name"],
+                    "format_type": pg_type["data_type"],
+                    "data_type": pg_type["data_type"],
+                    "table_schema": table.schema,
+                    "table_name": table.name,
+                    "column_name": field.name,
+                    "ordinal_position": ordinal_position,
+                    "nullable": 1,
+                    "description": None,
+                }
+            )
+    return rows
+
+
+def pg_type_rows() -> list[dict[str, Any]]:
+    rows = []
+    for type_oid, typname in [
+        (POSTGRES_BOOL_OID, "bool"),
+        (POSTGRES_INT8_OID, "int8"),
+        (POSTGRES_INT4_OID, "int4"),
+        (POSTGRES_INT2_OID, "int2"),
+        (POSTGRES_FLOAT4_OID, "float4"),
+        (POSTGRES_FLOAT8_OID, "float8"),
+        (POSTGRES_NUMERIC_OID, "numeric"),
+        (POSTGRES_DATE_OID, "date"),
+        (POSTGRES_TIMESTAMP_OID, "timestamp"),
+        (POSTGRES_TIMESTAMPTZ_OID, "timestamptz"),
+        (POSTGRES_JSON_OID, "json"),
+        (POSTGRES_UUID_OID, "uuid"),
+        (POSTGRES_TEXT_OID, "text"),
+    ]:
+        rows.append(
+            {
+                "oid": type_oid,
+                "typname": typname,
+                "typnamespace": stable_catalog_oid("schema:pg_catalog"),
+                "typowner": 10,
+                "typlen": -1,
+                "typbyval": False,
+                "typtype": "b",
+                "typcategory": "S",
+                "typispreferred": typname == "text",
+                "typisdefined": True,
+                "typdelim": ",",
+                "typrelid": 0,
+                "typelem": 0,
+                "typarray": 0,
+                "typinput": None,
+                "typoutput": None,
+                "typreceive": None,
+                "typsend": None,
+                "typmodin": None,
+                "typmodout": None,
+                "typanalyze": None,
+                "typalign": "i",
+                "typstorage": "x",
+                "typnotnull": False,
+                "typbasetype": 0,
+                "typtypmod": -1,
+                "typndims": 0,
+                "typcollation": 0,
+            }
+        )
+    return rows
+
+
+def pg_database_rows(context: HogQLServiceSessionContext) -> list[dict[str, Any]]:
+    return [
+        {
+            "oid": stable_catalog_oid(f"database:{context.database}"),
+            "datname": context.database,
+            "datdba": 10,
+            "encoding": 6,
+            "datcollate": "C",
+            "datctype": "C",
+            "datistemplate": False,
+            "datallowconn": True,
+        }
+    ]
+
+
+def pg_roles_rows(context: HogQLServiceSessionContext) -> list[dict[str, Any]]:
+    return [
+        {
+            "oid": stable_catalog_oid(f"role:{context.database_user}"),
+            "rolname": context.database_user,
+            "rolsuper": False,
+            "rolinherit": True,
+            "rolcreaterole": False,
+            "rolcreatedb": False,
+            "rolcanlogin": True,
+        }
+    ]
+
+
+def pg_user_rows(context: HogQLServiceSessionContext) -> list[dict[str, Any]]:
+    return [
+        {
+            "usename": context.database_user,
+            "usesysid": stable_catalog_oid(f"role:{context.database_user}"),
+            "usecreatedb": False,
+            "usesuper": False,
+            "userepl": False,
+            "usebypassrls": False,
+            "passwd": None,
+            "valuntil": None,
+            "useconfig": None,
+        }
+    ]
+
+
+def postgres_type_for_field(field: DatabaseSchemaField) -> dict[str, Any]:
+    field_type = str(field.type)
+    if field_type == DatabaseSerializedFieldType.INTEGER.value:
+        return postgres_type("bigint", "int8", POSTGRES_INT8_OID, numeric_precision=64, numeric_scale=0)
+    if field_type == DatabaseSerializedFieldType.FLOAT.value:
+        return postgres_type("double precision", "float8", POSTGRES_FLOAT8_OID, numeric_precision=53)
+    if field_type == DatabaseSerializedFieldType.DECIMAL.value:
+        return postgres_type("numeric", "numeric", POSTGRES_NUMERIC_OID)
+    if field_type == DatabaseSerializedFieldType.DATETIME.value:
+        return postgres_type("timestamp with time zone", "timestamptz", POSTGRES_TIMESTAMPTZ_OID, datetime_precision=6)
+    if field_type == DatabaseSerializedFieldType.DATE.value:
+        return postgres_type("date", "date", POSTGRES_DATE_OID)
+    if field_type == DatabaseSerializedFieldType.BOOLEAN.value:
+        return postgres_type("boolean", "bool", POSTGRES_BOOL_OID)
+    if field_type == DatabaseSerializedFieldType.JSON.value:
+        return postgres_type("json", "json", POSTGRES_JSON_OID)
+    return postgres_type("text", "text", POSTGRES_TEXT_OID, character_maximum_length=None)
+
+
+def postgres_type(
+    data_type: str,
+    udt_name: str,
+    oid: int,
+    *,
+    character_maximum_length: int | None = None,
+    numeric_precision: int | None = None,
+    numeric_scale: int | None = None,
+    datetime_precision: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "data_type": data_type,
+        "udt_name": udt_name,
+        "oid": oid,
+        "character_maximum_length": character_maximum_length,
+        "character_octet_length": character_maximum_length,
+        "numeric_precision": numeric_precision,
+        "numeric_precision_radix": 2 if numeric_precision is not None else None,
+        "numeric_scale": numeric_scale,
+        "datetime_precision": datetime_precision,
+    }
+
+
+def filter_catalog_rows(rows: list[dict[str, Any]], normalized: str) -> list[dict[str, Any]]:
+    if not rows:
+        return rows
+    if re.search(r"\bwhere\s+(false|1\s*=\s*0)\b", normalized):
+        return []
+
+    filters = [
+        (("table_schema", "nspname", "schema_name"), extract_equality_filters(normalized, ["table_schema", "nspname"])),
+        (("table_name", "relname"), extract_equality_filters(normalized, ["table_name", "relname"])),
+        (("column_name", "attname"), extract_equality_filters(normalized, ["column_name", "attname"])),
+    ]
+    filtered_rows = rows
+    for keys, values in filters:
+        if not values:
+            continue
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if any(str(row.get(key, "")).casefold() in values for key in keys if row.get(key) is not None)
+        ]
+    return filtered_rows
+
+
+def extract_equality_filters(normalized: str, names: list[str]) -> set[str]:
+    values: set[str] = set()
+    for name in names:
+        pattern = rf"(?:\b[a-z_][a-z0-9_]*\.)?{re.escape(name)}\s*=\s*'([^']*)'"
+        values.update(match.group(1).casefold() for match in re.finditer(pattern, normalized))
+    return values
+
+
+def project_catalog_rows(
+    sql: str,
+    rows: list[dict[str, Any]],
+    default_columns: list[str],
+    context: HogQLServiceSessionContext,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    if re.search(r"\bcount\s*\(\s*\*\s*\)", sql, flags=re.IGNORECASE):
+        return ["count"], [(len(rows),)]
+
+    select_items = parse_select_items(sql)
+    if not select_items or any(expression == "*" or expression.endswith(".*") for expression, _label in select_items):
+        return default_columns, [tuple(row.get(column) for column in default_columns) for row in rows]
+
+    columns = [label for _expression, label in select_items]
+    result_rows = [
+        tuple(evaluate_catalog_expression(expression, label, row, context) for expression, label in select_items)
+        for row in rows
+    ]
+    return columns, result_rows
+
+
+def parse_select_items(sql: str) -> list[tuple[str, str]]:
+    select_list = extract_select_list(sql)
+    if select_list is None:
+        return []
+    select_list = re.sub(r"^\s*distinct\s+", "", select_list, flags=re.IGNORECASE)
+    return [parse_select_item(item) for item in split_top_level_commas(select_list)]
+
+
+def extract_select_list(sql: str) -> str | None:
+    match = re.search(r"\bselect\b", sql, flags=re.IGNORECASE)
+    if not match:
+        return None
+    from_index = find_top_level_keyword(sql, "from", start=match.end())
+    if from_index is None:
+        return None
+    return sql[match.end() : from_index].strip()
+
+
+def parse_select_item(item: str) -> tuple[str, str]:
+    stripped_item = item.strip()
+    alias_match = re.search(r"\s+as\s+((?:\"[^\"]+\")|(?:[a-zA-Z_][a-zA-Z0-9_$]*))\s*$", stripped_item, re.IGNORECASE)
+    if alias_match:
+        expression = stripped_item[: alias_match.start()].strip()
+        return expression, clean_identifier(alias_match.group(1))
+
+    trailing_alias_match = re.search(r"\s+((?:\"[^\"]+\")|(?:[a-zA-Z_][a-zA-Z0-9_$]*))\s*$", stripped_item)
+    if trailing_alias_match and not stripped_item[: trailing_alias_match.start()].strip().lower().endswith("::"):
+        expression = stripped_item[: trailing_alias_match.start()].strip()
+        if expression and not expression.lower().endswith(("null", "true", "false")):
+            return expression, clean_identifier(trailing_alias_match.group(1))
+
+    return stripped_item, label_from_expression(stripped_item)
+
+
+def evaluate_catalog_expression(
+    expression: str,
+    label: str,
+    row: dict[str, Any],
+    context: HogQLServiceSessionContext,
+) -> Any:
+    label_key = CATALOG_ALIAS_KEYS.get(label.casefold(), label.casefold())
+    if label_key in row:
+        return row[label_key]
+
+    normalized_expression = normalize_catalog_expression(expression)
+    expression_key = CATALOG_ALIAS_KEYS.get(normalized_expression, normalized_expression)
+    if expression_key in row:
+        return row[expression_key]
+
+    if normalized_expression in {"current_database()", "pg_catalog.current_database()"}:
+        return context.database
+    if normalized_expression in {"current_schema()", "pg_catalog.current_schema()"}:
+        return "public"
+    if normalized_expression.startswith("pg_catalog.format_type(") or normalized_expression.startswith("format_type("):
+        return row.get("format_type") or row.get("data_type")
+    if "obj_description(" in normalized_expression or "col_description(" in normalized_expression:
+        return row.get("description")
+    if normalized_expression == "null":
+        return None
+    if normalized_expression in {"true", "'yes'"}:
+        return True
+    if normalized_expression in {"false", "'no'"}:
+        return False
+    if re.fullmatch(r"-?\d+", normalized_expression):
+        return int(normalized_expression)
+    if normalized_expression.startswith("'") and normalized_expression.endswith("'"):
+        return normalized_expression[1:-1].replace("''", "'")
+    return None
+
+
+def normalize_catalog_expression(expression: str) -> str:
+    normalized = expression.strip()
+    normalized = re.sub(r"::\s*[a-zA-Z_][a-zA-Z0-9_.]*(?:\[\])?", "", normalized)
+    normalized = normalized.strip().casefold()
+    normalized = normalized.replace('"', "")
+    if "." in normalized and re.fullmatch(r"[a-z_][a-z0-9_$]*\.[a-z_][a-z0-9_$]*", normalized):
+        return normalized.rsplit(".", 1)[1]
+    return normalized
+
+
+def label_from_expression(expression: str) -> str:
+    normalized = normalize_catalog_expression(expression)
+    if normalized in {"current_database()", "pg_catalog.current_database()"}:
+        return "current_database"
+    if normalized in {"current_schema()", "pg_catalog.current_schema()"}:
+        return "current_schema"
+    if normalized.startswith("pg_catalog.format_type(") or normalized.startswith("format_type("):
+        return "format_type"
+    if normalized == "null":
+        return "?column?"
+    return clean_identifier(normalized.rsplit(".", 1)[-1])
+
+
+def split_top_level_commas(value: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if quote is not None:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(depth - 1, 0)
+        elif char == "," and depth == 0:
+            parts.append(value[start:index].strip())
+            start = index + 1
+        index += 1
+    parts.append(value[start:].strip())
+    return [part for part in parts if part]
+
+
+def find_top_level_keyword(sql: str, keyword: str, start: int = 0) -> int | None:
+    depth = 0
+    quote: str | None = None
+    index = start
+    lowered = sql.casefold()
+    while index < len(sql):
+        char = sql[index]
+        if quote is not None:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(depth - 1, 0)
+        elif depth == 0 and lowered.startswith(keyword, index):
+            before = lowered[index - 1] if index > 0 else " "
+            after_index = index + len(keyword)
+            after = lowered[after_index] if after_index < len(lowered) else " "
+            if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
+                return index
+        index += 1
+    return None
+
+
+def clean_identifier(identifier: str) -> str:
+    stripped = identifier.strip()
+    if stripped.startswith('"') and stripped.endswith('"'):
+        return stripped[1:-1].replace('""', '"')
+    return stripped.casefold()
+
+
+def stable_catalog_oid(key: str) -> int:
+    return 10000 + (zlib.crc32(key.encode("utf-8")) & 0x3FFFFFFF)
+
+
+def row_value(rows: list[tuple[Any, ...]], column_index: int) -> Any:
+    for row in rows:
+        if column_index < len(row) and row[column_index] is not None:
+            return row[column_index]
+    return None
+
+
+def python_value_to_postgres_oid(value: Any) -> int:
+    if isinstance(value, bool):
+        return POSTGRES_BOOL_OID
+    if isinstance(value, int):
+        return POSTGRES_INT8_OID
+    if isinstance(value, float):
+        return POSTGRES_FLOAT8_OID
+    if isinstance(value, Decimal):
+        return POSTGRES_NUMERIC_OID
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return POSTGRES_DATE_OID
+    if isinstance(value, datetime):
+        return POSTGRES_TIMESTAMPTZ_OID
+    if isinstance(value, (dict, list)):
+        return POSTGRES_JSON_OID
+    return POSTGRES_TEXT_OID
+
+
+def strip_public_schema_references(sql: str) -> str:
+    return re.sub(r'(?i)(\bfrom\s+|\bjoin\s+)(?:"public"|public)\.', r"\1", sql)
 
 
 def clickhouse_type_to_postgres_oid(clickhouse_type: str) -> int:

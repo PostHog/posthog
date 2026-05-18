@@ -149,6 +149,44 @@ class TestHogQLServiceQueryExecutor(BaseTest):
         assert result.rows == [("16.0 (PostHog HogQL service)",)]
         assert result.command_tag == "SHOW"
 
+    def test_builtin_timestamp_probe_supports_postgres_extract_epoch(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "select round(extract(epoch from current_timestamp) * 1000)",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == ["round"]
+        assert isinstance(result.rows[0][0], int)
+
+    def test_information_schema_tables_lists_hogql_tables(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = 'public'",
+            self._context(),
+        )
+
+        assert ("public", "events", "BASE TABLE") in result.rows
+
+    def test_information_schema_columns_lists_hogql_columns(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'events'",
+            self._context(),
+        )
+
+        assert ("public", "events", "event", "text") in result.rows
+
+    def test_pg_catalog_class_projection_uses_requested_aliases(self) -> None:
+        result = HogQLServiceQueryExecutor().execute(
+            "SELECT NULL AS TABLE_CAT, n.nspname AS TABLE_SCHEM, c.relname AS TABLE_NAME, "
+            "CASE c.relkind WHEN 'v' THEN 'VIEW' ELSE 'TABLE' END AS TABLE_TYPE "
+            "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public'",
+            self._context(),
+        )
+
+        assert [column.name for column in result.columns] == ["table_cat", "table_schem", "table_name", "table_type"]
+        assert (None, "public", "events", "BASE TABLE") in result.rows
+
     @patch("posthog.hogql.service.execute_hogql_query")
     def test_hogql_query_executes_as_connection_user_and_team(self, mock_execute_hogql_query) -> None:
         mock_execute_hogql_query.return_value = HogQLQueryResponse(
