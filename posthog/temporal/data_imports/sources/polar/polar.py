@@ -134,6 +134,11 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     if table_name and table_name in ENDPOINTS:
         is_create_probe = False
         endpoints_to_check: list[str] = [table_name]
+    elif table_name:
+        # A known per-schema caller (incremental_fields) but an endpoint we don't
+        # support — reject explicitly rather than silently degrading to the
+        # create-probe path, which would falsely pass if any other endpoint is readable.
+        raise ValueError(f"Unknown Polar endpoint: {table_name}")
     else:
         is_create_probe = True
         endpoints_to_check = list(ENDPOINTS)
