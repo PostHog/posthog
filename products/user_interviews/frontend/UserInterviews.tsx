@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { IconSearch, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { UserInterviewTopicApi } from './generated/api.schemas'
+import type { UserInterviewSearchResultApi, UserInterviewTopicApi } from './generated/api.schemas'
 import { userInterviewsLogic } from './userInterviewsLogic'
 
 export const scene: SceneExport = {
@@ -46,8 +46,53 @@ const NEW_TOPIC_SUGGESTIONS = [
     'Research how teams are using dashboards day-to-day',
 ]
 
+function SearchResults({
+    results,
+    loading,
+}: {
+    results: UserInterviewSearchResultApi[]
+    loading: boolean
+}): JSX.Element {
+    if (loading && results.length === 0) {
+        return <p className="text-muted">Searching…</p>
+    }
+    if (results.length === 0) {
+        return <p className="text-muted">No matching responses yet.</p>
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            {results.map((r) => {
+                const target = r.topic_id ? urls.userInterviewResponse(r.topic_id, r.interview_id) : null
+                const Wrapper = ({ children }: { children: React.ReactNode }): JSX.Element =>
+                    target ? (
+                        <Link to={target} className="block">
+                            {children}
+                        </Link>
+                    ) : (
+                        <>{children}</>
+                    )
+                return (
+                    <Wrapper key={`${r.interview_id}-${r.document_type}`}>
+                        <div className="border rounded p-3 hover:bg-accent-highlight-secondary">
+                            <div className="flex items-center gap-2 mb-1 text-sm">
+                                <LemonTag type="muted">{r.document_type}</LemonTag>
+                                <span className="text-muted">{Math.round(r.similarity * 100)}% match</span>
+                                <span className="text-muted">·</span>
+                                <span>{r.interviewee_identifier}</span>
+                            </div>
+                            <p className="text-sm">{r.content_snippet}</p>
+                        </div>
+                    </Wrapper>
+                )
+            })}
+        </div>
+    )
+}
+
 export function UserInterviews(): JSX.Element {
-    const { topics, topicsLoading } = useValues(userInterviewsLogic)
+    const { topics, topicsLoading, searchQuery, searchResults, searchResultsLoading } = useValues(userInterviewsLogic)
+    const { setSearchQuery } = useActions(userInterviewsLogic)
+    const hasSearch = searchQuery.trim().length > 0
 
     const { openMax } = useMaxTool({
         identifier: 'create_user_interview_topic',
@@ -76,57 +121,71 @@ export function UserInterviews(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTable
-                loading={topicsLoading}
-                columns={[
-                    {
-                        title: 'Topic',
-                        key: 'topic',
-                        render: (_, row: UserInterviewTopicApi) => (
-                            <LemonTableLink title={row.topic} to={urls.userInterview(row.id)} />
-                        ),
-                    },
-                    {
-                        title: 'Targeting',
-                        key: 'targeting',
-                        render: (_, row: UserInterviewTopicApi) => (
-                            <span className="text-sm">{targetingLabel(row)}</span>
-                        ),
-                    },
-                    {
-                        title: 'Questions',
-                        key: 'questions',
-                        width: 100,
-                        render: (_, row: UserInterviewTopicApi) => {
-                            const count = row.questions?.length || 0
-                            return (
-                                <span className="text-muted">
-                                    {count} question{count !== 1 ? 's' : ''}
-                                </span>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Created',
-                        key: 'created_at',
-                        render: (_, row: UserInterviewTopicApi) => (
-                            <span className="text-muted whitespace-nowrap">{row.created_at?.split('T')[0]}</span>
-                        ),
-                        sorter: (a, b) => (a.created_at || '').localeCompare(b.created_at || ''),
-                    },
-                    {
-                        title: 'Created by',
-                        key: 'created_by',
-                        render: (_, row: UserInterviewTopicApi) => (
-                            <span>{row.created_by?.first_name || row.created_by?.email || '—'}</span>
-                        ),
-                    },
-                ]}
-                dataSource={topics}
-                rowKey="id"
-                loadingSkeletonRows={5}
-                emptyState="No topics yet. Click 'New topic' to get started with PostHog AI."
+            <LemonInput
+                type="search"
+                prefix={<IconSearch />}
+                placeholder="Search what users said across all interviews — e.g. 'problems with the taxonomic filter'"
+                value={searchQuery}
+                onChange={setSearchQuery}
+                allowClear
+                fullWidth
+                data-attr="user-interviews-search"
             />
+            {hasSearch ? (
+                <SearchResults results={searchResults} loading={searchResultsLoading} />
+            ) : (
+                <LemonTable
+                    loading={topicsLoading}
+                    columns={[
+                        {
+                            title: 'Topic',
+                            key: 'topic',
+                            render: (_, row: UserInterviewTopicApi) => (
+                                <LemonTableLink title={row.topic} to={urls.userInterview(row.id)} />
+                            ),
+                        },
+                        {
+                            title: 'Targeting',
+                            key: 'targeting',
+                            render: (_, row: UserInterviewTopicApi) => (
+                                <span className="text-sm">{targetingLabel(row)}</span>
+                            ),
+                        },
+                        {
+                            title: 'Questions',
+                            key: 'questions',
+                            width: 100,
+                            render: (_, row: UserInterviewTopicApi) => {
+                                const count = row.questions?.length || 0
+                                return (
+                                    <span className="text-muted">
+                                        {count} question{count !== 1 ? 's' : ''}
+                                    </span>
+                                )
+                            },
+                        },
+                        {
+                            title: 'Created',
+                            key: 'created_at',
+                            render: (_, row: UserInterviewTopicApi) => (
+                                <span className="text-muted whitespace-nowrap">{row.created_at?.split('T')[0]}</span>
+                            ),
+                            sorter: (a, b) => (a.created_at || '').localeCompare(b.created_at || ''),
+                        },
+                        {
+                            title: 'Created by',
+                            key: 'created_by',
+                            render: (_, row: UserInterviewTopicApi) => (
+                                <span>{row.created_by?.first_name || row.created_by?.email || '—'}</span>
+                            ),
+                        },
+                    ]}
+                    dataSource={topics}
+                    rowKey="id"
+                    loadingSkeletonRows={5}
+                    emptyState="No topics yet. Click 'New topic' to get started with PostHog AI."
+                />
+            )}
         </SceneContent>
     )
 }
