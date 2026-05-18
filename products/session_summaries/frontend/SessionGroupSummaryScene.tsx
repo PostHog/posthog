@@ -30,10 +30,83 @@ import { SessionGroupSummarySceneLogicProps, sessionGroupSummarySceneLogic } fro
 import {
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternsList,
+    FailedSessionCategory,
+    FailedSessionInfo,
     PatternAssignedEventSegmentContext,
     SeverityLevel,
 } from './types'
 import { getIssueTags } from './utils'
+
+const FAILED_SESSION_CATEGORY_LABELS: Record<FailedSessionCategory, string> = {
+    skipped: 'Skipped (too short or no events)',
+    summarization_failed: "Couldn't summarize",
+    patterns_failed: "Couldn't extract patterns",
+}
+
+function PartialResultBanner({
+    failedSessions,
+    analyzedSessionCount,
+}: {
+    failedSessions: FailedSessionInfo[]
+    analyzedSessionCount: number
+}): JSX.Element | null {
+    if (failedSessions.length === 0) {
+        return null
+    }
+    // DB row stores only the sessions that made it into the patterns, so reconstruct
+    // the originally-requested total by adding the dropped sessions back.
+    const totalSessions = analyzedSessionCount + failedSessions.length
+    const grouped = failedSessions.reduce<Record<FailedSessionCategory, FailedSessionInfo[]>>(
+        (acc, fs) => {
+            acc[fs.category] = acc[fs.category] ?? []
+            acc[fs.category].push(fs)
+            return acc
+        },
+        { skipped: [], summarization_failed: [], patterns_failed: [] }
+    )
+    const summaryLine = `Analyzed ${analyzedSessionCount} of ${totalSessions} sessions · ${failedSessions.length} not included`
+    return (
+        <LemonBanner type="info" className="mb-2">
+            <LemonCollapse
+                size="small"
+                embedded
+                panels={[
+                    {
+                        key: 'failed-sessions',
+                        header: <span className="text-sm font-medium">{summaryLine}</span>,
+                        content: (
+                            <div className="flex flex-col gap-3">
+                                {(Object.keys(grouped) as FailedSessionCategory[])
+                                    .filter((category) => grouped[category].length > 0)
+                                    .map((category) => (
+                                        <div key={category}>
+                                            <p className="text-xs font-semibold text-muted-alt mb-1">
+                                                {FAILED_SESSION_CATEGORY_LABELS[category]} ({grouped[category].length})
+                                            </p>
+                                            <p className="text-xs text-muted-alt mb-2">{grouped[category][0].reason}</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {grouped[category].map((fs) => (
+                                                    <LemonButton
+                                                        key={fs.session_id}
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        to={urls.replaySingle(fs.session_id)}
+                                                        targetBlank
+                                                    >
+                                                        {fs.session_id}
+                                                    </LemonButton>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </LemonBanner>
+    )
+}
 
 export const scene: SceneExport<SessionGroupSummarySceneLogicProps> = {
     component: SessionGroupSummary,
@@ -440,7 +513,12 @@ export function SessionGroupSummary(): JSX.Element {
             </SceneContent>
         )
     }
-    const totalSessions = sessionGroupSummary.session_ids.length
+    // `session_ids` on the DB row is the post-filter set that made it into the patterns,
+    // i.e. the analyzed count — not the original request size. The originally-requested
+    // total is reconstructed inside PartialResultBanner by adding the dropped sessions back.
+    const analyzedSessionsCount = sessionGroupSummary.session_ids.length
+    const failedSessions = sessionGroupSummary.run_metadata?.failed_sessions ?? []
+    const requestedSessionsCount = analyzedSessionsCount + failedSessions.length
     return (
         <SceneContent>
             <SceneTitleSection
@@ -468,7 +546,11 @@ export function SessionGroupSummary(): JSX.Element {
             <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
                 <div className="flex items-center gap-3">
                     <LemonTag type="warning">BETA</LemonTag>
-                    <span>{totalSessions} sessions analyzed</span>
+                    <span>
+                        {failedSessions.length > 0
+                            ? `${analyzedSessionsCount} of ${requestedSessionsCount} sessions analyzed`
+                            : `${analyzedSessionsCount} sessions analyzed`}
+                    </span>
                     <span className="hidden sm:inline">·</span>
                     <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
                 </div>
@@ -492,6 +574,7 @@ export function SessionGroupSummary(): JSX.Element {
                 </LemonMenu>
             </div>
             <div className="space-y-4">
+                <PartialResultBanner failedSessions={failedSessions} analyzedSessionCount={analyzedSessionsCount} />
                 <FilterBar
                     searchValue={searchValue}
                     onSearchChange={setSearchValue}

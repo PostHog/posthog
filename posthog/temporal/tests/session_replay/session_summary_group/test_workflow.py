@@ -972,7 +972,7 @@ class TestSummarizeSessionGroupWorkflow:
 
         async def mock_workflow_generator():
             """Mock async generator that yields only the final result"""
-            yield (SessionSummaryStreamUpdate.FINAL_RESULT, (expected_patterns, "session-group-summary-id"))
+            yield (SessionSummaryStreamUpdate.FINAL_RESULT, (expected_patterns, "session-group-summary-id", []))
 
         with patch(
             "posthog.temporal.session_replay.session_summary_group.workflow._start_session_group_summary_workflow",
@@ -993,7 +993,7 @@ class TestSummarizeSessionGroupWorkflow:
             assert len(results) == 1
             assert results[0] == (
                 SessionSummaryStreamUpdate.FINAL_RESULT,
-                (expected_patterns, "session-group-summary-id"),
+                (expected_patterns, "session-group-summary-id", []),
             )
 
     @pytest.mark.asyncio
@@ -1066,11 +1066,13 @@ class TestSummarizeSessionGroupWorkflow:
             update_type, data = results[0]
             assert update_type == SessionSummaryStreamUpdate.FINAL_RESULT
             assert isinstance(data, tuple)
-            patterns, returned_summary_id = data
+            patterns, returned_summary_id, failed_sessions = data
             assert returned_summary_id == summary_id
             assert isinstance(patterns, EnrichedSessionGroupSummaryPatternsList)
             assert len(patterns.patterns) == 1
             assert patterns.patterns[0].pattern_name == "Mock Pattern from DB"
+            # Default run_metadata in this test has no failed_sessions, so the list comes through empty.
+            assert failed_sessions == []
 
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(

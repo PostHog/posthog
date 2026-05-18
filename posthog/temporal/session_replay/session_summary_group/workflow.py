@@ -40,6 +40,7 @@ from posthog.temporal.session_replay.session_summary_group.activities.group_patt
     get_patterns_from_redis_outside_workflow,
 )
 from posthog.temporal.session_replay.session_summary_group.types import (
+    FailedSessionInfo,
     SessionBatchFetchOutput,
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
@@ -51,8 +52,8 @@ from posthog.temporal.session_replay.session_summary_group.types import (
 )
 
 from ee.hogai.session_summaries.constants import (
-    FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
-    FAILED_SESSION_SUMMARIES_MIN_RATIO,
+    GROUP_SUMMARY_MIN_SUCCESS_FLOOR,
+    GROUP_SUMMARY_MIN_SUCCESS_RATIO,
     SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
     SESSION_SUMMARIES_MODEL,
 )
@@ -84,6 +85,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         # Structured per-session progress tracking
         self._session_statuses: dict[str, str] = {}
         self._current_phase: str = "fetching_data"
+        # Sessions dropped along the way (skipped, summarization or pattern-extraction failure),
+        # persisted into run_metadata at the end so the UI can show a partial-result banner.
+        # Keyed by session_id as defensive dedup — in practice each session can only fail at
+        # one phase (fetch failures never reach summarize, summarize failures never reach pattern
+        # extraction), so phases can't overwrite each other through normal flow.
+        self._failed_sessions: dict[str, FailedSessionInfo] = {}
 
     @temporalio.workflow.query
     def get_current_status(self) -> list[str]:
@@ -162,9 +169,15 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"(too short or no events): {fetch_result.expected_skip_session_ids}",
                 extra={"team_id": inputs.team_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
             )
-        # Track skipped sessions in structured progress
+        # Track skipped sessions in structured progress + persist them as failed_sessions
+        # so the result page can show "X skipped because they were too short / had no events".
         for sid in fetch_result.expected_skip_session_ids:
             self._session_statuses[sid] = "skipped"
+            self._failed_sessions[sid] = FailedSessionInfo(
+                session_id=sid,
+                category="skipped",
+                reason="Recording is too short or has no usable events",
+            )
         # Create SingleSessionSummaryInputs for each session
         session_inputs: list[SingleSessionSummaryInputs] = []
         for session_id in fetch_result.fetched_session_ids:
@@ -184,19 +197,26 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             session_inputs.append(single_session_input)
         # Update total to exclude skipped sessions so progress reflects actual work
         self._total_sessions = len(session_inputs)
-        # Fail the workflow if too many sessions failed unexpectedly
-        # Expected skips (too short, no events) don't count against the failure ratio
-        summarizable_session_count = len(inputs.session_ids) - len(fetch_result.expected_skip_session_ids)
-        min_required = ceil(summarizable_session_count * FAILED_SESSION_SUMMARIES_MIN_RATIO)
-        if summarizable_session_count > 0 and min_required > len(session_inputs):
-            extracted_session_ids = {s.session_id for s in session_inputs}
-            all_skipped_ids = set(fetch_result.expected_skip_session_ids)
-            unexpected_failures = list(set(inputs.session_ids) - extracted_session_ids - all_skipped_ids)
+        # Record any unexpected fetch failures (event data couldn't be loaded) as failed
+        # so they're surfaced in the UI even if the workflow proceeds. We only abort below
+        # if nothing could be fetched at all.
+        extracted_session_ids = {s.session_id for s in session_inputs}
+        all_skipped_ids = set(fetch_result.expected_skip_session_ids)
+        unexpected_failures = list(set(inputs.session_ids) - extracted_session_ids - all_skipped_ids)
+        for sid in unexpected_failures:
+            self._session_statuses[sid] = "failed"
+            self._failed_sessions[sid] = FailedSessionInfo(
+                session_id=sid,
+                category="summarization_failed",
+                reason="Couldn't load session events from the database",
+            )
+        # Only abort when nothing summarizable came back — partial fetches still produce useful summaries.
+        if not session_inputs:
             exception_message = (
-                f"Too many sessions failed to fetch data unexpectedly, "
-                f"when summarizing {len(inputs.session_ids)} sessions. "
-                f"Unexpected failures: {unexpected_failures}; "
-                f"Expected skips: {fetch_result.expected_skip_session_ids}; "
+                f"No sessions could be fetched for group summary "
+                f"({len(inputs.session_ids)} requested, "
+                f"{len(fetch_result.expected_skip_session_ids)} skipped, "
+                f"{len(unexpected_failures)} unexpected failures) "
                 f"for user {inputs.user_id} in team {inputs.team_id}"
             )
             temporalio.workflow.logger.exception(
@@ -260,16 +280,28 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                         "signals_type": "session-summaries",
                     },
                 )
+                # Record per-session failure so the UI can surface it. We don't include the raw
+                # exception string — it leaks internals and isn't actionable for end users.
+                self._failed_sessions[session_id] = FailedSessionInfo(
+                    session_id=session_id,
+                    category="summarization_failed",
+                    reason="Couldn't generate a summary for this session",
+                )
             else:
                 # Store only successful generations
                 successful_sessions.append(single_session_input)
 
-        # Fail the workflow if too many sessions failed to summarize
-        if len(successful_sessions) / len(inputs) < FAILED_SESSION_SUMMARIES_MIN_RATIO:
+        # Fail fast when too few sessions summarized to build a meaningful "group" — pattern
+        # extraction over 1–2 sessions is misleading and wastes another expensive LLM round-trip.
+        # The user pain we're addressing: running 30 sessions, waiting a long time, then getting
+        # nothing. Aborting *here* short-circuits the remaining steps so the user can retry sooner.
+        min_required = max(GROUP_SUMMARY_MIN_SUCCESS_FLOOR, ceil(len(inputs) * GROUP_SUMMARY_MIN_SUCCESS_RATIO))
+        if len(successful_sessions) < min_required:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
-                f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
-                f"({logging_session_ids(session_ids)}) "
+                f"Only {len(successful_sessions)} of {len(inputs)} sessions summarized successfully "
+                f"(need at least {min_required} to build group patterns), "
+                f"when summarizing sessions ({logging_session_ids(session_ids)}) "
                 f"for user {inputs[0].user_id} in team {inputs[0].team_id}"
             )
             temporalio.workflow.logger.error(
@@ -362,16 +394,25 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     f"Pattern extraction failed for chunk {chunk_redis_key} containing sessions {chunk_session_ids}: {res}",
                     extra={"signals_type": "session-summaries"},
                 )
+                # Record each session in the failed chunk so the UI knows it isn't in the patterns.
+                # Don't overwrite an existing entry — a summarization failure recorded earlier
+                # is the more precise reason.
+                for sid in chunk_session_ids:
+                    if sid not in self._failed_sessions:
+                        self._failed_sessions[sid] = FailedSessionInfo(
+                            session_id=sid,
+                            category="patterns_failed",
+                            reason="Couldn't extract behavior patterns for this session",
+                        )
                 continue
             # Store only chunks of sessions were extracted successfully
             redis_keys_of_chunks_to_combine.append(chunk_redis_key)
             session_ids_with_patterns_extracted.extend(chunk_session_ids)
-        # Check failure ratio
-        if ceil(len(chunks) * FAILED_PATTERNS_EXTRACTION_MIN_RATIO) > len(redis_keys_of_chunks_to_combine):
-            msg = (
-                f"Too many chunks failed during pattern extraction: "
-                f"{len(chunks) - len(redis_keys_of_chunks_to_combine)}/{len(chunks)} chunks failed"
-            )
+        # Only abort when every chunk failed. With at least one successful chunk we can still
+        # combine and surface patterns; failed sessions are tracked in self._failed_sessions
+        # and rendered as a banner on the result page.
+        if not redis_keys_of_chunks_to_combine:
+            msg = f"All {len(chunks)} pattern-extraction chunks failed — nothing to combine"
             temporalio.workflow.logger.error(msg, extra={"signals_type": "session-summaries"})
             raise ApplicationError(msg)
         # If enough chunks succeeded - combine patterns extracted from chunks in a single list
@@ -447,6 +488,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
                 trigger_session_id=inputs.trigger_session_id,
+                # Stable ordering so the same set of inputs produces deterministic run_metadata.
+                failed_sessions=sorted(self._failed_sessions.values(), key=lambda fs: fs.session_id),
             ),
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -483,7 +526,7 @@ async def _start_session_group_summary_workflow(
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
-        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | SessionProgressStreamData,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str | SessionProgressStreamData,
     ],
     None,
 ]:
@@ -528,9 +571,22 @@ async def _start_session_group_summary_workflow(
                 raise ApplicationError(msg)
             # Parse the summary JSON into EnrichedSessionGroupSummaryPatternsList
             patterns = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
+            # Pull failed_sessions back out of run_metadata so the API + chat surfaces can
+            # tell the user "X of Y sessions analyzed, here's why the rest dropped" instead
+            # of silently presenting partial patterns as a complete result.
+            run_metadata_dict = session_group_summary.run_metadata or {}
+            failed_sessions_dicts = run_metadata_dict.get("failed_sessions") or []
+            failed_sessions = [
+                FailedSessionInfo(
+                    session_id=fs["session_id"],
+                    category=fs["category"],
+                    reason=fs["reason"],
+                )
+                for fs in failed_sessions_dicts
+            ]
             yield (
                 SessionSummaryStreamUpdate.FINAL_RESULT,
-                (patterns, summary_id),
+                (patterns, summary_id, failed_sessions),
             )
             break
         # Workflow failed - raise an exception
@@ -622,7 +678,7 @@ async def execute_summarize_session_group(
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
-        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | SessionProgressStreamData,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str | SessionProgressStreamData,
     ],
     None,
 ]:

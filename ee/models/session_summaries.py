@@ -1,6 +1,6 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -50,6 +50,18 @@ class SessionSummaryVisualConfirmationResult:
         )
 
 
+FailedSessionCategory = Literal["skipped", "summarization_failed", "patterns_failed"]
+
+
+@dataclass(frozen=True)
+class FailedSessionInfo:
+    """A session that was not represented in the final group summary, with the reason why."""
+
+    session_id: str
+    category: FailedSessionCategory
+    reason: str
+
+
 @dataclass(frozen=True)
 class SessionSummaryRunMeta:
     """Metadata about the run of the summary generation"""
@@ -57,6 +69,9 @@ class SessionSummaryRunMeta:
     model_used: str
     visual_confirmation: bool
     visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
+    # Sessions in the input batch that aren't reflected in the resulting patterns (skipped, errored, etc.).
+    # Surfaced in the UI so users can tell partial results apart from a clean run.
+    failed_sessions: list[FailedSessionInfo] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
