@@ -33,32 +33,50 @@ def symbol_set_cleanup(
     if config.delete_unused:
         query_filter = query_filter | (Q(last_used__isnull=True) & Q(created_at__lt=cutoff_date))
 
+    if config.dry_run:
+        eligible_count = ErrorTrackingSymbolSet.objects.filter(query_filter).count()
+        sample_size = min(config.batch_size, config.total_per_run, eligible_count)
+        for symbol_set in ErrorTrackingSymbolSet.objects.filter(query_filter)[:sample_size]:
+            last_used_str = symbol_set.last_used.isoformat() if symbol_set.last_used else "never"
+            context.log.info(
+                f"DRY RUN: Would delete symbol set {symbol_set.id} "
+                f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}, "
+                f"last_used: {last_used_str})"
+            )
+        context.log.info(
+            f"DRY RUN: {eligible_count} symbol set(s) eligible for deletion "
+            f"(would process up to {config.total_per_run} per run)"
+        )
+        return dagster.MaterializeResult(
+            metadata={
+                "objects_processed": dagster.MetadataValue.int(0),
+                "objects_deleted": dagster.MetadataValue.int(0),
+                "objects_failed": dagster.MetadataValue.int(0),
+                "eligible_count": dagster.MetadataValue.int(eligible_count),
+                "dry_run": dagster.MetadataValue.bool(True),
+            }
+        )
+
     total_processed = 0
     total_deleted = 0
     total_failed = 0
+    failed_ids: set[int] = set()
 
     while total_processed < config.total_per_run:
         remaining = config.total_per_run - total_processed
         chunk_size = min(config.batch_size, remaining)
-        symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(query_filter)[:chunk_size])
+        symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(query_filter).exclude(id__in=failed_ids)[:chunk_size])
 
         if not symbol_sets:
             break
 
         for symbol_set in symbol_sets:
             try:
-                if config.dry_run:
-                    last_used_str = symbol_set.last_used.isoformat() if symbol_set.last_used else "never"
-                    context.log.info(
-                        f"DRY RUN: Would delete symbol set {symbol_set.id} "
-                        f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}, "
-                        f"last_used: {last_used_str})"
-                    )
-                else:
-                    symbol_set.delete()
+                symbol_set.delete()
                 total_deleted += 1
             except Exception as e:
                 total_failed += 1
+                failed_ids.add(symbol_set.id)
                 context.log.exception(
                     f"Failed to delete symbol set {symbol_set.id} "
                     f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}): {str(e)}"
