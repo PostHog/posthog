@@ -283,13 +283,6 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
-                    # The denormalized fingerprint→issue_state table is exposed here so
-                    # callers can JOIN it directly (e.g. the V3 ErrorTracking issues-list
-                    # query pre-aggregates events by fingerprint and then INNER JOINs
-                    # this LazyTable to resolve issue_id, status, etc.). It is the same
-                    # underlying LazyTable already used by the `events.fingerprint_issue_state`
-                    # LazyJoin, so semantics (argmax over version, is_deleted=0 HAVING,
-                    # pending-update merging from HogQLContext) are identical.
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),

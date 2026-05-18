@@ -52,20 +52,12 @@ class ErrorTrackingQueryV3Builder:
       `-State` combinators in an inner subquery, then INNER JOINs to
       `error_tracking_fingerprint_issue_state` (which already argmax-resolves
       `issue_id` per fingerprint) and finalises with `-Merge` aggregators in
-      the outer `GROUP BY issue_id`. This collapses the per-row LazyJoin cost
-      that dominated the prior single-query shape: a ~7,000 ms production
-      query drops to ~1,900 ms best / ~3,400 ms typical (≈65% faster) at
-      100% accuracy on the top-K result. The cityHash64 grouping key keeps
-      the inner hashmap on UInt64 keys instead of fingerprint strings;
-      collision risk on thousands of fingerprints in a 2^64 space is
-      effectively zero.
+      the outer `GROUP BY issue_id`
 
     * **Legacy single-query shape.** Retained for the edge case where a
       user-supplied `filterGroup` contains issue-level filters inside an OR
       group with event-level filters — the two-pass split cannot express
-      mixed-OR semantics across the events/issue boundary. The legacy shape
-      still benefits from the surgical aggregator wins (`count()` instead of
-      `count(DISTINCT uuid)`, `uniq()` instead of `count(DISTINCT)`).
+      mixed-OR semantics across the events/issue boundary.
     """
 
     def __init__(self, query: ErrorTrackingQuery, team: Team, date_from: datetime.datetime, date_to: datetime.datetime):
