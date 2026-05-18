@@ -203,7 +203,7 @@ const AssistantCohortPropertyFilter = z.object({
     type: z
         .literal('cohort')
         .describe(
-            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples:\n- Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`\n- Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
         )
         .default('cohort'),
     value: integer.describe('The cohort ID to filter by.'),
