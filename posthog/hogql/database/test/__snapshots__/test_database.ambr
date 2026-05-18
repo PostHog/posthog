@@ -1038,6 +1038,7 @@
                   "chain": null,
                   "fields": [
                       "team_id",
+                      "fp_hash",
                       "fingerprint",
                       "issue_id",
                       "issue_name",
@@ -8310,6 +8311,7 @@
                   "chain": null,
                   "fields": [
                       "team_id",
+                      "fp_hash",
                       "fingerprint",
                       "issue_id",
                       "issue_name",
