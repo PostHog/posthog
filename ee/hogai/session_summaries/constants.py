@@ -28,10 +28,8 @@ MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = (
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs
 SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS = 2000  # How often to poll for the workflow status
-# Fail-fast threshold for the summarization phase of a group summary. We abort early once we know
-# the remaining pattern-extraction + assignment work would only run over a tiny sample — those
-# steps are expensive and the resulting "group" patterns aren't meaningful from 1–2 sessions.
-# A run is allowed to continue if `successes >= max(GROUP_SUMMARY_MIN_SUCCESS_FLOOR, total * GROUP_SUMMARY_MIN_SUCCESS_RATIO)`.
+# Fail-fast threshold for the summarization phase. Group patterns aren't meaningful from 1-2 sessions.
+# Continue if `successes >= max(GROUP_SUMMARY_MIN_SUCCESS_FLOOR, total * GROUP_SUMMARY_MIN_SUCCESS_RATIO)`.
 GROUP_SUMMARY_MIN_SUCCESS_FLOOR = 3
 GROUP_SUMMARY_MIN_SUCCESS_RATIO = 0.3
 

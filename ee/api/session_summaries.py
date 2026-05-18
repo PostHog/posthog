@@ -201,12 +201,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         max_timestamp: datetime,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> tuple[EnrichedSessionGroupSummaryPatternsList, list[FailedSessionInfo]]:
-        """Consume the async generator and return (patterns, failed_sessions).
-
-        Returning failed_sessions alongside the patterns lets callers tell partial runs
-        apart from clean ones — without it, a workflow that dropped half the input would
-        look identical to one where everything succeeded.
-        """
+        """Consume the workflow stream and return (patterns, failed_sessions) for the response."""
         results: list[
             tuple[
                 SessionSummaryStreamUpdate,
@@ -285,7 +280,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 success=True,
                 failed_session_count=len(failed_sessions),
             )
-            # Sibling field, not a wrapper — keeps existing top-level `patterns` consumers untouched.
+            # Sibling field rather than a wrapper, to keep existing `patterns` consumers untouched.
             response_body = summary.model_dump(exclude_none=True, mode="json")
             response_body["failed_sessions"] = [
                 {"session_id": fs.session_id, "category": fs.category, "reason": fs.reason} for fs in failed_sessions

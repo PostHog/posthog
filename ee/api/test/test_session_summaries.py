@@ -45,7 +45,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         yield (SessionSummaryStreamUpdate.UI_STATUS, "Processing sessions...")
         yield (SessionSummaryStreamUpdate.UI_STATUS, "Finding patterns...")
-        # Yield final result with failed_sessions (defaults to empty for tests that don't care)
+        # failed_sessions defaults to empty for tests that don't care.
         patterns, summary_id = result
         yield (SessionSummaryStreamUpdate.FINAL_RESULT, (patterns, summary_id, failed_sessions or []))
 

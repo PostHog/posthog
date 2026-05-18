@@ -55,7 +55,7 @@ FailedSessionCategory = Literal["skipped", "summarization_failed", "patterns_fai
 
 @dataclass(frozen=True)
 class FailedSessionInfo:
-    """A session that was not represented in the final group summary, with the reason why."""
+    """A session dropped from the group summary, with a short reason for the UI."""
 
     session_id: str
     category: FailedSessionCategory
@@ -69,8 +69,7 @@ class SessionSummaryRunMeta:
     model_used: str
     visual_confirmation: bool
     visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
-    # Sessions in the input batch that aren't reflected in the resulting patterns (skipped, errored, etc.).
-    # Surfaced in the UI so users can tell partial results apart from a clean run.
+    # Sessions dropped from the input batch; surfaced in the UI as a partial-result banner.
     failed_sessions: list[FailedSessionInfo] = field(default_factory=list)
 
 

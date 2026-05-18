@@ -57,8 +57,7 @@ async def test_run_summary_returns_exception_on_failure():
 
 @pytest.mark.asyncio
 async def test_run_summaries_keeps_partial_results_above_threshold():
-    # Threshold is max(3, ceil(N * 0.3)) — for 10 sessions that's 3. 7 successes clears it with
-    # room to spare; the 3 failures get tagged so the UI can list them in the partial-results banner.
+    # N=10, threshold=3, 7 successes: well above. Failures get tagged for the banner.
     workflow = SummarizeSessionGroupWorkflow()
     workflow._total_sessions = 10
 
@@ -86,14 +85,11 @@ async def test_run_summaries_keeps_partial_results_above_threshold():
 @pytest.mark.parametrize(
     "side_effects",
     [
-        # All-fail on a small batch: 0 < max(3, 1) → abort.
+        # Small batch, all fail.
         [RuntimeError("a"), RuntimeError("b"), RuntimeError("c")],
-        # Tiny success on a small batch: 1 < max(3, 2) → abort. A single-session "group" isn't
-        # worth running pattern extraction on, and the user is better off retrying.
+        # Small batch, single success below the floor.
         [None, RuntimeError("a"), RuntimeError("b"), RuntimeError("c"), RuntimeError("d")],
-        # The motivating case: 30-session run that mostly fails. Threshold is max(3, ceil(30*0.3))=9.
-        # 1 success is far below that — fail fast so the user doesn't wait through patterns +
-        # assignment for a useless result.
+        # Motivating case: 30 sessions, 1 succeeds, threshold=9.
         [None] + [RuntimeError(f"boom-{i}") for i in range(29)],
     ],
 )

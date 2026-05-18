@@ -53,8 +53,7 @@ function PartialResultBanner({
     if (failedSessions.length === 0) {
         return null
     }
-    // DB row stores only the sessions that made it into the patterns, so reconstruct
-    // the originally-requested total by adding the dropped sessions back.
+    // DB session_ids is the post-filter set; reconstruct the original total.
     const totalSessions = analyzedSessionCount + failedSessions.length
     const grouped = failedSessions.reduce<Record<FailedSessionCategory, FailedSessionInfo[]>>(
         (acc, fs) => {
@@ -513,9 +512,7 @@ export function SessionGroupSummary(): JSX.Element {
             </SceneContent>
         )
     }
-    // `session_ids` on the DB row is the post-filter set that made it into the patterns,
-    // i.e. the analyzed count — not the original request size. The originally-requested
-    // total is reconstructed inside PartialResultBanner by adding the dropped sessions back.
+    // `session_ids` is the analyzed subset; the original request is analyzed + failed.
     const analyzedSessionsCount = sessionGroupSummary.session_ids.length
     const failedSessions = sessionGroupSummary.run_metadata?.failed_sessions ?? []
     const requestedSessionsCount = analyzedSessionsCount + failedSessions.length

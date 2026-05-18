@@ -329,12 +329,7 @@ class SummarizeSessionsTool(MaxTool):
 
     @staticmethod
     def _format_failed_sessions_note(failed_sessions: list[FailedSessionInfo], total_requested: int) -> str:
-        """Render a short note for the LLM so it doesn't claim a clean run on a partial one.
-
-        Categories are bucketed by reason so the message stays short even when many sessions
-        were dropped. We give the LLM the count plus the reason — not the per-session id list,
-        which the user can already see in the result page banner.
-        """
+        """Short note prepended to the LLM context when the run was partial, bucketed by category."""
         if not failed_sessions:
             return ""
         analyzed = total_requested - len(failed_sessions)
@@ -358,12 +353,7 @@ class SummarizeSessionsTool(MaxTool):
         session_ids: list[str],
         summary_title: str | None,
     ) -> tuple[str, str, list[FailedSessionInfo]]:
-        """Summarize sessions as a group (for larger sets).
-
-        Returns (summary_str, session_group_summary_id, failed_sessions). failed_sessions
-        is the list of sessions dropped by the workflow (skipped / failed mid-flight) so the
-        caller can record analytics and tell the user the result is partial.
-        """
+        """Summarize sessions as a group. Returns (summary_str, summary_id, failed_sessions)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
         min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
@@ -416,8 +406,7 @@ class SummarizeSessionsTool(MaxTool):
                     # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                     stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                     summary_str = stringifier.stringify_patterns()
-                    # Prepend a partial-result note (no-op string if nothing failed) so the LLM
-                    # doesn't claim a clean run on a degraded one.
+                    # Empty string if nothing failed.
                     note = self._format_failed_sessions_note(failed_sessions, total_requested=len(session_ids))
                     return note + summary_str, session_group_summary_id, failed_sessions
                 else:
@@ -432,12 +421,8 @@ class SummarizeSessionsTool(MaxTool):
     async def _summarize_sessions(
         self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]
     ) -> tuple[str, str | None, list[FailedSessionInfo]]:
-        """
-        Summarize sessions. Returns (summary_str, session_group_summary_id, failed_sessions).
-        session_group_summary_id is None for individual summaries, as report is not generated.
-        failed_sessions is always empty for the individual path (each session there is its own
-        unit of success/failure; the per-session error is logged inline).
-        """
+        """Returns (summary_str, summary_id, failed_sessions). summary_id and failed_sessions are
+        only populated for the group path; the individual path logs per-session errors inline."""
         # Fetch per-session metadata for the progress widget
         metadata = await database_sync_to_async(self._get_session_metadata, thread_sensitive=False)(session_ids)
         # Emit sessions_discovered for the frontend progress widget

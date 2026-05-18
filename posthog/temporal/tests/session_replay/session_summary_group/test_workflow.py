@@ -1071,7 +1071,7 @@ class TestSummarizeSessionGroupWorkflow:
             assert isinstance(patterns, EnrichedSessionGroupSummaryPatternsList)
             assert len(patterns.patterns) == 1
             assert patterns.patterns[0].pattern_name == "Mock Pattern from DB"
-            # Default run_metadata in this test has no failed_sessions, so the list comes through empty.
+            # No failed_sessions in run_metadata for this fixture.
             assert failed_sessions == []
 
     @pytest.mark.asyncio

@@ -144,8 +144,7 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # Cover every pattern so combine_patterns_with_events_context sees full assignments;
-    # downstream code now keeps partial results, but the fixture mirrors a clean LLM response.
+    # Cover every pattern so combine_patterns_with_events_context sees full assignments.
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]

@@ -331,9 +331,7 @@ async def _generate_patterns_assignments(
             )
             continue
         patterns_assignments_list_of_lists.append(res)
-    # Only abort when no chunks succeeded. Partial assignments still produce a useful patterns
-    # report — the missing sessions are recorded in run_metadata.failed_sessions and surfaced
-    # in the UI banner so the user can tell partial results apart from a clean run.
+    # Abort only on total chunk failure; partial assignments still produce a useful patterns report.
     if not patterns_assignments_list_of_lists:
         exception_message = (
             f"All pattern-assignment chunks failed when summarizing {len(session_ids)} "

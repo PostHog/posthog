@@ -71,8 +71,7 @@ export interface FailedSessionInfo {
 }
 
 // Matches SessionSummaryRunMeta from ee/models/session_summaries.py.
-// Add fields here when the backend dataclass grows — don't reach for an index signature
-// (it kills autocomplete and lets typos pass type-check).
+// Add new fields explicitly; no index signature (kills autocomplete, lets typos pass).
 export interface SessionGroupSummaryRunMetadata {
     model_used?: string
     visual_confirmation?: boolean

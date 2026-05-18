@@ -86,8 +86,7 @@ def capture_session_summary_generated(
     """Capture the completion of a session summary generation."""
     if not user.distinct_id:
         return
-    # A group run with at least one dropped session is a "partial" success — preserve that
-    # distinction in analytics so dashboards can split true clean runs from degraded ones.
+    # Lets dashboards split clean runs from degraded ones.
     is_partial = success is True and failed_session_count > 0
     properties: dict = {
         "ai_product": "session_replay",
