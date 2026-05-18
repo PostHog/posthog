@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
-import { IconRefresh, IconRevert, IconSearch } from '@posthog/icons'
+import { IconChevronDown, IconRefresh, IconRevert, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
+    LemonDropdown,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -28,9 +29,9 @@ import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
 import {
     BulkReplayParams,
+    HOG_INVOCATIONS_REPLAY_MAX_COUNT,
     HogInvocationRow,
     HogInvocationsLogicProps,
-    HOG_INVOCATIONS_REPLAY_MAX_COUNT,
     RunStatus,
     hogInvocationsLogic,
     isReplayWrapperKind,
@@ -71,15 +72,34 @@ const shortId = (id: string): string =>
         .map((p) => p.slice(0, 2))
         .join('')
 
+const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
+const shortPersonDisplay = (row: { person_id: string; distinct_id: string }): string => {
+    const candidate = row.distinct_id || row.person_id || ''
+    if (UUID_REGEX.test(candidate)) {
+        return `${candidate.slice(0, 4)}…${candidate.slice(-4)}`
+    }
+    return candidate
+}
+
+const rowRibbonColorFor = (row: HogInvocationRow): string | null => {
+    if (isReplayWrapperKind(row.function_kind)) {
+        return 'var(--info)'
+    }
+    if (row.status === 'failed') {
+        return 'var(--danger)'
+    }
+    if (row.status === 'running') {
+        return 'var(--warning)'
+    }
+    if (row.status === 'succeeded') {
+        return 'var(--success)'
+    }
+    return null
+}
+
 /**
- * "Runs" tab for a hog function or hog flow — the new view backed by
- * `hog_invocation_results`. Master/detail: each row collapses lifecycle
- * events for an invocation; expanding shows the existing `LogsViewer`
- * keyed on `instance_id = invocation_id`.
- *
- * Replay is async — clicking the action posts to `/replay`, which only
- * enqueues a cyclotron wrapper job. The toast surfaces the `replay_job_id`;
- * new lifecycle rows show up here once the worker drains the job.
+ * Replay is async — posting to `/replay` enqueues a cyclotron wrapper job; new
+ * lifecycle rows show up here once the worker drains it.
  */
 export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): JSX.Element | null {
     const logic = hogInvocationsLogic({ id, functionKind })
@@ -93,6 +113,9 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
         replayableSelectedIds,
         hasMore,
         hasLoadedOnce,
+        selectableIds,
+        selectAllState,
+        personPropertiesById,
     } = useValues(logic)
     const {
         loadRuns,
@@ -100,6 +123,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
         setFilters,
         toggleSelected,
         clearSelected,
+        setSelectedIds,
         setExpanded,
         replayInvocations,
         bulkReplay,
@@ -116,7 +140,20 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
 
     const columns: LemonTableColumns<HogInvocationRow> = [
         {
-            title: '',
+            title: (
+                <LemonCheckbox
+                    checked={selectAllState === 'all'}
+                    indeterminate={selectAllState === 'some'}
+                    disabledReason={selectableIds.length === 0 ? 'Nothing selectable in this view' : undefined}
+                    onChange={() => {
+                        if (selectAllState === 'all' || selectAllState === 'some') {
+                            clearSelected()
+                        } else {
+                            setSelectedIds(selectableIds)
+                        }
+                    }}
+                />
+            ),
             key: 'select',
             width: 0,
             render: (_, row) => (
@@ -134,8 +171,6 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             ),
         },
         {
-            // Status now strictly reports lifecycle state. Retry / re-run
-            // signal is conveyed via Attempts (count) + the tinted row.
             title: 'Status',
             key: 'status',
             dataIndex: 'status',
@@ -150,9 +185,6 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             render: (_, row) => <span className="font-mono">{row.attempts}</span>,
         },
         {
-            // Click toggles the ORDER BY between this and "Latest". Sort is
-            // server-side via the `order_by` filter — the page is re-fetched
-            // so the order stays correct across "Load more".
             title: 'First scheduled',
             key: 'first_scheduled_at',
             dataIndex: 'first_scheduled_at',
@@ -176,8 +208,11 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             title: 'Event',
             key: 'event_uuid',
             dataIndex: 'event_uuid',
-            render: (_, row) =>
-                row.event_uuid ? (
+            render: (_, row) => {
+                if (isReplayWrapperKind(row.function_kind)) {
+                    return <LemonTag type="primary">REPLAY</LemonTag>
+                }
+                return row.event_uuid ? (
                     <Link
                         to={urls.event(row.event_uuid, row.scheduled_at)}
                         className="font-mono text-xs"
@@ -187,29 +222,33 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                     </Link>
                 ) : (
                     <span className="text-muted-alt">—</span>
-                ),
+                )
+            },
         },
         {
             title: 'Person',
             key: 'person',
-            render: (_, row) =>
-                row.person_id || row.distinct_id ? (
-                    // Build the minimum-viable PersonPropType from what we
-                    // store on the lifecycle row. `id` is optional in the
-                    // type but, when set, lets PersonDisplay link to the
-                    // person page even without properties hydrated.
+            render: (_, row) => {
+                if (!row.person_id && !row.distinct_id) {
+                    return <span className="text-muted-alt">—</span>
+                }
+                // Force `/persons/<uuid>` via `href` — default `asLink` prefers
+                // distinct_id, which 404s when it's been merged/anonymized.
+                const hydrated = row.person_id ? personPropertiesById[row.person_id] : undefined
+                return (
                     <PersonDisplay
                         person={{
                             id: row.person_id,
                             distinct_ids: row.distinct_id ? [row.distinct_id] : [],
+                            properties: hydrated?.properties,
                         }}
-                        displayName={row.distinct_id || row.person_id || undefined}
+                        href={row.person_id ? urls.personByUUID(row.person_id) : undefined}
+                        displayName={hydrated ? undefined : shortPersonDisplay(row)}
                         withIcon="sm"
                         noPopover
                     />
-                ) : (
-                    <span className="text-muted-alt">—</span>
-                ),
+                )
+            },
         },
         {
             title: 'Error',
@@ -295,15 +334,13 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                     />
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                    <LemonSelect<RunStatus | 'all'>
-                        size="small"
-                        value={filters.status?.[0] ?? 'all'}
-                        onChange={(v) =>
+                    <StatusFilterDropdown
+                        value={filters.status ?? []}
+                        onChange={(next) =>
                             setFilters({
-                                status: v === 'all' || !v ? undefined : [v as RunStatus],
+                                status: next.length ? next : undefined,
                             })
                         }
-                        options={[{ value: 'all', label: 'All statuses' }, ...STATUS_OPTIONS]}
                     />
                     <LemonSelect<'all' | 'only_originals' | 'only_retries'>
                         size="small"
@@ -318,7 +355,10 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                         }
                         options={[
                             { value: 'all', label: 'All runs' },
-                            { value: 'only_originals', label: 'Originals only' },
+                            {
+                                value: 'only_originals',
+                                label: 'Originals only',
+                            },
                             { value: 'only_retries', label: 'Replays only' },
                         ]}
                     />
@@ -358,7 +398,6 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 onClose={() => setRerunModalOpen(false)}
                 initialDateFrom={filters.date_from}
                 initialDateTo={filters.date_to}
-                initialStatus={filters.status}
                 onSubmit={(params) => {
                     bulkReplay(params)
                     setRerunModalOpen(false)
@@ -413,21 +452,12 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             <LemonTable
                 dataSource={runs}
                 columns={columns}
-                // Only show the full-table loading spinner on the very first
-                // load; refreshes keep the existing rows visible (the Refresh
-                // button itself spins) so the list doesn't "flash away".
                 loading={runsLoading && !hasLoadedOnce}
                 rowKey={(row) => row.invocation_id}
                 className="ph-no-capture overflow-y-auto"
-                // Tint the entire row for re-run wrappers so they're
-                // distinguishable at a glance without polluting the Status
-                // column with a chip — the row tint *is* the indicator.
-                rowClassName={(row) => (isReplayWrapperKind(row.function_kind) ? 'bg-primary-highlight' : '')}
-                // Server-side sort: clicking a column header flips the
-                // `order_by` filter and re-fetches. Only DESC is supported
-                // (newest-first matches user expectation for a runs list),
-                // so we ignore the order toggle and just track which column
-                // is currently driving the sort.
+                // `hover:!` modifiers beat LemonTable's default
+                // `hover:bg-accent-highlight-secondary` once `onClick` is set.
+                rowRibbonColor={(row) => rowRibbonColorFor(row)}
                 sorting={{
                     columnKey: filters.order_by === 'first_scheduled' ? 'first_scheduled_at' : 'scheduled_at',
                     order: -1,
@@ -438,6 +468,20 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                     })
                 }
                 noSortingCancellation
+                onRow={(record) => ({
+                    onClick: (e) => {
+                        const target = e.target as HTMLElement | null
+                        if (
+                            target &&
+                            target.closest(
+                                'a, button, input, label, .LemonCheckbox, [role="button"], [data-attr="expand-row"]'
+                            )
+                        ) {
+                            return
+                        }
+                        setExpanded(record.invocation_id, !expandedIds[record.invocation_id])
+                    },
+                })}
                 expandable={{
                     noIndent: true,
                     isRowExpanded: (record) => expandedIds[record.invocation_id] ?? false,
@@ -465,14 +509,6 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
     )
 }
 
-/**
- * Detail panel rendered when a row is expanded. Pulls the logs for this
- * invocation via the existing `LogsViewer` (`log_entries.instance_id = invocation_id`).
- *
- * Designed not to duplicate anything already visible on the collapsed row —
- * only the values that aren't shown above (full IDs, started/finished
- * timestamps, parent run, full error, re-run filter) land here.
- */
 function RunDetail({
     record,
     functionKind,
@@ -486,8 +522,6 @@ function RunDetail({
     const logsLogicProps: LogsViewerLogicProps = {
         sourceType: functionKind,
         sourceId: hogFunctionId,
-        // Pin the logs viewer to this one invocation — log_entries uses
-        // instance_id = invocation_id.
         logicKey: `invocations-${record.invocation_id}`,
         defaultFilters: { instanceId: record.invocation_id },
         groupByInstanceId: false,
@@ -552,29 +586,20 @@ function DetailField({
     )
 }
 
-/**
- * Modal for the "Re-run…" action. Lets the user kick off a bulk replay by
- * specifying a window + filter (status, error kind, caps) rather than picking
- * rows individually. The body shape matches `BulkReplayParams` and is forwarded
- * to the `bulkReplay` action which resolves the date strings before posting.
- */
 function RerunModal({
     isOpen,
     onClose,
     initialDateFrom,
     initialDateTo,
-    initialStatus,
     onSubmit,
 }: {
     isOpen: boolean
     onClose: () => void
     initialDateFrom: string
     initialDateTo: string | undefined
-    initialStatus: RunStatus[] | undefined
     onSubmit: (params: BulkReplayParams) => void
 }): JSX.Element {
-    // Default to "failed" — the most common re-run motion.
-    const [status, setStatus] = useState<RunStatus[]>(initialStatus?.length ? initialStatus : ['failed'])
+    const [status, setStatus] = useState<RunStatus[]>(['failed'])
     const [errorKinds, setErrorKinds] = useState<string[]>([])
     const [maxCount, setMaxCount] = useState<number | undefined>(undefined)
     const [maxAttempts, setMaxAttempts] = useState<number | undefined>(undefined)
@@ -628,7 +653,10 @@ function RerunModal({
                     <LemonInputSelect
                         mode="multiple"
                         value={status}
-                        options={STATUS_OPTIONS.map((o) => ({ key: o.value, label: o.label }))}
+                        options={STATUS_OPTIONS.map((o) => ({
+                            key: o.value,
+                            label: o.label,
+                        }))}
                         onChange={(values) => setStatus(values as RunStatus[])}
                         placeholder="Pick statuses to re-run"
                     />
@@ -671,6 +699,54 @@ function RerunModal({
                 </Row>
             </div>
         </LemonModal>
+    )
+}
+
+function StatusFilterDropdown({
+    value,
+    onChange,
+}: {
+    value: RunStatus[]
+    onChange: (next: RunStatus[]) => void
+}): JSX.Element {
+    const label =
+        value.length === 0 || value.length === STATUS_OPTIONS.length
+            ? 'All statuses'
+            : value.length === 1
+              ? (STATUS_OPTIONS.find((o) => o.value === value[0])?.label ?? value[0])
+              : `${value.length} statuses`
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            overlay={
+                <div className="deprecated-space-y-px p-1">
+                    {STATUS_OPTIONS.map((option) => (
+                        <LemonButton
+                            key={option.value}
+                            type="tertiary"
+                            size="small"
+                            fullWidth
+                            icon={
+                                <LemonCheckbox checked={value.includes(option.value)} className="pointer-events-none" />
+                            }
+                            onClick={() =>
+                                onChange(
+                                    value.includes(option.value)
+                                        ? value.filter((v) => v !== option.value)
+                                        : [...value, option.value]
+                                )
+                            }
+                        >
+                            {option.label}
+                        </LemonButton>
+                    ))}
+                </div>
+            }
+        >
+            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                {label}
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 

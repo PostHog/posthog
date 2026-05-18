@@ -1,5 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -15,28 +16,15 @@ import { hogFlowsReplayCreate } from 'products/workflows/frontend/generated/api'
 
 import type { hogInvocationsLogicType } from './hogInvocationsLogicType'
 
-/**
- * Maximum lifecycle rows we pull from ClickHouse for the list. Tuned against
- * `hog_invocation_results.index_granularity = 1024`; one granule plus headroom
- * keeps the keyset scan cheap while still giving the user a full screen of work.
- */
 export const HOG_INVOCATIONS_PAGE_SIZE = 200
 
-/**
- * Server-side cap on a single replay request, mirrors HOG_INVOCATION_REPLAY_MAX_COUNT
- * in `nodejs/src/cdp/replay/replay-job.types.ts`. Keep them in sync.
- */
+/** Mirrors HOG_INVOCATION_REPLAY_MAX_COUNT in `nodejs/src/cdp/replay/replay-job.types.ts`. */
 export const HOG_INVOCATIONS_REPLAY_MAX_COUNT = 1000
 
 export type RunStatus = 'running' | 'succeeded' | 'failed'
 
 export type HogInvocationsFunctionKind = 'hog_function' | 'hog_flow'
 
-/**
- * Row-kind stamped on the lifecycle row. `_replay` variants flag the wrapper
- * job that drives a bulk re-run — surfaced in the same Invocations list with
- * a different visual treatment and per-row replay disabled.
- */
 export type RunRowKind = 'hog_function' | 'hog_flow' | 'hog_function_replay' | 'hog_flow_replay'
 
 export const isReplayWrapperKind = (kind: RunRowKind): boolean =>
@@ -53,17 +41,7 @@ export interface HogInvocationRow {
     is_retry: boolean
     error_kind: string
     error_message: string
-    /**
-     * `scheduled_at` from the **latest** lifecycle row for this invocation —
-     * moves on retries because the cyclotron job gets re-scheduled. Use this
-     * to see when the invocation was last touched.
-     */
     scheduled_at: string
-    /**
-     * `scheduled_at` from the **earliest** lifecycle row — the original
-     * cyclotron schedule time, fixed regardless of retries. Use this to see
-     * when the invocation first entered the system.
-     */
     first_scheduled_at: string
     started_at: string | null
     finished_at: string | null
@@ -74,7 +52,6 @@ export interface HogInvocationRow {
     parent_run_id: string
 }
 
-/** Which scheduled timestamp drives the list ordering. */
 export type RunsOrderBy = 'latest_scheduled' | 'first_scheduled'
 
 export interface HogInvocationsFilters {
@@ -84,7 +61,6 @@ export interface HogInvocationsFilters {
     error_kind?: string[]
     is_retry?: 'only_retries' | 'only_originals' | undefined
     search?: string
-    /** Defaults to `latest_scheduled` — newest activity first. */
     order_by?: RunsOrderBy
 }
 
@@ -94,12 +70,6 @@ export interface HogInvocationsLogicProps {
     functionKind: HogInvocationsFunctionKind
 }
 
-/**
- * Params for the "Re-run" modal — a bulk replay matched by filter rather than
- * by explicit invocation IDs. `date_from` / `date_to` are date-picker strings
- * (relative or ISO); they get resolved through `dateStringToDayJs` before
- * the request hits the API.
- */
 export interface BulkReplayParams {
     date_from: string
     date_to?: string
@@ -109,6 +79,58 @@ export interface BulkReplayParams {
     max_attempts?: number
 }
 
+const URL_PARAM_PREFIX = 'inv_'
+const URL_PARAMS = {
+    date_from: `${URL_PARAM_PREFIX}date_from`,
+    date_to: `${URL_PARAM_PREFIX}date_to`,
+    status: `${URL_PARAM_PREFIX}status`,
+    error_kind: `${URL_PARAM_PREFIX}error_kind`,
+    is_retry: `${URL_PARAM_PREFIX}retry`,
+    search: `${URL_PARAM_PREFIX}search`,
+    order_by: `${URL_PARAM_PREFIX}order`,
+} as const
+
+const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, string | undefined> => ({
+    [URL_PARAMS.date_from]: filters.date_from === '-24h' ? undefined : filters.date_from,
+    [URL_PARAMS.date_to]: filters.date_to,
+    [URL_PARAMS.status]: filters.status?.length ? filters.status.join(',') : undefined,
+    [URL_PARAMS.error_kind]: filters.error_kind?.length ? filters.error_kind.join(',') : undefined,
+    [URL_PARAMS.is_retry]: filters.is_retry,
+    [URL_PARAMS.search]: filters.search,
+    [URL_PARAMS.order_by]: filters.order_by === 'first_scheduled' ? undefined : filters.order_by,
+})
+
+const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
+    const next: Partial<HogInvocationsFilters> = {}
+    const dateFrom = searchParams[URL_PARAMS.date_from]
+    if (dateFrom) {
+        next.date_from = dateFrom
+    }
+    if (searchParams[URL_PARAMS.date_to]) {
+        next.date_to = searchParams[URL_PARAMS.date_to]
+    }
+    const status = searchParams[URL_PARAMS.status]
+    if (status) {
+        next.status = status.split(',').filter((s): s is RunStatus => ['running', 'succeeded', 'failed'].includes(s))
+    }
+    const errorKind = searchParams[URL_PARAMS.error_kind]
+    if (errorKind) {
+        next.error_kind = errorKind.split(',').filter(Boolean)
+    }
+    const retry = searchParams[URL_PARAMS.is_retry]
+    if (retry === 'only_retries' || retry === 'only_originals') {
+        next.is_retry = retry
+    }
+    if (searchParams[URL_PARAMS.search]) {
+        next.search = searchParams[URL_PARAMS.search]
+    }
+    const orderBy = searchParams[URL_PARAMS.order_by]
+    if (orderBy === 'first_scheduled' || orderBy === 'latest_scheduled') {
+        next.order_by = orderBy
+    }
+    return next
+}
+
 const DEFAULT_FILTERS: HogInvocationsFilters = {
     date_from: '-24h',
     date_to: undefined,
@@ -116,15 +138,9 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
     error_kind: undefined,
     is_retry: undefined,
     search: undefined,
+    order_by: 'first_scheduled',
 }
 
-/**
- * How long to wait between auto-refreshes while at least one visible row is
- * mid-flight (real invocation or re-run wrapper, doesn't matter — both surface
- * as `status='running'`). Long enough that we don't hammer ClickHouse on a
- * function with constantly-changing state, short enough that the user sees
- * re-run progress without hitting Refresh.
- */
 const AUTO_REFRESH_INTERVAL_MS = 5000
 
 const scheduleAutoRefresh = (
@@ -133,23 +149,14 @@ const scheduleAutoRefresh = (
     values: { hasRunningRows: boolean }
 ): void => {
     if (!values.hasRunningRows) {
-        // Nothing in flight — let any pending tick expire naturally.
         return
     }
-    // `cache.disposables.add` with a key replaces the previous timer if one is
-    // already pending, so back-to-back loads don't accumulate ticks. The
-    // plugin tears it down on logic unmount and auto-pauses on hidden tabs,
-    // which is exactly the behavior we want here.
     cache.disposables.add(() => {
         const timeoutId = setTimeout(() => actions.loadRuns(null), AUTO_REFRESH_INTERVAL_MS)
         return () => clearTimeout(timeoutId)
     }, 'autoRefresh')
 }
 
-/**
- * Pulls one page of collapsed lifecycle rows from `hog_invocation_results`.
- * Shared by initial load and "Load more" — only the OFFSET differs.
- */
 async function fetchRunsPage(
     props: HogInvocationsLogicProps,
     filters: HogInvocationsFilters,
@@ -157,23 +164,19 @@ async function fetchRunsPage(
 ): Promise<HogInvocationRow[]> {
     // HAVING clauses reference the SELECT aliases below — wrapping the column
     // again as `argMax(status, version)` makes HogQL substitute `status` for
-    // its alias (also `argMax(status, version)`) and produce a nested aggregate.
+    // its alias and produce a nested aggregate.
     const optionalStatusClause = filters.status?.length
         ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(', ')})`)
         : hogql.raw('')
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(', ')})`)
         : hogql.raw('')
-    // is_retry is stored as 0/1 — convert the UI tristate.
     const optionalRetryClause =
         filters.is_retry === 'only_retries'
             ? hogql.raw('AND is_retry = 1')
             : filters.is_retry === 'only_originals'
               ? hogql.raw('AND is_retry = 0')
               : hogql.raw('')
-    // Free-text search hits invocation_id / event_uuid / distinct_id /
-    // person_id. Bloom-filter indexes on event_uuid + function_id keep this
-    // fast for the cardinality we'll see in practice.
     const trimmedSearch = filters.search?.trim()
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
@@ -186,19 +189,14 @@ async function fetchRunsPage(
           )
         : hogql.raw('')
 
-    // Pull both real invocations and their re-run wrappers — same function_id,
-    // wrappers stamped with the `_replay` suffix so the UI can mark them and
-    // disable per-row replay. function_kind has to come out of the row so we
-    // can branch on it client-side.
     const replayWrapperKind = replayWrapperKindFor(props.functionKind)
-    // ORDER BY references the SELECT aliases (`scheduled_at` = latest activity,
-    // `first_scheduled_at` = original schedule time). Default is latest first,
-    // matching the previous behavior; clicking the column header in the UI
-    // flips the filter and re-runs the query.
+    // `ORDER BY max(scheduled_at)` is safe only because the SELECT alias isn't
+    // named `scheduled_at` — otherwise HogQL substitutes the alias and produces
+    // `max(max(scheduled_at))`.
     const orderClause =
         filters.order_by === 'first_scheduled'
-            ? hogql.raw('ORDER BY first_scheduled_at DESC, invocation_id DESC')
-            : hogql.raw('ORDER BY scheduled_at DESC, invocation_id DESC')
+            ? hogql.raw('ORDER BY min(scheduled_at) DESC, invocation_id DESC')
+            : hogql.raw('ORDER BY max(scheduled_at) DESC, invocation_id DESC')
     const query = hogql`
         SELECT
             invocation_id,
@@ -208,7 +206,7 @@ async function fetchRunsPage(
             argMax(is_retry, version)       AS is_retry,
             argMax(error_kind, version)     AS error_kind,
             argMax(error_message, version)  AS error_message,
-            max(scheduled_at)               AS scheduled_at,
+            max(scheduled_at)               AS latest_scheduled_at,
             min(scheduled_at)               AS first_scheduled_at,
             argMax(started_at, version)     AS started_at,
             argMax(finished_at, version)    AS finished_at,
@@ -301,15 +299,8 @@ async function fetchRunsPage(
 }
 
 /**
- * Driving logic for the "Runs" tab — the new per-invocation view backed by
- * `hog_invocation_results`. Pages a HogQL query that collapses lifecycle rows
- * via `argMax(field, version)`, mirroring how `person` is read elsewhere.
- *
- * Replay is asynchronous: the action posts to the cdp-api `/replay` endpoint,
- * which only enqueues a wrapper job onto the cyclotron `replay` queue. The
- * status of that job is not yet surfaced here — the user just sees a toast
- * with the `replay_job_id` and the new rows show up in the list once the
- * worker drains them.
+ * Replay is async — the `/replay` endpoint enqueues a cyclotron wrapper job;
+ * new lifecycle rows show up here once the worker drains it.
  */
 export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     path((id) => ['scenes', 'hog-functions', 'invocations', 'hogInvocationsLogic', id]),
@@ -321,6 +312,8 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         resetFilters: true,
         toggleSelected: (invocationId: string) => ({ invocationId }),
         clearSelected: true,
+        setSelectedIds: (ids: string[]) => ({ ids }),
+        hydratePeople: (personIds: string[]) => ({ personIds }),
         setExpanded: (invocationId: string, expanded: boolean) => ({ invocationId, expanded }),
         replayInvocations: (invocationIds: string[]) => ({ invocationIds }),
         bulkReplay: (params: BulkReplayParams) => ({ params }),
@@ -348,6 +341,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     return next
                 },
                 clearSelected: () => ({}),
+                setSelectedIds: (_, { ids }) => Object.fromEntries(ids.map((id) => [id, true])),
             },
         ],
         expandedIds: [
@@ -368,17 +362,10 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             false,
             {
                 setHasMore: (_, { hasMore }) => hasMore,
-                // Reset whenever filters or function id change — the old
-                // hasMore is meaningless against the new query.
                 setFilters: () => false,
                 resetFilters: () => false,
             },
         ],
-        /**
-         * True only until the first successful load completes. Used by the
-         * UI to decide whether to dim the whole table vs. just spin the
-         * Refresh button — refreshes shouldn't make the list "flash away".
-         */
         hasLoadedOnce: [
             false,
             {
@@ -398,12 +385,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     actions.setHasMore(rows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return rows
                 },
-                /**
-                 * Append the next page. Uses OFFSET = current row count for
-                 * simplicity — fine for the page sizes this view operates at
-                 * (a handful of pages of 200), keyset is overkill until the
-                 * user starts paging deep enough that OFFSET starts hurting.
-                 */
                 loadMore: async (_, breakpoint) => {
                     await breakpoint(50)
                     const offset = values.runs.length
@@ -411,6 +392,41 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     breakpoint()
                     actions.setHasMore(newRows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return [...values.runs, ...newRows]
+                },
+            },
+        ],
+        personPropertiesById: [
+            {} as Record<string, { properties: Record<string, any>; distinct_ids?: string[] }>,
+            {
+                hydratePeople: async ({ personIds }, breakpoint) => {
+                    const toFetch = personIds.filter((id) => id && !values.personPropertiesById[id])
+                    if (toFetch.length === 0) {
+                        return values.personPropertiesById
+                    }
+                    await breakpoint(50)
+                    const idList = hogql.raw(toFetch.map((id) => `toUUID('${id}')`).join(','))
+                    const query = hogql`
+                        SELECT id, properties
+                        FROM persons
+                        WHERE id IN (${idList})
+                    `
+                    const response = await api.queryHogQL(query, {
+                        scene: 'HogInvocations',
+                        productKey: 'pipeline_destinations',
+                    })
+                    breakpoint()
+                    const next = { ...values.personPropertiesById }
+                    for (const row of response.results ?? []) {
+                        const [id, propsJson] = row as unknown as [string, string]
+                        let properties: Record<string, any> = {}
+                        try {
+                            properties = JSON.parse(propsJson || '{}')
+                        } catch {
+                            // Malformed JSON — fall back to empty object.
+                        }
+                        next[id] = { properties }
+                    }
+                    return next
                 },
             },
         ],
@@ -432,11 +448,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             (s) => [s.selectedCount],
             (selectedCount) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_REPLAY_MAX_COUNT,
         ],
-        // For the replay button's status filter — we never want to replay a
-        // 'running' row (it's still in flight), and re-run wrappers can't be
-        // re-run themselves. The button is disabled in the UI for both cases;
-        // this selector is also used to filter bulk selection down to valid
-        // candidates before posting.
         replayableSelectedIds: [
             (s) => [s.selectedIds, s.runs],
             (selectedIds, runs): string[] => {
@@ -447,19 +458,32 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 const byId = new Map(runs.map((r) => [r.invocation_id, r]))
                 return ids.filter((id) => {
                     const row = byId.get(id)
-                    // Allow replay if row not loaded (the user has scrolled past
-                    // or filtered it out) — the worker enforces its own checks.
+                    // Allow replay if row not loaded — the worker enforces its own checks.
                     return !row || (row.status !== 'running' && !isReplayWrapperKind(row.function_kind))
                 })
             },
         ],
-        /**
-         * True while any currently-visible row is still in flight. Drives the
-         * Invocations tab's auto-refresh — a re-run wrapper that's mid-flight
-         * will be a `running` row, so this naturally covers both real
-         * invocations the user just kicked off and live re-runs.
-         */
         hasRunningRows: [(s) => [s.runs], (runs): boolean => runs.some((r) => r.status === 'running')],
+        selectableIds: [
+            (s) => [s.runs],
+            (runs): string[] =>
+                runs
+                    .filter((r) => !isReplayWrapperKind(r.function_kind) && r.status !== 'running')
+                    .map((r) => r.invocation_id),
+        ],
+        selectAllState: [
+            (s) => [s.selectedIds, s.selectableIds],
+            (selectedIds, selectableIds): 'all' | 'some' | 'none' => {
+                if (selectableIds.length === 0) {
+                    return 'none'
+                }
+                const selectedCount = selectableIds.filter((id) => selectedIds[id]).length
+                if (selectedCount === 0) {
+                    return 'none'
+                }
+                return selectedCount === selectableIds.length ? 'all' : 'some'
+            },
+        ],
     }),
 
     listeners(({ props, actions, values, cache }) => ({
@@ -471,9 +495,17 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
+            const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
+            if (personIds.length > 0) {
+                actions.hydratePeople(personIds)
+            }
         },
         loadMoreSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
+            const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
+            if (personIds.length > 0) {
+                actions.hydratePeople(personIds)
+            }
         },
         replayInvocations: async ({ invocationIds }) => {
             if (invocationIds.length === 0) {
@@ -486,12 +518,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             }
 
             const { filters } = values
-            // The server requires a window. Use the same window the list is
-            // viewing — that way "replay all visible failures" doesn't pull in
-            // rows the user isn't looking at. `filters.date_from` is the same
-            // relative-or-absolute string format the date picker emits (e.g.
-            // `-24h`), but the replay endpoint expects ISO 8601, so resolve
-            // it through the shared helper first.
             const teamId = ApiConfig.getCurrentTeamId()
             const windowStart = (dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
             const windowEnd = ((filters.date_to ? dateStringToDayJs(filters.date_to) : null) ?? dayjs()).toISOString()
@@ -501,8 +527,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     window_start: windowStart,
                     window_end: windowEnd,
                     invocation_ids: invocationIds,
-                    // Surface the same status filter the list view is using —
-                    // the worker re-checks per row before re-enqueueing.
                     status: filters.status as HogInvocationReplayFilterStatusEnumApi[] | undefined,
                 },
             }
@@ -551,4 +575,39 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const buildUrl = (): [
+            string,
+            Record<string, string | undefined>,
+            Record<string, string>,
+            { replace: true },
+        ] => [
+            router.values.location.pathname,
+            { ...router.values.searchParams, ...filtersToSearchParams(values.filters) },
+            router.values.hashParams,
+            { replace: true },
+        ]
+        return {
+            setFilters: buildUrl,
+            resetFilters: buildUrl,
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const handleSearch = (_: any, searchParams: Record<string, string | undefined>): void => {
+            const next = searchParamsToFilters(searchParams)
+            // Diff against current state to avoid looping with actionToUrl.
+            const changed = Object.entries(next).some(
+                ([key, value]) =>
+                    JSON.stringify(value) !== JSON.stringify(values.filters[key as keyof HogInvocationsFilters])
+            )
+            if (changed) {
+                actions.setFilters(next)
+            }
+        }
+        return {
+            '*': handleSearch,
+        }
+    }),
 ])

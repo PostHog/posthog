@@ -32,6 +32,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisPoolFromConfig } from './utils/db/redis'
+import { isDevEnv } from './utils/env-utils'
 import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
@@ -190,11 +191,23 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpCyclotronWorker) {
-            serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, cdpDeps!)
-                await worker.start()
-                return worker.service
-            })
+            // Prod deploys one worker per consumer mode (separate pods). Dev runs
+            // all three in-process so a single launcher matches prod's fan-out —
+            // in particular, replay re-enqueues land on postgres-v2 because
+            // `overwriteExisting: true` always routes there.
+            const consumerModes = isDevEnv()
+                ? (['kafka', 'postgres', 'postgres-v2'] as const)
+                : ([this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE] as const)
+            for (const mode of consumerModes) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorker(
+                        { ...this.config, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode },
+                        cdpDeps!
+                    )
+                    await worker.start()
+                    return worker.service
+                })
+            }
         }
 
         if (capabilities.cdpCyclotronV2Janitor) {
@@ -220,11 +233,20 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpCyclotronWorkerHogFlow) {
-            serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!)
-                await worker.start()
-                return worker.service
-            })
+            // Same dev-only fan-out as the worker above.
+            const consumerModes = isDevEnv()
+                ? (['kafka', 'postgres', 'postgres-v2'] as const)
+                : ([this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE] as const)
+            for (const mode of consumerModes) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerHogFlow(
+                        { ...this.config, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode },
+                        cdpDeps!
+                    )
+                    await worker.start()
+                    return worker.service
+                })
+            }
         }
 
         if (capabilities.cdpReplayWorker) {
