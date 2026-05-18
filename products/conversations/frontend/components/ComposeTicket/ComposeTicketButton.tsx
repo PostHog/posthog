@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconPlus, IconComment } from '@posthog/icons'
+import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -70,7 +70,7 @@ export function ComposeTicketButton({
                 <LemonButton
                     type={type}
                     size={size}
-                    icon={iconOnly ? <IconComment /> : <IconPlus />}
+                    icon={<IconLetter />}
                     tooltip={iconOnly ? 'New ticket' : undefined}
                     onClick={() => {
                         if (conversationsEnabled) {

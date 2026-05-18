@@ -125,7 +125,7 @@ export function PersonDisplay({
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
             {showComposeButton && personDistinctId && (
                 <span
-                    className="opacity-0 group-hover/person:opacity-100 transition-opacity ml-1 shrink-0"
+                    className="ml-1 shrink-0"
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
