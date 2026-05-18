@@ -1,89 +1,90 @@
 import { render } from '@testing-library/react'
 
-import { TranscriptView, parseTranscript } from './TranscriptView'
+import { TranscriptTurn, TranscriptView, parseTranscript } from './TranscriptView'
 
 describe('parseTranscript', () => {
-    it('returns null for transcripts with no recognized speaker prefix', () => {
-        expect(parseTranscript('hello world\nthis is just text')).toBeNull()
+    it.each<[string, string]>([
+        ['empty input', ''],
+        ['plain text without speaker prefixes', 'hello world\nthis is just text'],
+        // One prefixed line is below the two-line floor — guards against turning ordinary
+        // prose with one incidental colon into a turn-rendered view.
+        ['a single incidental "Note:" prefix', 'Note: this is a free-form note\nwith no other structure'],
+    ])('returns null for %s', (_label, transcript) => {
+        expect(parseTranscript(transcript)).toBeNull()
     })
 
-    it('returns null for empty input', () => {
-        expect(parseTranscript('')).toBeNull()
-    })
-
-    it('returns null for a single incidental prefix like "Note: ..."', () => {
-        // One prefixed line is below the two-line floor — guards against
-        // turning ordinary prose with one colon into a turn-rendered view.
-        expect(parseTranscript('Note: this is a free-form note\nwith no other structure')).toBeNull()
-    })
-
-    it('splits a Vapi-style AI/User transcript into turns', () => {
-        const transcript = 'AI: Hi, thanks for joining.\nUser: No problem.\nAI: Great.'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'AI', role: 'ai', text: 'Hi, thanks for joining.' },
-            { speaker: 'User', role: 'user', text: 'No problem.' },
-            { speaker: 'AI', role: 'ai', text: 'Great.' },
-        ])
-    })
-
-    it('recognizes Assistant and Interviewee as alternative role names', () => {
-        const transcript = 'Assistant: Question one?\nInterviewee: My answer.'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'Assistant', role: 'ai', text: 'Question one?' },
-            { speaker: 'Interviewee', role: 'user', text: 'My answer.' },
-        ])
-    })
-
-    it('attaches continuation lines without a prefix to the current turn', () => {
-        const transcript = 'AI: Line one.\nLine two of the same turn.\nUser: Reply.'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'AI', role: 'ai', text: 'Line one.\nLine two of the same turn.' },
-            { speaker: 'User', role: 'user', text: 'Reply.' },
-        ])
-    })
-
-    it('treats unknown speaker names as separate user-side turns (no AI misattribution)', () => {
-        // Real-name participants must not be glued onto the prior AI turn.
-        const transcript = 'AI: Hi.\nCory: Hey there.\nAI: How are you?\nCory: Doing well.'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'AI', role: 'ai', text: 'Hi.' },
-            { speaker: 'Cory', role: 'user', text: 'Hey there.' },
-            { speaker: 'AI', role: 'ai', text: 'How are you?' },
-            { speaker: 'Cory', role: 'user', text: 'Doing well.' },
-        ])
-    })
-
-    it('is case-insensitive when classifying AI roles', () => {
-        const transcript = 'ai: lowercase prefix\nuser: also lowercase'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'ai', role: 'ai', text: 'lowercase prefix' },
-            { speaker: 'user', role: 'user', text: 'also lowercase' },
-        ])
-    })
-
-    it('handles CRLF line endings', () => {
-        const transcript = 'AI: hi\r\nUser: hello\r\n'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'AI', role: 'ai', text: 'hi' },
-            { speaker: 'User', role: 'user', text: 'hello' },
-        ])
-    })
-
-    it('drops leading preamble before the first prefixed turn', () => {
-        const transcript = 'Call started at 10:00\nAI: Hi\nUser: Hello'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'AI', role: 'ai', text: 'Hi' },
-            { speaker: 'User', role: 'user', text: 'Hello' },
-        ])
-    })
-
-    it('ignores blank lines between turns', () => {
-        const transcript = 'AI: First\n\nUser: Second\n\nAI: Third'
-        expect(parseTranscript(transcript)).toEqual([
-            { speaker: 'AI', role: 'ai', text: 'First' },
-            { speaker: 'User', role: 'user', text: 'Second' },
-            { speaker: 'AI', role: 'ai', text: 'Third' },
-        ])
+    it.each<[string, string, TranscriptTurn[]]>([
+        [
+            'a Vapi-style AI/User transcript',
+            'AI: Hi, thanks for joining.\nUser: No problem.\nAI: Great.',
+            [
+                { speaker: 'AI', role: 'ai', text: 'Hi, thanks for joining.' },
+                { speaker: 'User', role: 'user', text: 'No problem.' },
+                { speaker: 'AI', role: 'ai', text: 'Great.' },
+            ],
+        ],
+        [
+            'Assistant and Interviewee as alternative role names',
+            'Assistant: Question one?\nInterviewee: My answer.',
+            [
+                { speaker: 'Assistant', role: 'ai', text: 'Question one?' },
+                { speaker: 'Interviewee', role: 'user', text: 'My answer.' },
+            ],
+        ],
+        [
+            'continuation lines without a prefix attached to the current turn',
+            'AI: Line one.\nLine two of the same turn.\nUser: Reply.',
+            [
+                { speaker: 'AI', role: 'ai', text: 'Line one.\nLine two of the same turn.' },
+                { speaker: 'User', role: 'user', text: 'Reply.' },
+            ],
+        ],
+        [
+            // Real-name participants must not be glued onto the prior AI turn.
+            'unknown speaker names as separate user-side turns (no AI misattribution)',
+            'AI: Hi.\nCory: Hey there.\nAI: How are you?\nCory: Doing well.',
+            [
+                { speaker: 'AI', role: 'ai', text: 'Hi.' },
+                { speaker: 'Cory', role: 'user', text: 'Hey there.' },
+                { speaker: 'AI', role: 'ai', text: 'How are you?' },
+                { speaker: 'Cory', role: 'user', text: 'Doing well.' },
+            ],
+        ],
+        [
+            'case-insensitive AI role classification',
+            'ai: lowercase prefix\nuser: also lowercase',
+            [
+                { speaker: 'ai', role: 'ai', text: 'lowercase prefix' },
+                { speaker: 'user', role: 'user', text: 'also lowercase' },
+            ],
+        ],
+        [
+            'CRLF line endings',
+            'AI: hi\r\nUser: hello\r\n',
+            [
+                { speaker: 'AI', role: 'ai', text: 'hi' },
+                { speaker: 'User', role: 'user', text: 'hello' },
+            ],
+        ],
+        [
+            'leading preamble dropped before the first prefixed turn',
+            'Call started at 10:00\nAI: Hi\nUser: Hello',
+            [
+                { speaker: 'AI', role: 'ai', text: 'Hi' },
+                { speaker: 'User', role: 'user', text: 'Hello' },
+            ],
+        ],
+        [
+            'blank lines between turns ignored',
+            'AI: First\n\nUser: Second\n\nAI: Third',
+            [
+                { speaker: 'AI', role: 'ai', text: 'First' },
+                { speaker: 'User', role: 'user', text: 'Second' },
+                { speaker: 'AI', role: 'ai', text: 'Third' },
+            ],
+        ],
+    ])('parses %s', (_label, transcript, expected) => {
+        expect(parseTranscript(transcript)).toEqual(expected)
     })
 })
 
