@@ -14,6 +14,7 @@ import {
 import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
 import type { alertWizardLogicType } from './alertWizardLogicType'
+import { validateTemplateInput } from './inputValidators'
 
 export enum WizardStep {
     Destination = 'destination',
@@ -286,6 +287,25 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 inputs: inputValues,
             }),
         ],
+
+        inputErrors: [
+            (s) => [s.selectedTemplate, s.inputValues],
+            (selectedTemplate, inputValues): Record<string, string> => {
+                if (!selectedTemplate) {
+                    return {}
+                }
+                const errors: Record<string, string> = {}
+                for (const [key, val] of Object.entries(inputValues)) {
+                    const error = validateTemplateInput(selectedTemplate.id, key, val?.value)
+                    if (error) {
+                        errors[key] = error
+                    }
+                }
+                return errors
+            },
+        ],
+
+        hasInputErrors: [(s) => [s.inputErrors], (inputErrors): boolean => Object.keys(inputErrors).length > 0],
     }),
 
     listeners(({ values, actions, props: logicProps }) => ({
@@ -334,6 +354,12 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             const triggerKey = values.selectedTriggerKey
 
             if (!destinationKey || !triggerKey) {
+                actions.testConfigurationComplete()
+                return
+            }
+
+            if (values.selectedTemplateLoading) {
+                actions.testConfigurationComplete()
                 return
             }
 
@@ -343,6 +369,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
             if (!subTemplate) {
                 lemonToast.error('Template not found for this combination')
+                actions.testConfigurationComplete()
                 return
             }
 
@@ -392,16 +419,20 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
+                const res = await api.hogFunctions.createTestInvocation('new', {
                     configuration,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                if (res.status === 'error') {
+                    lemonToast.error(res.errors?.[0] || 'Test invocation failed')
+                } else {
+                    lemonToast.success('Test invocation sent')
+                }
             } catch (e: any) {
                 breakpoint()
-                lemonToast.error(e.detail || 'Test invocation failed')
+                lemonToast.error(e?.data?.errors?.[0] || e?.detail || 'Test invocation failed')
             }
 
             actions.testConfigurationComplete()

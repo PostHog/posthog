@@ -12,8 +12,15 @@ import { CyclotronJobInputSchemaType } from '~/types'
 import { alertWizardLogic } from '../alertWizardLogic'
 
 export function ConfigureStep(): JSX.Element {
-    const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
-        useValues(alertWizardLogic)
+    const {
+        requiredInputsSchema,
+        configuration,
+        selectedTemplateLoading,
+        submitting,
+        testing,
+        inputErrors,
+        hasInputErrors,
+    } = useValues(alertWizardLogic)
     const { setInputValue, submitConfiguration, testConfiguration } = useActions(alertWizardLogic)
 
     if (selectedTemplateLoading) {
@@ -26,6 +33,8 @@ export function ConfigureStep(): JSX.Element {
         )
     }
 
+    const actionsDisabled = selectedTemplateLoading || hasInputErrors
+
     return (
         <div className="space-y-4">
             <div>
@@ -35,7 +44,12 @@ export function ConfigureStep(): JSX.Element {
 
             <div className="space-y-4">
                 {requiredInputsSchema.map((schema: CyclotronJobInputSchemaType) => (
-                    <LemonField.Pure key={schema.key} label={schema.label}>
+                    <LemonField.Pure
+                        key={schema.key}
+                        label={schema.label}
+                        error={inputErrors[schema.key]}
+                        help={schema.description}
+                    >
                         <SchemaInput
                             schema={schema}
                             value={configuration.inputs?.[schema.key]?.value}
@@ -48,10 +62,20 @@ export function ConfigureStep(): JSX.Element {
             </div>
 
             <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={testConfiguration} loading={testing} disabled={submitting}>
+                <LemonButton
+                    type="secondary"
+                    onClick={testConfiguration}
+                    loading={testing}
+                    disabled={submitting || actionsDisabled}
+                >
                     Test
                 </LemonButton>
-                <LemonButton type="primary" onClick={submitConfiguration} loading={submitting} disabled={testing}>
+                <LemonButton
+                    type="primary"
+                    onClick={submitConfiguration}
+                    loading={submitting}
+                    disabled={testing || actionsDisabled}
+                >
                     Create alert
                 </LemonButton>
             </div>
