@@ -830,36 +830,9 @@ class Team(UUIDTClassicModel):
         return filters
 
     def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-
         old_token = self.api_token
         self.api_token = generate_random_token_project()
-        self.save()
-        set_team_in_cache(old_token, None)
-        set_team_in_cache(self.api_token, self)
-        log_activity(
-            organization_id=self.organization_id,
-            team_id=self.pk,
-            user=cast("User", user),
-            was_impersonated=is_impersonated_session,
-            scope="Team",
-            item_id=self.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(self.name),
-                changes=[
-                    Change(
-                        type="Team",
-                        action="changed",
-                        field="api_token",
-                        before=old_token,
-                        after=self.api_token,
-                    )
-                ],
-            ),
-        )
-
-        self._notify_vercel_of_token_rotation()
+        self._persist_api_token_change(old_token=old_token, user=user, is_impersonated_session=is_impersonated_session)
 
     def _notify_vercel_of_token_rotation(self) -> None:
         """Push updated API token to Vercel integrations in the background."""
@@ -868,8 +841,6 @@ class Team(UUIDTClassicModel):
         push_vercel_secrets.delay(self.id)
 
     def set_token_and_save(self, *, new_token: str, user: "User", is_impersonated_session: bool):
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-
         new_token = new_token.strip()
         if not new_token:
             raise ValueError("New API token must be non-empty.")
@@ -882,6 +853,11 @@ class Team(UUIDTClassicModel):
 
         old_token = self.api_token
         self.api_token = new_token
+        self._persist_api_token_change(old_token=old_token, user=user, is_impersonated_session=is_impersonated_session)
+
+    def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
         self.save()
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
