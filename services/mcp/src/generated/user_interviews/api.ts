@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -61,6 +61,77 @@ export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const UserInterviewTopicsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const UserInterviewTopicsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax = 254
+
+export const userInterviewTopicsPartialUpdateBodyIntervieweeDistinctIdsItemMax = 400
+
+export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    interviewee_emails: zod
+        .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax))
+        .optional()
+        .describe('Email addresses of people to interview. May be combined with interviewee_distinct_ids.'),
+    interviewee_distinct_ids: zod
+        .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeDistinctIdsItemMax))
+        .optional()
+        .describe('PostHog distinct IDs of people to interview. May be combined with interviewee_emails.'),
+    topic: zod.string().optional().describe('The product, feature, or idea you want to ask interviewees about.'),
+    agent_context: zod
+        .string()
+        .optional()
+        .describe('Optional additional system prompt for the voice agent — extra background, tone, or constraints.'),
+    questions: zod
+        .array(zod.string())
+        .optional()
+        .describe('Ordered list of questions the voice agent should work through during the interview.'),
+})
+
+/**
+ * Add a single interviewee to this topic. Email-shaped identifiers (including the `Display Name <email@host>` form) are appended to `interviewee_emails`; everything else is appended to `interviewee_distinct_ids`. Idempotent — adding an identifier that's already present leaves the topic unchanged. Returns the updated topic.
+ */
+export const UserInterviewTopicsAddIntervieweeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewTopicsAddIntervieweeCreateBodyIdentifierMax = 400
+
+export const UserInterviewTopicsAddIntervieweeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(userInterviewTopicsAddIntervieweeCreateBodyIdentifierMax)
+        .describe(
+            'Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.'
+        ),
+})
+
+/**
  * Generate one public interview link per targeted interviewee. Materializes an IntervieweeContext row for every identifier on the topic (without overwriting existing per-person context), and an enabled SharingConfiguration with a unique access token. The URL resolves to the public interview viewer with no PostHog auth required.
  */
 export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.object({
@@ -69,6 +140,29 @@ export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
+ */
+export const UserInterviewTopicsRemoveIntervieweeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax = 400
+
+export const UserInterviewTopicsRemoveIntervieweeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax)
+        .describe(
+            'Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.'
         ),
 })
 
@@ -152,6 +246,53 @@ export const UserInterviewTopicsIntervieweesCreateBody = /* @__PURE__ */ zod.obj
         .describe(
             "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
         ),
+})
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const UserInterviewTopicsIntervieweesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this interviewee context.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    topic_id: zod.string(),
+})
+
+export const userInterviewTopicsIntervieweesPartialUpdateBodyIntervieweeIdentifierMax = 400
+
+export const userInterviewTopicsIntervieweesPartialUpdateBodyAgentContextMax = 10000
+
+export const UserInterviewTopicsIntervieweesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesPartialUpdateBodyIntervieweeIdentifierMax)
+        .optional()
+        .describe(
+            "Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids."
+        ),
+    agent_context: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesPartialUpdateBodyAgentContextMax)
+        .optional()
+        .describe(
+            "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
+        ),
+})
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const UserInterviewTopicsIntervieweesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this interviewee context.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    topic_id: zod.string(),
 })
 
 export const UserInterviewsListParams = /* @__PURE__ */ zod.object({

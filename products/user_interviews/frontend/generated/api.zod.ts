@@ -91,6 +91,34 @@ export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Add a single interviewee to this topic. Email-shaped identifiers (including the `Display Name <email@host>` form) are appended to `interviewee_emails`; everything else is appended to `interviewee_distinct_ids`. Idempotent — adding an identifier that's already present leaves the topic unchanged. Returns the updated topic.
+ */
+export const userInterviewTopicsAddIntervieweeCreateBodyIdentifierMax = 400
+
+export const UserInterviewTopicsAddIntervieweeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(userInterviewTopicsAddIntervieweeCreateBodyIdentifierMax)
+        .describe(
+            'Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.'
+        ),
+})
+
+/**
+ * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
+ */
+export const userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax = 400
+
+export const UserInterviewTopicsRemoveIntervieweeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax)
+        .describe(
+            'Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.'
+        ),
+})
+
+/**
  * Generate (if needed) and email a personalized public interview link to every targeted interviewee on this topic whose identifier is an email address. Distinct-ID-only interviewees are skipped and surfaced in the response. Each invite is keyed on the underlying SharingConfiguration so re-runs after token rotation produce a fresh send.
  */
 export const userInterviewTopicsSendInvitesCreateBodySubjectMax = 200
