@@ -356,29 +356,17 @@ class OAuthValidator(OAuth2Validator):
     def _save_bearer_token(self, token, request, *args, **kwargs):
         """
         Insert a new access_token row per non-rotating refresh instead of
-        overwriting the previous one.
+        overwriting the previous one. Upstream's non-rotating branch
+        SELECT FOR UPDATEs and writes over a single AccessToken row, so
+        concurrent refreshes for the same RT corrupt each others' response
+        bodies (the losing writers return a token whose DB row was just
+        overwritten by the winner, then upstream's post-grant
+        ``objects.get(token_checksum=...)`` misses and 500s).
 
-        Upstream's non-rotating branch in oauth2_provider.oauth2_validators
-        SELECT FOR UPDATEs the existing AccessToken and writes the new token
-        value over the same row. Concurrent refreshes for the same
-        refresh_token serialize on the lock but each writer overwrites the
-        row with its own freshly-generated access_token. Each request had
-        already serialized its response body before the write, so all but the
-        last writer return a body whose access_token no longer matches the
-        DB row's token. The post-grant lookup at
-        oauth2_provider/views/base.py:309 then misses → DoesNotExist → HTTP
-        500 to the caller, which Claude / MCP clients interpret as "server
-        broken" and re-authenticate.
-
-        Inserting per refresh keeps each response body's access_token
-        resolvable in the DB. The original RefreshToken stays valid (we
-        don't revoke or rotate it), preserving the non-rotating behavior.
-        We deliberately leave source_refresh_token unset on the new row:
-        OAuthAccessToken.source_refresh_token is OneToOne, so only one AT
-        per RT can hold the link. RT.access_token continues to point at the
-        original AT issued during authorization_code; subsequent
-        refresh-issued ATs are addressable by token / token_checksum but
-        carry no back-reference.
+        ``OAuthAccessToken.source_refresh_token`` is OneToOne, so only the
+        original ``authorization_code``-issued AT keeps the back-reference;
+        refresh-issued rows pass ``source_refresh_token=None`` and stay
+        addressable by token / token_checksum.
         """
         refresh_token_code = token.get("refresh_token")
         refresh_token_instance = getattr(request, "refresh_token_instance", None)
@@ -400,25 +388,17 @@ class OAuthValidator(OAuth2Validator):
         if request.grant_type == "client_credentials":
             request.user = None
 
-        # Scopes are inherited from the refresh token; the row itself carries
-        # source_refresh_token=None to avoid the OneToOne collision with the
-        # original (authorization_code-issued) access token.
-        scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
-            request, access_token=None, grant=None, refresh_token=refresh_token_instance
-        )
-        id_token = token.get("id_token", None)
-        if id_token:
-            id_token = self._load_id_token(id_token)
-        OAuthAccessToken.objects.create(
-            user=request.user,
-            scope=token.get("scope", None),
-            expires=expires,
-            token=token.get("access_token", None),
-            id_token=id_token,
-            application=request.client,
+        self._create_access_token(
+            expires,
+            request,
+            token,
             source_refresh_token=None,
-            scoped_teams=scoped_teams,
-            scoped_organizations=scoped_organizations,
+            scope_source_refresh_token=refresh_token_instance,
+        )
+        logger.info(
+            "oauth_non_rotating_refresh_inserted",
+            client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
+            refresh_token_id=str(refresh_token_instance.pk),
         )
 
     def get_additional_claims(self, request):
@@ -430,13 +410,25 @@ class OAuthValidator(OAuth2Validator):
             "sub": str(request.user.uuid),
         }
 
-    def _create_access_token(self, expires, request, token, source_refresh_token=None):
+    def _create_access_token(
+        self,
+        expires,
+        request,
+        token,
+        source_refresh_token=None,
+        scope_source_refresh_token=None,
+    ):
         id_token = token.get("id_token", None)
         if id_token:
             id_token = self._load_id_token(id_token)
 
+        # ``scope_source_refresh_token`` lets the caller inherit scopes from a
+        # refresh_token without taking the OneToOne ``source_refresh_token`` FK
+        # (needed by the non-rotating refresh path, where multiple rows share
+        # one RT but only the original can hold the back-reference).
+        scope_refresh_token = scope_source_refresh_token or source_refresh_token
         scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
-            request, access_token=None, grant=None, refresh_token=source_refresh_token
+            request, access_token=None, grant=None, refresh_token=scope_refresh_token
         )
 
         return OAuthAccessToken.objects.create(
