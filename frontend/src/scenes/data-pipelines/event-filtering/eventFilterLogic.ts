@@ -148,7 +148,6 @@ export function evaluateFilterTree(node: FilterNode, event: Record<string, strin
                 case 'contains':
                     return fieldValue.includes(node.value)
             }
-            return false
         }
         case 'and':
             // Guard: [].every() is true in JS, which would drop everything
