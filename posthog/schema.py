@@ -18119,9 +18119,10 @@ class WebOverviewQuery(BaseModel):
     overviewPrecomputationMode: WebAnalyticsOverviewPrecomputationMode | None = Field(
         default=None,
         description=(
-            "Per-query override for the WebOverview lazy-precomputation mode. When"
-            " unset, the runner consults the PostHog feature flag"
-            " `web-analytics-overview-precomputation-mode`."
+            "Per-query override for the WebOverview lazy-precomputation mode. Only"
+            " narrows behavior — `lazy` requires the team's"
+            " `TeamWebAnalyticsConfig.overview_lazy_precomputation_enabled` to also be"
+            " true; `off` disables for this query (debug bypass)."
         ),
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]

@@ -48,6 +48,7 @@ PRODUCTS_APPS = [
     "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
+    "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
     "products.conversations.backend.apps.ConversationsConfig",

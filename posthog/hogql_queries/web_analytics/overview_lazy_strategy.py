@@ -44,18 +44,13 @@ KNOWN LIMITATIONS (must be addressed before enabling for production teams)
    can pile up worker slots quickly.
    See: `_ensure_precomputed`.
 
-4. PER-QUERY OVERRIDE BYPASSES FEATURE FLAG (cost / DoS).
-   Any authenticated user can force-trigger the lazy path for their team
-   via the query field. Gate to staff-only OR require both flag + query
-   override before broadening rollout.
-
-5. CONVERSION GOALS NOT SUPPORTED.
+4. CONVERSION GOALS NOT SUPPORTED.
    Eligibility rejects `conversionGoal` queries — they use a different
    inner query shape (conversion_count / conversion_person_id) and would
    need a separate cache schema. Falls through to the existing
    live / Dagster preagg path.
 
-6. BOUNCE SEMANTICS MATCH DAGSTER, NOT LIVE.
+5. BOUNCE SEMANTICS MATCH DAGSTER, NOT LIVE.
    `bounces_count_state = sumState(_toUInt64(ifNull(is_bounce, 0)))` —
    sessions with NULL `$is_bounce` count toward the bounce-rate denominator
    as non-bounces, matching `web_pre_aggregated_bounces`. The live path's
@@ -71,7 +66,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import WebAnalyticsOverviewPrecomputationMode
 
@@ -80,11 +74,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.web_analytics.backend.models import TeamWebAnalyticsConfig
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
@@ -104,8 +100,6 @@ OVERVIEW_LAZY_TTL_SCHEDULE: dict[str, int] = {
 # Recent-range guard: ranges <= this duration that end at "now" are rejected
 # because the in-flight 1h skip would clip most of the window.
 LAZY_PRECOMPUTATION_RECENT_RANGE_BUFFER = timedelta(hours=6)
-
-OVERVIEW_LAZY_FEATURE_FLAG_KEY = "web-analytics-overview-precomputation-mode"
 
 
 class LazyPrecomputationNotReady(Exception):
@@ -206,50 +200,45 @@ def _is_eligible_for_lazy_overview(runner: WebOverviewQueryRunner) -> bool:
     return True
 
 
-def _resolve_mode_from_feature_flag(team) -> WebAnalyticsOverviewPrecomputationMode | None:
-    """Resolve the team-level mode from the PostHog feature flag.
+def _team_lazy_enabled(team) -> bool:
+    """Return True when the team has opted into WebOverview lazy precomputation.
 
-    Returns None when the flag is disabled, absent, returns "off", or an
-    unknown variant. Swallows evaluation errors so a missing flag backend
-    can't break the runner.
+    Reads `TeamWebAnalyticsConfig.overview_lazy_precomputation_enabled`. This is
+    a Django config field on a team-extension model — not a PostHog feature
+    flag — so eligibility checks don't depend on the analytics SDK being
+    reachable and operators can scope rollout per team via the admin UI.
     """
     try:
-        variant = posthoganalytics.get_feature_flag(
-            OVERVIEW_LAZY_FEATURE_FLAG_KEY,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id)},
-        )
+        config = get_or_create_team_extension(team, TeamWebAnalyticsConfig)
     except Exception:
-        logger.exception("web_analytics.overview_lazy_flag_check_failed", team_id=team.id)
-        return None
-
-    if not isinstance(variant, str) or variant == WebAnalyticsOverviewPrecomputationMode.OFF.value:
-        return None
-    try:
-        return WebAnalyticsOverviewPrecomputationMode(variant)
-    except ValueError:
-        logger.warning(
-            "web_analytics.overview_lazy_flag_unknown_variant",
-            team_id=team.id,
-            variant=variant,
-        )
-        return None
+        logger.exception("web_analytics.overview_lazy_team_config_load_failed", team_id=team.id)
+        return False
+    return bool(config.overview_lazy_precomputation_enabled)
 
 
 def resolve_lazy_overview_mode(
     runner: WebOverviewQueryRunner,
 ) -> WebAnalyticsOverviewPrecomputationMode | None:
-    """Per-query override > feature flag > None. None ⇒ fall back to existing dispatch."""
+    """Resolve which lazy mode (if any) to use for this query.
+
+    Gate is the team config flag `overview_lazy_precomputation_enabled`. Per-query
+    `overviewPrecomputationMode` only narrows from there:
+    - Team off → always None (override cannot force-enable; no DoS surface).
+    - Team on, override `OFF` → None (per-query bypass for debugging / A/B compare).
+    - Team on, override `LAZY` or unset → LAZY.
+
+    Returns None ⇒ runner falls back to its existing Dagster preagg / live dispatch.
+    """
     if not _is_eligible_for_lazy_overview(runner):
         return None
 
-    query_mode = runner.query.overviewPrecomputationMode
-    if query_mode is not None:
-        if query_mode == WebAnalyticsOverviewPrecomputationMode.OFF:
-            return None
-        return query_mode
+    if not _team_lazy_enabled(runner.team):
+        return None
 
-    return _resolve_mode_from_feature_flag(runner.team)
+    query_mode = runner.query.overviewPrecomputationMode
+    if query_mode == WebAnalyticsOverviewPrecomputationMode.OFF:
+        return None
+    return WebAnalyticsOverviewPrecomputationMode.LAZY
 
 
 class OverviewLazyStrategy:

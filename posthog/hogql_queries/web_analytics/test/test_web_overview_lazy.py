@@ -19,19 +19,27 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog.hogql_queries.web_analytics.overview_lazy_strategy import (
-    OVERVIEW_LAZY_FEATURE_FLAG_KEY,
     LazyPrecomputationNotReady,
     OverviewLazyStrategy,
     _is_eligible_for_lazy_overview,
     resolve_lazy_overview_mode,
 )
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.web_analytics.backend.models import TeamWebAnalyticsConfig
+
+
+def _set_team_config(team, enabled: bool) -> None:
+    """Toggle the WebOverview lazy-precomputation team config for a test."""
+    config = get_or_create_team_extension(team, TeamWebAnalyticsConfig)
+    config.overview_lazy_precomputation_enabled = enabled
+    config.save(update_fields=["overview_lazy_precomputation_enabled"])
 
 
 class TestWebOverviewLazyDispatch(ClickhouseTestMixin, APIBaseTest):
@@ -85,71 +93,55 @@ class TestWebOverviewLazyDispatch(ClickhouseTestMixin, APIBaseTest):
         )
         return WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers)
 
-    def _patch_feature_flag(self, variant: str | None):
-        def fake_flag(flag_key, *args, **kwargs):
-            if flag_key == OVERVIEW_LAZY_FEATURE_FLAG_KEY:
-                return variant
-            return None
-
-        return patch(
-            "posthog.hogql_queries.web_analytics.overview_lazy_strategy.posthoganalytics.get_feature_flag",
-            side_effect=fake_flag,
-        )
-
-    def test_dispatch_skipped_when_flag_off_and_no_query_override(self):
+    def test_dispatch_skipped_when_team_config_off_and_no_query_override(self):
         self._setup_two_sessions()
-        with self._patch_feature_flag("off"):
-            with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
-                with freeze_time(self.QUERY_TIMESTAMP):
-                    self._runner().calculate()
-                mock_ensure.assert_not_called()
+        _set_team_config(self.team, enabled=False)
+        with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self._runner().calculate()
+            mock_ensure.assert_not_called()
 
-    def test_dispatch_skipped_when_flag_returns_none(self):
+    def test_dispatch_skipped_when_team_config_off_even_with_lazy_override(self):
+        """Override cannot force-enable lazy — team config is the hard gate (no DoS surface)."""
         self._setup_two_sessions()
-        with self._patch_feature_flag(None):
-            with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
-                with freeze_time(self.QUERY_TIMESTAMP):
-                    self._runner().calculate()
-                mock_ensure.assert_not_called()
+        _set_team_config(self.team, enabled=False)
+        with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY).calculate()
+            mock_ensure.assert_not_called()
 
-    def test_dispatch_skipped_when_query_override_off_even_if_flag_on(self):
+    def test_dispatch_skipped_when_query_override_off_even_if_team_config_on(self):
+        """Override OFF is the per-query bypass for debugging / A/B compare."""
         self._setup_two_sessions()
-        with self._patch_feature_flag("lazy"):
-            with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
-                with freeze_time(self.QUERY_TIMESTAMP):
-                    self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.OFF).calculate()
-                mock_ensure.assert_not_called()
+        _set_team_config(self.team, enabled=True)
+        with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.OFF).calculate()
+            mock_ensure.assert_not_called()
 
-    def test_flag_drives_dispatch_when_no_query_override(self):
+    def test_team_config_drives_dispatch_when_no_query_override(self):
         self._setup_two_sessions()
-        with self._patch_feature_flag("lazy"):
-            with patch(
-                "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
-                return_value=LazyComputationResult(ready=False, job_ids=[]),
-            ) as mock_ensure:
-                with freeze_time(self.QUERY_TIMESTAMP):
-                    self._runner().calculate()
-                mock_ensure.assert_called_once()
-                assert mock_ensure.call_args.kwargs["table"] == LazyComputationTable.WEB_ANALYTICS_OVERVIEW_LAZY
+        _set_team_config(self.team, enabled=True)
+        with patch(
+            "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
+            return_value=LazyComputationResult(ready=False, job_ids=[]),
+        ) as mock_ensure:
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self._runner().calculate()
+            mock_ensure.assert_called_once()
+            assert mock_ensure.call_args.kwargs["table"] == LazyComputationTable.WEB_ANALYTICS_OVERVIEW_LAZY
 
-    def test_query_override_beats_flag(self):
+    def test_lazy_override_with_team_config_on_still_dispatches(self):
+        """Override LAZY on a team-enabled config is a no-op vs default but exercises the explicit path."""
         self._setup_two_sessions()
-        with self._patch_feature_flag(None):
-            with patch(
-                "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
-                return_value=LazyComputationResult(ready=False, job_ids=[]),
-            ) as mock_ensure:
-                with freeze_time(self.QUERY_TIMESTAMP):
-                    self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY).calculate()
-                mock_ensure.assert_called_once()
-
-    def test_flag_unknown_variant_is_ignored(self):
-        self._setup_two_sessions()
-        with self._patch_feature_flag("not_a_real_mode"):
-            with patch("posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed") as mock_ensure:
-                with freeze_time(self.QUERY_TIMESTAMP):
-                    self._runner().calculate()
-                mock_ensure.assert_not_called()
+        _set_team_config(self.team, enabled=True)
+        with patch(
+            "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
+            return_value=LazyComputationResult(ready=False, job_ids=[]),
+        ) as mock_ensure:
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY).calculate()
+            mock_ensure.assert_called_once()
 
     def test_eligibility_rejects_conversion_goal(self):
         from posthog.schema import CustomEventConversionGoal
@@ -185,22 +177,32 @@ class TestWebOverviewLazyDispatch(ClickhouseTestMixin, APIBaseTest):
             runner = WebOverviewQueryRunner(team=self.team, query=query)
             assert _is_eligible_for_lazy_overview(runner) is True
 
-    def test_resolve_mode_returns_none_for_off(self):
-        with self._patch_feature_flag(None):
-            with freeze_time(self.QUERY_TIMESTAMP):
-                runner = self._runner()
-                assert resolve_lazy_overview_mode(runner) is None
-                runner = self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.OFF)
-                assert resolve_lazy_overview_mode(runner) is None
+    def test_resolve_mode_returns_none_when_team_config_off(self):
+        _set_team_config(self.team, enabled=False)
+        with freeze_time(self.QUERY_TIMESTAMP):
+            assert resolve_lazy_overview_mode(self._runner()) is None
+            assert (
+                resolve_lazy_overview_mode(self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY)) is None
+            )
+            assert (
+                resolve_lazy_overview_mode(self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.OFF)) is None
+            )
 
-    def test_resolve_mode_query_override_wins(self):
-        with self._patch_feature_flag(None):
-            with freeze_time(self.QUERY_TIMESTAMP):
-                runner = self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY)
-                assert resolve_lazy_overview_mode(runner) == WebAnalyticsOverviewPrecomputationMode.LAZY
+    def test_resolve_mode_returns_lazy_when_team_config_on(self):
+        _set_team_config(self.team, enabled=True)
+        with freeze_time(self.QUERY_TIMESTAMP):
+            assert resolve_lazy_overview_mode(self._runner()) == WebAnalyticsOverviewPrecomputationMode.LAZY
+            assert (
+                resolve_lazy_overview_mode(self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY))
+                == WebAnalyticsOverviewPrecomputationMode.LAZY
+            )
+            assert (
+                resolve_lazy_overview_mode(self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.OFF)) is None
+            )
 
     def test_strategy_raises_not_ready_on_failure(self):
         self._setup_two_sessions()
+        _set_team_config(self.team, enabled=True)
         with patch(
             "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
             return_value=LazyComputationResult(ready=False, job_ids=[], errors=["fail"]),
@@ -214,13 +216,13 @@ class TestWebOverviewLazyDispatch(ClickhouseTestMixin, APIBaseTest):
     def test_strategy_passes_properties_placeholder(self):
         """The INSERT must receive a `properties` placeholder so filters end up in the cache key."""
         self._setup_two_sessions()
+        _set_team_config(self.team, enabled=True)
         with patch(
             "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
             return_value=LazyComputationResult(ready=False, job_ids=[]),
         ) as mock_ensure:
             with freeze_time(self.QUERY_TIMESTAMP):
                 self._runner(
-                    query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY,
                     properties=[EventPropertyFilter(key="$host", operator=PropertyOperator.EXACT, value="example.com")],
                 ).calculate()
             kwargs = mock_ensure.call_args.kwargs
@@ -230,12 +232,13 @@ class TestWebOverviewLazyDispatch(ClickhouseTestMixin, APIBaseTest):
     def test_fallback_on_not_ready_still_returns_response(self):
         """ready=False → fall through to live (or Dagster). Response shape is unchanged."""
         self._setup_two_sessions()
+        _set_team_config(self.team, enabled=True)
         with patch(
             "posthog.hogql_queries.web_analytics.overview_lazy_strategy.ensure_precomputed",
             return_value=LazyComputationResult(ready=False, job_ids=[]),
         ):
             with freeze_time(self.QUERY_TIMESTAMP):
-                response = self._runner(query_mode=WebAnalyticsOverviewPrecomputationMode.LAZY).calculate()
+                response = self._runner().calculate()
             assert response.results
             # 5 metrics for non-conversion path (visitors, views, sessions, duration, bounce_rate)
             assert len(response.results) == 5
@@ -259,6 +262,10 @@ class TestWebOverviewLazyParity(ClickhouseTestMixin, APIBaseTest):
         # find stale READY rows from the prior test.
         sync_execute("TRUNCATE TABLE IF EXISTS sharded_web_analytics_overview_lazy")
         PreaggregationJob.objects.filter(team=self.team).delete()
+
+        # Team config is the rollout gate. Tests run against an enabled team so
+        # `resolve_lazy_overview_mode` actually selects the lazy path.
+        _set_team_config(self.team, enabled=True)
 
     def _create_pageview(
         self,
@@ -335,10 +342,14 @@ class TestWebOverviewLazyParity(ClickhouseTestMixin, APIBaseTest):
         compare: bool = False,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        # The parity test compares lazy vs live. `mode=None` here means "live
+        # baseline" → force the override OFF so the team config gate doesn't
+        # auto-select lazy for both runs.
+        override = mode if mode is not None else WebAnalyticsOverviewPrecomputationMode.OFF
         query = WebOverviewQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
-            overviewPrecomputationMode=mode,
+            overviewPrecomputationMode=override,
             compareFilter=CompareFilter(compare=compare) if compare else None,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers)
