@@ -257,6 +257,8 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
 
 
 class ExperimentToSavedMetric(ModelActivityMixin, models.Model):
+    activity_logging_on_delete = True
+
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 

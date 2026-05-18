@@ -5389,6 +5389,91 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(metadata_change["before"], {"type": "primary"})
         self.assertEqual(metadata_change["after"], {"type": "primary", "breakdowns": [{"property": "country"}]})
 
+    def test_saved_metric_add_remove_does_not_log_ordering_changes(self):
+        """Adding/removing saved metrics should not create redundant ordering activity logs.
+
+        When a saved metric is added or removed, the ordering arrays are auto-synced.
+        These ordering changes are saved via QuerySet.update() to bypass activity logging,
+        since the add/remove itself is already logged.
+        """
+        # Create a saved metric
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Ordering Test Metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "test-uuid-001",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        # Create experiment without saved metrics
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Ordering Activity Test",
+                "feature_flag_key": "ordering-activity-test",
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        # Clear activity logs to start fresh
+        ActivityLog.objects.filter(item_id=str(experiment_id)).delete()
+
+        # Add a saved metric to the experiment
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}]},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Verify ordering was updated in the database
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+
+        # Check activity logs - should only have the "created" for the saved_metric_config
+        activity_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
+        self.assertEqual(activity_logs.count(), 1)
+
+        config_log = activity_logs.first()
+        assert config_log is not None
+        assert config_log.detail is not None
+        self.assertEqual(config_log.activity, "created")
+        self.assertEqual(config_log.detail.get("type"), "saved_metric_config")
+
+        # Now remove the saved metric
+        ActivityLog.objects.filter(item_id=str(experiment_id)).delete()
+
+        remove_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"saved_metrics_ids": []},
+            format="json",
+        )
+        self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
+
+        # Verify ordering was updated
+        experiment.refresh_from_db()
+        self.assertNotIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+
+        # Check activity logs - should only have the "deleted" for the saved_metric_config
+        activity_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
+        self.assertEqual(activity_logs.count(), 1)
+
+        delete_log = activity_logs.first()
+        assert delete_log is not None
+        assert delete_log.detail is not None
+        self.assertEqual(delete_log.activity, "deleted")
+        self.assertEqual(delete_log.detail.get("type"), "saved_metric_config")
+
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
