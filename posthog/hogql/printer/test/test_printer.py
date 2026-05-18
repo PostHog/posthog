@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Mapping
 from datetime import datetime
@@ -3987,6 +3988,21 @@ class TestPrinter(BaseTest):
         self.assertNotIn("$session_id_uuid", result)
 
 
+def _extract_balanced_subquery(sql: str, start_pattern: str) -> str:
+    """Extract a parenthesised subquery from `sql`, starting at the first regex match of `start_pattern`."""
+    match = re.search(start_pattern, sql)
+    assert match is not None, f"could not locate subquery /{start_pattern}/ in:\n{sql}"
+    depth = 0
+    for i in range(match.start(), len(sql)):
+        if sql[i] == "(":
+            depth += 1
+        elif sql[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return sql[match.start() + 1 : i]
+    raise AssertionError(f"unbalanced parentheses in:\n{sql}")
+
+
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
@@ -4573,9 +4589,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert "index" in str(exc_info.value).lower()
 
     def test_lower_in_optimization_on_persons(self) -> None:
-        # The user-facing query the optimization targets. The persons table pushes the WHERE filter into
-        # an IN-subquery that scans `person` directly; ClickHouse EXPLAIN does not expand a set-building
-        # IN-subquery, so index usage is verified by EXPLAINing the emitted subquery form directly.
+        # The user-facing query the optimization targets. The persons table pushes the WHERE filter into a
+        # set-building IN-subquery; ClickHouse evaluates that subquery eagerly (EXPLAIN of the outer query
+        # even shows it already resolved to a constant set), so no EXPLAIN option surfaces the subquery's
+        # own index analysis. We extract that subquery from the real generated SQL and EXPLAIN it - the
+        # index assertion runs against the actual printer output, not a hand-written query.
+        query = "SELECT id, properties.email FROM persons WHERE lower(properties.email) IN ('foo@example.com', 'bar@example.com')"
         with materialized("person", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             _create_person(
                 distinct_ids=["p_foo"], team=self.team, properties={"email": "Foo@Example.com"}, immediate=True
@@ -4590,24 +4609,29 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             # Correctness: case-insensitive match through the deduplication subquery
             result = execute_hogql_query(
                 team=self.team,
-                query=(
-                    "SELECT id, properties.email FROM persons "
-                    "WHERE lower(properties.email) IN ('foo@example.com', 'bar@example.com') "
-                    "ORDER BY properties.email"
-                ),
+                query=f"{query} ORDER BY properties.email",
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
             assert {email for (_id, email) in result.results} == {"Foo@Example.com", "bar@example.com"}
 
-            # Index usage: the printer-shape tests above pin that nullable `lower(prop) IN (...)` is emitted as
-            # `has([...], lower(coalesce(col, '')))` - verify that exact subquery form hits the skip index.
-            index_name = get_bloom_filter_lower_index_name(mat_col.name)
-            subquery = (
-                f"SELECT id FROM person WHERE team_id = {self.team.pk} "
-                f"AND has(['foo@example.com', 'bar@example.com'], lower(coalesce({mat_col.name}, '')))"
+            # Index usage: extract the person-scanning filter subquery from the real generated SQL and
+            # EXPLAIN it, proving the printer's output for the full query hits the bloom_filter_lower index.
+            executor = HogQLQueryExecutor(
+                query_type="HogQLQuery",
+                query=parse_select(query),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
-            index_info = get_index_from_explain(subquery, index_name)
-            assert index_info is not None, f"Expected skip index {index_name} to be used for:\n{subquery}"
+            clickhouse_sql, _ = executor.generate_clickhouse_sql()
+            assert executor.clickhouse_context is not None
+            subquery = _extract_balanced_subquery(clickhouse_sql, r"\(\s*SELECT\s+where_optimization")
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            index_info = get_index_from_explain(
+                subquery, index_name, placeholder_values=executor.clickhouse_context.values
+            )
+            assert index_info is not None, (
+                f"Expected skip index {index_name} to be used in the persons filter subquery:\n{subquery}"
+            )
 
     def test_lower_in_uses_bloom_filter_lower_index_on_events(self) -> None:
         # Events are a single direct scan, so EXPLAIN exposes the skip index (the persons dedup hides it in an
