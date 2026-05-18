@@ -5,12 +5,19 @@ import {
     AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
+    HogQLAlertConfig,
     InsightThreshold,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
-export type AlertConfig = TrendsAlertConfig
+export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig
+
+export const isTrendsAlertConfig = (config: AlertConfig): config is TrendsAlertConfig =>
+    config.type === 'TrendsAlertConfig'
+
+export const isHogQLAlertConfig = (config: AlertConfig): config is HogQLAlertConfig =>
+    config.type === 'HogQLAlertConfig'
 
 export type BlockedWindow = AlertScheduleRestrictionWindow
 

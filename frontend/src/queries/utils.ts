@@ -220,6 +220,17 @@ export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQu
     return node?.kind === NodeKind.HogQLQuery
 }
 
+/** Returns true when `node` is a HogQLQuery, or a DataTableNode/DataVisualizationNode wrapping one. */
+export function isHogQLBackedQuery(node?: Record<string, any> | null): boolean {
+    if (!node) {
+        return false
+    }
+    if (isHogQLQuery(node)) {
+        return true
+    }
+    return (isDataTableNode(node) || isDataVisualizationNode(node)) && isHogQLQuery(node.source)
+}
+
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
 }

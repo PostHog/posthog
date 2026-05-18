@@ -239,7 +239,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         has_lower_bound = threshold_bounds.get("lower") is not None if has_threshold else False
         has_upper_bound = threshold_bounds.get("upper") is not None if has_threshold else False
 
-        trends_config = self.config if isinstance(self.config, dict) else {}
+        config_dict = self.config if isinstance(self.config, dict) else {}
+        alert_config_type = config_dict.get("type")
+        trends_config = config_dict if alert_config_type == "TrendsAlertConfig" else {}
 
         subscribed_users_count: int | None = None
         if self.pk is not None:
@@ -257,6 +259,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "threshold_type": threshold_type,
             "has_lower_bound": has_lower_bound,
             "has_upper_bound": has_upper_bound,
+            "alert_config_type": alert_config_type,
+            "alert_query_kind": self._underlying_query_kind(),
             "trends_series_index": trends_config.get("series_index"),
             "trends_check_ongoing_interval": trends_config.get("check_ongoing_interval"),
             "subscribed_users_count": subscribed_users_count,
@@ -265,6 +269,15 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "has_preprocessing": has_preprocessing,
             "schedule_restriction_blocked_window_count": blocked_window_count,
         }
+
+    def _underlying_query_kind(self) -> str | None:
+        """Unwraps the insight's query through any DataTable/DataVisualization/InsightVizNode wrapper
+        and returns the innermost kind (TrendsQuery / HogQLQuery / …). None if the insight or query is absent."""
+        insight = self.insight if self.insight_id else None
+        query = getattr(insight, "query", None) if insight is not None else None
+        while isinstance(query, dict) and query.get("source"):
+            query = query["source"]
+        return query.get("kind") if isinstance(query, dict) else None
 
     def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
         from posthog.event_usage import report_user_action
@@ -275,6 +288,11 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         from posthog.event_usage import report_user_action
 
         report_user_action(user, "alert updated", self._get_event_properties(), analytics_props=analytics_props)
+
+    def report_deleted(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert deleted", self._get_event_properties(), analytics_props=analytics_props)
 
     @classmethod
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:

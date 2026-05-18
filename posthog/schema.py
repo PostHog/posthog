@@ -8907,6 +8907,13 @@ class TrendsAlertConfig(BaseModel):
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 
+class HogQLAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

@@ -4316,6 +4316,12 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+/** Alert config for HogQL/SQL-backed insights. Empty by design — the query owns its own time window and the
+ * alert evaluates the last row of the single-column result. */
+export interface HogQLAlertConfig {
+    type: 'HogQLAlertConfig'
+}
+
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
 export interface AlertScheduleRestrictionWindow {
     start: string

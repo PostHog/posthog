@@ -24,6 +24,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { alphabet, formatDate } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -34,6 +35,7 @@ import {
     AlertState,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
+import { isHogQLBackedQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic, canCheckOngoingInterval, getDefaultSimulationRange } from '../alertFormLogic'
@@ -42,7 +44,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
-import type { AlertType } from '../types'
+import { isHogQLAlertConfig, isTrendsAlertConfig, type AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 import { DetectorSelector, getDefaultWindow } from './DetectorSelector'
@@ -119,6 +121,14 @@ export function EditAlertModal({
     const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
     const { alert, alertLoading } = useValues(_alertLogic)
 
+    // For new alerts, fall back to the bound insightLogic to read the query kind. doNotLoad keeps this from
+    // triggering a second fetch when our key differs from the caller's instance.
+    const boundInsight = useValues(
+        insightLogic(insightLogicProps ?? { dashboardItemId: insightShortId, doNotLoad: true })
+    ).insight
+    const insightQuery = alert?.insight?.query ?? boundInsight?.query ?? null
+    const isHogQLBackedInsight = isHogQLBackedQuery(insightQuery)
+
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
     const _onEditSuccess = useCallback(
         (alertId: AlertType['id'] | undefined) => {
@@ -143,6 +153,7 @@ export function EditAlertModal({
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         historyChartEnabled: alertsHistoryChartEnabled,
+        isHogQLBackedInsight,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -182,8 +193,10 @@ export function EditAlertModal({
     }, [insightLogicProps, insightId])
 
     const creatingNewAlert = alertForm.id === undefined
+    const isHogQLAlert = isHogQLAlertConfig(alertForm.config)
+    const trendsConfig = isTrendsAlertConfig(alertForm.config) ? alertForm.config : null
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
-    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
+    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm) && !!trendsConfig
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
@@ -205,7 +218,7 @@ export function EditAlertModal({
 
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = 0
-        if (can_check_ongoing_interval && alertForm.config.check_ongoing_interval) {
+        if (can_check_ongoing_interval && trendsConfig?.check_ongoing_interval) {
             n += 1
         }
         if (
@@ -221,7 +234,7 @@ export function EditAlertModal({
         return n
     }, [
         alertForm.calculation_interval,
-        alertForm.config.check_ongoing_interval,
+        trendsConfig?.check_ongoing_interval,
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
@@ -276,7 +289,14 @@ export function EditAlertModal({
                             <div className="deprecated-space-y-3">
                                 <h3 className="mb-0">Definition</h3>
                                 <div className="deprecated-space-y-3">
-                                    {isBreakdownValid && (
+                                    {isHogQLAlert && (
+                                        <LemonBanner type="info">
+                                            This alert evaluates the last row of the first column returned by your SQL
+                                            query. For relative conditions, the last row is compared against the
+                                            previous row — make sure your query returns rows ordered chronologically.
+                                        </LemonBanner>
+                                    )}
+                                    {!isHogQLAlert && isBreakdownValid && (
                                         <LemonBanner type="warning">
                                             {alertMode === 'detector'
                                                 ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
@@ -285,42 +305,53 @@ export function EditAlertModal({
                                     )}
                                     <div className="flex gap-3 items-center">
                                         <div>When</div>
-                                        <Group name={['config']}>
-                                            <LemonField name="series_index" className="flex-auto">
-                                                <LemonSelect
-                                                    fullWidth
-                                                    data-attr="alertForm-series-index"
-                                                    options={
-                                                        formulaNodes?.length > 0
-                                                            ? formulaNodes.map(({ formula, custom_name }, index) => ({
-                                                                  label: `${
-                                                                      custom_name ? custom_name : 'Formula'
-                                                                  } (${formula})`,
-                                                                  value: index,
-                                                              }))
-                                                            : (alertSeries?.map(
-                                                                  ({ custom_name, name, event }, index) => ({
-                                                                      label: isBreakdownValid
-                                                                          ? 'any breakdown value'
-                                                                          : `${alphabet[index]} - ${
-                                                                                custom_name ?? name ?? event
-                                                                            }`,
-                                                                      value: isBreakdownValid ? 0 : index,
-                                                                  })
-                                                              ) ?? [])
-                                                    }
-                                                    disabledReason={
-                                                        isBreakdownValid &&
-                                                        (alertMode === 'detector'
-                                                            ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                                                            : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
-                                                    }
-                                                />
-                                            </LemonField>
-                                        </Group>
+                                        {isHogQLAlert ? (
+                                            <div
+                                                className="flex-auto text-muted"
+                                                data-attr="alertForm-hogql-series-placeholder"
+                                            >
+                                                the SQL query result
+                                            </div>
+                                        ) : (
+                                            <Group name={['config']}>
+                                                <LemonField name="series_index" className="flex-auto">
+                                                    <LemonSelect
+                                                        fullWidth
+                                                        data-attr="alertForm-series-index"
+                                                        options={
+                                                            formulaNodes?.length > 0
+                                                                ? formulaNodes.map(
+                                                                      ({ formula, custom_name }, index) => ({
+                                                                          label: `${
+                                                                              custom_name ? custom_name : 'Formula'
+                                                                          } (${formula})`,
+                                                                          value: index,
+                                                                      })
+                                                                  )
+                                                                : (alertSeries?.map(
+                                                                      ({ custom_name, name, event }, index) => ({
+                                                                          label: isBreakdownValid
+                                                                              ? 'any breakdown value'
+                                                                              : `${alphabet[index]} - ${
+                                                                                    custom_name ?? name ?? event
+                                                                                }`,
+                                                                          value: isBreakdownValid ? 0 : index,
+                                                                      })
+                                                                  ) ?? [])
+                                                        }
+                                                        disabledReason={
+                                                            isBreakdownValid &&
+                                                            (alertMode === 'detector'
+                                                                ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+                                                                : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
+                                                        }
+                                                    />
+                                                </LemonField>
+                                            </Group>
+                                        )}
                                     </div>
 
-                                    {anomalyDetectionEnabled && (
+                                    {anomalyDetectionEnabled && !isHogQLAlert && (
                                         <LemonSegmentedButton
                                             fullWidth
                                             value={alertMode}
@@ -370,15 +401,17 @@ export function EditAlertModal({
                                                                 label: 'increases by',
                                                                 value: AlertConditionType.RELATIVE_INCREASE,
                                                                 disabledReason:
-                                                                    isNonTimeSeriesDisplay &&
-                                                                    'This condition is only supported for time series trends',
+                                                                    !isHogQLAlert && isNonTimeSeriesDisplay
+                                                                        ? 'This condition is only supported for time series trends'
+                                                                        : undefined,
                                                             },
                                                             {
                                                                 label: 'decreases by',
                                                                 value: AlertConditionType.RELATIVE_DECREASE,
                                                                 disabledReason:
-                                                                    isNonTimeSeriesDisplay &&
-                                                                    'This condition is only supported for time series trends',
+                                                                    !isHogQLAlert && isNonTimeSeriesDisplay
+                                                                        ? 'This condition is only supported for time series trends'
+                                                                        : undefined,
                                                             },
                                                         ]}
                                                     />
@@ -623,27 +656,32 @@ export function EditAlertModal({
                                                 }))}
                                             />
                                         </LemonField>
-                                        <div>
-                                            and check {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}
-                                        </div>
-                                        <LemonSelect
-                                            fullWidth
-                                            className="w-28"
-                                            data-attr="alertForm-trend-interval"
-                                            disabledReason={
-                                                <>
-                                                    To change the interval being checked, edit and <b>save</b> the
-                                                    interval which the insight is 'grouped by'
-                                                </>
-                                            }
-                                            value={trendInterval ?? 'day'}
-                                            options={[
-                                                {
-                                                    label: trendInterval ?? 'day',
-                                                    value: trendInterval ?? 'day',
-                                                },
-                                            ]}
-                                        />
+                                        {!isHogQLAlert && (
+                                            <>
+                                                <div>
+                                                    and check{' '}
+                                                    {trendsConfig?.check_ongoing_interval ? 'current' : 'last'}
+                                                </div>
+                                                <LemonSelect
+                                                    fullWidth
+                                                    className="w-28"
+                                                    data-attr="alertForm-trend-interval"
+                                                    disabledReason={
+                                                        <>
+                                                            To change the interval being checked, edit and <b>save</b>{' '}
+                                                            the interval which the insight is 'grouped by'
+                                                        </>
+                                                    }
+                                                    value={trendInterval ?? 'day'}
+                                                    options={[
+                                                        {
+                                                            label: trendInterval ?? 'day',
+                                                            value: trendInterval ?? 'day',
+                                                        },
+                                                    ]}
+                                                />
+                                            </>
+                                        )}
                                     </div>
                                     {!creatingNewAlert && alert ? (
                                         <div className="text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0">
@@ -739,32 +777,34 @@ export function EditAlertModal({
                                             },
                                             content: (
                                                 <div className="space-y-2">
-                                                    <Group name={['config']}>
-                                                        <div className="flex gap-1">
-                                                            <LemonField name="check_ongoing_interval">
-                                                                <LemonCheckbox
-                                                                    checked={
-                                                                        can_check_ongoing_interval &&
-                                                                        alertForm?.config.check_ongoing_interval
-                                                                    }
-                                                                    data-attr="alertForm-check-ongoing-interval"
-                                                                    fullWidth
-                                                                    label="Check ongoing period"
-                                                                    disabledReason={
-                                                                        !can_check_ongoing_interval &&
-                                                                        'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
-                                                                    }
-                                                                />
-                                                            </LemonField>
-                                                            <Tooltip
-                                                                title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
-                                                                placement="right"
-                                                                delayMs={0}
-                                                            >
-                                                                <IconInfo />
-                                                            </Tooltip>
-                                                        </div>
-                                                    </Group>
+                                                    {trendsConfig && (
+                                                        <Group name={['config']}>
+                                                            <div className="flex gap-1">
+                                                                <LemonField name="check_ongoing_interval">
+                                                                    <LemonCheckbox
+                                                                        checked={
+                                                                            can_check_ongoing_interval &&
+                                                                            trendsConfig.check_ongoing_interval
+                                                                        }
+                                                                        data-attr="alertForm-check-ongoing-interval"
+                                                                        fullWidth
+                                                                        label="Check ongoing period"
+                                                                        disabledReason={
+                                                                            !can_check_ongoing_interval &&
+                                                                            'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
+                                                                        }
+                                                                    />
+                                                                </LemonField>
+                                                                <Tooltip
+                                                                    title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </div>
+                                                        </Group>
+                                                    )}
                                                     <LemonField name="skip_weekend">
                                                         <LemonCheckbox
                                                             checked={

@@ -20573,6 +20573,18 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
+        "HogQLAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for HogQL/SQL-backed insights. Empty by design — the query owns its own time window and the alert evaluates the last row of the single-column result.",
+            "properties": {
+                "type": {
+                    "const": "HogQLAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {

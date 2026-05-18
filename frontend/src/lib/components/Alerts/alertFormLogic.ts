@@ -21,7 +21,14 @@ import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
-import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
+import {
+    AlertConfig,
+    AlertSimulationResult,
+    AlertType,
+    AlertTypeWrite,
+    AnomalyPoint,
+    isTrendsAlertConfig,
+} from './types'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -77,6 +84,19 @@ export interface AlertFormLogicProps {
     insightInterval?: IntervalType
     /** Must match the `alertLogic` instance keyed on the same alertId — read from `useFeatureFlag('ALERTS_HISTORY_CHART')` in the parent. */
     historyChartEnabled: boolean
+    /** When true, new alerts default to HogQLAlertConfig instead of TrendsAlertConfig. */
+    isHogQLBackedInsight?: boolean
+}
+
+const defaultConfigForInsight = (isHogQLBacked: boolean): AlertConfig => {
+    if (isHogQLBacked) {
+        return { type: 'HogQLAlertConfig' }
+    }
+    return {
+        type: 'TrendsAlertConfig',
+        series_index: 0,
+        check_ongoing_interval: false,
+    }
 }
 
 /**
@@ -207,11 +227,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     created_by: null,
                     created_at: '',
                     enabled: true,
-                    config: {
-                        type: 'TrendsAlertConfig',
-                        series_index: 0,
-                        check_ongoing_interval: false,
-                    },
+                    config: defaultConfigForInsight(!!props.isHogQLBackedInsight),
                     threshold: {
                         configuration: {
                             type: InsightThresholdType.ABSOLUTE,
@@ -247,11 +263,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
                             alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
                         alert.skip_weekend,
-                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
-                    config: {
-                        ...alert.config,
-                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
-                    },
+                    // only TrendsAlertConfig has check_ongoing_interval; HogQLAlertConfig passes through unchanged.
+                    config: isTrendsAlertConfig(alert.config)
+                        ? {
+                              ...alert.config,
+                              check_ongoing_interval:
+                                  canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
+                          }
+                        : alert.config,
                     detector_config: alert.detector_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config

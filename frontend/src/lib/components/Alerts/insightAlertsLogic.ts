@@ -2,11 +2,13 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery, hasBreakdownFilter } from '~/queries/utils'
+import { hasBreakdownFilter, isHogQLBackedQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -23,8 +25,17 @@ export interface InsightAlertsLogicProps {
     deferInitialAlertsLoad?: boolean
 }
 
-export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
-    return !!query && isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null
+export const areAlertsSupportedForInsight = (
+    query?: Record<string, any> | null,
+    options: { hogqlAlertsEnabled?: boolean } = {}
+): boolean => {
+    if (!query) {
+        return false
+    }
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
+        return true
+    }
+    return !!options.hogqlAlertsEnabled && isHogQLBackedQuery(query)
 }
 
 export const insightAlertsLogic = kea<insightAlertsLogicType>([
@@ -47,6 +58,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             ['showAlertThresholdLines', 'breakdownFilter'],
             insightLogic(props.insightLogicProps),
             ['insight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -204,7 +217,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
+            const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
+            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)

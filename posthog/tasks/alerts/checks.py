@@ -12,7 +12,7 @@ from celery.canvas import chain
 from dateutil.relativedelta import relativedelta
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
+from posthog.schema import AlertCalculationInterval, AlertState, HogQLQuery, TrendsQuery
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
@@ -25,6 +25,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.alerts.detector import check_trends_alert_with_detector
+from posthog.tasks.alerts.hogql import check_hogql_alert
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
@@ -432,6 +433,9 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
                 if alert.detector_config:
                     return check_trends_alert_with_detector(alert, insight, query, alert.detector_config)
                 return check_trends_alert(alert, insight, query)
+            case "HogQLQuery":
+                query = HogQLQuery.model_validate(query)
+                return check_hogql_alert(alert, insight, query)
             case _:
                 raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
 
