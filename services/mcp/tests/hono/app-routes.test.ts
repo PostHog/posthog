@@ -112,7 +112,6 @@ describe('Hono App Routes', () => {
         })
     })
 
-
     describe('OAuth Protected Resource Metadata', () => {
         it('should return metadata for bare /.well-known/oauth-protected-resource', async () => {
             const { app } = createApp(mockRedis)
@@ -300,7 +299,7 @@ describe('Hono App Routes', () => {
             expect(res.status).toBe(405)
         })
 
-        it('should return 404 for DELETE with non-existent session', async () => {
+        it('should return 405 for DELETE (stateless, no session management)', async () => {
             const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'DELETE',
@@ -309,7 +308,7 @@ describe('Hono App Routes', () => {
                     'mcp-session-id': 'non-existent',
                 },
             })
-            expect(res.status).toBe(404)
+            expect(res.status).toBe(405)
         })
     })
 
