@@ -81,6 +81,11 @@ ENTITIES = [f"{entity}" for entity in EntityKind]
 SearchKind = Literal["docs", "business-knowledge", *ENTITIES]  # type: ignore
 
 
+def _sanitize_for_system_reminder(text: str) -> str:
+    """Remove closing tags that could escape <system_reminder> framing."""
+    return text.replace("</system_reminder>", "&lt;/system_reminder&gt;")
+
+
 class SearchToolArgs(BaseModel):
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
@@ -184,8 +189,10 @@ class SearchTool(MaxTool):
 
         chunks = []
         for r in results:
-            heading = r.heading_path or r.document_title or "Untitled"
-            chunks.append(f"# {r.source_name} — {heading}\n\n{r.content}")
+            heading = _sanitize_for_system_reminder(r.heading_path or r.document_title or "Untitled")
+            source_name = _sanitize_for_system_reminder(r.source_name)
+            content = _sanitize_for_system_reminder(r.content)
+            chunks.append(f"# {source_name} — {heading}\n\n{content}")
 
         formatted = "\n\n---\n\n".join(chunks)
         header = BK_SEARCH_RESULTS_HEADER.format(count=len(results))
@@ -277,7 +284,7 @@ class InkeepDocsSearchTool(MaxSubtool):
 BUSINESS_KNOWLEDGE_SEARCH_PROMPT = """
 # Business knowledge search
 
-Use `kind="business_knowledge"` to search the project's custom knowledge base.
+Use `kind="business-knowledge"` to search the project's custom knowledge base.
 This knowledge base contains business-specific information uploaded by the project owner —
 such as product documentation, support policies, internal guides, and FAQs.
 

@@ -17,7 +17,7 @@ SUPPORT_TONE_PROMPT = """
 SUPPORT_TOOL_USAGE_PROMPT = """
 ## Tool Usage
 
-- **Always search business knowledge first.** Before composing any reply, use `search` with `kind="business_knowledge"` (if available — check the tool description for available kinds). The knowledge base may contain policies or context relevant to this conversation.
+- **Always search business knowledge first.** Before composing any reply, use `search` with `kind="business-knowledge"` (if available — check the tool description for available kinds). The knowledge base may contain policies or context relevant to this conversation.
 - Use `read_taxonomy` to understand what events and properties exist in the customer's project.
 - Use `read_data` with `kind="person"` to look up the customer's person record, or other kinds to look up billing, insights, dashboards, etc.
 - Use `search` with `kind="docs"` to search the PostHog documentation for answers.
