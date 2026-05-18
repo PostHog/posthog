@@ -142,6 +142,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
+        processed_sync_from_value = process_incremental_value(
+            schema.sync_from_value,
+            schema.sync_from_field_type,
+        )
+
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -160,6 +165,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
+                sync_from_field=schema.sync_from_field,
+                sync_from_field_type=schema.sync_from_field_type,
+                sync_from_value=processed_sync_from_value,
             )
 
             new_source = SourceRegistry.get_source(source_type)

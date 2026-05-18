@@ -315,4 +315,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             chunk_size_override=schema.chunk_size_override,
+            sync_from_field=inputs.sync_from_field,
+            sync_from_value=inputs.sync_from_value,
         )

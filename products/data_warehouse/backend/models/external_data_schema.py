@@ -61,7 +61,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "sync_from": { "field": str, "field_type": str, "value": any } | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -152,6 +152,29 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return self.sync_type_config.get("incremental_field_earliest_value", None)
 
         return None
+
+    @property
+    def sync_from(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            value = self.sync_type_config.get("sync_from")
+            if isinstance(value, dict):
+                return value
+        return None
+
+    @property
+    def sync_from_field(self) -> str | None:
+        sf = self.sync_from
+        return sf.get("field") if sf else None
+
+    @property
+    def sync_from_field_type(self) -> IncrementalFieldType | None:
+        sf = self.sync_from
+        return sf.get("field_type") if sf else None
+
+    @property
+    def sync_from_value(self) -> Any:
+        sf = self.sync_from
+        return sf.get("value") if sf else None
 
     @property
     def reset_pipeline(self) -> bool:
@@ -272,6 +295,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("backfilled_partition_format", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
+        # We don't reset sync_from — the filter is intentionally durable across resets
 
         self.initial_sync_complete = False
 

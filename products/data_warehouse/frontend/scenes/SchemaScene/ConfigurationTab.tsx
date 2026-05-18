@@ -23,7 +23,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema, IncrementalField } from '~/types'
 
 import {
     SyncMethodForm,
@@ -69,6 +69,8 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
             )
         case 'sync-method':
             return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+        case 'sync-from':
+            return <SyncFromSection sourceId={sourceId} source={source} schema={schema} />
         case 'schedule':
             return (
                 <ScheduleSection
@@ -383,6 +385,156 @@ function SyncMethodSection({
                         disabledReason={accessDisabledReason ?? saveDisabledReason}
                         onClick={() => formRef.current?.triggerSave()}
                     >
+                        Save
+                    </LemonButton>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function SyncFromSection({
+    sourceId,
+    source,
+    schema,
+}: {
+    sourceId: string
+    source: ExternalDataSource | null
+    schema: ExternalDataSourceSchema
+}): JSX.Element {
+    const logic = syncMethodModalLogic({ schema })
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
+    const { loadSchemaIncrementalFields } = useActions(logic)
+    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
+
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+
+    useEffect(() => {
+        loadSchemaIncrementalFields(schema.id)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [schema.id])
+
+    const [field, setField] = useState<string | null>(schema.sync_from_field ?? null)
+    const [fieldType, setFieldType] = useState<string | null>(schema.sync_from_field_type ?? null)
+    const [value, setValue] = useState<string>(schema.sync_from_value ?? '')
+    const [saving, setSaving] = useState(false)
+
+    const incrementalFields: IncrementalField[] = schemaIncrementalFields?.incremental_fields ?? []
+    const fieldOptions: LemonSelectOption<string>[] = incrementalFields.map((f: IncrementalField) => ({
+        value: f.field,
+        label: f.label ?? f.field,
+    }))
+
+    const loading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
+    const hasExisting = !!schema.sync_from_field
+
+    const onFieldChange = (next: string | null): void => {
+        setField(next)
+        if (!next) {
+            setFieldType(null)
+            return
+        }
+        const matched = incrementalFields.find((f: IncrementalField) => f.field === next)
+        setFieldType(matched?.field_type ?? null)
+    }
+
+    const save = async (): Promise<void> => {
+        const allSet = !!field && !!fieldType && value.trim() !== ''
+        const allCleared = !field && !fieldType && value.trim() === ''
+        if (!allSet && !allCleared) {
+            lemonToast.error('Pick a column and enter a value, or clear all fields to remove the filter')
+            return
+        }
+        setSaving(true)
+        try {
+            await api.externalDataSchemas.update(schema.id, {
+                sync_from_field: allSet ? field : null,
+                sync_from_field_type: allSet ? fieldType : null,
+                sync_from_value: allSet ? value.trim() : null,
+            })
+            lemonToast.success(allSet ? 'Sync-from filter saved' : 'Sync-from filter cleared')
+            loadSource()
+        } catch (e: any) {
+            lemonToast.error(e?.message || "Can't save sync-from filter at this time")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const clear = (): void => {
+        setField(null)
+        setFieldType(null)
+        setValue('')
+    }
+
+    const valuePlaceholder =
+        fieldType === 'datetime' || fieldType === 'timestamp'
+            ? '2025-01-01T00:00:00'
+            : fieldType === 'date'
+              ? '2025-01-01'
+              : fieldType === 'integer' || fieldType === 'numeric'
+                ? '0'
+                : 'Value'
+
+    return (
+        <div>
+            <SectionHeader
+                title="Sync from"
+                description="Cap how far back the source syncs. When set, only rows where the chosen column is greater than or equal to this value are pulled — applied to every sync, including initial historical load and reset."
+            />
+            <div className="border rounded p-4 bg-surface-primary">
+                {loading && (
+                    <div className="deprecated-space-y-2">
+                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton.Row repeat={2} />
+                    </div>
+                )}
+                {!loading && schemaIncrementalFields && (
+                    <fieldset disabled={!!accessDisabledReason} className="deprecated-space-y-3">
+                        {fieldOptions.length === 0 ? (
+                            <p className="text-sm text-secondary">
+                                This table has no columns eligible for a sync-from filter. Eligible columns must be
+                                DateTime, Date, Integer, or Numeric.
+                            </p>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Column</label>
+                                    <LemonSelect
+                                        value={field}
+                                        onChange={onFieldChange}
+                                        options={fieldOptions}
+                                        placeholder="Pick a column"
+                                        allowClear
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">From value</label>
+                                    <LemonInput
+                                        value={value}
+                                        onChange={setValue}
+                                        placeholder={valuePlaceholder}
+                                        disabled={!field}
+                                    />
+                                    {field && (
+                                        <p className="text-xs text-secondary mt-1">
+                                            Detected type: <code>{fieldType ?? 'unknown'}</code>
+                                        </p>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </fieldset>
+                )}
+            </div>
+            {!loading && schemaIncrementalFields && fieldOptions.length > 0 && (
+                <div className="mt-4 flex justify-end gap-2">
+                    {hasExisting && (
+                        <LemonButton type="secondary" disabledReason={accessDisabledReason} onClick={clear}>
+                            Clear
+                        </LemonButton>
+                    )}
+                    <LemonButton type="primary" loading={saving} disabledReason={accessDisabledReason} onClick={save}>
                         Save
                     </LemonButton>
                 </div>

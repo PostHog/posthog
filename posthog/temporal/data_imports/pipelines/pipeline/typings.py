@@ -56,6 +56,9 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    sync_from_field: Optional[str] = None
+    sync_from_field_type: Optional[IncrementalFieldType] = None
+    sync_from_value: Optional[Any] = None
 
 
 class PipelineResult(TypedDict):

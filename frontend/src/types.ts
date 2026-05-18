@@ -5886,6 +5886,9 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    sync_from_field?: string | null
+    sync_from_field_type?: string | null
+    sync_from_value?: string | null
 }
 
 export enum ExternalDataSchemaStatus {

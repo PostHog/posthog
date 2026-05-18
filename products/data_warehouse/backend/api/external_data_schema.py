@@ -106,6 +106,31 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    sync_from_field = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional column used to cap how far back the source syncs. When set, only rows where "
+            "this column is greater than or equal to sync_from_value are pulled — applied on every "
+            "sync (initial historical, incremental, and reset). Must be one of the table's "
+            "incremental-eligible columns. Set together with sync_from_field_type and sync_from_value."
+        ),
+    )
+    sync_from_field_type = serializers.ChoiceField(
+        choices=[(e.value, e.value) for e in IncrementalFieldType],
+        required=False,
+        allow_null=True,
+        help_text="Data type of sync_from_field, used to coerce sync_from_value to the correct type.",
+    )
+    sync_from_value = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Lower-bound value paired with sync_from_field. For DateTime/Date/Timestamp fields, an "
+            "ISO 8601 string. For Integer/Numeric fields, a stringified number. Rows below this "
+            "value are excluded from every sync."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSchema
@@ -128,6 +153,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "sync_from_field",
+            "sync_from_field_type",
+            "sync_from_value",
         ]
 
         read_only_fields = [
@@ -182,6 +210,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         )
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
+        sync_from = instance.sync_from
+        ret["sync_from_field"] = sync_from.get("field") if sync_from else None
+        ret["sync_from_field_type"] = sync_from.get("field_type") if sync_from else None
+        sync_from_value = sync_from.get("value") if sync_from else None
+        ret["sync_from_value"] = str(sync_from_value) if sync_from_value is not None else None
         return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
@@ -203,6 +236,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("incremental_field_type", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
+        validated_data.pop("sync_from_field", None)
+        validated_data.pop("sync_from_field_type", None)
+        validated_data.pop("sync_from_value", None)
 
         sync_type = data.get("sync_type")
 
@@ -283,6 +319,41 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     payload = instance.sync_type_config
                     payload["cdc_table_mode"] = cdc_table_mode
                     validated_data["sync_type_config"] = payload
+
+        # sync_from filter — applies on every run (initial historical, incremental, reset)
+        # regardless of sync_type. All three fields must be set together; passing any as null
+        # clears the filter.
+        sync_from_keys = ("sync_from_field", "sync_from_field_type", "sync_from_value")
+        if any(k in data for k in sync_from_keys):
+            sync_from_field_value = data.get("sync_from_field")
+            sync_from_field_type_value = data.get("sync_from_field_type")
+            sync_from_value_value = data.get("sync_from_value")
+
+            all_set = (
+                sync_from_field_value is not None
+                and sync_from_field_type_value is not None
+                and sync_from_value_value is not None
+            )
+            all_cleared = (
+                sync_from_field_value is None and sync_from_field_type_value is None and sync_from_value_value is None
+            )
+
+            if not (all_set or all_cleared):
+                raise ValidationError(
+                    "sync_from_field, sync_from_field_type, and sync_from_value must all be set together, "
+                    "or all be null to clear the filter."
+                )
+
+            payload = validated_data.get("sync_type_config", instance.sync_type_config)
+            if all_set:
+                payload["sync_from"] = {
+                    "field": sync_from_field_value,
+                    "field_type": sync_from_field_type_value,
+                    "value": sync_from_value_value,
+                }
+            else:
+                payload.pop("sync_from", None)
+            validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)

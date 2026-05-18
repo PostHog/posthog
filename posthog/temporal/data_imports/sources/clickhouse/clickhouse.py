@@ -766,6 +766,8 @@ def _get_incremental_row_count(
     incremental_field: str,
     last_value: Any,
     logger: FilteringBoundLogger,
+    sync_from_field: Optional[str] = None,
+    sync_from_value: Any = None,
 ) -> int | None:
     """Count rows the incremental sync will actually pull.
 
@@ -776,11 +778,16 @@ def _get_incremental_row_count(
     back to the total-table count.
     """
     quoted_field = _quote_identifier(incremental_field)
-    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > %(last_value)s"
+    where_parts = [f"{quoted_field} > %(last_value)s"]
+    parameters: dict[str, Any] = {"last_value": last_value}
+    if sync_from_field is not None and sync_from_value is not None:
+        where_parts.append(f"{_quote_identifier(sync_from_field)} >= %(sync_from)s")
+        parameters["sync_from"] = sync_from_value
+    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {' AND '.join(where_parts)}"
     try:
         result = client.query(
             query,
-            parameters={"last_value": last_value},
+            parameters=parameters,
             settings={"max_execution_time": 30},
         )
     except ClickHouseError as e:
@@ -893,6 +900,7 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
+    sync_from_field: Optional[str] = None,
 ) -> str:
     """Build the data extraction query.
 
@@ -900,18 +908,30 @@ def _build_query(
     value directly — only identifiers (which are validated) end up in the
     SQL string. Column types ClickHouse can't emit as Arrow (UUID, IPv4,
     enums, arrays, ...) are wrapped in toString() to avoid error 50.
+
+    When `sync_from_field` is set, the query gains a `WHERE field >= %(sync_from)s`
+    clause that's applied on every run (full refresh, incremental, or reset),
+    so users can cap historical backfill to a chosen floor.
     """
     qualified = _qualified_table(database, table_name)
     select_list = _build_select_list(columns)
 
-    if not should_use_incremental_field:
-        return f"SELECT {select_list} FROM {qualified}"
+    where_parts: list[str] = []
 
-    if incremental_field is None:
-        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
+    if should_use_incremental_field:
+        if incremental_field is None:
+            raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
+        where_parts.append(f"{_quote_identifier(incremental_field)} > %(last_value)s")
 
-    quoted_field = _quote_identifier(incremental_field)
-    return f"SELECT {select_list} FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC"
+    if sync_from_field is not None:
+        where_parts.append(f"{_quote_identifier(sync_from_field)} >= %(sync_from)s")
+
+    sql = f"SELECT {select_list} FROM {qualified}"
+    if where_parts:
+        sql += " WHERE " + " AND ".join(where_parts)
+    if should_use_incremental_field and incremental_field is not None:
+        sql += f" ORDER BY {_quote_identifier(incremental_field)} ASC"
+    return sql
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -961,6 +981,8 @@ def clickhouse_source(
     chunk_size_override: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    sync_from_field: Optional[str] = None,
+    sync_from_value: Optional[Any] = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1031,6 +1053,8 @@ def clickhouse_source(
                     incremental_field,
                     db_incremental_field_last_value,
                     logger,
+                    sync_from_field=sync_from_field,
+                    sync_from_value=sync_from_value,
                 )
                 if incremental_count is not None:
                     rows_to_sync = incremental_count
@@ -1071,6 +1095,7 @@ def clickhouse_source(
                     columns=list(table.columns),
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
+                    sync_from_field=sync_from_field,
                 )
 
                 parameters: dict[str, Any] = {}
@@ -1079,6 +1104,8 @@ def clickhouse_source(
                     if last_value is None and incremental_field_type is not None:
                         last_value = incremental_type_to_initial_value(incremental_field_type)
                     parameters["last_value"] = last_value
+                if sync_from_field is not None:
+                    parameters["sync_from"] = sync_from_value
 
                 logger.info(f"ClickHouse query: {query}")
 

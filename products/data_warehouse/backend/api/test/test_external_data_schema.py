@@ -472,6 +472,94 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 400
 
+    def test_update_schema_sets_sync_from_filter(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "sync_from_field": "created_at",
+                "sync_from_field_type": "datetime",
+                "sync_from_value": "2025-01-01T00:00:00",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_from == {
+            "field": "created_at",
+            "field_type": "datetime",
+            "value": "2025-01-01T00:00:00",
+        }
+        assert schema.sync_from_field == "created_at"
+        assert schema.sync_from_value == "2025-01-01T00:00:00"
+
+    def test_update_schema_clears_sync_from_filter(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "sync_from": {"field": "created_at", "field_type": "datetime", "value": "2025-01-01T00:00:00"},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "sync_from_field": None,
+                "sync_from_field_type": None,
+                "sync_from_value": None,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_from is None
+        # other config keys are preserved
+        assert schema.sync_type_config.get("incremental_field") == "created"
+
+    def test_update_schema_rejects_partial_sync_from(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_from_field": "created_at"},
+        )
+
+        assert response.status_code == 400
+        assert "sync_from_field" in response.json().get("detail", "") or "must all be set" in str(response.json())
+
     def test_update_schema_primary_key_columns_not_reset_on_full_refresh(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}

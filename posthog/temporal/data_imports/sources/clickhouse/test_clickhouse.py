@@ -182,6 +182,52 @@ class TestBuildQuery:
                 incremental_field=None,
             )
 
+    def test_sync_from_full_refresh(self):
+        query = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime")),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            sync_from_field="created_at",
+        )
+        assert query == ("SELECT `id`, `created_at` FROM `default`.`events` WHERE `created_at` >= %(sync_from)s")
+
+    def test_sync_from_incremental_combined(self):
+        query = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime")),
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            sync_from_field="created_at",
+        )
+        assert "WHERE `created_at` > %(last_value)s AND `created_at` >= %(sync_from)s" in query
+        assert "ORDER BY `created_at` ASC" in query
+
+    def test_sync_from_different_column_than_incremental(self):
+        query = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime"), ("updated_at", "DateTime")),
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            sync_from_field="created_at",
+        )
+        assert "WHERE `updated_at` > %(last_value)s AND `created_at` >= %(sync_from)s" in query
+        assert "ORDER BY `updated_at` ASC" in query
+
+    def test_sync_from_quotes_identifier(self):
+        query = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("event date", "Date")),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            sync_from_field="event date",
+        )
+        assert "WHERE `event date` >= %(sync_from)s" in query
+
     def test_wraps_arrow_unsupported_types_in_to_string(self):
         query = _build_query(
             database="default",
@@ -707,6 +753,29 @@ class TestGetIncrementalRowCount:
         result.result_rows = [(None,)]
         client.query.return_value = result
         assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+
+    def test_applies_sync_from_filter(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(7,)]
+        client.query.return_value = result
+
+        count = _get_incremental_row_count(
+            client,
+            "db",
+            "t",
+            "created_at",
+            "2024-06-01",
+            self._logger(),
+            sync_from_field="created_at",
+            sync_from_value="2024-01-01",
+        )
+        assert count == 7
+
+        args, kwargs = client.query.call_args
+        assert "`created_at` > %(last_value)s" in args[0]
+        assert "`created_at` >= %(sync_from)s" in args[0]
+        assert kwargs["parameters"] == {"last_value": "2024-06-01", "sync_from": "2024-01-01"}
 
 
 class TestGetRowsBatching:
