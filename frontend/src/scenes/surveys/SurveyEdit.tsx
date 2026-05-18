@@ -1333,33 +1333,34 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                               dataAttr: 'survey-display-conditions',
                                               content: (
                                                   <LemonField.Pure>
-                                                      <LemonSelect
+                                                      <LemonRadio
+                                                          value={hasTargetingSet ? 'matching' : 'all'}
                                                           onChange={(value) => {
-                                                              if (value) {
+                                                              if (value === 'all') {
                                                                   resetTargeting()
                                                               } else {
-                                                                  // TRICKY: When attempting to set user match conditions
-                                                                  // we want a proxy value to be set so that the user
-                                                                  // can then edit these, or decide to go back to all user targeting
+                                                                  // Proxy value so the conditions block renders and the
+                                                                  // user can start editing or return to "all users".
                                                                   setSurveyValue('conditions', { url: '' })
                                                               }
                                                           }}
-                                                          value={!hasTargetingSet}
                                                           options={[
-                                                              { label: 'All users', value: true },
                                                               {
-                                                                  label: 'Users who match all of the following...',
-                                                                  value: false,
+                                                                  value: 'all',
+                                                                  label: 'All users',
+                                                                  description: 'Show this survey to everyone',
+                                                              },
+                                                              {
+                                                                  value: 'matching',
+                                                                  label: 'Only users who match conditions',
+                                                                  description:
+                                                                      'Show this survey only when every condition below is met',
                                                                   'data-attr': 'survey-display-conditions-select-users',
                                                               },
                                                           ]}
                                                           data-attr="survey-display-conditions-select"
                                                       />
-                                                      {!hasTargetingSet ? (
-                                                          <span className="text-secondary">
-                                                              Survey <b>will be released to everyone</b>
-                                                          </span>
-                                                      ) : (
+                                                      {hasTargetingSet && (
                                                           <>
                                                               <LemonField
                                                                   name="linked_flag_id"
@@ -1502,7 +1503,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
-                                                                                  URL
                                                                                   <LemonSelect
                                                                                       value={
                                                                                           value?.urlMatchType ||
@@ -1545,7 +1545,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               </div>
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
-                                                                              label="Device Types"
+                                                                              label="Device types"
                                                                               error={
                                                                                   deviceTypesMatchTypeValidationError
                                                                               }
@@ -1564,7 +1564,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               }
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
-                                                                                  Device Types
                                                                                   <LemonSelect
                                                                                       value={
                                                                                           value?.deviceTypesMatchType ||
@@ -1651,7 +1650,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                   )}
                                                                               </div>
                                                                           </LemonField.Pure>
-                                                                          <LemonField.Pure label="CSS selector matches:">
+                                                                          <LemonField.Pure label="CSS selector matches">
                                                                               <LemonInput
                                                                                   value={value?.selector}
                                                                                   onChange={(selectorVal) =>
@@ -1665,67 +1664,48 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
                                                                               label="Survey wait period"
-                                                                              info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
+                                                                              info="Only reliable for identified users within a single browser session. Anonymous users, browser switches, incognito sessions, or log out / log back in flows may still see the survey again. Responses submitted while anonymous may be associated with the account if the user logs in during the same session."
                                                                           >
-                                                                              <div className="flex flex-row gap-2 items-center">
+                                                                              <div className="flex flex-wrap gap-2 items-center text-sm">
                                                                                   <LemonCheckbox
                                                                                       checked={
                                                                                           !!value?.seenSurveyWaitPeriodInDays
                                                                                       }
                                                                                       onChange={(checked) => {
-                                                                                          if (checked) {
-                                                                                              onChange({
-                                                                                                  ...value,
-                                                                                                  seenSurveyWaitPeriodInDays:
-                                                                                                      value?.seenSurveyWaitPeriodInDays ||
-                                                                                                      30,
-                                                                                              })
-                                                                                          } else {
-                                                                                              const {
-                                                                                                  seenSurveyWaitPeriodInDays,
-                                                                                                  ...rest
-                                                                                              } = value || {}
-                                                                                              onChange(rest)
-                                                                                          }
+                                                                                          onChange({
+                                                                                              ...value,
+                                                                                              seenSurveyWaitPeriodInDays:
+                                                                                                  checked
+                                                                                                      ? value?.seenSurveyWaitPeriodInDays ||
+                                                                                                        30
+                                                                                                      : null,
+                                                                                          })
                                                                                       }}
+                                                                                      label="Don't show this survey if another one was shown to the user in the last"
                                                                                   />
-                                                                                  Don't show to users who saw any survey
-                                                                                  in the last
                                                                                   <LemonInput
                                                                                       type="number"
                                                                                       size="xsmall"
-                                                                                      min={0}
+                                                                                      min={1}
                                                                                       value={
-                                                                                          value?.seenSurveyWaitPeriodInDays ||
-                                                                                          NaN
+                                                                                          value?.seenSurveyWaitPeriodInDays ??
+                                                                                          undefined
                                                                                       }
-                                                                                      onChange={(val) => {
-                                                                                          if (
-                                                                                              val !== undefined &&
-                                                                                              val > 0
-                                                                                          ) {
-                                                                                              onChange({
-                                                                                                  ...value,
-                                                                                                  seenSurveyWaitPeriodInDays:
-                                                                                                      val,
-                                                                                              })
-                                                                                          } else {
-                                                                                              onChange({
-                                                                                                  ...value,
-                                                                                                  seenSurveyWaitPeriodInDays:
-                                                                                                      null,
-                                                                                              })
-                                                                                          }
-                                                                                      }}
-                                                                                      className="w-12"
+                                                                                      onChange={(val) =>
+                                                                                          onChange({
+                                                                                              ...value,
+                                                                                              seenSurveyWaitPeriodInDays:
+                                                                                                  val && val > 0
+                                                                                                      ? val
+                                                                                                      : null,
+                                                                                          })
+                                                                                      }
+                                                                                      className="w-16 tabular-nums"
                                                                                       id="survey-wait-period-input"
-                                                                                  />{' '}
-                                                                                  {value?.seenSurveyWaitPeriodInDays ===
-                                                                                  1 ? (
-                                                                                      <span>day.</span>
-                                                                                  ) : (
-                                                                                      <span>days.</span>
-                                                                                  )}
+                                                                                  />
+                                                                                  <span className="text-secondary">
+                                                                                      days.
+                                                                                  </span>
                                                                               </div>
                                                                           </LemonField.Pure>
                                                                       </>
