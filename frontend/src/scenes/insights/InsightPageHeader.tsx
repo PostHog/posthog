@@ -25,6 +25,7 @@ import {
 } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
+import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
@@ -91,6 +92,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     return (
         <>
             <InsightSidePanelContent insightLogicProps={insightLogicProps} />
+            <InsightSceneMenuBar insightLogicProps={insightLogicProps} />
 
             <SceneTitleSection
                 name={defaultInsightName || ''}

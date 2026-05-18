@@ -94,8 +94,8 @@ type Model struct {
 	inputBuffer string
 
 	// Show-all mode: display registry processes not in the current intent config
-	showAllRegProcs      bool
-	standbyRegProcs     []*process.Process // standby processes from registry (not in intent config)
+	showAllRegProcs bool
+	standbyRegProcs []*process.Process // standby processes from registry (not in intent config)
 
 	// Setup mode: full-screen intent selection for dev environment config
 	setupMode    bool

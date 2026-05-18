@@ -69,7 +69,8 @@ export function buildTooltipContext<Meta = unknown>(
     resolveValue: ResolveValueFn,
     yAxes?: Record<string, YAxisScale>,
     /** Returned `position.{x,y}` are canvas-pixel coordinates regardless of orientation. */
-    interactionAxis: 'x' | 'y' = 'x'
+    interactionAxis: 'x' | 'y' = 'x',
+    hoverPosition: { x: number; y: number } | null = null
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -88,7 +89,7 @@ export function buildTooltipContext<Meta = unknown>(
             continue
         }
         const value = resolveValue(s, dataIndex)
-        if (!s.visibility?.fromTooltip) {
+        if (s.visibility?.tooltip !== false) {
             seriesData.push({ series: s, value, color: s.color })
         }
         const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
@@ -112,6 +113,7 @@ export function buildTooltipContext<Meta = unknown>(
         label,
         seriesData,
         position,
+        hoverPosition,
         canvasBounds,
         isPinned: false,
     }

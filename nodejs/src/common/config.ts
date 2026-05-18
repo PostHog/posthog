@@ -30,6 +30,7 @@ export enum PluginServerMode {
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     ingestion_error_tracking = 'ingestion-errortracking',
+    ingestion_metrics = 'ingestion-metrics',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
@@ -114,6 +115,12 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
+    /**
+     * When true, every Kafka consumer in this service uses KafkaConsumerV2; otherwise the
+     * legacy KafkaConsumer (v1) is used. Used by `createKafkaConsumer()` in
+     * `src/kafka/consumer/index.ts`. Will be removed once v1 is deleted.
+     */
+    CONSUMER_USE_V2: boolean
 
     // Kafka
     KAFKA_HOSTS: string
@@ -274,6 +281,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        CONSUMER_USE_V2: false,
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',

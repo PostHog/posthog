@@ -16,7 +16,7 @@ const PROD_INTEREST_TO_PRODUCT: Record<WebsiteBrowsingHistoryProdInterest, Produ
     'llm-analytics': ProductKey.LLM_ANALYTICS,
     workflows: ProductKey.WORKFLOWS,
     'revenue-analytics': null,
-    logs: null,
+    logs: ProductKey.LOGS,
     endpoints: null,
 }
 

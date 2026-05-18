@@ -3,8 +3,15 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, buildYTickFormatter, createXAxisTickCallback, ValueLabels } from 'lib/hog-charts'
-import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
+import {
+    BarChart,
+    buildYTickFormatter,
+    DEFAULT_Y_AXIS_ID,
+    ReferenceLines,
+    TimeSeriesBarChart,
+    ValueLabels,
+} from 'lib/hog-charts'
+import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,17 +27,26 @@ import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../handleTrendsChartClick'
-import { trendsFilterToYFormatterConfig } from '../trends-line-chart/trendsAxisFormat'
-import type { TrendsSeriesMeta } from '../trends-line-chart/trendsSeriesMeta'
-import { TrendsTooltip } from '../trends-line-chart/TrendsTooltip'
+import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
+import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
+import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
+import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
-import { buildTrendsBarAggregatedSeries, buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
+import {
+    buildTrendsBarAggregatedSeries,
+    buildTrendsBarTimeSeries,
+    buildTrendsBarTimeSeriesConfig,
+} from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
+    inSharedMode?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
+const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
 const buildBarMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
     action: r.action,
@@ -67,9 +83,9 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | null {
+export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -89,12 +105,14 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
         querySource,
         getTrendsColor,
         getTrendsHidden,
+        goalLines,
         showValuesOnSeries,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
+    const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
     const isPercentStackView = !isAggregated && !!showPercentStackView && !!supportsPercentStackView
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
@@ -123,33 +141,56 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
         return { series: timeSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
 
-    const xTickFormatter = useMemo(() => {
-        if (isAggregated) {
-            return undefined
-        }
-        return createXAxisTickCallback({
-            interval: interval ?? 'day',
-            allDays: currentPeriodResult?.days ?? [],
-            timezone,
-        })
-    }, [isAggregated, interval, currentPeriodResult?.days, timezone])
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
 
-    const yTickFormatter = useMemo(
+    const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
+        () =>
+            buildTrendsBarTimeSeriesConfig({
+                trendsFilter,
+                baseCurrency,
+                isPercentStackView,
+                isGrouped,
+                yAxisScaleType,
+                interval,
+                timezone,
+                allDays: currentPeriodResult?.days ?? [],
+                goalLines,
+                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
+                tooltip: TOOLTIP_CONFIG,
+            }),
+        [
+            trendsFilter,
+            baseCurrency,
+            isPercentStackView,
+            isGrouped,
+            yAxisScaleType,
+            interval,
+            timezone,
+            currentPeriodResult?.days,
+            goalLines,
+            showValuesOnSeries,
+            valueLabelFormatter,
+        ]
+    )
+
+    const aggregatedYTickFormatter = useMemo(
         () => buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, isPercentStackView, baseCurrency)),
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const chartConfig: BarChartConfig = useMemo(
+    const aggregatedConfig: BarChartConfig = useMemo(
         () => ({
             showGrid: true,
-            tooltip: { pinnable: true, placement: 'top' },
+            tooltip: TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
-            axisOrientation: isAggregated ? 'horizontal' : 'vertical',
-            barLayout: isPercentStackView ? 'percent' : 'stacked',
-            xTickFormatter,
-            yTickFormatter,
+            axisOrientation: 'horizontal',
+            barLayout: 'stacked',
+            yTickFormatter: aggregatedYTickFormatter,
         }),
-        [yAxisScaleType, isAggregated, isPercentStackView, xTickFormatter, yTickFormatter]
+        [yAxisScaleType, aggregatedYTickFormatter]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -178,10 +219,14 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
         ]
     )
 
-    const valueLabelFormatter = useCallback(
-        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
-        [trendsFilter, isPercentStackView, baseCurrency]
+    const aggregatedReferenceLines = useMemo(
+        () => (isAggregated ? goalLinesToReferenceLines(goalLines, series, 'horizontal') : []),
+        [isAggregated, goalLines, series]
     )
+
+    // Bar charts don't yet expose multi-axis configuration, so all series live on the
+    // primary axis — alert anomaly markers always read the default scale.
+    const getYAxisId = useCallback(() => DEFAULT_Y_AXIS_ID, [])
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
@@ -256,19 +301,80 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
+    if (isAggregated) {
+        return (
+            <BarChart<TrendsSeriesMeta>
+                series={series}
+                labels={labels}
+                config={aggregatedConfig}
+                theme={theme}
+                tooltip={renderTooltip}
+                onPointClick={canHandleClick ? onPointClick : undefined}
+                className="BarGraph"
+                dataAttr="trend-bar-value-graph"
+                onError={handleChartError}
+            >
+                <ReferenceLines lines={aggregatedReferenceLines} />
+                {insight.id && (
+                    <TrendsAlertOverlays
+                        insightId={insight.id}
+                        insightProps={insightProps}
+                        indexedResults={indexedResults}
+                        getColor={getTrendsColor}
+                        getYAxisId={getYAxisId}
+                        isHidden={getTrendsHidden}
+                        axisOrientation="horizontal"
+                    />
+                )}
+                {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+            </BarChart>
+        )
+    }
+
+    // Annotations are date-anchored, so they only make sense for the time-series bar
+    // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
+    const showAnnotations = !inSharedMode
+    const annotationsDates = currentPeriodResult?.days ?? []
+    // In compare-against-previous grouped layouts each band holds two bars (previous, current).
+    // Anchor each period's annotations on its matching bar so they line up with what they describe.
+    const currentSeriesKey = isGrouped ? series.find((s) => s.meta?.compare_label === 'current')?.key : undefined
+    const previousSeriesKey = isGrouped ? series.find((s) => s.meta?.compare_label === 'previous')?.key : undefined
+    const previousPeriodResult = isGrouped
+        ? indexedResults?.find((r: IndexedTrendResult) => r.compare_label === 'previous')
+        : undefined
+    const annotationsPreviousDates = previousPeriodResult?.days
+
     return (
-        <BarChart<TrendsSeriesMeta>
+        <TimeSeriesBarChart<TrendsSeriesMeta>
             series={series}
             labels={labels}
-            config={chartConfig}
+            config={timeSeriesConfig}
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="BarGraph"
-            dataAttr={isAggregated ? 'trend-bar-value-graph' : 'trend-bar-graph'}
+            dataAttr="trend-bar-graph"
             onError={handleChartError}
         >
-            {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
-        </BarChart>
+            {insight.id && (
+                <TrendsAlertOverlays
+                    insightId={insight.id}
+                    insightProps={insightProps}
+                    indexedResults={indexedResults}
+                    getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            )}
+            {showAnnotations && (
+                <AnnotationsLayer
+                    insightNumericId={insight.id || 'new'}
+                    dates={annotationsDates}
+                    seriesKey={currentSeriesKey}
+                    previousDates={annotationsPreviousDates}
+                    previousSeriesKey={previousSeriesKey}
+                />
+            )}
+        </TimeSeriesBarChart>
     )
 }

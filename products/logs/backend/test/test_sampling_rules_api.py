@@ -64,3 +64,35 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert ordered[0]["priority"] == 0
         assert ordered[1]["id"] == a["id"]
         assert ordered[1]["priority"] == 1
+
+    def test_create_rate_limit_requires_scope_service(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Cap api",
+                rule_type="rate_limit",
+                scope_service=None,
+                config={"logs_per_second": 100},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "scope_service"
+
+    def test_create_rate_limit_success(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Cap api",
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"logs_per_second": 5000, "burst_logs": 15000},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["rule_type"] == "rate_limit"
+        assert body["scope_service"] == "payment-api"
+        assert body["config"]["logs_per_second"] == 5000
+        assert body["config"]["burst_logs"] == 15000

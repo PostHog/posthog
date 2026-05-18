@@ -1,16 +1,34 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, UserInterviewType } from '~/types'
+import { Breadcrumb } from '~/types'
 
+import {
+    userInterviewTopicsGenerateLinksCreate,
+    userInterviewTopicsIntervieweesList,
+    userInterviewTopicsRetrieve,
+    userInterviewsList,
+} from './generated/api'
+import type {
+    IntervieweeContextApi,
+    InterviewLinkApi,
+    UserInterviewApi,
+    UserInterviewTopicApi,
+} from './generated/api.schemas'
 import type { userInterviewLogicType } from './userInterviewLogicType'
-import { userInterviewsLogic } from './userInterviewsLogic'
 
 export interface UserInterviewLogicProps {
     id: string
+}
+
+function unwrapPaginatedOrArray<T>(response: T[] | { results?: T[] }): T[] {
+    if (Array.isArray(response)) {
+        return response
+    }
+    return response.results ?? []
 }
 
 export const userInterviewLogic = kea<userInterviewLogicType>([
@@ -18,45 +36,130 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
     props({} as UserInterviewLogicProps),
     key((props) => props.id),
     loaders(({ props }) => ({
-        userInterview: [
-            userInterviewsLogic.findMounted()?.values.userInterviews.find((interview) => interview.id === props.id) ||
-                null,
+        topic: {
+            __default: null as UserInterviewTopicApi | null,
+            loadTopic: async () => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                try {
+                    return await userInterviewTopicsRetrieve(projectId, props.id)
+                } catch {
+                    return null
+                }
+            },
+        },
+        interviewees: {
+            __default: [] as IntervieweeContextApi[],
+            loadInterviewees: async () => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                try {
+                    const response = await userInterviewTopicsIntervieweesList(projectId, props.id)
+                    return response.results
+                } catch {
+                    return []
+                }
+            },
+        },
+        interviews: {
+            __default: [] as UserInterviewApi[],
+            loadInterviews: async () => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                try {
+                    const response = await userInterviewsList(projectId)
+                    return response.results
+                } catch {
+                    return []
+                }
+            },
+        },
+        links: {
+            __default: [] as InterviewLinkApi[],
+            loadLinks: async (): Promise<InterviewLinkApi[]> => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                const response = (await userInterviewTopicsGenerateLinksCreate(projectId, props.id)) as unknown as
+                    | InterviewLinkApi[]
+                    | { results?: InterviewLinkApi[] }
+                return unwrapPaginatedOrArray(response)
+            },
+        },
+    })),
+    reducers({
+        linksLoadFailed: [
+            false,
             {
-                loadUserInterview: async (id: string): Promise<UserInterviewType | null> => {
-                    try {
-                        return await api.userInterviews.get(id)
-                    } catch {
-                        return null
-                    }
-                },
-                updateUserInterview: async (data: { summary: string }): Promise<UserInterviewType> => {
-                    return await api.userInterviews.update(props.id, data)
-                },
+                loadLinks: () => false,
+                loadLinksFailure: () => true,
             },
         ],
-    })),
+    }),
     selectors(({ props }) => ({
+        topicInterviews: [
+            (s) => [s.interviews],
+            (interviews): UserInterviewApi[] => interviews.filter((i) => i.topic === props.id),
+        ],
+        linkByIdentifier: [
+            (s) => [s.links],
+            (links): Record<string, string> =>
+                Object.fromEntries(links.map((link) => [link.interviewee_identifier, link.interview_url])),
+        ],
+        linkForIdentifier: [
+            (s) => [s.linkByIdentifier],
+            (linkByIdentifier): ((identifier: string) => string | undefined) =>
+                (identifier: string) =>
+                    linkByIdentifier[identifier],
+        ],
+        respondedIdentifiers: [
+            (s) => [s.topicInterviews],
+            (interviews): Set<string> => {
+                const responded = new Set<string>()
+                for (const interview of interviews) {
+                    if (interview.transcript || interview.summary) {
+                        if (interview.interviewee_identifier) {
+                            responded.add(interview.interviewee_identifier)
+                        }
+                    }
+                }
+                return responded
+            },
+        ],
+        respondedCount: [
+            (s) => [s.topic, s.respondedIdentifiers],
+            (topic, respondedIdentifiers): number => {
+                const allTargeted = [...(topic?.interviewee_emails || []), ...(topic?.interviewee_distinct_ids || [])]
+                return allTargeted.filter((id) => respondedIdentifiers.has(id)).length
+            },
+        ],
+        totalTargeted: [
+            (s) => [s.topic],
+            (topic): number =>
+                (topic?.interviewee_emails?.length || 0) + (topic?.interviewee_distinct_ids?.length || 0),
+        ],
+        responseRate: [
+            (s) => [s.respondedCount, s.totalTargeted],
+            (respondedCount, totalTargeted): number =>
+                totalTargeted > 0 ? Math.round((respondedCount / totalTargeted) * 100) : 0,
+        ],
         breadcrumbs: [
-            (s) => [s.userInterview],
-            (userInterview): Breadcrumb[] => [
+            (s) => [s.topic],
+            (topic): Breadcrumb[] => [
                 {
                     key: 'UserInterviews',
-                    name: 'User interviews',
+                    name: 'User research',
                     path: urls.userInterviews(),
                     iconType: 'user_interview',
                 },
                 {
                     key: props.id,
-                    name: userInterview?.interviewee_emails?.join(', '),
+                    name: topic?.topic || props.id,
                     path: urls.userInterview(props.id),
                     iconType: 'user_interview',
                 },
             ],
         ],
     })),
-    afterMount(({ actions, props }) => {
-        if (props.id) {
-            actions.loadUserInterview(props.id)
-        }
+    afterMount(({ actions }) => {
+        actions.loadTopic()
+        actions.loadInterviewees()
+        actions.loadInterviews()
+        actions.loadLinks()
     }),
 ])

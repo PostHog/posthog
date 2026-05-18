@@ -327,6 +327,7 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -414,6 +415,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
+    realtime_notifications_disabled?: Record<string, Record<string, boolean>>
 }
 
 export interface InAppNotification {
@@ -575,6 +577,7 @@ export interface ListOrganizationMembersParams {
     offset?: number
     limit?: number
     updated_after?: string
+    search?: string
 }
 
 export interface APIErrorType {
@@ -935,7 +938,6 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
-    Home = 'home',
     All = 'all',
     Yours = 'yours',
     History = 'history',
@@ -3487,6 +3489,7 @@ export interface OpenQuestionResponseData {
     /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
     personDisplayName?: string
     timestamp?: string
+    sessionId?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -4589,9 +4592,10 @@ export interface Experiment {
         frequentist?: {
             alpha?: number
         }
-    }
-    scheduling_config?: {
-        timeseries?: boolean
+        cuped?: {
+            enabled?: boolean
+            lookback_days?: number
+        }
     }
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
@@ -5019,6 +5023,9 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+// This hand-written interface predates the generated type and now requires
+// dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
     insight?: number
@@ -5029,7 +5036,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     target_type: string
     target_value: string
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null
@@ -5041,6 +5048,7 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
 }
@@ -5285,6 +5293,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'deployment'
     | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
@@ -5297,6 +5306,8 @@ export type APIScopeObject =
     | 'external_data_source'
     | 'export'
     | 'feature_flag'
+    | 'file_system'
+    | 'file_system_shortcut'
     | 'group'
     | 'health_issue'
     | 'heatmap'
@@ -5318,11 +5329,13 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'replay_lens'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -5544,6 +5557,9 @@ export type CommentType = {
     item_context: Record<string, any> | null
     /** only on the type to support patching for soft delete */
     deleted?: boolean
+    is_task: boolean
+    completed_at: string | null
+    completed_by: UserBasicType | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }
@@ -5763,6 +5779,8 @@ export interface WebhookExternalStatus {
     error?: string
 }
 
+export type WebhookInputValue = { secret: true } | { value: unknown }
+
 export interface WebhookInfo {
     supports_webhooks: boolean
     exists: boolean
@@ -5775,6 +5793,7 @@ export interface WebhookInfo {
     }
     webhook_url?: string
     schema_mapping?: Record<string, string>
+    inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
 }
 
@@ -6393,7 +6412,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
     | ProductKey.LLM_ANALYTICS
-    | ProductKey.WORKFLOWS,
+    | ProductKey.WORKFLOWS
+    | ProductKey.LOGS,
     OnboardingProduct
 >
 
@@ -7384,6 +7404,8 @@ export interface WebAnalyticsFiltersConfig {
     compareFilter?: { compare?: boolean; compare_to?: string | null }
     domainFilter?: string | null
     deviceTypeFilter?: string | null
+    countryFilter?: string | null
+    referrerFilter?: string | null
     conversionGoal?: { actionId?: number; customEventName?: string } | null
     isPathCleaningEnabled?: boolean
     shouldFilterTestAccounts?: boolean

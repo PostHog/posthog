@@ -4,12 +4,14 @@ from django.conf import settings
 
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import HogQLQuery, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -19,6 +21,7 @@ from posthog.temporal.session_replay.summarization_sweep.constants import DEFAUL
 from ee.hogai.session_summaries.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+    SESSION_SUMMARY_EVENT_BLOCKLIST,
 )
 
 MAX_CANDIDATE_SESSIONS = 10_000
@@ -137,3 +140,35 @@ def fetch_recent_session_ids(
         ).run()
 
     return [recording["session_id"] for recording in result.results]
+
+
+def filter_session_ids_with_events(
+    team: Team,
+    session_ids: list[str],
+    lookback_minutes: int,
+    max_execution_time_seconds: int = HOGQL_INCREASED_MAX_EXECUTION_TIME,
+) -> set[str]:
+    """Subset of `session_ids` that have at least one summarizable event in their recording window."""
+    if not session_ids:
+        return set()
+    # Covers candidate sessions started within lookback and active up to MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S.
+    events_window_minutes = lookback_minutes + MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S // 60 + 5
+    query = HogQLQuery(
+        query=(
+            "SELECT DISTINCT $session_id FROM events "
+            "WHERE timestamp >= now() - toIntervalMinute({events_window_minutes}) "
+            "AND $session_id IN {session_ids} "
+            "AND event NOT IN {events_to_ignore} "
+            "LIMIT {limit}"
+        ),
+        values={
+            "events_window_minutes": events_window_minutes,
+            "session_ids": session_ids,
+            "events_to_ignore": list(SESSION_SUMMARY_EVENT_BLOCKLIST),
+            "limit": len(session_ids),
+        },
+    )
+    hogql_settings = HogQLGlobalSettings(enable_analyzer=True, max_execution_time=max_execution_time_seconds)
+    with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.ENRICHMENT):
+        result = HogQLQueryRunner(team=team, query=query, settings=hogql_settings).calculate()
+    return {row[0] for row in (result.results or []) if row and row[0]}

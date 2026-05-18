@@ -280,7 +280,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     ])
 
     return (
-        <div>
+        <div className="flex flex-col flex-1 min-h-0">
             {!isWrapped && <BillingLimitNotice />}
             <>
                 {showAccessMethodSelector && (

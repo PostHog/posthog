@@ -1,8 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
+import { compactNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -53,6 +56,7 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
     const { deleteRule } = useActions(logsSamplingDetailSceneLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic(formProps))
     const { samplingForm, isSamplingFormSubmitting } = useValues(logsSamplingFormLogic(formProps))
+    const { ruleDropImpact24h, ruleDropImpact24hLoading } = useValues(logsSamplingDetailSceneLogic)
 
     const confirmDelete = (): void => {
         LemonDialog.open({
@@ -82,6 +86,31 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
                     </LemonButton>
                 }
             />
+            <div className="px-4 pt-2 pb-0 text-secondary text-sm flex items-center gap-1.5">
+                {ruleDropImpact24hLoading ? (
+                    <span className="text-muted">Loading drop impact…</span>
+                ) : ruleDropImpact24h === null ? (
+                    <span className="text-muted" title="Drop impact for the last 24 hours is not available">
+                        —
+                    </span>
+                ) : (
+                    <>
+                        <span>
+                            ~{compactNumber(ruleDropImpact24h)} log lines dropped in the last 24 hours (ingestion).
+                        </span>
+                        <Tooltip
+                            title={
+                                <>
+                                    From app metrics keyed by this rule. Service-scoped rules only affect that service;
+                                    others are counted across the project.
+                                </>
+                            }
+                        >
+                            <IconInfo className="text-muted-alt text-base shrink-0" />
+                        </Tooltip>
+                    </>
+                )}
+            </div>
             <div className="flex flex-col gap-6 p-4">
                 <Form logic={logsSamplingFormLogic} props={formProps} formKey="samplingForm" enableFormOnSubmit>
                     <LogsSamplingForm />

@@ -1,9 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Tasks',
@@ -43,18 +41,5 @@ export const manifest: ProductManifest = {
         },
     },
     treeItemsNew: [],
-    treeItemsProducts: [
-        {
-            path: 'Tasks',
-            intents: [ProductKey.TASKS],
-            category: ProductItemCategory.UNRELEASED,
-            type: 'task',
-            href: urls.taskTracker(),
-            flag: FEATURE_FLAGS.TASKS,
-            iconType: 'task',
-            tags: ['alpha'],
-            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
-            sceneKey: 'TaskTracker',
-        },
-    ],
+    treeItemsProducts: [],
 }

@@ -152,12 +152,12 @@ describe('hog-charts interaction', () => {
             expect(result?.seriesData[0].series.key).toBe('v')
         })
 
-        it('excludes visibility.fromTooltip series from seriesData but still uses their values for position.y', () => {
+        it('excludes visibility.tooltip:false series from seriesData but still uses their values for position.y', () => {
             const shown = makeSeries({ key: 'shown', data: [10] })
-            const hiddenFromTooltip = makeSeries({ key: 'hft', data: [50], visibility: { fromTooltip: true } })
+            const hiddenFromTooltip = makeSeries({ key: 'hft', data: [50], visibility: { tooltip: false } })
             const alsoShown = makeSeries({ key: 'also', data: [20] })
             // yScale: 10 -> 80, 20 -> 60, 50 -> 5. position.y is min(yPixels)
-            // — if the visibility.fromTooltip series contributes, result is 5; otherwise 60.
+            // — if the tooltip:false series contributes, result is 5; otherwise 60.
             const yScale = (v: number): number => ({ 10: 80, 20: 60, 50: 5 })[v] ?? 0
             const result = buildTooltipContext(
                 0,

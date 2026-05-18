@@ -19,6 +19,7 @@ from posthog.models.comment import Comment as CommentModel
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
 from products.conversations.backend.events import capture_ticket_status_changed
@@ -92,6 +93,7 @@ def is_duplicate_teams_event(activity_id: str) -> bool:
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id: str | None = None) -> None:
     if event_id and _is_duplicate_supporthog_event(event_id):
         logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
@@ -134,6 +136,7 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def post_reply_to_slack(
     ticket_id: str,
     team_id: int,
@@ -420,6 +423,7 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=10)
+@skip_team_scope_audit
 def send_email_reply(
     ticket_id: str,
     team_id: int,
@@ -481,8 +485,9 @@ def send_email_reply(
         txt_body = content
         html_body = f"<p>{html_mod.escape(content)}</p>"
 
-    subject = ticket.email_subject or "Re: Your support request"
-    if not subject.lower().startswith("re:"):
+    subject = ticket.email_subject or "Your support request"
+    is_reply = latest_mapping is not None
+    if is_reply and not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
     from_email = formataddr((config.from_name or author_name, config.from_email))
@@ -565,6 +570,7 @@ def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: str = "") -> None:
     """Process an inbound Teams Bot Framework activity."""
 
@@ -598,6 +604,7 @@ def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: s
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def post_reply_to_teams(
     ticket_id: str,
     team_id: int,
@@ -783,6 +790,7 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def process_github_event(
     event_type: str,
     action: str,
@@ -961,6 +969,7 @@ def _handle_github_comment_event(team: Team, repo: str, action: str, payload: di
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def post_reply_to_github(
     ticket_id: str,
     team_id: int,
@@ -1036,6 +1045,7 @@ def post_reply_to_github(
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
 def create_github_issue(
     team_id: int,
     integration_id: int,

@@ -15,7 +15,12 @@ from temporalio import common
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.util import delete_person, delete_persons_from_postgres
+from posthog.models.person.util import (
+    _fetch_persons_by_distinct_ids_via_personhog,
+    _fetch_persons_by_uuids_via_personhog,
+    delete_person,
+    delete_persons_from_postgres,
+)
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
@@ -44,13 +49,25 @@ def resolve_persons_for_deletion(
 ) -> builtins.list[Person]:
     """Materialize Persons matching either uuids or distinct_ids.
 
-    The ``persondistinctid_set`` prefetch must pass a ``team_id``-filtered queryset:
-    ``posthog_persondistinctid`` is partitioned by ``team_id``, and a bare
-    ``Prefetch("persondistinctid_set", to_attr=...)`` produces a query without
-    ``WHERE team_id = X`` that scans every partition across every team. Pattern
-    copied from ``PersonViewSet.safely_get_queryset`` in ``posthog/api/person.py``.
+    Goes straight to personhog, falling back to ORM only on error or if
+    the client is not configured.
     """
+    from posthog.personhog_client.client import get_personhog_client
 
+    if not uuids and not distinct_ids:
+        return []
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            if uuids:
+                return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+            else:
+                return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
+        except Exception:
+            logger.warning("resolve_persons_for_deletion_personhog_failure", team_id=team_id, exc_info=True)
+
+    # ORM fallback
     persons_queryset = (
         Person.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
         .only(*_PERSON_DELETION_COLUMNS)
@@ -76,8 +93,6 @@ def resolve_persons_for_deletion(
             "person_id", flat=True
         )
         persons_queryset = persons_queryset.filter(id__in=person_ids)
-    else:
-        return []
     return list(persons_queryset)
 
 

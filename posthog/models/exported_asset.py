@@ -167,6 +167,11 @@ class ExportedAsset(models.Model):
             return "heatmap"
         return "unknown"
 
+    @property
+    def is_session_recording_export(self) -> bool:
+        """Teammates may retrieve by id if they can view the linked session recording."""
+        return bool((self.export_context or {}).get("session_recording_id"))
+
     def get_analytics_metadata(self):
         return {
             "asset_id": self.id,

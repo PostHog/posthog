@@ -20,8 +20,9 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -304,6 +305,10 @@ impl PersonHogBackend for ReplicaBackend {
         request: GetGroupsBatchRequest,
     ) -> Result<GetGroupsBatchResponse, Status> {
         retry_call!(self, get_groups_batch, request)
+    }
+
+    async fn list_groups(&self, request: ListGroupsRequest) -> Result<ListGroupsResponse, Status> {
+        retry_call!(self, list_groups, request)
     }
 
     // Group type mappings

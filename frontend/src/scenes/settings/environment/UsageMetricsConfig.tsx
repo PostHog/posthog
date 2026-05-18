@@ -235,6 +235,7 @@ function UsageMetricsForm(): JSX.Element {
                                         onChange={onChange}
                                         placeholder="Select property"
                                         data-attr="usage-metric-math-property"
+                                        selectingKeyOnly
                                     />
                                 )
                             }

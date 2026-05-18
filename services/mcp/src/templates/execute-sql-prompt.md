@@ -35,6 +35,19 @@ If the required events, properties, or tables do not exist, say so — do not ru
 
 Large JSON values in results (notably full `properties` objects) are truncated by default. If you anticipate a large result set, or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), dump the results to a file and process them with bash rather than returning them inline. Alternatively, cherry-pick specific keys (`properties.$browser`) instead of the whole object.
 
+### Large LLM trace fields are stripped from `events.properties`
+
+For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.), these specific keys with large values are stripped from `events.properties`:
+
+- `properties.$ai_input`
+- `properties.$ai_output`
+- `properties.$ai_output_choices`
+- `properties.$ai_input_state`
+- `properties.$ai_output_state`
+- `properties.$ai_tools`
+
+Prefer `query-llm-trace` / `query-llm-traces-list` whenever you need any of those six keys — they contain information on the proper read patterns to a dedicated AI events table which contains these fields. Other AI properties (token counts, costs, model, trace IDs) stay on `events` in all three regimes and are safe to query directly.
+
 ### Example: searching for existing insights
 
 <example>

@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyQuestionBranchingType } from '~/types'
+import { SurveyMatchType, SurveyQuestionBranchingType } from '~/types'
 
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
@@ -78,8 +78,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     // Redirect existing surveys that use wizard-unsupported fields to the full
     // editor. Brand-new surveys should always start on template selection,
     // regardless of the user's editor preference.
-    // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
-    // respected and bypass the redirect.
+    // Hash-carrying deep links (e.g. #fromTemplate) are respected and bypass the
+    // redirect.
     useEffect(() => {
         if (window.location.hash) {
             return
@@ -124,9 +124,9 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const handleCustomizeMore = (): void => {
         setPreferredEditor('full')
-        const target = isEditing
-            ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
-            : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`
+        // Unsaved edits are preserved automatically by surveyLogic when the route
+        // re-mounts with the same survey id — no URL flag needed.
+        const target = isEditing ? `${urls.survey(id)}?edit=true` : `${urls.survey(id)}#fromTemplate=true`
         router.actions.push(target)
     }
 
@@ -168,7 +168,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         const summary: string[] = []
 
         if (conditions?.url) {
-            summary.push(`URL ${conditions.urlMatchType === 'exact' ? 'is exactly' : 'contains'} "${conditions.url}"`)
+            const urlMatchLabel =
+                conditions.urlMatchType === SurveyMatchType.Exact
+                    ? 'is exactly'
+                    : conditions.urlMatchType === SurveyMatchType.Regex
+                      ? 'matches regex'
+                      : 'contains'
+
+            summary.push(`URL ${urlMatchLabel} "${conditions.url}"`)
         }
 
         if (conditions?.selector) {

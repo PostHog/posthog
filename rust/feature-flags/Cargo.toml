@@ -27,6 +27,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 bytes = { workspace = true }
+http-body-util = "0.1"
 url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }
@@ -68,6 +69,7 @@ tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
 serde-pickle = { version = "1.1.1" }
 semver = "1.0.28"
+subtle = "2.6"
 
 [features]
 # Gated to keep the AWS SDK, clap, and common-s3 out of library/server builds.

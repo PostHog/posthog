@@ -38,7 +38,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.experiment_service import ExperimentService
 
 # TODO: Route through facade instead of direct import

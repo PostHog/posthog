@@ -69,6 +69,20 @@ export const ToolConfigSchema = z
                          * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
                          */
                         fallback: z.enum(['orgId', 'projectId']).optional(),
+                        /**
+                         * Apply a narrow input cast to the parameter. Wraps the original
+                         * Orval-derived schema with `z.preprocess(...)` so the field's
+                         * description, integer/min/max constraints, etc. are preserved.
+                         *
+                         * Currently supported:
+                         * - `'string-int'` — casts strings that look like a base-10 integer
+                         *   (e.g. `"123"`, `"-7"`) to a number. Anything else passes through
+                         *   unchanged so zod still rejects with its honest error.
+                         *
+                         * Mutually exclusive with `input_schema` and `schema_ref` (those
+                         * fully replace the schema; cast composes with the existing one).
+                         */
+                        cast: z.enum(['string-int']).optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {
@@ -77,9 +91,22 @@ export const ToolConfigSchema = z
                     .refine((data) => !(data.optional && !data.fallback), {
                         message: 'optional requires a fallback key to resolve the value from state',
                     })
+                    .refine((data) => !(data.cast && (data.input_schema || data.schema_ref)), {
+                        message:
+                            'cast wraps the existing field schema and cannot be combined with input_schema or schema_ref (which replace it)',
+                    })
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),
+        /**
+         * Cross-field refinements applied to the composed tool schema.
+         * Each entry names a function exported from `@/schema/tool-inputs` whose
+         * signature is `(data, ctx: z.RefinementCtx) => void`. The codegen wires
+         * one `.superRefine(<fn>)` call per entry, in order. Use this when a single
+         * field's schema can't express the rule (e.g. mutual exclusivity between
+         * two optional fields).
+         */
+        validators: z.array(z.string()).optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**

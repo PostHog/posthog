@@ -1,4 +1,5 @@
 import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
@@ -19,6 +20,11 @@ export function retentionToActorsQuery(
     const customBrackets = query.retentionFilter.retentionCustomBrackets
     const columnCount = customBrackets && customBrackets.length > 0 ? customBrackets.length + 1 : totalIntervals
     const selects = Array.from({ length: columnCount }, (_, intervalNumber) => `${periodName}_${intervalNumber}`)
+    const activeScene = sceneLogic.findMounted()?.values.activeSceneId
+    const tags = {
+        ...query.tags,
+        ...(activeScene && !query.tags?.scene ? { scene: activeScene } : {}),
+    }
     return setLatestVersionsOnQuery(
         {
             kind: NodeKind.ActorsQuery,
@@ -41,6 +47,7 @@ export function retentionToActorsQuery(
             ),
             offset,
             limit: offset ? offset * 2 : undefined,
+            ...(Object.keys(tags).length > 0 ? { tags } : {}),
         },
         { recursion: false }
     )

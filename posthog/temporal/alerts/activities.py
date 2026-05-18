@@ -41,6 +41,15 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+    create_notification,
+)
+
 logger = structlog.get_logger(__name__)
 
 
@@ -263,6 +272,39 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         return await _evaluate()
 
 
+def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
+    """Fan out one realtime in-app notification per subscribed user when an alert fires.
+
+    Exceptions are caught and logged internally so a realtime delivery failure does not
+    poison the email path or the alert-check transaction.
+    """
+    try:
+        body = "; ".join(breaches[:3])
+        if len(breaches) > 3:
+            body += f" (+{len(breaches) - 3} more)"
+        title = f"Alert firing: {alert.name}"[:100]
+        source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
+        for user_id in alert.subscribed_users.values_list("id", flat=True):
+            create_notification(
+                NotificationData(
+                    team_id=alert.team_id,
+                    notification_type=NotificationType.ALERT_FIRING,
+                    priority=Priority.NORMAL,
+                    title=title,
+                    body=body,
+                    target_type=TargetType.USER,
+                    target_id=str(user_id),
+                    resource_type="insight",
+                    resource_id=str(alert.insight.short_id),
+                    source_url=source_url,
+                    source_type=SourceType.INSIGHT,
+                    source_id=str(alert.insight.short_id),
+                )
+            )
+    except Exception:
+        logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
+
+
 # Idempotency: empty targets_notified = not yet delivered; non-empty = already delivered.
 # Lets Temporal retry notify_alert safely after a transient failure past the send.
 @temporalio.activity.defn
@@ -298,6 +340,11 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
             # workflow and safety-net both read this column to decide whether they still
             # need to dispatch, and the gating path relies on it for idempotency.
             AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
+
+        # Realtime in-app dispatch sits AFTER record_alert_delivery so a Temporal retry
+        # past this point sees `targets_notified` populated and skips the whole _notify.
+        if alert_check.state == AlertState.FIRING.value and inputs.breaches:
+            dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
 
     async with Heartbeater():
         await _notify()

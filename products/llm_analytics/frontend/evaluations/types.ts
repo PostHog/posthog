@@ -62,7 +62,9 @@ export interface EvaluationConditionSet {
     // Optional because the backend serializer has `default=100` (not `required=True`), so legacy
     // condition rows stored in the JSONField before the field existed read back without the key.
     rollout_percentage?: number
-    properties: AnyPropertyFilter[]
+    // Optional for the same reason: conditions live in a free-form JSONField and the inner shape
+    // isn't validated, so legacy rows can come back without a `properties` key.
+    properties?: AnyPropertyFilter[]
 }
 
 export interface EvaluationRun {

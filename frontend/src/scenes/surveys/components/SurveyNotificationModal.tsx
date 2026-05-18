@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconExternal, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonSelect, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+import { SurveyResponseFilters } from 'scenes/surveys/components/SurveyResponseFilters'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 import {
     RESPONDENT_DETAILS_LINE,
@@ -23,8 +25,68 @@ import {
     getQuestionLabel,
     surveyNotificationModalLogic,
 } from 'scenes/surveys/surveyNotificationModalLogic'
+import { urls } from 'scenes/urls'
 
-import { SurveyQuestionType } from '~/types'
+import { CyclotronJobTestInvocationResult, SurveyQuestionType } from '~/types'
+
+function TestResultPanel({
+    loading,
+    result,
+    error,
+    onClear,
+}: {
+    loading: boolean
+    result: CyclotronJobTestInvocationResult | null
+    error: string | null
+    onClear: () => void
+}): JSX.Element {
+    const bannerType: 'info' | 'success' | 'warning' | 'error' = error
+        ? 'error'
+        : loading
+          ? 'info'
+          : result?.status === 'success'
+            ? 'success'
+            : result?.status === 'skipped'
+              ? 'warning'
+              : 'error'
+    const heading = error
+        ? error
+        : loading
+          ? 'Sending test notification...'
+          : result?.status === 'success'
+            ? 'Test notification sent.'
+            : result?.status === 'skipped'
+              ? 'Test was skipped — the event did not match the notification filters.'
+              : 'Test failed.'
+
+    return (
+        <LemonBanner type={bannerType} className="flex flex-col gap-2">
+            <div className="flex items-start gap-2">
+                <div className="flex flex-1 items-center gap-2">
+                    {loading ? <Spinner /> : null}
+                    <span>{heading}</span>
+                </div>
+                {!loading ? (
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={onClear}
+                        tooltip="Clear test result"
+                        data-attr="survey-notification-clear-test-result"
+                    />
+                ) : null}
+            </div>
+            {!loading && result?.logs && result.logs.length > 0 ? (
+                <details>
+                    <summary className="cursor-pointer text-xs text-muted">Show logs ({result.logs.length})</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded bg-bg-3000 p-2 text-xs">
+                        {result.logs.map((log) => `[${log.level}] ${log.timestamp} ${log.message}`).join('\n')}
+                    </pre>
+                </details>
+            ) : null}
+        </LemonBanner>
+    )
+}
 
 function TemplateEditor({
     value,
@@ -151,8 +213,18 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         templateGlobals,
         submitDisabledReason,
         notificationSubmissionError,
+        editingNotification,
+        copiedNotification,
+        testResult,
+        testResultLoading,
+        testResultError,
     } = useValues(logic)
-    const { closeDialog, setNotificationFormValue } = useActions(logic)
+    const { closeDialog, setNotificationFormValue, sendTestNotification, clearTestResult } = useActions(logic)
+    const testDisabledReason = isNotificationFormSubmitting
+        ? 'Saving notification...'
+        : testResultLoading
+          ? 'Sending test...'
+          : submitDisabledReason
 
     const messageField = getMessageFieldForDestination(notificationForm.destination)
     const messageFormattingActions =
@@ -169,11 +241,55 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         <LemonModal
             isOpen={isOpen}
             onClose={closeDialog}
-            title="Add survey notification"
-            description="Send survey updates to Slack, Discord, Microsoft Teams, or a webhook."
+            title={
+                editingNotification
+                    ? 'Edit survey notification'
+                    : copiedNotification
+                      ? 'Copy survey notification'
+                      : 'Add survey notification'
+            }
+            description={
+                editingNotification
+                    ? 'Update where this survey notification sends and what it includes.'
+                    : copiedNotification
+                      ? 'Review the copied notification before creating it for this survey.'
+                      : 'Send survey updates to Slack, Discord, Microsoft Teams, or a webhook.'
+            }
             width={720}
             footer={
                 <>
+                    {editingNotification ? (
+                        <LemonButton
+                            type="secondary"
+                            to={urls.hogFunction(editingNotification.id)}
+                            icon={<IconExternal />}
+                        >
+                            Open full editor
+                        </LemonButton>
+                    ) : null}
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'With sample data',
+                                onClick: () => sendTestNotification({ source: 'sample' }),
+                            },
+                            {
+                                label: 'With last response',
+                                onClick: () => sendTestNotification({ source: 'last_response' }),
+                            },
+                        ]}
+                        placement="top-end"
+                    >
+                        <LemonButton
+                            type="secondary"
+                            loading={testResultLoading}
+                            disabledReason={testDisabledReason}
+                            data-attr="survey-notification-send-test"
+                            tooltip="Sends a real message to your configured destination."
+                        >
+                            Send test
+                        </LemonButton>
+                    </LemonMenu>
                     <LemonButton type="secondary" onClick={closeDialog}>
                         Cancel
                     </LemonButton>
@@ -184,7 +300,11 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                         loading={isNotificationFormSubmitting}
                         disabledReason={submitDisabledReason}
                     >
-                        Add notification
+                        {editingNotification
+                            ? 'Save changes'
+                            : copiedNotification
+                              ? 'Create notification'
+                              : 'Add notification'}
                     </LemonButton>
                 </>
             }
@@ -192,6 +312,15 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
             <div className="flex flex-col gap-3">
                 {notificationSubmissionError ? (
                     <div className="text-sm text-danger">{notificationSubmissionError}</div>
+                ) : null}
+
+                {testResultLoading || testResult || testResultError ? (
+                    <TestResultPanel
+                        loading={testResultLoading}
+                        result={testResult}
+                        error={testResultError}
+                        onClear={clearTestResult}
+                    />
                 ) : null}
 
                 <Form
@@ -215,6 +344,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                                 <img src={option.iconUrl} alt="" className="h-5 w-5 object-contain" />
                                             ),
                                         }))}
+                                        disabled={!!editingNotification || !!copiedNotification}
                                         fullWidth
                                     />
                                 )}
@@ -435,6 +565,16 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 </div>
                             </>
                         ) : null}
+
+                        <Field name="responseFilters">
+                            {({ value, onChange }) => (
+                                <SurveyResponseFilters
+                                    questions={survey.questions}
+                                    filters={value}
+                                    onChange={onChange}
+                                />
+                            )}
+                        </Field>
 
                         <div className="space-y-3">
                             <div className="border-t border-border" />

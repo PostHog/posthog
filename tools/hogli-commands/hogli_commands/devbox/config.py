@@ -13,6 +13,9 @@ class DevboxConfig(TypedDict, total=False):
     dotfiles_uri: str
 
 
+_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri")
+
+
 def get_config_path() -> Path:
     """Return the config path for persisted hogli devbox preferences."""
     return Path.home() / ".config" / "posthog" / "hogli_devbox.json"
@@ -29,7 +32,7 @@ def load_config() -> DevboxConfig:
         return DevboxConfig()
 
     config = DevboxConfig()
-    for key in ("git_name", "git_email", "dotfiles_uri"):
+    for key in _PERSISTED_FIELDS:
         value = data.get(key)
         if isinstance(value, str):
             stripped_value = value.strip()
@@ -41,7 +44,7 @@ def load_config() -> DevboxConfig:
 def save_config(config: DevboxConfig) -> None:
     """Persist hogli devbox preferences to disk."""
     normalized = DevboxConfig()
-    for key in ("git_name", "git_email", "dotfiles_uri"):
+    for key in _PERSISTED_FIELDS:
         value = config.get(key)
         if isinstance(value, str):
             stripped_value = value.strip()

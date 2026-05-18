@@ -1,9 +1,8 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
-import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
-import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
-import type { ChartTheme } from '../core/types'
+import type { BaseChartContext } from '../core/chart-context'
+import { makeOverlayContext, renderOverlayInChart } from '../testing'
 import { ReferenceLine, ReferenceLines } from './ReferenceLine'
 
 const DIMENSIONS = {
@@ -15,39 +14,23 @@ const DIMENSIONS = {
     plotHeight: 352,
 }
 
-const THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
-
 // Simple linear y-scale: 0 -> plotBottom (368), 100 -> plotTop (16)
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
-const CONTEXT: BaseChartContext = {
-    dimensions: DIMENSIONS,
-    labels: ['Mon', 'Tue', 'Wed'],
-    series: [],
-    scales: {
+const CONTEXT: BaseChartContext = makeOverlayContext(
+    {
         x: (label: string) => (({ Mon: 100, Tue: 400, Wed: 700 }) as Record<string, number | undefined>)[label],
         y: yScale,
         yTicks: () => [0, 50, 100],
     },
-    theme: THEME,
-    resolveValue: (s, i) => s.data[i] ?? 0,
-    canvasBounds: () => null,
-    axisOrientation: 'vertical',
-    isPercent: false,
-    hoverIndex: -1,
-}
+    {
+        dimensions: DIMENSIONS,
+        labels: ['Mon', 'Tue', 'Wed'],
+    }
+)
 
-function toLayout(ctx: BaseChartContext): ChartLayoutContextValue {
-    const { hoverIndex: _hoverIndex, ...layout } = ctx
-    return layout
-}
-
-function renderInChart(node: React.ReactNode, ctx: BaseChartContext = CONTEXT): ReturnType<typeof render> {
-    return render(
-        <ChartLayoutContext.Provider value={toLayout(ctx)}>
-            <ChartHoverContext.Provider value={{ hoverIndex: ctx.hoverIndex }}>{node}</ChartHoverContext.Provider>
-        </ChartLayoutContext.Provider>
-    )
+function renderInChart(node: React.ReactNode, ctx: BaseChartContext = CONTEXT): RenderResult {
+    return renderOverlayInChart(node, ctx)
 }
 
 function lineDiv(container: HTMLElement, side: 'top' | 'left'): HTMLDivElement | null {

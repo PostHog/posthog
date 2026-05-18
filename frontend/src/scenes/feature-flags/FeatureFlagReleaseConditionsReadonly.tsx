@@ -125,11 +125,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
 
-            <FeatureFlagConditionWarning
-                properties={properties}
-                filterGroups={filterGroups}
-                evaluationRuntime={evaluationRuntime}
-            />
+            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
             <div className={isDisabled ? 'opacity-60' : ''}>
                 {filterGroups.map((group, index) => (
