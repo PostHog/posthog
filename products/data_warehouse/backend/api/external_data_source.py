@@ -1767,6 +1767,85 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="table_name",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Specific table name to generate UNION query for. If not provided, returns queries for all tables.",
+            ),
+            OpenApiParameter(
+                name="schemas",
+                type={"type": "array", "items": {"type": "string"}},
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to specific schemas. If not provided, uses the source's schema configuration.",
+            ),
+        ],
+        responses={200: {"type": "object", "properties": {"sql": {"type": "string"}}}},
+    )
+    @action(methods=["GET"], detail=True)
+    def generate_union_query(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Generate a UNION ALL query for a table across multiple PostgreSQL schemas."""
+        from posthog.temporal.data_imports.sources.postgres import postgres as pg_postgres
+
+        instance: ExternalDataSource = self.get_object()
+
+        if instance.source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This endpoint is only available for PostgreSQL sources."},
+            )
+
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration."},
+            )
+
+        try:
+            source = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
+            config = source.parse_config(instance.job_inputs)
+
+            table_name = request.query_params.get("table_name", None)
+            schema_filter = request.query_params.getlist("schemas")
+
+            schema_param = None
+            if instance.job_inputs.get("include_all_schemas"):
+                schema_param = "all"
+            elif instance.job_inputs.get("schemas"):
+                schema_param = instance.job_inputs.get("schemas")
+
+            with source.with_ssh_tunnel(config) as (host, port):
+                sql = pg_postgres.generate_union_query(
+                    host=host,
+                    database=config.database,
+                    user=config.user,
+                    password=config.password,
+                    schema=schema_param,
+                    port=port,
+                    require_ssl=config.require_ssl if hasattr(config, "require_ssl") else False,
+                    table_name=table_name,
+                    schema_filter=schema_filter if schema_filter else None,
+                )
+
+            if not sql:
+                return Response(
+                    status=status.HTTP_404_NOT_FOUND,
+                    data={"message": "No tables found matching the criteria."},
+                )
+
+            return Response(status=status.HTTP_200_OK, data={"sql": sql})
+
+        except Exception as e:
+            logger.exception("Failed to generate UNION query", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Failed to generate UNION query: {str(e)}"},
+            )
+
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""
