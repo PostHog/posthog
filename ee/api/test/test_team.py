@@ -59,7 +59,7 @@ def team_enterprise_api_test_factory():
             self._set_project_default_member_access(self.team)
 
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-                self.skipTest("Requires advanced permissions")
+                self.skipTest("Requires access control")
 
             response = self.client.delete(f"/api/environments/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -81,7 +81,7 @@ def team_enterprise_api_test_factory():
             self._set_project_default_member_access(team)
 
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-                self.skipTest("Requires advanced permissions")
+                self.skipTest("Requires access control")
 
             response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
