@@ -200,26 +200,64 @@ const parseRelativeHours = (value: string | undefined): number | null => {
 }
 
 /**
- * Returns a HogQL expression that buckets `first_scheduled_at` for the
- * sparkline. Tiers: minute (<24h), 15-min (≤4d), hour (≤7d), day (above).
+ * Resolve the filter's date range to concrete dayjs endpoints. Centralizing
+ * this so the sparkline's bucket sizing AND its boundary generation see the
+ * same window (otherwise the chart's x-axis can drift away from the actual
+ * filter the table is using).
  */
-const pickSparklineBucketExpr = (filters: HogInvocationsFilters): string => {
-    let hours = parseRelativeHours(filters.date_from)
-    if (hours === null) {
-        const from = dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')
-        const to = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
-        hours = to.diff(from, 'hour')
+const resolveDateRange = (filters: HogInvocationsFilters): { start: dayjs.Dayjs; end: dayjs.Dayjs } => {
+    const end = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
+    const relHours = parseRelativeHours(filters.date_from)
+    if (relHours !== null) {
+        return { start: end.subtract(relHours, 'hour'), end }
     }
+    const start = dateStringToDayJs(filters.date_from) ?? end.subtract(24, 'hour')
+    return { start, end }
+}
+
+/**
+ * Tier selection for the sparkline. Each tier carries both the HogQL bucket
+ * expression and the equivalent client-side interval (in ms) so we can
+ * generate every bucket boundary in the filter range, not just the ones CH
+ * returned data for. Tiers (by total range): <24h minutely, ≤4d 15-min,
+ * ≤7d hourly, otherwise daily.
+ */
+interface SparklineTier {
+    intervalMs: number
+    bucketExpr: string
+}
+const pickSparklineTier = (filters: HogInvocationsFilters): SparklineTier => {
+    const { start, end } = resolveDateRange(filters)
+    const hours = end.diff(start, 'hour')
     if (hours < 24) {
-        return 'toStartOfMinute(first_scheduled_at)'
+        return { intervalMs: 60_000, bucketExpr: 'toStartOfMinute(first_scheduled_at)' }
     }
     if (hours <= 4 * 24) {
-        return 'toStartOfInterval(first_scheduled_at, INTERVAL 15 MINUTE)'
+        return {
+            intervalMs: 15 * 60_000,
+            bucketExpr: 'toStartOfInterval(first_scheduled_at, INTERVAL 15 MINUTE)',
+        }
     }
     if (hours <= 7 * 24) {
-        return 'toStartOfHour(first_scheduled_at)'
+        return { intervalMs: 60 * 60_000, bucketExpr: 'toStartOfHour(first_scheduled_at)' }
     }
-    return 'toStartOfDay(first_scheduled_at)'
+    return { intervalMs: 24 * 60 * 60_000, bucketExpr: 'toStartOfDay(first_scheduled_at)' }
+}
+
+/**
+ * Walk the filter range and emit every bucket boundary as an ISO string.
+ * Snaps to interval-aligned ms (matching CH's epoch-aligned
+ * `toStartOfInterval` / `toStartOfMinute` etc.), so the keys we use to look
+ * up CH counts line up regardless of timezone formatting.
+ */
+const generateSparklineBuckets = (filters: HogInvocationsFilters, intervalMs: number): string[] => {
+    const { start, end } = resolveDateRange(filters)
+    const snap = (t: dayjs.Dayjs): number => Math.floor(t.valueOf() / intervalMs) * intervalMs
+    const out: string[] = []
+    for (let ms = snap(start); ms < end.valueOf(); ms += intervalMs) {
+        out.push(dayjs(ms).toISOString())
+    }
+    return out
 }
 
 const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
@@ -230,7 +268,7 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
 
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
     const replayWrapperKind = replayWrapperKindFor(props.functionKind)
-    const bucketExpr = pickSparklineBucketExpr(filters)
+    const { intervalMs, bucketExpr } = pickSparklineTier(filters)
 
     // Apply the visible filters so the sparkline reflects the same population
     // as the list — referencing the SELECT aliases (status / error_kind /
@@ -297,23 +335,24 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         }
     )
 
-    // Pivot: HogQL returns one row per (bucket, status). The chart wants one
-    // series per status, with `values` aligned to a sorted bucket list. We
-    // pick up the buckets in the order CH returned them (ORDER BY bucket) and
-    // backfill zeros for series-bucket pairs that didn't appear.
-    const bucketSet = new Set<string>()
-    const cells: Record<string, Record<RunStatus, number>> = {}
+    // Pivot CH results keyed on bucket-as-ms so the lookup is tolerant of
+    // string-format differences between CH's serialization and dayjs's
+    // ISO output.
+    const cellsByMs: Record<number, Record<RunStatus, number>> = {}
     for (const row of response.results ?? []) {
         const [bucket, status, n] = row as unknown as [string, RunStatus, number]
         if (!bucket) {
             continue
         }
-        bucketSet.add(bucket)
-        cells[bucket] = cells[bucket] ?? { running: 0, succeeded: 0, failed: 0 }
-        cells[bucket][status] = Number(n ?? 0)
+        const ms = dayjs(bucket).valueOf()
+        cellsByMs[ms] = cellsByMs[ms] ?? { running: 0, succeeded: 0, failed: 0 }
+        cellsByMs[ms][status] = Number(n ?? 0)
     }
-    const dates = Array.from(bucketSet).sort()
-    const buildValues = (status: RunStatus): number[] => dates.map((d) => cells[d]?.[status] ?? 0)
+    // Walk every bucket in the filter range — not just the ones CH returned
+    // data for — so the chart's x-axis spans the user's selected window even
+    // when activity is concentrated in a tiny slice of it.
+    const dates = generateSparklineBuckets(filters, intervalMs)
+    const buildValues = (status: RunStatus): number[] => dates.map((d) => cellsByMs[dayjs(d).valueOf()]?.[status] ?? 0)
     const series: SparklineSeries[] = (['failed', 'running', 'succeeded'] as RunStatus[]).map((status) => ({
         name: status,
         color: SPARKLINE_STATUS_COLORS[status],
