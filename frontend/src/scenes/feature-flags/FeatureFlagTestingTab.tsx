@@ -9,6 +9,7 @@ import type { Dayjs } from 'lib/dayjs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType, PersonType } from '~/types'
+import { PropertyDefinitionType } from '~/types'
 
 import type { ConditionAnalysis } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
@@ -366,7 +367,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <div className="max-h-96 overflow-auto">
                                         <PropertiesTable
                                             properties={result.person_properties}
-                                            type="person"
+                                            type={PropertyDefinitionType.Person}
                                             searchable={true}
                                             sortProperties={true}
                                             highlightedKeys={Array.from(usedProperties)}
