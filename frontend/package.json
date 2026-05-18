@@ -85,6 +85,7 @@
         "@posthog/products-deployments": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",
         "@posthog/products-endpoints": "workspace:*",
+        "@posthog/products-engineering-analytics": "workspace:*",
         "@posthog/products-error-tracking": "workspace:*",
         "@posthog/products-experiments": "workspace:*",
         "@posthog/products-feature-flags": "workspace:*",
