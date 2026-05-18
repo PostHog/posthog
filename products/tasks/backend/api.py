@@ -1192,6 +1192,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 new_status,
                 request.validated_data.get("error_message"),
             )
+            # mark_completed / mark_failed fire pushes from the model. Cancellation
+            # transitions only flow through this PATCH path, so dispatch here.
+            if new_status == TaskRun.Status.CANCELLED:
+                from products.tasks.backend.push_dispatcher import notify_task_run_cancelled
+
+                notify_task_run_cancelled(task_run)
         new_environment = request.validated_data.get("environment")
         if new_environment == "local" and old_environment == TaskRun.Environment.CLOUD:
             self._signal_workflow_completion(task_run, "cancelled", "handoff")
