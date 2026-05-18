@@ -1,6 +1,5 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { Children, MouseEvent, ReactElement, isValidElement, useCallback } from 'react'
-import { P, match } from 'ts-pattern'
 
 import { LemonButton, LemonTable, LemonTableColumn, LemonTableProps } from '@posthog/lemon-ui'
 
@@ -79,6 +78,14 @@ export function DataSourceTableFooter<T extends Record<string, any>>({
     const { itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadNextData } = useActions(dataSource)
 
+    if (!itemsLoading && !canLoadNextData) {
+        return (
+            <div className="p-2 text-center text-secondary">
+                No more entries — increase date range or change filters
+            </div>
+        )
+    }
+
     return (
         <div className="p-1">
             <LemonButton
@@ -86,15 +93,10 @@ export function DataSourceTableFooter<T extends Record<string, any>>({
                 loading={itemsLoading}
                 center
                 fullWidth
-                disabledReason={match([itemsLoading, canLoadNextData])
-                    .with([true, P.any], () => 'Loading...')
-                    .with([P.any, false], () => 'Increase date range or change filters')
-                    .otherwise(() => undefined)}
+                disabledReason={itemsLoading ? 'Loading...' : undefined}
                 onClick={() => loadNextData()}
             >
-                {itemsLoading && <span>Loading...</span>}
-                {!itemsLoading && !canLoadNextData && <span>No more entries</span>}
-                {!itemsLoading && canLoadNextData && <span>Load More</span>}
+                {itemsLoading ? <span>Loading...</span> : <span>Load More</span>}
             </LemonButton>
         </div>
     )
