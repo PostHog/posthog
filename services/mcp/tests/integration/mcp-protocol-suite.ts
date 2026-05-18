@@ -29,12 +29,15 @@ function buildStreamableClient(
         fetch: harness.fetch,
         requestInit: { headers: { Authorization: `Bearer ${token}` } },
     })
-    const client = new Client(
-        { name: 'mcp-integration-test', version: '0.0.0' },
-        { capabilities: {} }
-    )
+    const client = new Client({ name: 'mcp-integration-test', version: '0.0.0' }, { capabilities: {} })
     return { client, transport }
 }
+
+// SDK exposes `sessionId` as `string | undefined` but the `Transport` interface
+// declares it as `string`. The runtime contract is satisfied (the transport
+// sets the id after the initialize handshake); the assignability mismatch is a
+// type-definition quirk we paper over at the seam.
+type ConnectableTransport = Parameters<Client['connect']>[0]
 
 async function safeClose(client: Client | undefined): Promise<void> {
     try {
@@ -55,7 +58,7 @@ export function defineMcpProtocolTests(
             const harness = await getHarness()
             const built = buildStreamableClient(harness)
             client = built.client
-            await client.connect(built.transport)
+            await client.connect(built.transport as ConnectableTransport)
         })
 
         afterEach(async () => {
@@ -73,6 +76,9 @@ export function defineMcpProtocolTests(
             expect(tools.length).toBeGreaterThan(0)
 
             const sample = tools[0]
+            if (!sample) {
+                throw new Error('expected at least one tool')
+            }
             expect(sample.name).toBeTruthy()
             expect(sample.inputSchema).toBeTruthy()
             expect(sample.inputSchema.type).toBe('object')
@@ -126,13 +132,16 @@ export function defineMcpProtocolTests(
             // Pick the first resource; assert listing shape, then exercise the
             // resources/read JSON-RPC call which hits a different code path.
             const first = resources[0]
+            if (!first) {
+                throw new Error('expected at least one resource')
+            }
             expect(first.uri).toBeTruthy()
             expect(first.mimeType).toBeTruthy()
 
             const result = await client.readResource({ uri: first.uri })
             expect(Array.isArray(result.contents)).toBe(true)
             expect(result.contents.length).toBeGreaterThan(0)
-            expect(result.contents[0].uri).toBe(first.uri)
+            expect(result.contents[0]?.uri).toBe(first.uri)
         })
 
         it('calls a tool and returns content blocks', async () => {
@@ -169,9 +178,7 @@ export function defineMcpProtocolTests(
         it('isolates state between concurrent sessions on different tokens', async ({ skip }) => {
             const harness = await getHarness()
             if (!harness.token2) {
-                skip(
-                    'Set TEST_POSTHOG_PERSONAL_API_KEY_2 to run the concurrent-sessions isolation test.'
-                )
+                skip('Set TEST_POSTHOG_PERSONAL_API_KEY_2 to run the concurrent-sessions isolation test.')
                 return
             }
 
@@ -179,16 +186,16 @@ export function defineMcpProtocolTests(
             const b = buildStreamableClient(harness, harness.token2)
 
             try {
-                await Promise.all([a.client.connect(a.transport), b.client.connect(b.transport)])
+                await Promise.all([
+                    a.client.connect(a.transport as ConnectableTransport),
+                    b.client.connect(b.transport as ConnectableTransport),
+                ])
 
                 // Both clients should resolve initialize against their own session.
                 expect(a.client.getServerVersion()?.name).toBe('PostHog')
                 expect(b.client.getServerVersion()?.name).toBe('PostHog')
 
-                const [toolsA, toolsB] = await Promise.all([
-                    a.client.listTools(),
-                    b.client.listTools(),
-                ])
+                const [toolsA, toolsB] = await Promise.all([a.client.listTools(), b.client.listTools()])
 
                 // Each session got a tool list (no cross-talk that would surface as
                 // empty/missing tools on one side).
@@ -225,7 +232,7 @@ export function defineUiAppProtocolTests(
             harness = await getHarness()
             const built = buildStreamableClient(harness)
             client = built.client
-            await client.connect(built.transport)
+            await client.connect(built.transport as ConnectableTransport)
         })
 
         afterEach(async () => {
@@ -262,7 +269,10 @@ export function defineUiAppProtocolTests(
             const resource = await client.readResource({ uri })
             expect(resource.contents.length).toBeGreaterThan(0)
             const first = resource.contents[0]
-            const text = String(first.text ?? '')
+            if (!first) {
+                throw new Error('expected resource contents to be non-empty')
+            }
+            const text = 'text' in first ? String(first.text ?? '') : ''
             expect(text).toContain('<!DOCTYPE html>')
             // Stub references the per-app bundle on whichever origin
             // MCP_APPS_BASE_URL points at — the harness sets it to its own origin.

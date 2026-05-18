@@ -32,10 +32,7 @@ function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
         },
         scan: async (cursor) => {
             const cur = String(cursor)
-            return [cur === '0' ? 'next' : '0', cur === '0' ? Array.from(store.keys()) : []] as [
-                string,
-                string[],
-            ]
+            return [cur === '0' ? 'next' : '0', cur === '0' ? Array.from(store.keys()) : []] as [string, string[]]
         },
         ping: async () => 'PONG',
     }
@@ -57,7 +54,7 @@ afterAll(() => {
 // the same WHATWG Request/Response pipeline the runtime uses, minus the TCP
 // socket. Keeps the test fully in-process so no port management or shutdown
 // races; still exercises every middleware, route, and the MCP transport.
-const fetchViaApp: typeof fetch = (input, init) => {
+const fetchViaApp: typeof fetch = async (input, init) => {
     const url = input instanceof URL ? input : new URL(typeof input === 'string' ? input : input.url)
     return app.request(url.pathname + url.search, init ?? {})
 }

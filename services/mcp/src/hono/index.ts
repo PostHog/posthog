@@ -27,6 +27,8 @@ function resolveRedisUrl(): string {
         console.error('[MCP] REDIS_URL is required in production')
         process.exit(1)
     }
+    // Local dev fallback only — production refuses to start without REDIS_URL above.
+    // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
     return 'redis://localhost:6379'
 }
 
