@@ -178,8 +178,16 @@ async def validate_schema_and_update_table(
         _schema_name: str = external_data_schema.name
         incremental_or_append = external_data_schema.should_use_incremental_field
 
-        table_name = build_table_name(job.pipeline, _schema_name)
-        normalized_schema_name = NamingConvention.normalize_identifier(_schema_name)
+        # When the source was migrated from single-schema to multi-schema mode (user cleared
+        # `job_inputs.schema`), the row was renamed from "example_table" to "poblic.example_table"
+        # but its Delta files still live at the legacy unqualified path. `dwh_storage_key` carries
+        # the original name so we keep writing to the same `team_<id>_postgres_<schema_id>/<key>/`
+        # location and HogQL doesn't need to be rebound to a new path.
+        storage_key = (external_data_schema.sync_type_config or {}).get("dwh_storage_key")
+        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else _schema_name
+
+        table_name = build_table_name(job.pipeline, storage_schema_name)
+        normalized_schema_name = NamingConvention.normalize_identifier(storage_schema_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
         # Check

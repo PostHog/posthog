@@ -2691,12 +2691,96 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
 
-        legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="example_table")
+        # Row is renamed to the qualified form so it lives alongside newly-discovered tables from
+        # other schemas (e.g. public.example_table) without colliding on the unqualified name.
+        legacy = ExternalDataSchema.objects.get(
+            team_id=self.team.pk, source_id=source.pk, name="poblic.example_table"
+        )
         metadata = legacy.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "poblic", (
             f"legacy row pinned to wrong schema: {metadata.get('source_schema')!r}"
         )
         assert metadata.get("source_table_name") == "example_table"
+        # dwh_storage_key pins the Delta path to the legacy "example_table" key so existing data
+        # stays in place — no rewrite, no orphan.
+        assert legacy.sync_type_config.get("dwh_storage_key") == "example_table"
+        # The original unqualified row is gone (it was renamed in place).
+        assert not ExternalDataSchema.objects.filter(
+            team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
+        ).exists()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_clearing_postgres_schema_drops_duplicate_qualified_row(self, mock_get_source):
+        # A prior refresh (before this migration landed) might have created `poblic.example_table`
+        # as a separate row. When the user clears the schema, the legacy unqualified row gets
+        # renamed to that qualified form — the orphan duplicate must be soft-deleted so the legacy
+        # row (with the actual Delta data) is canonical.
+        from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+
+        source_mock = mock_get_source.return_value
+        parsed_config = Mock(spec=PostgresSourceConfig)
+        parsed_config.schema = ""
+        parsed_config.to_dict.return_value = {
+            "host": "h",
+            "port": 5432,
+            "database": "db",
+            "user": "u",
+            "password": "p",
+            "schema": "",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_config.return_value = (True, [])
+        source_mock.validate_credentials_for_access_method.return_value = (True, None)
+        source_mock.validate_credentials.return_value = (True, None)
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="dup",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "h", "port": 5432, "database": "db", "user": "u", "password": "p", "schema": "poblic"},
+        )
+        legacy = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="example_table",
+            should_sync=True,
+        )
+        orphan = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="poblic.example_table",
+            should_sync=False,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "h",
+                    "port": 5432,
+                    "database": "db",
+                    "user": "u",
+                    "password": "p",
+                    "schema": "",
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        # Legacy row is now the qualified one, with storage pinned to the legacy path.
+        live = ExternalDataSchema.objects.get(id=legacy.id)
+        assert live.name == "poblic.example_table"
+        assert live.deleted is False
+        assert (live.sync_type_config or {}).get("dwh_storage_key") == "example_table"
+        # The orphan duplicate is soft-deleted.
+        orphan.refresh_from_db()
+        assert orphan.deleted is True
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):

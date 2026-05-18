@@ -235,30 +235,62 @@ def get_postgres_source_table_location(
 
 
 def _pin_legacy_postgres_rows_to_default_schema(source: ExternalDataSource, old_schema: str) -> None:
-    """Pin schema_metadata on unqualified Postgres rows to the configured schema BEFORE the source's
-    `job_inputs.schema` is cleared. After clearing, the rename helper can no longer reconstruct the
-    legacy default schema and would re-pin rows to "public" by default — orphaning data syncs from
-    other schemas (e.g. `poblic.example_table`)."""
+    """Migrate Postgres schema rows when the user clears `job_inputs.schema`:
+
+    1. Pin `schema_metadata.source_schema/source_table_name` to the OLD default schema so the next
+       sync's `SELECT` targets the correct physical table.
+    2. Rename the row to the qualified form (``"example_table"`` → ``"poblic.example_table"``) so
+       new tables from other schemas can coexist without name collisions.
+    3. Store the legacy ``dwh_storage_key`` (the original unqualified name used to build the
+       ``DataWarehouseTable.name`` + ``url_pattern``) so subsequent syncs keep writing to the same
+       S3 path — no re-sync, no orphaned Delta files.
+    4. If a qualified duplicate row already exists (created by a prior refresh before this
+       migration was added), soft-delete it; the legacy row is canonical because it owns the data.
+    """
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
-    rows = ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, deleted=False)
+    rows = list(ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, deleted=False))
+    rows_by_name = {row.name: row for row in rows}
+
     for row in rows:
         if "." in row.name:
             continue
         sync_type_config = row.sync_type_config or {}
         existing_metadata = sync_type_config.get("schema_metadata")
         if isinstance(existing_metadata, dict) and existing_metadata.get("source_table_name"):
+            # Already pinned (e.g. CDC schema or a prior migration ran). Don't touch.
             continue
+
+        original_name = row.name
+        qualified_name = f"{old_schema}.{original_name}"
 
         merged_metadata: dict[str, Any] = dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
         merged_metadata["source_catalog"] = merged_metadata.get("source_catalog")
         merged_metadata["source_schema"] = old_schema
-        merged_metadata["source_table_name"] = row.name
+        merged_metadata["source_table_name"] = original_name
         merged_metadata.setdefault("columns", [])
         merged_metadata.setdefault("foreign_keys", [])
 
-        row.sync_type_config = {**sync_type_config, "schema_metadata": merged_metadata}
-        row.save(update_fields=["sync_type_config", "updated_at"])
+        new_sync_type_config = {
+            **sync_type_config,
+            "schema_metadata": merged_metadata,
+            # Lock the Delta storage path to the legacy unqualified key so existing data stays in
+            # place. validate_schema_and_update_table reads this back instead of recomputing.
+            "dwh_storage_key": original_name,
+        }
+
+        # If a qualified duplicate exists (e.g. created during a prior refresh that ran before this
+        # migration), drop it — the legacy row is the canonical one with data attached.
+        existing_qualified = rows_by_name.get(qualified_name)
+        if existing_qualified is not None and existing_qualified.id != row.id:
+            existing_qualified.soft_delete()
+            rows_by_name.pop(qualified_name, None)
+
+        row.name = qualified_name
+        row.sync_type_config = new_sync_type_config
+        row.save(update_fields=["name", "sync_type_config", "updated_at"])
+        rows_by_name.pop(original_name, None)
+        rows_by_name[qualified_name] = row
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):

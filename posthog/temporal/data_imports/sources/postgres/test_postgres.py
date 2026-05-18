@@ -188,12 +188,8 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
-            ) as postgres_source_mock,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False
-            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
@@ -221,12 +217,8 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
-            ) as postgres_source_mock,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False
-            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
@@ -247,12 +239,8 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
-            ) as postgres_source_mock,
-            mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False
-            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
