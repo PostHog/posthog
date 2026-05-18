@@ -6,8 +6,9 @@ apply unchanged to any TeamScopedManager-backed model. This file just
 verifies that inheriting `TeamScopedRootMixin` swaps the manager from
 `RootTeamManager` to `TeamScopedManager` while keeping the canonical-team
 save() rewrite from the parent — and that the CI introspection (which is
-just an isinstance check on `_meta.managers`) recognises all three
-adoption styles: the two mixins and an ad-hoc `objects = TeamScopedManager()`.
+an isinstance check on the manager named `objects` in `_meta.managers_map`)
+recognises all three adoption styles: the two mixins and an ad-hoc
+`objects = TeamScopedManager()`.
 """
 
 from types import SimpleNamespace
@@ -38,30 +39,49 @@ class TestTeamScopedRootMixinWiring(SimpleTestCase):
 
 
 class TestFailClosedIntrospection(SimpleTestCase):
-    """The CI baseline check (compute_unmigrated_to_fail_closed) scans
-    `model._meta.managers` for any `TeamScopedManager` instance. Confirm
-    that contract holds for all three adoption styles.
+    """The CI baseline check (compute_unmigrated_to_fail_closed) verifies
+    that the manager accessible as `Model.objects` is a `TeamScopedManager`.
+    Confirm that contract holds for all three adoption styles.
 
-    Scanning the whole managers list (rather than `_default_manager`) keeps
-    the detection robust to `Meta.default_manager_name = "all_teams"` —
-    set elsewhere so admin / framework managers bypass scoping while user
-    code via `Model.objects` stays fail-closed.
+    Anchoring on `objects` (rather than scanning all managers) closes the
+    loophole reviewers flagged: a model could keep `objects =
+    RootTeamManager()` and add a secondary scoped manager just to satisfy
+    CI, while call sites like `Model.objects.X` stayed unscoped. Anchoring
+    on `objects` also stays correct once #57879 sets
+    `Meta.default_manager_name = "all_teams"` on ProductTeamModel —
+    `_default_manager` will then resolve to the unscoped sibling for
+    Django framework code (admin, related queries), but `Model.objects`
+    will still resolve to the TeamScopedManager declared on the model.
     """
 
     @staticmethod
-    def _has_team_scoped_manager(model: type[models.Model]) -> bool:
-        return any(isinstance(m, TeamScopedManager) for m in model._meta.managers)
+    def _objects_is_team_scoped(model: type[models.Model]) -> bool:
+        return isinstance(model._meta.managers_map.get("objects"), TeamScopedManager)
 
     def test_product_team_model_is_detected(self) -> None:
-        self.assertTrue(self._has_team_scoped_manager(ProductTeamModel))
+        self.assertTrue(self._objects_is_team_scoped(ProductTeamModel))
 
     def test_team_scoped_root_mixin_is_detected(self) -> None:
-        self.assertTrue(self._has_team_scoped_manager(TeamScopedRootMixin))
+        self.assertTrue(self._objects_is_team_scoped(TeamScopedRootMixin))
 
     def test_adhoc_declaration_is_detected(self) -> None:
         """A bare `objects = TeamScopedManager()` on a model that doesn't inherit
         either mixin still satisfies the check. We use a SimpleNamespace stub
         rather than a real `models.Model` subclass to avoid registering an
         abstract test model in the live `posthog` app registry."""
-        stub = SimpleNamespace(_meta=SimpleNamespace(managers=(TeamScopedManager(),)))
-        self.assertTrue(self._has_team_scoped_manager(stub))  # type: ignore[arg-type]
+        stub = SimpleNamespace(_meta=SimpleNamespace(managers_map={"objects": TeamScopedManager()}))
+        self.assertTrue(self._objects_is_team_scoped(stub))  # type: ignore[arg-type]
+
+    def test_bypass_via_secondary_manager_is_not_detected(self) -> None:
+        """A model with `objects = RootTeamManager()` and a secondary
+        TeamScopedManager should NOT count as migrated — call sites
+        still use Model.objects, which is unscoped."""
+        stub = SimpleNamespace(
+            _meta=SimpleNamespace(
+                managers_map={
+                    "objects": RootTeamManager(),
+                    "scoped": TeamScopedManager(),
+                }
+            )
+        )
+        self.assertFalse(self._objects_is_team_scoped(stub))  # type: ignore[arg-type]

@@ -502,16 +502,20 @@ def compute_unmigrated_to_fail_closed(
 
     fail_closed: set[str] = set()
     for model in apps.get_models():
-        if model._meta.abstract or model._meta.proxy:
+        if model._meta.proxy:
             continue
-        # Scan every manager on the model rather than just `_default_manager`.
-        # PR #57879 sets `default_manager_name = "all_teams"` on
-        # ProductTeamModel so admin/forms/related-object access bypass
-        # scoping (Django framework manager contract). The model still
-        # declares `objects = TeamScopedManager()`, so checking the full
-        # managers list is the right detection signal regardless of which
-        # one Django picks as default.
-        if any(isinstance(m, TeamScopedManager) for m in model._meta.managers):
+        # Look up the manager that `Model.objects.X` resolves to.
+        # Reviewers (codex, copilot) flagged a `any(...)` scan as bypassable:
+        # a new model could keep `objects = RootTeamManager()` and add a
+        # secondary scoped manager just to satisfy CI — call sites would
+        # still be unscoped. Anchoring on `objects` (the manager app code
+        # actually reaches for) closes that loophole. This stays correct
+        # after PR #57879 sets `default_manager_name = "all_teams"` on
+        # ProductTeamModel, since that change moves the *framework*-default
+        # manager (`_default_manager`, used by admin / related queries)
+        # without touching `objects`.
+        objects_manager = model._meta.managers_map.get("objects")
+        if isinstance(objects_manager, TeamScopedManager):
             fail_closed.add(model.__name__)
 
     candidates = team_scoped - excluded - legitimately_unscoped - needs_team_id
