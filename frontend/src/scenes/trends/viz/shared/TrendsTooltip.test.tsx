@@ -52,7 +52,7 @@ describe('TrendsTooltip', () => {
     ])('$name', ({ showHeader, expected }) => {
         render(<TrendsTooltip context={buildContext()} showHeader={showHeader} />)
         const lastCall = insightTooltipMock.mock.calls[insightTooltipMock.mock.calls.length - 1]
-        expect(lastCall).toBeDefined()
+        expect(lastCall).toBeTruthy()
         expect(lastCall[0].showHeader).toBe(expected)
     })
 })
