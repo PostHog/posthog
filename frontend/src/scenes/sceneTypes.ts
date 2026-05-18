@@ -121,6 +121,7 @@ export enum Scene {
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
+    Pulse = 'Pulse',
     ProductTour = 'ProductTour',
     ProductTours = 'ProductTours',
     ProjectCreateFirst = 'ProjectCreate',

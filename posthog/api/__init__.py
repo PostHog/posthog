@@ -172,6 +172,7 @@ from . import (
     plugin_log_entry,
     project_secret_api_key,
     proxy_record,
+    pulse,
     query,
     quick_filters,
     resource_transfer,
@@ -1235,6 +1236,27 @@ register_grandfathered_environment_nested_viewset(
     r"alerts",
     alert.AlertViewSet,
     "environment_alerts",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"pulse_digests",
+    pulse.PulseDigestViewSet,
+    "environment_pulse_digests",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"pulse_findings",
+    pulse.PulseFindingViewSet,
+    "environment_pulse_findings",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"pulse_subscriptions",
+    pulse.PulseSubscriptionViewSet,
+    "environment_pulse_subscriptions",
     ["team_id"],
 )
 
