@@ -54,6 +54,7 @@ class Product(StrEnum):
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
+    USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -101,6 +102,7 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+    SEMANTIC_SEARCH = "semantic_search"
 
 
 class FallbackTags(TypedDict):
@@ -199,7 +201,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.EXPERIMENT_DATA_WAREHOUSE_NODE
         ):
             return {"product": Product.EXPERIMENTS}
-        case NodeKind.TRACE_QUERY | NodeKind.TRACES_QUERY | NodeKind.TRACE_NEIGHBORS_QUERY | NodeKind.TRACE_SPANS_QUERY:
+        case (
+            NodeKind.TRACE_QUERY
+            | NodeKind.TRACES_QUERY
+            | NodeKind.TRACE_NEIGHBORS_QUERY
+            | NodeKind.TRACE_SPANS_QUERY
+            | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
+            | NodeKind.TRACE_SPANS_TREE_QUERY
+        ):
             return {"product": Product.LLM_ANALYTICS}
         case (
             NodeKind.VECTOR_SEARCH_QUERY

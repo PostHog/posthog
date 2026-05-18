@@ -587,12 +587,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'span attributes',
             type: TaxonomicFilterGroupType.SpanAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                attribute_type: 'span',
+                attribute_type: 'span_attribute',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
                 combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                    attribute_type: 'span',
+                    attribute_type: 'span_attribute',
                     key: key,
                     ...endpointFilters,
                 }).url,
@@ -605,12 +605,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'span resources',
             type: TaxonomicFilterGroupType.SpanResourceAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                attribute_type: 'resource',
+                attribute_type: 'span_resource_attribute',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
                 combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                    attribute_type: 'resource',
+                    attribute_type: 'span_resource_attribute',
                     key: key,
                     ...endpointFilters,
                 }).url,

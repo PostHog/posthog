@@ -1727,12 +1727,27 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
                         return
                     }
+                    // Skip while hidden so backgrounded tabs don't re-mount on every remote nav.
+                    // The visibilitychange handler below catches up when the tab is foregrounded.
+                    if (document.visibilityState !== 'visible') {
+                        return
+                    }
                     syncPinnedTabsFromStorage()
+                }
+
+                const onVisibility = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        syncPinnedTabsFromStorage()
+                    }
                 }
 
                 syncPinnedTabsFromStorage()
                 window.addEventListener('storage', onStorage)
-                return () => window.removeEventListener('storage', onStorage)
+                document.addEventListener('visibilitychange', onVisibility)
+                return () => {
+                    window.removeEventListener('storage', onStorage)
+                    document.removeEventListener('visibilitychange', onVisibility)
+                }
             },
             'pinnedTabsStorageListener',
             // Passive storage listener — no need to tear down/re-setup on visibility change.

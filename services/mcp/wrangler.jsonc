@@ -72,7 +72,16 @@
      * Static Assets
      * https://developers.cloudflare.com/workers/static-assets/binding/
      */
-    "assets": { "directory": "./public/" },
+    "assets": {
+        "directory": "./public/",
+        // `binding: "ASSETS"` exposes `env.ASSETS.fetch(request)` so the Worker
+        // can serve static files programmatically. We use it in src/index.ts
+        // to short-circuit `/ui-apps/*` paths before the OAuth gate —
+        // production's Cloudflare edge routes these to assets before the
+        // Worker, but `wrangler dev` runs the Worker first and the gate 401s
+        // before assets get a chance.
+        "binding": "ASSETS",
+    },
     /**
      * Service Bindings (communicate between multiple Workers)
      * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings

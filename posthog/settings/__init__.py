@@ -70,6 +70,11 @@ SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
 NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
+# Vapi voice-AI integration (used by user_interviews to host public interview pages).
+VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
+VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
+VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
+
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:

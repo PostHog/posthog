@@ -2,6 +2,13 @@ import type { ReactElement } from 'react'
 
 import { formatDate, formatNumber } from '../utils'
 
+// TODO(quill): replace with a Quill chart primitive (e.g. `BarChart` /
+// `Charts.Bar`) once Quill ships one. Quill currently has no chart layer —
+// it stops at primitives/components/blocks, none of which render data viz.
+// This bespoke SVG renderer uses Quill design tokens (`--text-secondary`
+// via the host bridge, `--posthog-chart-*` palette declared in base.css)
+// so the visual language already matches.
+
 const CHART_HEIGHT = 200
 const CHART_WIDTH = 400
 const PADDING = { top: 20, right: 20, bottom: 40, left: 50 }
