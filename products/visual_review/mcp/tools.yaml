@@ -83,7 +83,7 @@ tools:
             - visual_review:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Approve visual review snapshots
         description: >

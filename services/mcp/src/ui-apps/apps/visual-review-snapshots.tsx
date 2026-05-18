@@ -33,34 +33,34 @@ function VisualReviewSnapshotsContent({
 
     const updateState = useCallback((snapshotId: string, partial: Partial<ActionState>) => {
         setActionStates((prev) => {
-            const existing = prev[snapshotId] ?? { loading: false, error: null, succeededAs: null }
+            const existing = prev[snapshotId] ?? { loadingAs: null, error: null, succeededAs: null }
             return { ...prev, [snapshotId]: { ...existing, ...partial } }
         })
     }, [])
 
-    const fallbackToChat = useCallback(
-        (snapshot: VisualReviewSnapshot, action: SnapshotAction) => {
-            const verb = action === 'approve' ? 'Approve' : 'Tolerate'
-            app?.sendMessage({
-                role: 'user',
-                content: [
-                    {
-                        type: 'text',
-                        text: `${verb} snapshot "${snapshot.identifier}" (id ${snapshot.id}) in run ${snapshot.run_id}.`,
-                    },
-                ],
-            })
-        },
-        [app]
-    )
-
     const handleAction = useCallback(
         async (snapshot: VisualReviewSnapshot, action: SnapshotAction): Promise<void> => {
-            if (!app) {
-                fallbackToChat(snapshot, action)
+            // The view gates Approve on `result === 'changed' | 'new'` and requires
+            // a current_artifact to render. If we still landed here without a
+            // content_hash, refuse to dispatch rather than silently sending '' to
+            // the backend (where it would produce ArtifactNotFoundError).
+            if (action === 'approve' && !snapshot.current_artifact?.content_hash) {
+                updateState(snapshot.id, {
+                    loadingAs: null,
+                    error: 'No current artifact to approve.',
+                    succeededAs: null,
+                })
                 return
             }
-            updateState(snapshot.id, { loading: true, error: null, succeededAs: null })
+            if (!app) {
+                updateState(snapshot.id, {
+                    loadingAs: null,
+                    error: 'Actions are not available in this host. Ask the agent to approve or tolerate via chat.',
+                    succeededAs: null,
+                })
+                return
+            }
+            updateState(snapshot.id, { loadingAs: action, error: null, succeededAs: null })
             try {
                 const toolName =
                     action === 'approve' ? 'visual-review-runs-approve-create' : 'visual-review-runs-tolerate-create'
@@ -71,7 +71,8 @@ function VisualReviewSnapshotsContent({
                               snapshots: [
                                   {
                                       identifier: snapshot.identifier,
-                                      new_hash: snapshot.current_artifact?.content_hash ?? '',
+                                      // Guarded above; `!` is safe here.
+                                      new_hash: snapshot.current_artifact!.content_hash,
                                   },
                               ],
                               approve_all: false,
@@ -82,16 +83,16 @@ function VisualReviewSnapshotsContent({
                 const result = await app.callServerTool({ name: toolName, arguments: args })
                 if (result.isError) {
                     const message = result.content?.find((c) => c.type === 'text')?.text ?? `${action} failed.`
-                    updateState(snapshot.id, { loading: false, error: message })
+                    updateState(snapshot.id, { loadingAs: null, error: message })
                     return
                 }
-                updateState(snapshot.id, { loading: false, error: null, succeededAs: action })
+                updateState(snapshot.id, { loadingAs: null, error: null, succeededAs: action })
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err)
-                updateState(snapshot.id, { loading: false, error: message })
+                updateState(snapshot.id, { loadingAs: null, error: message })
             }
         },
-        [app, fallbackToChat, updateState]
+        [app, updateState]
     )
 
     return <VisualReviewSnapshotsView data={data} onAction={handleAction} actionStates={actionStates} />

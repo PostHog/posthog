@@ -186,6 +186,17 @@ class ApproveRunInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = ApproveRunRequestInput
 
+    def validate(self, attrs: ApproveRunRequestInput) -> ApproveRunRequestInput:
+        if attrs.approve_all and attrs.snapshots:
+            raise serializers.ValidationError(
+                {"approve_all": "`approve_all` and `snapshots` are mutually exclusive — pass one or the other."}
+            )
+        if not attrs.approve_all and not attrs.snapshots:
+            raise serializers.ValidationError(
+                {"snapshots": "Provide a non-empty `snapshots` list or set `approve_all: true`."}
+            )
+        return attrs
+
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
