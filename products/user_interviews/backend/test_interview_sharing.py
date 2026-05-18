@@ -687,23 +687,23 @@ class TestVapiWebhook(APIBaseTest):
         for call in mock_capture.call_args_list:
             self.assertEqual(call.kwargs["properties"]["$insert_id"], "user_interview_conversation_started:call_xyz")
 
+    @parameterized.expand([("ringing",), ("ended",), ("queued",), ("forwarding",), ("scheduled",)])
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
-    def test_webhook_status_update_other_statuses_do_not_capture(self, mock_capture):
+    def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_capture):
         share = self._create_share()
         self.client.logout()
-        for call_status in ("ringing", "ended", "queued"):
-            response = self._signed_post(
-                "topsecret",
-                {
-                    "message": {
-                        "type": "status-update",
-                        "status": call_status,
-                        "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
-                    }
-                },
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self._signed_post(
+            "topsecret",
+            {
+                "message": {
+                    "type": "status-update",
+                    "status": call_status,
+                    "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_capture.assert_not_called()
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
