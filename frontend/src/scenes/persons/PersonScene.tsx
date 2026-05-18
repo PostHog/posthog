@@ -39,6 +39,7 @@ import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
@@ -221,6 +222,12 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-person-profile-feedback-button" />
+                        <ComposeTicketButton
+                            size="small"
+                            type="secondary"
+                            distinctId={person.distinct_ids[0]}
+                            email={typeof person.properties?.email === 'string' ? person.properties.email : undefined}
+                        />
                         {user?.is_staff && <OpenInAdminPanelButton />}
                         <NotebookSelectButton
                             resource={{
