@@ -1945,3 +1945,15 @@ class TestResolver(BaseTest):
         expr = self._select(query)
         with self.assertRaisesRegex(QueryError, "Cannot access property.*renaming the alias"):
             resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_alias_shadowing_suppresses_exception_chain(self):
+        # The resolver intentionally catches NotImplementedError from get_child and re-raises
+        # QueryError. Use `raise ... from None` so error tracking captures only the QueryError
+        # rather than chaining the internal NotImplementedError.
+        expr = self._select("SELECT argMin(properties, timestamp) as properties FROM events WHERE properties.foo = 'bar'")
+        try:
+            resolve_types(expr, self.context, dialect="clickhouse")
+            self.fail("Expected QueryError to be raised")
+        except QueryError as e:
+            self.assertIsNone(e.__cause__)
+            self.assertTrue(e.__suppress_context__)
