@@ -1082,9 +1082,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        # Enable advanced permissions & role-based access
+        # Enable access control & role-based access
         self.organization.available_product_features = [
-            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "access_control", "name": "access_control"},
             {"key": "role_based_access", "name": "role_based_access"},
         ]
         self.organization.save()

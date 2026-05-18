@@ -106,13 +106,18 @@ export interface PatchedExperimentHoldoutApi {
  */
 export interface ExperimentSavedMetricApi {
     readonly id: number
-    /** @maxLength 400 */
+    /**
+     * Name of the shared metric. Must be unique within the project (case-insensitive).
+     * @maxLength 400
+     */
     name: string
     /**
+     * Short description of what the metric measures.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query: unknown
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -139,13 +144,18 @@ export interface PaginatedExperimentSavedMetricListApi {
  */
 export interface PatchedExperimentSavedMetricApi {
     readonly id?: number
-    /** @maxLength 400 */
+    /**
+     * Name of the shared metric. Must be unique within the project (case-insensitive).
+     * @maxLength 400
+     */
     name?: string
     /**
+     * Short description of what the metric measures.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query?: unknown
     readonly created_by?: UserBasicApi
     readonly created_at?: string

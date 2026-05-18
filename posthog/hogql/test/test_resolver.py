@@ -29,7 +29,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
-from posthog.hogql.resolver_utils import extract_base_table_types
+from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
@@ -592,6 +592,40 @@ class TestResolver(BaseTest):
         table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(select_set_type)]
 
         self.assertEqual(table_names, ["events", "persons"])
+
+    @parameterized.expand(
+        [
+            (
+                "table_names",
+                {
+                    "events": ast.TableType(table=EventsTable()),
+                    "persons": ast.TableType(table=PersonsTable()),
+                },
+                "events.properties, persons.properties",
+            ),
+            (
+                "table_aliases",
+                {
+                    "e": ast.TableAliasType(alias="e", table_type=ast.TableType(table=EventsTable())),
+                    "p": ast.TableAliasType(alias="p", table_type=ast.TableType(table=PersonsTable())),
+                },
+                "e.properties, p.properties",
+            ),
+        ]
+    )
+    def test_lookup_field_by_name_lists_ambiguous_field_sources(
+        self, _label: str, tables: dict[str, ast.TableOrSelectType], expected_sources: str
+    ):
+        scope = ast.SelectQueryType(tables=tables)
+
+        with self.assertRaises(ResolutionError) as context:
+            lookup_field_by_name(scope, "properties", self.context)
+
+        self.assertEqual(
+            str(context.exception),
+            f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
+            "Use a qualified field name.",
+        )
 
     def test_select_set_order_by_prints(self):
         printed = self._print_hogql("select 1 union all select 2 order by 1")

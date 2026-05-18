@@ -10,7 +10,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from products.web_analytics.backend.temporal.weekly_digest.activities import (
-        get_org_id_batches,
+        get_org_batch_page,
         push_wa_digest_metrics_activity,
         run_wa_digest_batch,
         send_test_wa_digest,
@@ -19,6 +19,7 @@ with workflow.unsafe.imports_passed_through():
         WA_DIGEST_THRESHOLD_EXCEEDED_TYPE,
         DigestBatchInput,
         DigestBatchResult,
+        OrgBatchPageInput,
         SendTestDigestInput,
         WAWeeklyDigestInput,
     )
@@ -48,48 +49,58 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
         if input is None:
             input = WAWeeklyDigestInput()
 
-        batches = await workflow.execute_activity(
-            get_org_id_batches,
-            input,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-
         totals = DigestBatchResult()
         failed_batches = 0
+        batch_count = 0
+        cursor: str | None = None
+        semaphore = asyncio.Semaphore(input.max_concurrent)
 
-        if batches:
-            workflow.logger.info(
-                "Fanning out WA digest",
-                batches=len(batches),
-                orgs=sum(len(b) for b in batches),
+        async def _run_batch(batch: list[str]) -> DigestBatchResult:
+            async with semaphore:
+                return await workflow.execute_activity(
+                    run_wa_digest_batch,
+                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
+                    start_to_close_timeout=timedelta(minutes=30),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+
+        while True:
+            page = await workflow.execute_activity(
+                get_org_batch_page,
+                OrgBatchPageInput(workflow_input=input, cursor=cursor),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=ACTIVITY_RETRY_POLICY,
             )
 
-            semaphore = asyncio.Semaphore(input.max_concurrent)
+            if page.batches:
+                workflow.logger.info(
+                    "Fanning out WA digest page",
+                    batches=len(page.batches),
+                    orgs=page.org_count,
+                    cursor=cursor,
+                    next_cursor=page.cursor,
+                )
 
-            async def _run_batch(batch: list[str]) -> DigestBatchResult:
-                async with semaphore:
-                    return await workflow.execute_activity(
-                        run_wa_digest_batch,
-                        DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
-                        start_to_close_timeout=timedelta(minutes=30),
-                        heartbeat_timeout=timedelta(minutes=5),
-                        retry_policy=ACTIVITY_RETRY_POLICY,
-                    )
+                batch_count += len(page.batches)
+                results = await asyncio.gather(
+                    *[_run_batch(b) for b in page.batches],
+                    return_exceptions=True,
+                )
 
-            results = await asyncio.gather(
-                *[_run_batch(b) for b in batches],
-                return_exceptions=True,
-            )
+                for batch, r in zip(page.batches, results):
+                    if isinstance(r, BaseException):
+                        failed_batches += 1
+                        totals += DigestBatchResult(batch_size=len(batch), orgs_failed=len(batch))
+                        workflow.logger.error("WA digest batch failed: %s", str(r))
+                    else:
+                        totals += r
 
-            for batch, r in zip(batches, results):
-                if isinstance(r, BaseException):
-                    failed_batches += 1
-                    totals += DigestBatchResult(batch_size=len(batch), orgs_failed=len(batch))
-                    workflow.logger.error("WA digest batch failed: %s", str(r))
-                else:
-                    totals += r
-        else:
+            if page.cursor is None:
+                break
+            cursor = page.cursor
+
+        if batch_count == 0:
             workflow.logger.info("No org batches for WA weekly digest")
 
         threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
@@ -112,7 +123,7 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
 
         return {
             "orgs": totals.batch_size,
-            "batches": len(batches),
+            "batches": batch_count,
             "failed_batches": failed_batches,
             "emails_sent": totals.emails_sent,
             "emails_failed": totals.emails_failed,

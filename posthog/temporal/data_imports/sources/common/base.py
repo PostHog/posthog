@@ -75,8 +75,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return {}
 
     def get_schemas(
-        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ConfigType,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        """Return the list of schemas available for this source.
+
+        ``force_refresh=True`` instructs the source to bypass any internal cache
+        of upstream schema discovery (e.g. paginated API listings). Sources
+        without caches can ignore the flag.
+        """
         raise NotImplementedError()
 
     @property
