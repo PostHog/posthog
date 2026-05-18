@@ -5347,15 +5347,47 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         experiment_id = experiment_response.json()["id"]
 
         # Verify activity log was created for the saved metric config link
-        saved_metric_config_logs = ActivityLog.objects.filter(
+        created_logs = ActivityLog.objects.filter(
             scope="Experiment",
             item_id=str(experiment_id),
             activity="created",
             detail__type="saved_metric_config",
         )
-        self.assertEqual(saved_metric_config_logs.count(), 1)
-        self.assertEqual(saved_metric_config_logs[0].user, self.user)
-        self.assertEqual(saved_metric_config_logs[0].detail["name"], "Activity Test Metric")
+        self.assertEqual(created_logs.count(), 1)
+        self.assertEqual(created_logs[0].user, self.user)
+        assert created_logs[0].detail is not None
+        self.assertEqual(created_logs[0].detail["name"], "Activity Test Metric")
+
+        # Update the metadata (add a breakdown)
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "primary", "breakdowns": [{"property": "country"}]}}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Verify an "updated" activity log was created with the metadata change
+        updated_logs = ActivityLog.objects.filter(
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="updated",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(updated_logs.count(), 1)
+        self.assertEqual(updated_logs[0].user, self.user)
+        assert updated_logs[0].detail is not None
+        self.assertEqual(updated_logs[0].detail["name"], "Activity Test Metric")
+
+        # Verify the changes include the metadata field
+        changes = updated_logs[0].detail.get("changes", [])
+        metadata_change = next((c for c in changes if c.get("field") == "metadata"), None)
+        assert metadata_change is not None
+        self.assertEqual(metadata_change["before"], {"type": "primary"})
+        self.assertEqual(metadata_change["after"], {"type": "primary", "breakdowns": [{"property": "country"}]})
 
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
