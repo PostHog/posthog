@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import posthog from 'posthog-js'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
@@ -568,6 +569,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
@@ -583,6 +585,34 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             </BindLogic>
         </BindLogic>
     )
+}
+
+const WebAnalyticsLoadTimeTracker = (): null => {
+    const { areAnyLoading } = useValues(dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const mountStartRef = useRef<number>(performance.now())
+    const hasObservedLoadingRef = useRef<boolean>(false)
+    const hasCapturedLoadedRef = useRef<boolean>(false)
+
+    useOnMountEffect(() => {
+        posthog.capture('web_analytics_dashboard_mounted', {
+            tile_skeletons_enabled: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
+        })
+    })
+
+    useEffect(() => {
+        if (areAnyLoading) {
+            hasObservedLoadingRef.current = true
+        } else if (hasObservedLoadingRef.current && !hasCapturedLoadedRef.current) {
+            hasCapturedLoadedRef.current = true
+            posthog.capture('web_analytics_dashboard_loaded', {
+                duration_ms: Math.round(performance.now() - mountStartRef.current),
+                tile_skeletons_enabled: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
+            })
+        }
+    }, [areAnyLoading, featureFlags])
+
+    return null
 }
 
 const WebAnalyticsTabs = (): JSX.Element => {
