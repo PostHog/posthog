@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import random
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
@@ -17,6 +19,7 @@ from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
+    RateLimitedError,
     create_task_and_trigger,
     extract_json_from_text,
     poll_for_turn,
@@ -29,7 +32,31 @@ logger = logging.getLogger(__name__)
 # Kept short to avoid meaningfully changing the cached prefix.
 _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching the schema above."
 
+# Rate-limit retry policy. When the sandbox dies because the upstream LLM provider
+# returned 429, MultiTurnSession.start retries the *entire* sandbox launch — the
+# previous TaskRun is dead and no conversation state can be recovered. We cap retries
+# and the honored Retry-After so a sustained outage doesn't pin a workflow forever.
+_RATE_LIMIT_MAX_RETRIES = 3
+_RATE_LIMIT_MAX_WAIT_SECONDS = 60.0
+_RATE_LIMIT_DEFAULT_BASE_BACKOFF = 5.0  # base for exponential backoff when Retry-After is absent
+
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+def _rate_limit_backoff_seconds(retry_after_seconds: float | None, attempt: int) -> float:
+    """Compute the actual wait before the next retry attempt.
+
+    Honors an explicit Retry-After when provided (capped at _RATE_LIMIT_MAX_WAIT_SECONDS
+    so a hostile or misconfigured upstream can't pin a workflow). When no Retry-After
+    was parsed, falls back to exponential backoff with jitter to avoid synchronized
+    retry storms across concurrent reports for the same team.
+    """
+    if retry_after_seconds is not None:
+        return min(max(retry_after_seconds, 0.0), _RATE_LIMIT_MAX_WAIT_SECONDS)
+    # attempt is 1-based: first retry uses base * 2^0 = base
+    backoff = _RATE_LIMIT_DEFAULT_BASE_BACKOFF * (2 ** (attempt - 1))
+    jitter = random.uniform(0, _RATE_LIMIT_DEFAULT_BASE_BACKOFF)
+    return min(backoff + jitter, _RATE_LIMIT_MAX_WAIT_SECONDS)
 
 
 @dataclass
@@ -57,7 +84,74 @@ class MultiTurnSession:
         signal_report_id: str | None = None,
         internal: bool = False,
     ) -> tuple[MultiTurnSession, _ModelT]:
-        """Start a multi-turn sandbox session and wait for the first response."""
+        """Start a multi-turn sandbox session and wait for the first response.
+
+        Retries the entire sandbox launch when the upstream LLM provider returns 429.
+        The previous TaskRun is terminal at that point and the sandbox process is gone,
+        so we honor Retry-After (or exponential backoff with jitter if no Retry-After
+        was surfaced) and re-create the task. Capped at _RATE_LIMIT_MAX_RETRIES.
+        """
+        last_rate_limit_error: RateLimitedError | None = None
+        for attempt in range(1, _RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                return await cls._start_once(
+                    prompt=prompt,
+                    context=context,
+                    model=model,
+                    branch=branch,
+                    step_name=step_name,
+                    verbose=verbose,
+                    output_fn=output_fn,
+                    origin_product=origin_product,
+                    signal_report_id=signal_report_id,
+                    internal=internal,
+                )
+            except RateLimitedError as exc:
+                last_rate_limit_error = exc
+                if attempt >= _RATE_LIMIT_MAX_RETRIES:
+                    logger.warning(
+                        "multi_turn: rate-limited on attempt %d/%d for step=%s — giving up",
+                        attempt,
+                        _RATE_LIMIT_MAX_RETRIES,
+                        step_name or "unknown",
+                    )
+                    raise
+                wait_seconds = _rate_limit_backoff_seconds(exc.retry_after_seconds, attempt)
+                logger.warning(
+                    "multi_turn: rate-limited on attempt %d/%d for step=%s "
+                    "(retry_after=%s, sleeping %.2fs before retry)",
+                    attempt,
+                    _RATE_LIMIT_MAX_RETRIES,
+                    step_name or "unknown",
+                    exc.retry_after_seconds,
+                    wait_seconds,
+                )
+                if output_fn:
+                    output_fn(
+                        f"Upstream LLM is rate-limiting us; waiting {wait_seconds:.1f}s "
+                        f"before retrying (attempt {attempt + 1}/{_RATE_LIMIT_MAX_RETRIES})..."
+                    )
+                await asyncio.sleep(wait_seconds)
+        # Unreachable: the for-loop above either returns or raises on the final attempt.
+        # The assert keeps the type checker happy and documents the invariant.
+        assert last_rate_limit_error is not None
+        raise last_rate_limit_error
+
+    @classmethod
+    async def _start_once(
+        cls,
+        *,
+        prompt: str,
+        context: CustomPromptSandboxContext,
+        model: type[_ModelT],
+        branch: str | None,
+        step_name: str,
+        verbose: bool,
+        output_fn: OutputFn,
+        origin_product: Task.OriginProduct | None,
+        signal_report_id: str | None,
+        internal: bool,
+    ) -> tuple[MultiTurnSession, _ModelT]:
         task, task_run = await create_task_and_trigger(
             prompt,
             context,

@@ -55,6 +55,67 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
+class RateLimitedError(RuntimeError):
+    """Raised when the sandbox terminated because the upstream LLM provider rate-limited
+    us (HTTP 429 / "Rate limit exceeded"). Carries the parsed Retry-After value (in
+    seconds) when the underlying error message exposed one, so callers can wait the
+    suggested duration before retrying. ``retry_after_seconds`` is None when no value
+    was parseable from the error message."""
+
+    def __init__(self, message: str, *, retry_after_seconds: float | None = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+# Patterns that identify a rate-limit / 429 in the TaskRun's terminal error_message.
+# The string we get from the agent runner varies by SDK version (Anthropic, OpenAI,
+# claude-agent-sdk wrappers), so match defensively on the cluster of common signals.
+_RATE_LIMIT_SIGNAL_RE = re.compile(
+    r"\b(?:HTTP\s*)?429\b"
+    r"|rate[\s_-]?limit(?:\s+(?:exceeded|reached|hit))?"
+    r"|too\s+many\s+requests"
+    r"|RateLimitError",
+    re.IGNORECASE,
+)
+
+# Retry-After can show up as an HTTP header ("Retry-After: 30"), a structured field
+# ("retry_after=30", "retry-after: 30s"), or in free-form prose ("please retry in 30
+# seconds"). All three forms are matched. The captured value is interpreted as seconds.
+_RETRY_AFTER_VALUE_RE = re.compile(
+    r"retry[\s_-]?after[\s:=]+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|ms|millisecond|milliseconds|m|min|minute|minutes)?"
+    r"|retry\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|ms|millisecond|milliseconds|m|min|minute|minutes)?",
+    re.IGNORECASE,
+)
+
+
+def _parse_rate_limit_from_error_message(error_message: str | None) -> tuple[bool, float | None]:
+    """Classify a TaskRun error_message and extract Retry-After if present.
+
+    Returns ``(is_rate_limited, retry_after_seconds)``. ``retry_after_seconds`` is None
+    when the message is rate-limit-shaped but no explicit Retry-After value was parseable.
+    """
+    if not error_message:
+        return False, None
+    if not _RATE_LIMIT_SIGNAL_RE.search(error_message):
+        return False, None
+    match = _RETRY_AFTER_VALUE_RE.search(error_message)
+    if not match:
+        return True, None
+    value = match.group(1) or match.group(3)
+    unit = (match.group(2) or match.group(4) or "s").lower()
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return True, None
+    if unit in {"ms", "millisecond", "milliseconds"}:
+        seconds /= 1000.0
+    elif unit in {"m", "min", "minute", "minutes"}:
+        seconds *= 60.0
+    if seconds < 0:
+        return True, None
+    return True, seconds
+
+
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -242,9 +303,16 @@ async def _drain_final_log(
         return final_message, final_log, final_lines, printed_lines
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
+    failure_message = (
         f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     )
+    # When the sandbox died because the upstream LLM rate-limited us, surface a typed
+    # exception so callers can wait for Retry-After and retry instead of throwing away
+    # a fully-spent agentic run.
+    is_rate_limited, retry_after_seconds = _parse_rate_limit_from_error_message(error_message)
+    if is_rate_limited:
+        raise RateLimitedError(failure_message, retry_after_seconds=retry_after_seconds)
+    raise RuntimeError(failure_message)
 
 
 def _stream_new_lines(

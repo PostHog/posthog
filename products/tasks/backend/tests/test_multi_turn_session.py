@@ -14,9 +14,16 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    RateLimitedError,
     poll_for_turn,
 )
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import (
+    _EMPTY_TURN_RETRY_NUDGE,
+    _RATE_LIMIT_MAX_RETRIES,
+    _RATE_LIMIT_MAX_WAIT_SECONDS,
+    MultiTurnSession,
+    _rate_limit_backoff_seconds,
+)
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -332,3 +339,205 @@ class TestMultiTurnSessionStartBranch:
         # held in memory by the in-process Task object.
         persisted = await sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
         assert persisted.branch == branch
+
+
+class TestRateLimitBackoffSeconds:
+    """Honor Retry-After when present; otherwise back off exponentially with jitter."""
+
+    def test_returns_retry_after_when_within_cap(self):
+        assert _rate_limit_backoff_seconds(retry_after_seconds=15.0, attempt=1) == 15.0
+        assert _rate_limit_backoff_seconds(retry_after_seconds=15.0, attempt=2) == 15.0
+
+    def test_caps_retry_after_at_max(self):
+        # A hostile upstream that returns Retry-After: 999999 must not pin the workflow.
+        assert _rate_limit_backoff_seconds(retry_after_seconds=999_999.0, attempt=1) == _RATE_LIMIT_MAX_WAIT_SECONDS
+
+    def test_clamps_negative_to_zero(self):
+        # Defensive: if a negative value somehow leaks through the parser, treat as 0.
+        assert _rate_limit_backoff_seconds(retry_after_seconds=-3.0, attempt=1) == 0.0
+
+    def test_falls_back_to_exponential_backoff_when_no_retry_after(self):
+        # attempt=1 → base + jitter ∈ [base, 2*base]; attempt=2 → 2*base + jitter; etc.
+        # We bound the values rather than fixing a seed so behavior is robust to the impl detail.
+        for attempt in range(1, _RATE_LIMIT_MAX_RETRIES + 1):
+            waits = [_rate_limit_backoff_seconds(retry_after_seconds=None, attempt=attempt) for _ in range(50)]
+            assert min(waits) >= 0
+            assert max(waits) <= _RATE_LIMIT_MAX_WAIT_SECONDS
+
+    def test_exponential_backoff_grows_with_attempt(self):
+        # Sample many to smooth out the jitter and verify the central tendency grows.
+        samples_per_attempt = [
+            [_rate_limit_backoff_seconds(retry_after_seconds=None, attempt=a) for _ in range(200)]
+            for a in range(1, _RATE_LIMIT_MAX_RETRIES + 1)
+        ]
+        averages = [sum(s) / len(s) for s in samples_per_attempt]
+        # Each attempt's average must exceed the previous (until we hit the cap).
+        for prev, curr in zip(averages, averages[1:]):
+            assert curr > prev
+
+
+@pytest.mark.django_db(transaction=True)
+class TestMultiTurnSessionStartRateLimitRetry:
+    """When the upstream LLM provider returns 429 inside the sandbox, MultiTurnSession.start
+    must wait for Retry-After (or fall back to exponential backoff) and retry the whole
+    sandbox launch. Without retry, the failure-rate of the signal-report workflow climbs
+    sharply as soon as the org-wide Anthropic quota gets tight."""
+
+    @staticmethod
+    def _setup_team_and_user() -> tuple[Team, User]:
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create(email="rate-limit-test@example.com")
+        Integration.objects.create(team=team, kind="github", config={})
+        return team, user
+
+    @pytest.mark.asyncio
+    async def test_retries_after_rate_limited_error_and_succeeds(self):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+        agent_response = json.dumps({"value": "ok"})
+
+        # First poll: upstream rate-limited (the sandbox died mid-turn).
+        # Second poll: succeeds with the agent's response.
+        poll_mock = AsyncMock(
+            side_effect=[
+                RateLimitedError("429 - Rate limit exceeded", retry_after_seconds=2.0),
+                (agent_response, None, 1, 1),
+            ]
+        )
+
+        sleep_mock = AsyncMock()
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.asyncio.sleep",
+                new=sleep_mock,
+            ),
+        ):
+            session, parsed = await MultiTurnSession.start(prompt="hello", context=context, model=_Resp)
+
+        assert parsed == _Resp(value="ok")
+        # poll_for_turn was called once per attempt (1 failed + 1 succeeded).
+        assert poll_mock.await_count == 2
+        # The sandbox was relaunched: create_task_and_trigger produced two distinct TaskRuns.
+        # The session we return must correspond to the successful (second) run.
+        assert session.task_run is not None
+        # The runner honored Retry-After (2.0s) instead of using the default backoff.
+        sleep_mock.assert_awaited_once_with(2.0)
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_default_backoff_when_no_retry_after(self):
+        """The upstream may surface 429 without a parseable Retry-After. Runner must
+        still retry, falling back to exponential backoff + jitter."""
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+        agent_response = json.dumps({"value": "ok"})
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                RateLimitedError("Rate limit exceeded (no Retry-After header)", retry_after_seconds=None),
+                (agent_response, None, 1, 1),
+            ]
+        )
+
+        sleep_mock = AsyncMock()
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.asyncio.sleep",
+                new=sleep_mock,
+            ),
+        ):
+            await MultiTurnSession.start(prompt="hello", context=context, model=_Resp)
+
+        # Slept exactly once before the retry succeeded.
+        assert sleep_mock.await_count == 1
+        slept_seconds = sleep_mock.await_args_list[0].args[0]
+        # Default backoff is non-zero and respects the per-wait cap.
+        assert slept_seconds > 0
+        assert slept_seconds <= _RATE_LIMIT_MAX_WAIT_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_max_retries(self):
+        """A sustained outage must surface as a typed exception to the caller, not
+        loop forever. The failure-rate alert can then fire on a real signal."""
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+
+        # Every poll raises rate-limit. Should retry _RATE_LIMIT_MAX_RETRIES times total
+        # (including the first attempt) and then give up.
+        poll_mock = AsyncMock(
+            side_effect=[RateLimitedError("attempt-1", retry_after_seconds=1.0) for _ in range(_RATE_LIMIT_MAX_RETRIES)]
+        )
+
+        sleep_mock = AsyncMock()
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.asyncio.sleep",
+                new=sleep_mock,
+            ),
+        ):
+            with pytest.raises(RateLimitedError):
+                await MultiTurnSession.start(prompt="hello", context=context, model=_Resp)
+
+        # Tried the configured max number of attempts.
+        assert poll_mock.await_count == _RATE_LIMIT_MAX_RETRIES
+        # Slept between every attempt except after the final one (which raises).
+        assert sleep_mock.await_count == _RATE_LIMIT_MAX_RETRIES - 1
+
+    @pytest.mark.asyncio
+    async def test_non_rate_limit_runtime_error_does_not_trigger_retry(self):
+        """Regression guard: a generic `RuntimeError` (e.g. from a validation or auth
+        failure) must propagate immediately so we don't burn retries on it."""
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+
+        poll_mock = AsyncMock(side_effect=RuntimeError("ValidationError on agent output"))
+
+        sleep_mock = AsyncMock()
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.asyncio.sleep",
+                new=sleep_mock,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="ValidationError"):
+                await MultiTurnSession.start(prompt="hello", context=context, model=_Resp)
+
+        # No retry, no sleep — we failed immediately on the first attempt.
+        assert poll_mock.await_count == 1
+        assert sleep_mock.await_count == 0
