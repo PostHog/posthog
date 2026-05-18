@@ -193,7 +193,7 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                             argMax(distinct_id, version)    AS distinct_id,
                             argMax(person_id, version)      AS person_id,
                             argMax(parent_run_id, version)  AS parent_run_id
-                        FROM hog_invocation_results
+                        FROM posthog.hog_invocation_results
                         WHERE function_kind = ${props.functionKind}
                           AND function_id = ${props.id}
                         GROUP BY invocation_id
