@@ -2,7 +2,7 @@
 {% load i18n %}
 
 {% block content %}
-<p>Set a specific value for this team's <code>api_token</code>. The old token's cache key is invalidated, the new token is cached, an activity log entry is written, and connected Vercel integrations are notified — same side effects as the in-product "Reset token" button.</p>
+<p>Set a specific value for this team's <code>api_token</code>. The old token's cache key is invalidated, the new token is cached, an activity log entry is written, and connected Vercel integrations are notified – same side effects as the in-product "Reset token" button.</p>
 <p><strong>With great power comes great responsibility.</strong> All ingestion using the old token will stop working immediately.</p>
 
 <p>Current API token: <code>{{ team.api_token }}</code></p>
