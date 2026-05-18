@@ -214,6 +214,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     onChange={onChange}
                     renderValue={renderValue}
                     placeholder={placeholder}
+                    placeholderClass={placeholderClass}
                     eventNames={eventNames}
                     schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
@@ -225,10 +226,15 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     allowNonCapturedEvents={allowNonCapturedEvents}
                     suggestedFiltersLabel={suggestedFiltersLabel}
                     enableKeywordShortcuts={enableKeywordShortcuts}
-                    fullWidth={buttonPropsRest.fullWidth}
-                    size={buttonPropsRest.size}
-                    triggerType={buttonPropsRest.type}
-                    disabledReason={buttonPropsRest.disabledReason}
+                    triggerButtonProps={{
+                        icon: buttonPropsRest.icon,
+                        sideIcon: sideIcon ?? undefined,
+                        fullWidth: buttonPropsRest.fullWidth,
+                        size: buttonPropsRest.size,
+                        type: buttonPropsRest.type ?? 'secondary',
+                        className: buttonPropsRest.className,
+                        disabledReason: buttonPropsRest.disabledReason,
+                    }}
                 />
             ) : (
                 legacyEl

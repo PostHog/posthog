@@ -12,7 +12,9 @@ import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
  * on. Flips the global `taxonomicMenuPreferenceLogic` so the user can opt
  * in/out of the rebuilt menu everywhere at once.
  *
- * Positioned `absolute` top-right — the parent must be `relative`.
+ * Positioned `absolute` inside the trigger's top-right corner — the parent
+ * must be `relative`. Kept inside the trigger box (no negative offset) so
+ * an `overflow-hidden` ancestor can't clip it.
  */
 export function TaxonomicMenuToggle(): JSX.Element {
     const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
@@ -32,9 +34,9 @@ export function TaxonomicMenuToggle(): JSX.Element {
                     e.stopPropagation()
                     setUseNewMenu(!useNewMenu)
                 }}
-                className="absolute -top-1.5 -right-1.5 z-10 flex size-4 items-center justify-center rounded-full border border-accent bg-surface-primary text-accent shadow-sm transition-opacity hover:opacity-70"
+                className="absolute top-0 right-0 z-10 flex size-3.5 items-center justify-center rounded-full rounded-tr-sm border border-accent bg-surface-primary text-accent shadow-sm transition-opacity hover:opacity-70"
             >
-                {useNewMenu ? <IconClockRewind className="size-3" /> : <IconFlask className="size-3" />}
+                {useNewMenu ? <IconClockRewind className="size-2.5" /> : <IconFlask className="size-2.5" />}
             </button>
         </Tooltip>
     )

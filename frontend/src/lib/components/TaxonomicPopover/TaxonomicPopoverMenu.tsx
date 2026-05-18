@@ -15,8 +15,6 @@
  */
 import { useMemo } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import {
@@ -52,6 +50,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
     renderValue?: (value: ValueType) => JSX.Element | null
     placeholder?: React.ReactNode
+    placeholderClass?: string
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
     metadataSource?: AnyDataNode
@@ -63,12 +62,12 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     allowNonCapturedEvents?: boolean
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
-    disabledReason?: string
     /** Trigger button styling, forwarded so the rebuilt menu's trigger
      *  matches the legacy `TaxonomicPopover` button at the call site. */
-    fullWidth?: boolean
-    size?: LemonButtonProps['size']
-    triggerType?: LemonButtonProps['type']
+    triggerButtonProps?: Pick<
+        LemonButtonProps,
+        'icon' | 'sideIcon' | 'fullWidth' | 'size' | 'type' | 'className' | 'disabledReason'
+    >
 }
 
 export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
@@ -78,6 +77,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     onChange,
     renderValue,
     placeholder = 'Please select',
+    placeholderClass,
     eventNames = [],
     schemaColumns,
     metadataSource,
@@ -89,10 +89,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     allowNonCapturedEvents,
     suggestedFiltersLabel,
     enableKeywordShortcuts,
-    disabledReason,
-    fullWidth = true,
-    size,
-    triggerType = 'secondary',
+    triggerButtonProps,
 }: TaxonomicPopoverMenuProps<ValueType>): JSX.Element {
     // The group a synthetic `selected` entry should claim. `groupType` is
     // the popover's *default tab*, not the value's real category — and it's
@@ -153,18 +150,15 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                     // Mirrors the proven ActionFilterRow series-picker trigger.
                     <div className="relative inline-flex min-w-0">
                         <LemonButton
-                            type={triggerType}
-                            fullWidth={fullWidth}
-                            size={size}
+                            type="secondary"
+                            {...triggerButtonProps}
                             active={open}
-                            disabledReason={disabledReason}
-                            sideIcon={<IconChevronDown />}
                             data-attr="taxonomic-popover-menu-trigger"
                         >
                             {value ? (
                                 (renderValue?.(value) ?? <span>{String(value)}</span>)
                             ) : (
-                                <span className="text-secondary">{placeholder}</span>
+                                <span className={placeholderClass ?? 'text-secondary'}>{placeholder}</span>
                             )}
                         </LemonButton>
                     </div>
