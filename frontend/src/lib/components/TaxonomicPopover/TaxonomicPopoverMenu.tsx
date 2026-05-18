@@ -26,7 +26,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -64,6 +64,11 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
     disabledReason?: string
+    /** Trigger button styling, forwarded so the rebuilt menu's trigger
+     *  matches the legacy `TaxonomicPopover` button at the call site. */
+    fullWidth?: boolean
+    size?: LemonButtonProps['size']
+    triggerType?: LemonButtonProps['type']
 }
 
 export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
@@ -85,6 +90,9 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     suggestedFiltersLabel,
     enableKeywordShortcuts,
     disabledReason,
+    fullWidth = true,
+    size,
+    triggerType = 'secondary',
 }: TaxonomicPopoverMenuProps<ValueType>): JSX.Element {
     // The group a synthetic `selected` entry should claim. `groupType` is
     // the popover's *default tab*, not the value's real category — and it's
@@ -145,8 +153,9 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                     // Mirrors the proven ActionFilterRow series-picker trigger.
                     <div className="relative inline-flex min-w-0">
                         <LemonButton
-                            type="secondary"
-                            fullWidth
+                            type={triggerType}
+                            fullWidth={fullWidth}
+                            size={size}
                             active={open}
                             disabledReason={disabledReason}
                             sideIcon={<IconChevronDown />}
