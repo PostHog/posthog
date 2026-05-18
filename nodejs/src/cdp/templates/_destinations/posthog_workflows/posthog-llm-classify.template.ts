@@ -66,7 +66,7 @@ if (length(categories) > 0) {
   }
 }
 
-let res := postHogLLMClassify(request)
+let res := postHogLLMChatCompletion(request)
 
 if (res.status >= 400) {
   throw Error(f'LLM classification failed with status {res.status}: {res.body}')

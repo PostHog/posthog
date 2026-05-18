@@ -11,27 +11,25 @@ type ChatCompletionArgs = {
     response_format?: Record<string, unknown>
 }
 
-// Template-id allowlist: these async functions inject PostHog's internal service LLM gateway key
-// into outbound requests, so they MUST NOT be callable from arbitrary user-authored destination
+// Template-id allowlist: this async function injects PostHog's internal LLM gateway service key
+// into outbound requests, so it MUST NOT be callable from arbitrary user-authored destination
 // Hog functions. Any caller whose hogFunction.template_id is not on this list is rejected, even
-// if Hog code references postHogLLMClassify / postHogLLMSummarize by name. template_id is set
-// server-side from the HogFunctionType record — users cannot spoof it from Hog code.
+// if Hog code references postHogLLMChatCompletion by name. template_id is set server-side from
+// the HogFunctionType record — users cannot spoof it from Hog code.
 const ALLOWED_LLM_TEMPLATE_IDS: ReadonlySet<string> = new Set([
     'template-posthog-llm-classify',
     'template-posthog-llm-summarize',
+    'template-posthog-llm-extract',
 ])
+
+const FN_NAME = 'postHogLLMChatCompletion'
 
 const buildGatewayUrl = (rawBase: string): string => {
     const base = rawBase.replace(/\/+$/, '')
     return `${base}/workflows/v1/chat/completions`
 }
 
-// Shared between postHogLLMClassify and postHogLLMSummarize. The async functions are intentionally
-// thin — they validate, resolve gateway URL/auth from server-side config, and dispatch a fetch
-// through cyclotron. The only thing that differs between callers is the Hog-side name (which
-// becomes part of the error message) and the mock content shape for tests.
 const queueChatCompletionFetch = (
-    fnName: string,
     opts: ChatCompletionArgs | undefined,
     context: AsyncFunctionContext,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
@@ -39,7 +37,7 @@ const queueChatCompletionFetch = (
     const callerTemplateId = context.invocation.hogFunction.template_id ?? ''
     if (!ALLOWED_LLM_TEMPLATE_IDS.has(callerTemplateId)) {
         throw new Error(
-            `[HogFunction] - ${fnName} is restricted to PostHog-built LLM templates; caller template_id='${callerTemplateId}' is not allowed`
+            `[HogFunction] - ${FN_NAME} is restricted to PostHog-built LLM templates; caller template_id='${callerTemplateId}' is not allowed`
         )
     }
 
@@ -48,10 +46,10 @@ const queueChatCompletionFetch = (
     const responseFormat = opts?.response_format
 
     if (!model || typeof model !== 'string') {
-        throw new Error(`[HogFunction] - ${fnName} call missing 'model' property`)
+        throw new Error(`[HogFunction] - ${FN_NAME} call missing 'model' property`)
     }
     if (!Array.isArray(messages) || messages.length === 0) {
-        throw new Error(`[HogFunction] - ${fnName} call missing 'messages' property`)
+        throw new Error(`[HogFunction] - ${FN_NAME} call missing 'messages' property`)
     }
 
     if (!context.llmGatewayUrl) {
@@ -88,56 +86,59 @@ const queueChatCompletionFetch = (
     })
 }
 
-const buildMockResponse = (fnName: string, opts: ChatCompletionArgs, mockContent: string, logs: any[]) => {
-    logs.push({
-        level: 'info',
-        timestamp: DateTime.now(),
-        message: `Async function '${fnName}' was mocked with arguments:`,
-    })
-    logs.push({
-        level: 'info',
-        timestamp: DateTime.now(),
-        message: `${fnName}(${JSON.stringify(opts, null, 2)})`,
-    })
-
-    return {
-        status: 200,
-        body: {
-            choices: [{ message: { content: mockContent } }],
-        },
+// Derives a structurally valid mock response from the caller's response_format. Returning a
+// concrete object keyed off the requested schema means a single mock works for classify
+// ({category, reasoning}), summarize ({title, description}), extract ({...user-defined fields}),
+// and any future LLM-action template without a per-caller fixture.
+const deriveMockContent = (opts: ChatCompletionArgs): string => {
+    const schema = (opts.response_format as any)?.json_schema?.schema
+    const props = schema?.properties as Record<string, any> | undefined
+    if (!props) {
+        return 'mock free-form response'
     }
+    const mock: Record<string, unknown> = {}
+    for (const [key, propRaw] of Object.entries(props)) {
+        const prop = propRaw as any
+        if (Array.isArray(prop.enum) && prop.enum.length > 0) {
+            mock[key] = prop.enum[0]
+        } else if (prop.type === 'number' || prop.type === 'integer') {
+            mock[key] = 0
+        } else if (prop.type === 'boolean') {
+            mock[key] = false
+        } else if (prop.type === 'array') {
+            mock[key] = []
+        } else {
+            mock[key] = `mock ${key}`
+        }
+    }
+    return JSON.stringify(mock)
 }
 
-registerAsyncFunction('postHogLLMClassify', {
+registerAsyncFunction(FN_NAME, {
     execute: (args, context, result) => {
         const [opts] = args as [ChatCompletionArgs | undefined]
-        queueChatCompletionFetch('postHogLLMClassify', opts, context, result)
+        queueChatCompletionFetch(opts, context, result)
     },
 
     mock: (args, logs) => {
         const opts = (args[0] ?? {}) as ChatCompletionArgs
-        const isStructured = !!opts.response_format
-        const mockContent = isStructured
-            ? JSON.stringify({ category: 'mock-category', reasoning: 'mock reasoning' })
-            : 'mock free-form classification'
-        return buildMockResponse('postHogLLMClassify', opts, mockContent, logs)
-    },
-})
-
-registerAsyncFunction('postHogLLMSummarize', {
-    execute: (args, context, result) => {
-        const [opts] = args as [ChatCompletionArgs | undefined]
-        queueChatCompletionFetch('postHogLLMSummarize', opts, context, result)
-    },
-
-    mock: (args, logs) => {
-        const opts = (args[0] ?? {}) as ChatCompletionArgs
-        // Summarize is always structured — the template enforces the { title, description } schema.
-        const mockContent = JSON.stringify({
-            title: 'mock title',
-            description: 'mock description',
+        const mockContent = deriveMockContent(opts)
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Async function '${FN_NAME}' was mocked with arguments:`,
         })
-        return buildMockResponse('postHogLLMSummarize', opts, mockContent, logs)
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `${FN_NAME}(${JSON.stringify(opts, null, 2)})`,
+        })
+        return {
+            status: 200,
+            body: {
+                choices: [{ message: { content: mockContent } }],
+            },
+        }
     },
 })
 

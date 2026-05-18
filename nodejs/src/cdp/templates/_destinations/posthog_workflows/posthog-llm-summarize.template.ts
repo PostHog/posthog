@@ -60,7 +60,7 @@ let request := {
   }
 }
 
-let res := postHogLLMSummarize(request)
+let res := postHogLLMChatCompletion(request)
 
 if (res.status >= 400) {
   throw Error(f'LLM summarization failed with status {res.status}: {res.body}')
