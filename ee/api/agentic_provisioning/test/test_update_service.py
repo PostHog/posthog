@@ -284,7 +284,7 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         from ee.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -332,7 +332,7 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         from ee.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
