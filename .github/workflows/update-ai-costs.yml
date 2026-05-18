@@ -159,11 +159,24 @@ jobs:
                   - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
                   BODY
                   )" \
-                      --base master \
-                      --head chore/llma-update-ai-costs \
-                      --label "automated" --label "llm-analytics" \
-                      --reviewer "PostHog/team-llm-analytics" \
-                      --reviewer "PostHog/team-llm-gateway"
+                    --base master \
+                    --head chore/llma-update-ai-costs \
+                    --label "automated" --label "llm-analytics" \
+                    --reviewer "PostHog/team-llm-analytics" \
+                    --reviewer "PostHog/team-llm-gateway")
+                  echo "Created $new_pr_url"
+
+                  # If the previously open PR on this branch got auto-closed by the
+                  # force-reset above, cross-link it with the new PR so reviewers
+                  # have a trail from the closed one to the replacement.
+                  if [ -n "$PREVIOUS_PR" ] && [ -n "$new_pr_url" ]; then
+                    prev_state=$(gh pr view "$PREVIOUS_PR" --json state --jq '.state' 2>/dev/null || echo "")
+                    if [ "$prev_state" = "CLOSED" ]; then
+                      gh pr comment "$PREVIOUS_PR" --body "Superseded by $new_pr_url" || true
+                      current_body=$(gh pr view "$new_pr_url" --json body --jq '.body')
+                      printf '%s\n\nSupersedes #%s.\n' "$current_body" "$PREVIOUS_PR" \
+                        | gh pr edit "$new_pr_url" --body-file - || true
+                    fi
                   fi
 
             - name: Alert Slack on failure
