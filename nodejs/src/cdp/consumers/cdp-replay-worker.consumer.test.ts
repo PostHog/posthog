@@ -67,9 +67,13 @@ describe('CdpReplayWorkerConsumer', () => {
         consumer = new CdpReplayWorkerConsumer(hub, createCdpConsumerDeps(hub))
 
         // Replace the paginator with a stub so we exercise the consumer's
-        // ack/reschedule/fail decisions without hitting ClickHouse.
+        // ack/reschedule/fail decisions without hitting ClickHouse. The catch
+        // path also calls `writeWrapperFailure` so the stub stubs that too.
         mockProcessPage = jest.fn()
-        consumer['paginator'] = { processPage: mockProcessPage } as any
+        consumer['paginator'] = {
+            processPage: mockProcessPage,
+            writeWrapperFailure: jest.fn().mockResolvedValue(undefined),
+        } as any
 
         // We don't want the consumer to actually start the cyclotron worker loop or
         // the cyclotronJobQueue producer plumbing during these tests.
