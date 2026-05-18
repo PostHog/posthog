@@ -92,7 +92,7 @@ def _get_persons_by_email(
             """
             SELECT id, properties.email
             FROM persons
-            WHERE lower(toString(properties.email)) IN {emails}
+            WHERE lower(properties.email) IN {emails}
             """,
             placeholders={"emails": ast.Constant(value=emails_lower)},
             team=team,
