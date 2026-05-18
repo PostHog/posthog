@@ -500,14 +500,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     // We don't display it otherwise and humans shouldn't be able to click to select this tab
                     // it only opens when you select "Open as new insight" from the Web Analytics dashboard.
                     tabs.push({
-                        label: (
-                            <>
-                                Web Analytics{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: 'Web Analytics',
                         type: InsightType.WEB_ANALYTICS,
                         dataAttr: 'insight-web-analytics-tab',
                     })
