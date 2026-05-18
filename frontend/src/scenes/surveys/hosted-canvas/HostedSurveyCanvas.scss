@@ -1,0 +1,124 @@
+// Inline-editable affordances on the hosted survey canvas. We avoid altering
+// the rendered text styling itself so the canvas stays WYSIWYG — the only
+// visible thing about an editable target is a subtle hover outline.
+
+.inline-editable {
+    width: 100%;
+    min-width: 0;
+    padding: 2px 4px;
+    margin: 0;
+    font: inherit;
+    line-height: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    // Reset native input chrome — we restyle to match the surrounding text.
+    appearance: none;
+    cursor: text;
+    resize: none;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    outline: 2px dashed transparent;
+    outline-offset: 1px;
+    transition:
+        outline-color 120ms ease,
+        background-color 120ms ease;
+
+    &--placeholder {
+        font-style: italic;
+        opacity: 0.6;
+    }
+
+    &--invalid {
+        outline-color: var(--danger);
+    }
+
+    &:focus {
+        outline-color: var(--accent);
+    }
+
+    @media (hover: hover) {
+        &:hover:not(:focus) {
+            outline-color: var(--border-bold, rgb(17 17 17 / 18%));
+        }
+    }
+}
+
+// Block-level display targets — keep the click-to-edit area generous.
+h1.inline-editable,
+h2.inline-editable,
+p.inline-editable,
+div.inline-editable {
+    display: block;
+}
+
+// Wrapper that anchors the canvas + settings layout. Lets the canvas grow
+// while the side panel stays fixed-width.
+.HostedSurveyCanvasLayout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+
+    @media (min-width: 1024px) {
+        grid-template-columns: minmax(0, 1fr) 320px;
+    }
+
+    @media (min-width: 1440px) {
+        grid-template-columns: minmax(0, 1fr) 360px;
+    }
+}
+
+// The canvas stage gets a soft card background so the styled hosted survey
+// frame floats inside it without fighting PostHog chrome.
+.HostedSurveyCanvasStage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 600px;
+    padding: 2rem 1rem;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+// Choice rows on the canvas get a hover delete affordance.
+.HostedSurveyCanvasChoice {
+    position: relative;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    width: 100%;
+
+    &__delete {
+        opacity: 0;
+        transition: opacity 120ms ease;
+    }
+
+    &:hover &__delete,
+    &:focus-within &__delete {
+        opacity: 1;
+    }
+}
+
+.HostedSurveyCanvasAddChoice {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    background: transparent;
+    border: 1px dashed var(--border-bold, rgb(17 17 17 / 18%));
+    border-radius: 6px;
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease;
+
+    &:hover {
+        color: var(--text-primary);
+        background: var(--surface-tertiary);
+        border-color: var(--accent);
+    }
+}
