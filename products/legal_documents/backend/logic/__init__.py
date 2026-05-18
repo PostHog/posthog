@@ -129,6 +129,59 @@ def mark_document_signed(document: LegalDocument) -> LegalDocument:
     return document
 
 
+def delete_document(document: LegalDocument) -> None:
+    """
+    Remove a legal document end-to-end.
+
+    Three things have to go away in order to leave no dangling references:
+    the PandaDoc envelope (so the original signer can no longer complete it),
+    the signed PDF in object storage (if one was uploaded), and the database
+    row itself. Each external side-effect is best-effort: if PandaDoc or S3
+    is unreachable we log + capture and continue — the row is going away
+    regardless, and a stale envelope/object is preferable to leaving the
+    customer with an undeletable record.
+
+    Called from both the public API (org-admin self-serve, unsigned only)
+    and Django admin (staff, any status). The signed/unsigned guard lives at
+    the caller's boundary, not here.
+
+    The row delete triggers `ModelActivityMixin` since `LegalDocument` has
+    `activity_logging_on_delete = True`, so the audit trail is automatic.
+    """
+    if document.pandadoc_document_id:
+        try:
+            pandadoc_client.PandaDocClient().delete_document(document_id=document.pandadoc_document_id)
+        except pandadoc_client.PandaDocError as exc:
+            logger.warning(
+                "legal_document_pandadoc_delete_failed",
+                document_id=str(document.id),
+                pandadoc_document_id=document.pandadoc_document_id,
+                error=str(exc),
+            )
+            capture_exception(
+                exc,
+                additional_properties={
+                    "legal_document_id": str(document.id),
+                    "pandadoc_document_id": document.pandadoc_document_id,
+                },
+            )
+
+    if settings.OBJECT_STORAGE_ENABLED:
+        try:
+            object_storage.delete(signed_pdf_storage_key(document))
+        except Exception as exc:
+            # Worst case a stale PDF lingers in S3 with no row referencing it,
+            # which is preferable to leaving the customer with an undeletable
+            # record.
+            logger.warning(
+                "legal_document_signed_pdf_delete_failed",
+                document_id=str(document.id),
+                error=str(exc),
+            )
+
+    document.delete()
+
+
 # Short-enough that leaked URLs stop working on a human timescale, long enough
 # that slow network conditions or a distracted user can still complete the
 # download without the presigned URL expiring mid-stream.

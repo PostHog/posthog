@@ -164,8 +164,9 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.assertFalse(form.is_valid())
         self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
 
-    @patch("products.legal_documents.backend.admin.object_storage")
-    def test_delete_model_cleans_up_s3(self, mock_storage: Any) -> None:
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    @patch("products.legal_documents.backend.logic.object_storage")
+    def test_delete_model_cleans_up_s3_and_voids_pandadoc(self, mock_storage: Any, mock_pandadoc_cls: Any) -> None:
         document = LegalDocument.objects.create(
             organization=self.organization,
             document_type="MSA",
@@ -173,6 +174,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
             company_address="1 Analytics Way",
             representative_email="ada@acme.example",
             status=LegalDocument.Status.SIGNED,
+            pandadoc_document_id="doc_123",
         )
         # Snapshot before delete: obj.delete() clears the pk on the in-memory
         # instance, so signed_pdf_storage_key(document) would compute against
@@ -182,7 +184,30 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.admin.delete_model(self._request(), document)
 
         mock_storage.delete.assert_called_once_with(expected_key)
+        # Admin previously left the PandaDoc envelope alive — now wired through
+        # the shared logic helper so it gets voided too.
+        mock_pandadoc_cls.return_value.delete_document.assert_called_once_with(document_id="doc_123")
         self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    @patch("products.legal_documents.backend.logic.object_storage")
+    def test_delete_model_skips_pandadoc_void_when_no_envelope_id(
+        self, _mock_storage: Any, mock_pandadoc_cls: Any
+    ) -> None:
+        # If the row was never bound to a PandaDoc envelope (e.g., admin-uploaded
+        # MSA, or PandaDoc create failed during the original flow) there's
+        # nothing to void — the client shouldn't even be instantiated.
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="MSA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SIGNED,
+            pandadoc_document_id="",
+        )
+        self.admin.delete_model(self._request(), document)
+        mock_pandadoc_cls.assert_not_called()
 
     def test_change_view_form_saves_without_signed_pdf(self) -> None:
         # The add form (LegalDocumentAdminForm) declares signed_pdf
@@ -203,7 +228,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         # subclass returned by modelform_factory has no extra non-model fields.)
         self.assertNotIn("signed_pdf", change_form_class.base_fields)
 
-    @patch("products.legal_documents.backend.admin.object_storage")
+    @patch("products.legal_documents.backend.logic.object_storage")
     def test_delete_model_swallows_s3_errors(self, mock_storage: Any) -> None:
         # If S3 cleanup fails the row should still be deleted — best-effort cleanup.
         mock_storage.delete.side_effect = RuntimeError("s3 down")
