@@ -190,6 +190,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    hogql_service:
+        description: 'Postgres wire-compatible HogQL query service'
+        requires: [core_infra, duckgres]
+        docker_profiles: []
+
     stripe_app:
         description: 'Stripe app for PostHog integration'
         requires: [core_infra]
@@ -323,6 +328,10 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    hogql:
+        description: 'Postgres wire-compatible HogQL query service'
+        capabilities: [hogql_service]
 
     stripe:
         description: 'Stripe app for PostHog integration'

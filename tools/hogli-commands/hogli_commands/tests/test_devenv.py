@@ -580,6 +580,19 @@ class TestMprocsGeneratorRegression:
         assert "property-defs-rs" in config.procs
         assert "docker-compose" in config.procs
 
+    def test_hogql_intent_starts_hogql_service(self) -> None:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["hogql"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert "hogql-service" in resolved.units
+        assert "hogql-service" in config.procs
+        assert config.procs["hogql-service"].get("capability") == "hogql_service"
+        assert config.procs["hogql-service"].get("autostart") is not False
+        assert "duckgres" in resolved.docker_profiles
+
 
 class TestMprocsGeneratorPreservesCapability:
     """Generated procs retain `capability:` so phrocs can group by capability.

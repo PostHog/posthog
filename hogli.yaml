@@ -119,6 +119,9 @@ metadata:
         phrocs:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
+        hogql:
+            name: HogQL service
+            about: Postgres wire-compatible service for querying HogQL from SQL clients.
 devbox:
     devbox:
         click: hogli_commands.devbox.cli:devbox_help

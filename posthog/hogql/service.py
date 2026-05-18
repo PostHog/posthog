@@ -8,6 +8,7 @@ import struct
 import asyncio
 import logging
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -828,15 +829,19 @@ class HogQLPostgresWireSession:
 
 
 class HogQLPostgresServer:
-    def __init__(self, config: HogQLServiceConfig):
+    def __init__(self, config: HogQLServiceConfig, on_listening: Callable[[str], None] | None = None):
         self.config = config
+        self.on_listening = on_listening
         self.authenticator = HogQLServiceAuthenticator(shared_secret=config.shared_secret)
         self.query_executor = HogQLServiceQueryExecutor()
 
     async def serve_forever(self) -> None:
         server = await asyncio.start_server(self._handle_client, self.config.host, self.config.port)
         addresses = ", ".join(str(socket.getsockname()) for socket in server.sockets or [])
-        logger.info("HogQL Postgres wire service listening", extra={"addresses": addresses})
+        message = f"HogQL Postgres wire service listening on {addresses}"
+        logger.info(message)
+        if self.on_listening is not None:
+            self.on_listening(message)
         async with server:
             await server.serve_forever()
 
