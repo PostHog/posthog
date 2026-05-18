@@ -804,6 +804,70 @@ class ClickHousePrinter(BasePrinter):
             else:
                 return f"notIn({materialized_column_sql}, tuple({values_sql}))"
 
+    def _get_optimized_materialized_column_lower_in_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for `lower(<property>) IN (...)` comparisons that can use a
+        bloom_filter_lower skip index on an individually materialized column.
+
+        The bloom_filter_lower index is built on `lower(column)` (or `lower(coalesce(column, ''))` for nullable
+        columns). The comparison must be printed against that exact expression for ClickHouse to pick the index,
+        so we wrap the raw materialized column rather than letting the generic path emit nullIf wrapping.
+        """
+        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return None
+
+        if not (isinstance(node.left, ast.Call) and node.left.name == "lower" and len(node.left.args) == 1):
+            return None
+
+        property_source = self._get_materialized_string_property_source(node.left.args[0])
+        if (
+            not isinstance(property_source, PrintableMaterializedColumn)
+            or not property_source.has_bloom_filter_lower_index
+        ):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+            values: list[ast.Constant] = [node.right]
+        elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+            values = []
+            for value in node.right.exprs:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    values.append(value)
+                else:
+                    return None
+        else:
+            return None
+
+        if len(values) == 0:
+            return None
+
+        # non-nullable materialized columns store NULL as 'null' or '', so bail out if the values contain this
+        for value in values:
+            if value.value in MAT_COL_NULL_SENTINELS:
+                return None
+
+        materialized_column_sql = str(property_source)
+        values_sql = ", ".join(self.visit(v) for v in values)
+
+        if property_source.is_nullable:
+            # The index expression is lower(coalesce(column, '')); match it exactly. coalesce can't produce a
+            # sentinel here because we bailed on '' above, so the IS NOT NULL guard only restores NULL semantics.
+            indexed_expr = f"lower(coalesce({materialized_column_sql}, ''))"
+            if node.op == ast.CompareOperationOp.In:
+                # has() with a constant array keeps the skip index usable (unlike in() under transform_null_in=1)
+                return f"and(has([{values_sql}], {indexed_expr}), {materialized_column_sql} IS NOT NULL)"
+            else:
+                return f"ifNull(notIn({indexed_expr}, tuple({values_sql})), 1)"
+        else:
+            indexed_expr = f"lower({materialized_column_sql})"
+            if node.op == ast.CompareOperationOp.In:
+                return f"has([{values_sql}], {indexed_expr})"
+            else:
+                return f"notIn({indexed_expr}, tuple({values_sql}))"
+
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
         from posthog.hogql.database.schema.events import EventsTable
@@ -1071,6 +1135,8 @@ class ClickHousePrinter(BasePrinter):
             return optimized_materialized_like
         if optimized_materialized_in := self._get_optimized_materialized_column_in_operation(node):
             return optimized_materialized_in
+        if optimized_materialized_lower_in := self._get_optimized_materialized_column_lower_in_operation(node):
+            return optimized_materialized_lower_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         # indexHint() is purely an optimizer directive — its result is always true,
