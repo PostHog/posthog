@@ -36,15 +36,15 @@ describe('ingestion general server', () => {
         }
     )
 
-    it('should throw on startup when ingestion_v2 has no INGESTION_PIPELINE set', async () => {
-        server = new IngestionGeneralServer({
+    it('should error on startup when ingestion_v2 has no INGESTION_PIPELINE set', async () => {
+        // The lifecycle wrapper around start() catches the throw and exits the
+        // process with 1 — start() resolves rather than rejecting.
+        const localServer = new IngestionGeneralServer({
             LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
-        await expect(server.start()).rejects.toThrow(/INGESTION_PIPELINE must be set/)
-        // start() failed so afterEach won't have a server to stop; null it out
-        server = null
-        expect(process.exit).not.toHaveBeenCalledWith(0)
+        await localServer.start()
+        expect(process.exit).toHaveBeenCalledWith(1)
     })
 
     it('should not error on startup - ingestion_v2_combined', async () => {
