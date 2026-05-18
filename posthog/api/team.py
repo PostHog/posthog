@@ -391,9 +391,6 @@ test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
 
 
 def validate_test_account_filters(value: object) -> list[dict[str, object]]:
-    if not getattr(settings, "TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED", False):
-        return cast(list[dict[str, object]], value)
-
     try:
         test_account_filters_adapter.validate_python(value)
     except PydanticValidationError as error:

@@ -18904,6 +18904,7 @@
                 "error_tracking",
                 "heatmap",
                 "session_replay",
+                "replay_vision",
                 "session_profile",
                 "survey",
                 "product_tour",
@@ -27359,6 +27360,7 @@
                 "product_tours",
                 "revenue_analytics",
                 "session_replay",
+                "replay_vision",
                 "site_apps",
                 "subscriptions",
                 "streamlit_apps",
@@ -37986,6 +37988,10 @@
                 "response": {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
                 },
+                "serviceName": {
+                    "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
+                    "type": "string"
+                },
                 "serviceNames": {
                     "items": {
                         "type": "string"
@@ -38004,7 +38010,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "kind", "spanName"],
+            "required": ["dateRange", "kind", "serviceName", "spanName"],
             "type": "object"
         },
         "TraceSpansTreeQueryResponse": {

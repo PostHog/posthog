@@ -2228,6 +2228,7 @@ class FileSystemIconType(StrEnum):
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
+    REPLAY_VISION = "replay_vision"
     SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
@@ -3856,6 +3857,7 @@ class ProductKey(StrEnum):
     PRODUCT_TOURS = "product_tours"
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
+    REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"
     SUBSCRIPTIONS = "subscriptions"
     STREAMLIT_APPS = "streamlit_apps"
@@ -20374,6 +20376,14 @@ class TraceSpansTreeQuery(BaseModel):
     kind: Literal["TraceSpansTreeQuery"] = "TraceSpansTreeQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansTreeQueryResponse | None = None
+    serviceName: str = Field(
+        ...,
+        description=(
+            "Service name that scopes the returned tree. Applied to the spans CTE so"
+            " the call-tree only contains spans from this service, even when matched"
+            " traces span multiple services."
+        ),
+    )
     serviceNames: list[str] | None = None
     spanName: str = Field(
         ...,
