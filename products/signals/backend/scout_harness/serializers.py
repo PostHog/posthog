@@ -345,30 +345,6 @@ class RecentDashboardEntrySerializer(serializers.Serializer):
     )
 
 
-class PopularInsightEntrySerializer(serializers.Serializer):
-    """One row in `inventory.popular_insights`."""
-
-    short_id = serializers.CharField(help_text="Insight short_id — pass to `insight-get` to pull the full query.")
-    name = serializers.CharField(
-        allow_blank=True,
-        help_text=("Insight name when human-set, otherwise the auto-derived name. Same fallback the UI uses."),
-    )
-    viewer_count = serializers.IntegerField(
-        help_text=(
-            "Distinct users (`COUNT(DISTINCT user_id)` over `InsightViewed`) — popularity, "
-            "not raw view total. A real measure of how many separate humans have looked at it."
-        ),
-    )
-    last_viewed_at = serializers.CharField(
-        allow_null=True,
-        help_text="ISO-8601 timestamp of the most recent view across any user.",
-    )
-    last_modified_at = serializers.CharField(
-        allow_null=True,
-        help_text="ISO-8601 timestamp of the most recent edit.",
-    )
-
-
 class TopEventEntrySerializer(serializers.Serializer):
     """One row in `inventory.top_events`."""
 
@@ -468,14 +444,6 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "what the team is currently looking at, not necessarily the most-trafficked. "
             "We don't have per-dashboard view counts in Postgres, only the timestamp of "
             "the most recent access."
-        ),
-    )
-    popular_insights = serializers.ListField(
-        child=PopularInsightEntrySerializer(),
-        help_text=(
-            "Up to 20 insights ranked by distinct viewer count (real popularity, "
-            "not raw view total), with the most-recent view as tiebreaker. "
-            "Insights no one has ever viewed are filtered out."
         ),
     )
     top_events = serializers.ListField(
