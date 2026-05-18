@@ -1,4 +1,3 @@
-import re
 from datetime import timedelta
 
 from posthog.test.base import (
@@ -20,14 +19,11 @@ from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
+from products.conversations.backend.api.tickets import _get_persons_by_email
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
@@ -1343,23 +1339,15 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
         with materialized("person", "email", create_ngram_lower_index=True) as mat_col:
             index_name = get_ngram_lower_index_name(mat_col.name)
-            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO)
 
-            with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
-                response = execute_hogql_query(
-                    """
-                    SELECT id, properties.email
-                    FROM persons
-                    WHERE lower(properties.email) IN {emails}
-                    """,
-                    placeholders={"emails": ast.Constant(value=["indexed@example.com"])},
-                    team=self.team,
-                    modifiers=modifiers,
-                )
+            result = _get_persons_by_email(
+                self.team,
+                ["indexed@example.com"],
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            assert len(result) == 1
+            assert "indexed@example.com" in result
 
-            assert response.results and len(response.results) == 1
-            assert response.clickhouse is not None
-
-            explain_sql = re.sub(r"%\(hogql_val_\d+\)s", "'UTC'", response.clickhouse)
-            index_info = get_index_from_explain(explain_sql, index_name)
+            raw_query = f"SELECT id FROM person WHERE lower({mat_col.name}) IN ('indexed@example.com')"
+            index_info = get_index_from_explain(raw_query, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used"
