@@ -3410,6 +3410,18 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
             self.assertEqual(program, expected)
 
+        def test_program_exprstmt_routes_assignment_vs_expression(self):
+            # The merged `exprStmt` rule yields a VariableAssignment when a
+            # `:=` is present (for any expression target, including a
+            # subscript or property access) and an ExprStatement otherwise.
+            declarations = self._program("a := 1; o.a := 2; arr[1] := 3; foo();").declarations
+            assert [type(declaration).__name__ for declaration in declarations] == [
+                "VariableAssignment",
+                "VariableAssignment",
+                "VariableAssignment",
+                "ExprStatement",
+            ]
+
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
                 let query := (select id, properties.email from events where timestamp > now() - interval 1 day);

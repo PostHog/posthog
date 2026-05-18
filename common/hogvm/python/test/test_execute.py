@@ -381,6 +381,57 @@ class TestBytecodeExecute:
             == 8
         )
 
+    def test_assignment_target_with_expression_base(self):
+        # Assignment to a subscript or property whose base is an arbitrary
+        # expression (a call result, a literal) compiles and runs: the
+        # bytecode compiler visits the base as a plain value. The grammar
+        # accepts any expression on the left of `:=`.
+        assert (
+            self._run_program(
+                """
+                let store := {};
+                fn ref() { return store; }
+                ref()['k'] := 'v';
+                return store.k;
+                """
+            )
+            == "v"
+        )
+        assert (
+            self._run_program(
+                """
+                let m := [[10, 20], [30, 40]];
+                fn row(i) { return m[i]; }
+                row(1)[2] := 99;
+                return m[1][2];
+                """
+            )
+            == 99
+        )
+        assert (
+            self._run_program(
+                """
+                let cfg := {'items': [1, 2, 3]};
+                fn getCfg() { return cfg; }
+                getCfg().items[2] := 88;
+                return cfg.items[2];
+                """
+            )
+            == 88
+        )
+        assert self._run_program("{'a': 1}['a'] := 2; return 1;") == 1
+        assert self._run_program("[1, 2, 3][1] := 99; return 1;") == 1
+
+    def test_assignment_to_non_lvalue_rejected_at_compile_time(self):
+        # A non-assignable target is still rejected, but at compile time
+        # (after a successful parse), not at parse time.
+        try:
+            self._run_program("fn f() { return 1; }\nf() := 1;\nreturn 1;")
+        except Exception as e:
+            assert "Can not assign to this type of expression" in str(e)
+        else:
+            raise AssertionError("Expected assignment to a call result to be rejected")
+
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
         bytecode = create_bytecode(program).bytecode

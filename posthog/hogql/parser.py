@@ -480,7 +480,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
-        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+        if ctx.COLONEQUALS():
+            return ast.VariableAssignment(
+                left=self.visit(ctx.expression(0)),
+                right=self.visit(ctx.expression(1)),
+            )
+        target = self.visit(ctx.expression(0))
+        # `columnExpr` matches `name := value` as a named-argument expression,
+        # so an assignment with a bare-identifier target is folded into a
+        # NamedArgument before the optional `:= expression` suffix can apply.
+        # At statement level that is a variable assignment, not a named arg.
+        if isinstance(target, ast.NamedArgument):
+            return ast.VariableAssignment(
+                left=ast.Field(chain=[target.name]),
+                right=target.value,
+            )
+        return ast.ExprStatement(expr=target)
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
