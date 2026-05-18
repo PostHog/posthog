@@ -16,7 +16,8 @@ ui_apps:
         view_prop: issue
     error-issue-list:
         type: list
-        detail_tool: error-tracking-issues-retrieve
+        detail_tool: query-error-tracking-issue
+        detail_args: '{ issueId: item.id }'
         click_prop: onIssueClick
 tools:
     error-tracking-assignment-rules-create:
@@ -154,7 +155,7 @@ tools:
         enabled: false
     error-tracking-issues-list:
         operation: error_tracking_issues_list
-        enabled: true
+        enabled: false
         scopes:
             - error_tracking:read
         annotations:
@@ -205,7 +206,7 @@ tools:
         ui_app: error-issue
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
-        enabled: true
+        enabled: false
         scopes:
             - error_tracking:read
         annotations:
@@ -310,8 +311,13 @@ tools:
             idempotent: false
         title: Create error tracking suppression rule
         description: >
-            Create an error tracking suppression rule for the current project. Provide optional `filters` and optional
-            `sampling_rate`; omit `filters` to create a match-all suppression rule.
+            Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed
+            indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted.
+            Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT
+            create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and
+            cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather
+            than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more
+            than one distinct error.
     error-tracking-suppression-rules-destroy:
         operation: error_tracking_suppression_rules_destroy
         enabled: false
@@ -348,9 +354,6 @@ tools:
         enabled: false
     error-tracking-symbol-sets-bulk-start-upload-create:
         operation: error_tracking_symbol_sets_bulk_start_upload_create
-        enabled: false
-    error-tracking-symbol-sets-create:
-        operation: error_tracking_symbol_sets_create
         enabled: false
     error-tracking-symbol-sets-destroy:
         operation: error_tracking_symbol_sets_destroy
@@ -396,9 +399,6 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-    error-tracking-symbol-sets-partial-update:
-        operation: error_tracking_symbol_sets_partial_update
-        enabled: false
     error-tracking-symbol-sets-retrieve:
         operation: error_tracking_symbol_sets_retrieve
         enabled: true
@@ -421,15 +421,8 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-    error-tracking-symbol-sets-start-upload-create:
-        operation: error_tracking_symbol_sets_start_upload_create
-        enabled: false
-    error-tracking-symbol-sets-update:
-        operation: error_tracking_symbol_sets_update
-        enabled: false
-wrappers:
-    query-error-tracking-issues:
-        schema_ref: AssistantErrorTrackingQuery
+    query-error-tracking-issue:
+        operation: error_tracking_query_issue_create
         enabled: true
         scopes:
             - error_tracking:read
@@ -437,17 +430,49 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Query error tracking issues
-        description_file: ./prompts/query-error-tracking-issues.md
-        system_prompt_hint: Error filtering and aggregation (error-tracking category)
-        ui_resource_uri: ui://posthog/error-issue-list.html
-        property_defaults:
-            limit: 50
-            orderBy: occurrences
-            volumeResolution: 1
-            dateRange:
-                date_from: -7d
-            filterTestAccounts: true
-            status: active
-            orderDirection: DESC
-        url_prefix: /error_tracking
+        enrich_url: '{params.issueId}'
+        title: Query error tracking issue
+        description_file: ./prompts/query-error-tracking-issue.md
+        system_prompt_hint: Error issue details and impact (error-tracking category)
+        ui_app: error-issue
+    query-error-tracking-issue-events:
+        operation: error_tracking_query_issue_events_create
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.issueId}'
+        title: Query error tracking issue events
+        description_file: ./prompts/query-error-tracking-issue-events.md
+        system_prompt_hint: Error event samples, stack traces, and session IDs (error-tracking category)
+        ui_app: error-details
+    query-error-tracking-issues-list:
+        operation: error_tracking_query_issues_list_create
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Query error tracking issues list
+        description_file: ./prompts/query-error-tracking-issues-list.md
+        system_prompt_hint: Error issue filtering and aggregation (error-tracking category)
+        ui_app: error-issue-list
+        response:
+            include:
+                - id
+                - name
+                - description
+                - status
+                - first_seen
+                - last_seen
+                - library
+                - source
+                - assignee
+                - aggregations

@@ -1,12 +1,13 @@
-from products.logs.backend.temporal.activities import check_alerts_activity
+from products.logs.backend.temporal.activities import discover_cohorts_activity, evaluate_cohort_batch_activity
 from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
 
 WORKFLOWS: list = [LogsAlertCheckWorkflow]
-ACTIVITIES: list = [check_alerts_activity]
+ACTIVITIES: list = [discover_cohorts_activity, evaluate_cohort_batch_activity]
 
 __all__ = [
-    "LogsAlertCheckWorkflow",
-    "check_alerts_activity",
-    "WORKFLOWS",
     "ACTIVITIES",
+    "LogsAlertCheckWorkflow",
+    "WORKFLOWS",
+    "discover_cohorts_activity",
+    "evaluate_cohort_batch_activity",
 ]

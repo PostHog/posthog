@@ -35,7 +35,23 @@ function getTraceReviewsBaseUrl(teamId: number = ApiConfig.getCurrentTeamId()): 
     return `/api/environments/${teamId}/llm_analytics/trace_reviews/`
 }
 
-function buildTraceReviewsListUrl(
+export interface TraceReviewListFilters {
+    search: string
+    definition_id: string
+    order_by: string
+}
+
+export function traceReviewListParamsFromFilters(
+    filters: TraceReviewListFilters
+): Pick<TraceReviewListParams, 'search' | 'definition_id' | 'order_by'> {
+    return {
+        search: filters.search || undefined,
+        definition_id: filters.definition_id || undefined,
+        order_by: filters.order_by,
+    }
+}
+
+export function buildTraceReviewsListUrl(
     teamId: number = ApiConfig.getCurrentTeamId(),
     params?: TraceReviewListParams
 ): string {
@@ -65,6 +81,7 @@ export const traceReviewsApi = {
         params?: TraceReviewListParams,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<CountedPaginatedResponse<TraceReview>> {
+        // nosemgrep: prefer-codegen-api
         return api
             .get<CountedPaginatedResponse<TraceReview>>(buildTraceReviewsListUrl(teamId, params))
             .then((response) => ({
@@ -79,6 +96,7 @@ export const traceReviewsApi = {
     },
 
     create(data: TraceReviewUpsertPayload, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview> {
+        // nosemgrep: prefer-codegen-api
         return api
             .create<TraceReview, TraceReviewUpsertPayload>(getTraceReviewsBaseUrl(teamId), data)
             .then(normalizeTraceReview)
@@ -89,6 +107,7 @@ export const traceReviewsApi = {
         data: Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
+        // nosemgrep: prefer-codegen-api
         return api
             .update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
                 `${getTraceReviewsBaseUrl(teamId)}${id}/`,
@@ -98,6 +117,7 @@ export const traceReviewsApi = {
     },
 
     delete(id: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<void> {
+        // nosemgrep: prefer-codegen-api
         return api.delete(`${getTraceReviewsBaseUrl(teamId)}${id}/`)
     },
 

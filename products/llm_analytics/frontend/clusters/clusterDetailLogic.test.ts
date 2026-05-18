@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { clusterDetailLogic } from './clusterDetailLogic'
 import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
@@ -414,6 +415,83 @@ describe('clusterDetailLogic', () => {
 
                 const breadcrumbs = logic.values.breadcrumbs
                 expect(breadcrumbs[2].name).toBe('Cluster')
+            })
+        })
+
+        describe('filteredItemIds', () => {
+            it('defaults to null when no filters are active', () => {
+                expect(logic.values.filteredItemIds).toBeNull()
+            })
+
+            it('treats null as "no filtering" — sortedTraceIds returns all entries', async () => {
+                logic.actions.loadClusterDataSuccess({
+                    cluster: mockCluster,
+                    runTimestamp: '2025-01-05T00:00:00Z',
+                    windowStart: '2025-01-01T00:00:00Z',
+                    windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
+                })
+
+                expect(logic.values.filteredItemIds).toBeNull()
+                expect(logic.values.sortedTraceIds).toEqual(['trace-1', 'trace-2', 'trace-3'])
+                expect(logic.values.totalTraces).toBe(3)
+                expect(logic.values.unfilteredTotalTraces).toBe(3)
+            })
+
+            it('restricts sortedTraceIds to the matched subset when filteredItemIds is set', async () => {
+                logic.actions.loadClusterDataSuccess({
+                    cluster: mockCluster,
+                    runTimestamp: '2025-01-05T00:00:00Z',
+                    windowStart: '2025-01-01T00:00:00Z',
+                    windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
+                })
+
+                logic.actions.loadFilteredItemIdsSuccess(new Set(['trace-1', 'trace-3']))
+
+                expect(logic.values.sortedTraceIds).toEqual(['trace-1', 'trace-3'])
+                expect(logic.values.totalTraces).toBe(2)
+                // The unfiltered count should still reflect the underlying cluster size, so
+                // the UI can show "2 of 3" rather than just "2".
+                expect(logic.values.unfilteredTotalTraces).toBe(3)
+            })
+
+            it('returns an empty list when the filter matches nothing', async () => {
+                logic.actions.loadClusterDataSuccess({
+                    cluster: mockCluster,
+                    runTimestamp: '2025-01-05T00:00:00Z',
+                    windowStart: '2025-01-01T00:00:00Z',
+                    windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
+                })
+
+                logic.actions.loadFilteredItemIdsSuccess(new Set<string>())
+
+                expect(logic.values.sortedTraceIds).toEqual([])
+                expect(logic.values.totalTraces).toBe(0)
+                expect(logic.values.unfilteredTotalTraces).toBe(3)
+            })
+        })
+
+        describe('hasActiveFilters', () => {
+            it('is false when no property filters and test accounts toggle is off', () => {
+                expect(logic.values.hasActiveFilters).toBe(false)
+            })
+
+            it('is true once property filters are set', () => {
+                const cohortFilter: CohortPropertyFilter = {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 7,
+                    operator: PropertyOperator.In,
+                }
+                logic.actions.setPropertyFilters([cohortFilter])
+                expect(logic.values.hasActiveFilters).toBe(true)
+            })
+
+            it('is true when filtering test accounts even without property filters', () => {
+                logic.actions.setShouldFilterTestAccounts(true)
+                expect(logic.values.hasActiveFilters).toBe(true)
             })
         })
     })

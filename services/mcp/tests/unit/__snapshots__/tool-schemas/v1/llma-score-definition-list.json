@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "description": "Filter by archived state.",
+            "type": "boolean"
+        },
+        "kind": {
+            "description": "Filter by scorer kind.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Sort by name, kind, created_at, updated_at, or current_version.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Search scorers by name or description.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

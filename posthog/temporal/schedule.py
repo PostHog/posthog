@@ -70,6 +70,7 @@ from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
 )
@@ -495,6 +496,47 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
+async def create_run_usage_reports_schedule(client: Client):
+    """Daily Temporal-based usage report run at 04:45 UTC.
+
+    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
+    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
+    side. The workflow writes per-org usage data to S3 and sends a single SQS
+    pointer to the billing service.
+    """
+    run_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
+            # `dataclasses.asdict` would TypeError on registration.
+            RunUsageReportsInputs().model_dump(mode="json"),
+            id="run-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "run-usage-reports-schedule"):
+        await a_update_schedule(client, "run-usage-reports-schedule", run_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "run-usage-reports-schedule",
+            run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -569,6 +611,7 @@ if settings.CLOUD_DEPLOYMENT:
     # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
     # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
     schedules.append(create_gemini_cleanup_sweep_schedule)
+    schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

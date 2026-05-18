@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonCollapse,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -27,6 +34,10 @@ import { surveyLogic } from '../../surveyLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
 import { WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
 
+const DEFAULT_ITERATION_COUNT = 10
+const MIN_ITERATION_COUNT = 2
+const MAX_ITERATION_COUNT = 500
+
 const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: string }[] = [
     { value: 'once', days: undefined, label: 'Once ever' },
     { value: 'yearly', days: 365, label: 'Every year' },
@@ -51,7 +62,15 @@ export function WhenStep(): JSX.Element {
         const option = FREQUENCY_OPTIONS.find((opt) => opt.days === days)
         return option?.value || 'monthly'
     }
-    const frequency = daysToFrequency(conditions.seenSurveyWaitPeriodInDays)
+    // Prefer the new iteration-based model. Fall back to the legacy wait-period for older guided-form surveys.
+    const frequency =
+        survey.schedule === SurveySchedule.Once
+            ? 'once'
+            : survey.iteration_frequency_days
+              ? daysToFrequency(survey.iteration_frequency_days)
+              : daysToFrequency(conditions.seenSurveyWaitPeriodInDays)
+    const iterationCount = survey.iteration_count ?? DEFAULT_ITERATION_COUNT
+    const seenSurveyWaitPeriodInDays = conditions.seenSurveyWaitPeriodInDays ?? null
 
     const setTriggerMode = (mode: 'pageview' | 'event'): void => {
         if (mode === 'pageview') {
@@ -68,9 +87,42 @@ export function WhenStep(): JSX.Element {
 
     const setFrequency = (value: string): void => {
         const option = FREQUENCY_OPTIONS.find((opt) => opt.value === value)
-        const isOnce = value === 'once'
-        setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Always)
-        setSurveyValue('conditions', { ...conditions, seenSurveyWaitPeriodInDays: option?.days })
+        if (value === 'once') {
+            setSurveyValue('schedule', SurveySchedule.Once)
+            setSurveyValue('iteration_count', 0)
+            setSurveyValue('iteration_frequency_days', 0)
+            return
+        }
+        setSurveyValue('schedule', SurveySchedule.Recurring)
+        setSurveyValue(
+            'iteration_count',
+            survey.iteration_count && survey.iteration_count >= MIN_ITERATION_COUNT
+                ? survey.iteration_count
+                : DEFAULT_ITERATION_COUNT
+        )
+        setSurveyValue('iteration_frequency_days', option?.days)
+    }
+
+    const setIterationCount = (value: number | undefined): void => {
+        // Don't clamp to min on every keystroke — typing "10" briefly passes through 1, and aggressive
+        // clamping prevents the second digit from being appended. The blur handler enforces the floor.
+        if (value === undefined) {
+            return
+        }
+        setSurveyValue('iteration_count', Math.min(value, MAX_ITERATION_COUNT))
+    }
+
+    const commitIterationCount = (): void => {
+        if (!survey.iteration_count || survey.iteration_count < MIN_ITERATION_COUNT) {
+            setSurveyValue('iteration_count', MIN_ITERATION_COUNT)
+        }
+    }
+
+    const setSeenSurveyWaitPeriod = (value: number | null): void => {
+        setSurveyValue('conditions', {
+            ...conditions,
+            seenSurveyWaitPeriodInDays: value && value > 0 ? value : null,
+        })
     }
 
     const setRepeatedActivation = (enabled: boolean): void => {
@@ -213,11 +265,7 @@ export function WhenStep(): JSX.Element {
                 )}
             </WizardSection>
 
-            <WizardSection
-                title="How often can the same person see this?"
-                description="Control how frequently the same person can be shown this survey again."
-                descriptionClassName="text-sm"
-            >
+            <WizardSection title="How often should this survey trigger?">
                 <LemonSegmentedButton
                     value={frequency}
                     onChange={setFrequency}
@@ -232,7 +280,64 @@ export function WhenStep(): JSX.Element {
                 {recommendedFrequency.value === frequency && (
                     <p className="text-sm text-success mt-3">{recommendedFrequency.reason}</p>
                 )}
+
+                {frequency !== 'once' && (
+                    <div className="flex items-center gap-2 mt-4 text-sm">
+                        <span>Show up to</span>
+                        <LemonInput
+                            type="number"
+                            min={MIN_ITERATION_COUNT}
+                            max={MAX_ITERATION_COUNT}
+                            value={iterationCount}
+                            onChange={(val) => setIterationCount(val ?? undefined)}
+                            onBlur={commitIterationCount}
+                            className="w-20"
+                        />
+                        <span className="text-secondary">times total</span>
+                        <span className="text-muted text-xs">
+                            min {MIN_ITERATION_COUNT}, max {MAX_ITERATION_COUNT}
+                        </span>
+                    </div>
+                )}
             </WizardSection>
+
+            <LemonCollapse
+                embedded
+                defaultActiveKey={seenSurveyWaitPeriodInDays != null ? 'wait-period' : undefined}
+                panels={[
+                    {
+                        key: 'wait-period',
+                        header: (
+                            <span>
+                                Wait period across all surveys{' '}
+                                <span className="text-muted font-normal">
+                                    {seenSurveyWaitPeriodInDays != null
+                                        ? `(${seenSurveyWaitPeriodInDays} days)`
+                                        : '(optional)'}
+                                </span>
+                            </span>
+                        ),
+                        content: (
+                            <div className="flex items-center gap-2 text-sm py-1">
+                                <LemonSwitch
+                                    checked={seenSurveyWaitPeriodInDays != null}
+                                    onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
+                                    size="small"
+                                />
+                                <span>Hide if any survey was seen in the last</span>
+                                <LemonInput
+                                    type="number"
+                                    min={1}
+                                    value={seenSurveyWaitPeriodInDays ?? NaN}
+                                    onChange={(val) => setSeenSurveyWaitPeriod(val ?? null)}
+                                    className="w-20"
+                                />
+                                <span className="text-secondary">days</span>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
 
             <section className="space-y-2 border-t border-border pt-5">
                 <label className="text-sm font-medium">Delay before showing</label>

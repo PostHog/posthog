@@ -584,8 +584,6 @@ export function MetricRowGroup({
           }
         : undefined
 
-    const timeseriesEnabled = experiment.scheduling_config?.timeseries
-
     // Helper function to calculate tooltip position
     const calculateTooltipPosition = (
         chartCell: HTMLElement,
@@ -769,7 +767,7 @@ export function MetricRowGroup({
                 createPortal(
                     <div
                         ref={tooltipRef}
-                        className={`fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px] ${timeseriesEnabled ? 'cursor-pointer hover:border-primary' : ''}`}
+                        className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px] cursor-pointer hover:border-primary"
                         style={{
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
@@ -786,12 +784,12 @@ export function MetricRowGroup({
                             }
                         }}
                         onClick={
-                            timeseriesEnabled && tooltipState.variantResult
+                            tooltipState.variantResult
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
                                 : undefined
                         }
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric, timeseriesEnabled)}
+                        {renderTooltipContent(tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
@@ -1012,7 +1010,7 @@ export function MetricRowGroup({
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
-                            onTimeseriesClick={timeseriesEnabled ? () => handleTimeseriesClick(variant) : undefined}
+                            onTimeseriesClick={() => handleTimeseriesClick(variant)}
                         />
                     </tr>
                 )

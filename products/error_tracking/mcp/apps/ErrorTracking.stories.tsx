@@ -1,5 +1,6 @@
-import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
 import type { Meta, StoryObj } from '@storybook/react'
+
+import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 
 import {
     ErrorDetailsView,
@@ -227,14 +228,15 @@ const sampleErrorDetails: ErrorDetailsData = {
             timestamp: '2025-12-15T14:30:00Z',
             properties: {
                 $exception_list: [jsException],
-                $exception_type: 'TypeError',
-                $exception_message: 'Cannot read properties of undefined (reading "map")',
+                $exception_types: ['TypeError'],
+                $exception_values: ['Cannot read properties of undefined (reading "map")'],
                 $browser: 'Chrome',
                 $browser_version: '120.0',
                 $os: 'macOS',
                 $os_version: '14.2',
                 $lib: 'posthog-js',
                 $current_url: 'https://app.posthog.com/dashboard/1',
+                $session_id: '019b4f6d-4a76-7000-8000-000000000001',
             },
         },
     ],

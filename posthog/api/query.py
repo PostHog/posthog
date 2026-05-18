@@ -8,6 +8,7 @@ import orjson
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -69,6 +70,8 @@ from posthog.schema_migrations.upgrade import upgrade
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+
+tracer = trace.get_tracer(__name__)
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -168,7 +171,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     def create(self, request: Request, *args, **kwargs) -> Response:
         self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
-        upgraded_query = upgrade(request.data)
+        with tracer.start_as_current_span("posthog.query.upgrade"):
+            upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
 
         query = None
@@ -193,22 +197,31 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             else:
                 limit_context = None
 
-            result = process_query_model(
-                self.team,
-                query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                limit_context=limit_context,
-                analytics_props=analytics_props,
-            )
-            if isinstance(result, BaseModel):
-                result = result.model_dump(by_alias=True)
+            with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
+                process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
+                process_span.set_attribute(
+                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
+                )
+                if limit_context is not None:
+                    process_span.set_attribute("query.limit_context", limit_context.value)
+                result = process_query_model(
+                    self.team,
+                    query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user,  # type: ignore[arg-type]
+                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    limit_context=limit_context,
+                    analytics_props=analytics_props,
+                )
+                if isinstance(result, BaseModel):
+                    result = result.model_dump(by_alias=True)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
             try:
-                response_bytes = len(orjson.dumps(result))
+                with tracer.start_as_current_span("posthog.query.serialize_response") as serialize_span:
+                    response_bytes = len(orjson.dumps(result))
+                    serialize_span.set_attribute("response.bytes", response_bytes)
                 report_user_or_team_action(
                     "query api response",
                     {
@@ -234,9 +247,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             )
 
             if request.headers.get("x-posthog-client") == "mcp":
-                formatted = self._try_format_for_llm(query, result)
-                if formatted is not None:
-                    result["formatted_results"] = formatted
+                with tracer.start_as_current_span("posthog.query.format_for_llm") as llm_span:
+                    formatted = self._try_format_for_llm(query, result)
+                    llm_span.set_attribute("query.formatted", formatted is not None)
+                    if formatted is not None:
+                        result["formatted_results"] = formatted
 
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:

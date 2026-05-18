@@ -62,6 +62,58 @@ export type ExcludedProperties = TaxonomicFilterGroupValueMap
 export type SelectedProperties = TaxonomicFilterGroupValueMap
 export type AllowedProperties = TaxonomicFilterGroupValueMap
 
+/**
+ * Per-group-type **denylist of property-filter operators** the host cannot represent.
+ * Acts only on the **Recent tab** — items whose stored operator is denylisted for
+ * their source group are hidden so the picker never surfaces a value the
+ * surrounding UI can't reproduce.
+ *
+ * Pairs with `selectingKeyOnly` when a host wants both (a) no operator/value
+ * slot in the row *and* (b) impossible recents kept out of the picker — the two
+ * concerns are deliberately separate so callers can use one without the other:
+ * - `selectingKeyOnly` decides whether the row renders an operator+value pair
+ *   (UI shape concern).
+ * - `excludedOperators` decides which stored operators the host is willing to
+ *   surface in Recent (history concern).
+ *
+ * NOT the same as `operatorAllowlist` on `OperatorValueSelect` — that's a flat
+ * list narrowing the *options inside* the operator dropdown for the active
+ * filter (e.g. survey trigger surfaces only `=` / `contains` regardless of
+ * filter type).
+ */
+export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOperator[] }
+
+/**
+ * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
+ * value IS the answer, no operator+value pair alongside it. Used when a
+ * specific filter type's operator is implicit (e.g. feature flag release
+ * conditions accept any operator on event properties but treat cohort rows
+ * as key-only because the cohort *is* the value and the operator is
+ * implicitly `in`).
+ *
+ * - `true` — every row in this `PropertyFilters` is key-only.
+ * - `Partial<Record<TaxonomicFilterGroupType, boolean>>` — per-group switch.
+ *
+ * Hosts that go key-only for a group almost always also want
+ * `excludedOperators` set for that group, otherwise a recent stored with a
+ * different operator silently applies as that operator with no UI to show it.
+ * The shared `COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS` preset bundles both.
+ */
+export type SelectingKeyOnly = boolean | { [key in TaxonomicFilterGroupType]?: boolean }
+
+export function isKeyOnlyForGroup(
+    selectingKeyOnly: SelectingKeyOnly | undefined,
+    groupType: TaxonomicFilterGroupType | undefined
+): boolean {
+    if (selectingKeyOnly === true) {
+        return true
+    }
+    if (!selectingKeyOnly || !groupType) {
+        return false
+    }
+    return !!selectingKeyOnly[groupType]
+}
+
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
@@ -115,11 +167,17 @@ export interface TaxonomicFilterProps {
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
     enableKeywordShortcuts?: boolean
-    /** Treat every selection as final — there is no operator/value picker after the user picks a key
-     *  (e.g. picking columns to add, or picking an event name). Selections from property groups are
-     *  recorded to recents directly instead of waiting for `propertyFilterLogic` to record a complete
-     *  filter, and only key-only recents are surfaced in the recents tab. */
-    selectingKeyOnly?: boolean
+    /** Hide recent property filters whose operator is denylisted for their source group, so the
+     *  picker never surfaces a value the surrounding UI can't represent. See `ExcludedOperators`
+     *  above for how this differs from `operatorAllowlist` on `OperatorValueSelect`. */
+    excludedOperators?: ExcludedOperators
+    /** Mark the picker (or specific groups within it) as key-only — the picked value is the final
+     *  selection, no operator+value pair is rendered alongside it. Consumed in two places:
+     *  - `taxonomicFilterLogic` records key-only selections directly to recents (column / event-name
+     *    pickers etc. — see #57309).
+     *  - `TaxonomicPropertyFilter` hides the operator+value pair on rows whose group is key-only.
+     *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
+    selectingKeyOnly?: SelectingKeyOnly
 }
 
 export interface DataWarehousePopoverField {

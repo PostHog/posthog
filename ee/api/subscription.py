@@ -26,7 +26,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import (
+    SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+    SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY,
+    AvailableFeature,
+)
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -43,10 +47,13 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+MAX_ACTIVE_HOURLY_SUBSCRIPTIONS_PER_ORG = 5
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -55,6 +62,10 @@ def _summary_quota_cache_key(organization_id) -> str:
 
 def _summary_cap_hit_dedupe_key(organization_id) -> str:
     return f"subscription:summary_cap_hit:org:{organization_id}"
+
+
+def _hourly_cap_hit_dedupe_key(organization_id) -> str:
+    return f"subscription:hourly_cap_hit:org:{organization_id}"
 
 
 def _count_active_summaries(organization) -> int:
@@ -132,6 +143,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "deleted",
+            "enabled",
             "title",
             "summary",
             "next_delivery_date",
@@ -156,7 +168,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "target_value": {
                 "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
             },
-            "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
+            "frequency": {
+                "help_text": (
+                    "How often to deliver: hourly, daily, weekly, monthly, or yearly. "
+                    "Hourly is feature-flagged and limited to one active subscription per organization."
+                )
+            },
             "interval": {
                 "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
             },
@@ -171,6 +188,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
+            "enabled": {
+                "help_text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid."
+            },
         }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
@@ -197,7 +217,41 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         self._validate_dashboard_export_subscription(attrs)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
-        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+        # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
+        # body falls through to the validation below — `or` would silently coalesce
+        # to the stale instance value and pass `validate_re_enable` with the wrong id.
+        integration_id = (
+            attrs["integration_id"]
+            if "integration_id" in attrs
+            else (self.instance.integration_id if self.instance else None)
+        )
+
+        # Reject re-enables of subscriptions whose delivery prerequisite is still
+        # permanently broken — otherwise the next delivery would just auto-disable
+        # them again.
+        is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
+        if is_re_enabling:
+            error_message = validate_re_enable(target_type, integration_id)
+            if error_message:
+                raise ValidationError({"enabled": [error_message]})
+
+        # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
+        # with a null next_delivery_date is invisible to the scheduler (the
+        # `__lte=now` filter in `fetch_due_subscriptions_activity` drops nulls).
+        # Three reachable paths: re-enable an exhausted sub, create one with a bad
+        # rrule, or PATCH an active sub's schedule into exhaustion.
+        check_schedule = (
+            is_re_enabling
+            or self.instance is None
+            or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
+        )
+        if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+            base = "Subscription schedule has reached its end date. Extend until_date or remove count"
+            if is_re_enabling:
+                raise ValidationError({"enabled": [f"{base} before re-enabling."]})
+            if self.instance is None:
+                raise ValidationError({"start_date": [f"{base}."]})
+            raise ValidationError(f"{base}.")
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
@@ -244,6 +298,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if self._is_becoming_active_summary(attrs):
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
+
+        # Hourly frequency is feature-flagged and capped at one active
+        # subscription per organization. Fire whenever the row is *becoming*
+        # an active hourly subscription (frequency=hourly AND enabled=True AND
+        # deleted=False) but wasn't before — catches creates, frequency
+        # changes, re-enables, and undeletes.
+        if self._is_becoming_active_hourly(attrs):
+            organization = self.context["get_organization"]()
+            if not self._hourly_frequency_feature_enabled():
+                raise exceptions.PermissionDenied("Hourly subscriptions are not enabled for this organization.")
+            self._validate_hourly_org_limit(organization)
 
         return attrs
 
@@ -308,12 +373,82 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _prompt_guide_feature_enabled(self) -> bool:
-        """Evaluate the prompt-guide feature flag for the caller's organization.
+    def _is_becoming_active_hourly(self, attrs: dict) -> bool:
+        pre_frequency = self.instance.frequency if self.instance else None
+        pre_enabled = self.instance.enabled if self.instance else True
+        pre_deleted = self.instance.deleted if self.instance else False
+        post_frequency = attrs.get("frequency", pre_frequency)
+        post_enabled = attrs.get("enabled", pre_enabled)
+        post_deleted = attrs.get("deleted", pre_deleted)
 
-        Scoped by organization (not user) so the gate is stable across a team's
+        pre_active_hourly = (
+            pre_frequency == Subscription.SubscriptionFrequency.HOURLY and pre_enabled and not pre_deleted
+        )
+        post_active_hourly = (
+            post_frequency == Subscription.SubscriptionFrequency.HOURLY and post_enabled and not post_deleted
+        )
+        return post_active_hourly and not pre_active_hourly
+
+    def _validate_hourly_org_limit(self, organization) -> None:
+        existing = Subscription.objects.filter(
+            team__organization_id=organization.id,
+            frequency=Subscription.SubscriptionFrequency.HOURLY,
+            enabled=True,
+            deleted=False,
+        )
+        if self.instance is not None:
+            existing = existing.exclude(pk=self.instance.pk)
+        active_count = existing.count()
+        limit = MAX_ACTIVE_HOURLY_SUBSCRIPTIONS_PER_ORG
+        if active_count >= limit:
+            self._capture_hourly_cap_hit(organization, active_count, limit)
+            raise ValidationError(
+                {
+                    "frequency": [
+                        f"Your organization can have up to {limit} active hourly subscriptions. "
+                        "Disable or delete an existing hourly subscription before adding another."
+                    ]
+                }
+            )
+
+    def _capture_hourly_cap_hit(self, organization, active_count: int, limit: int) -> None:
+        # Rate-limited to one event per org per 10 minutes so a misbehaving
+        # client retrying in a loop doesn't spam the analytics stream. Within
+        # that window the user-visible 400 still fires every time.
+        dedupe_key = _hourly_cap_hit_dedupe_key(organization.id)
+        if cache.get(dedupe_key):
+            return
+        cache.set(dedupe_key, True, HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS)
+
+        request = self.context.get("request")
+        distinct_id = (
+            str(request.user.distinct_id)
+            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
+            else f"team_{self.context.get('team_id')}"
+        )
+        try:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="subscription_hourly_cap_hit",
+                properties={
+                    "team_id": self.context.get("team_id"),
+                    "organization_id": str(organization.id),
+                    "active_count": active_count,
+                    "limit": limit,
+                    "is_create": self.instance is None,
+                },
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            # Telemetry must never poison the validation path.
+            pass
+
+    def _evaluate_feature_flag(self, flag_key: str) -> bool:
+        """Evaluate a feature flag for the caller's organization.
+
+        Scoped by organization (not user) so gates are stable across a team's
         members. `only_evaluate_locally=False` so we respect server-side cohort
-        / property conditions — this isn't on a hot path.
+        / property conditions — these checks aren't on a hot path.
         """
         request = self.context.get("request")
         if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
@@ -322,13 +457,19 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         org_id = str(organization.id) if organization else ""
         return bool(
             posthoganalytics.feature_enabled(
-                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                flag_key,
                 str(request.user.distinct_id),
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
             )
         )
+
+    def _hourly_frequency_feature_enabled(self) -> bool:
+        return self._evaluate_feature_flag(SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY)
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        return self._evaluate_feature_flag(SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY)
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
@@ -408,6 +549,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
+        # Skip the workflow trigger when the new subscription is created in a disabled
+        # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
+        # for a subscription that won't fire on its schedule either.
+        if not instance.enabled:
+            return instance
+
         with slo_operation(
             spec=SloSpec(
                 distinct_id=str(request.user.distinct_id),
@@ -457,6 +604,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
         previous_value = instance.target_value
+        was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
@@ -490,6 +638,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        # Re-enabling clears the stale next_delivery_date that was frozen while
+        # disabled. Without this, the scheduler picks the sub up on its next tick
+        # (the past date matches `next_delivery_date__lte=now`) and fires a second
+        # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
+        if was_disabled and instance.enabled:
+            instance.set_next_delivery_date()
+            instance.save(update_fields=["next_delivery_date"])
+
+        # Skip the workflow trigger when the resulting state is disabled. No delivery
+        # should fire for a disabled subscription regardless of whether it was just
+        # disabled or already disabled. Re-enabling (`enabled: false → true`) DOES
+        # trigger the workflow so the user gets immediate confirmation delivery.
+        if not instance.enabled:
+            return instance
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
@@ -686,6 +849,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        if not subscription.enabled:
+            return Response(
+                {"detail": "Subscription is disabled. Re-enable it before sending a test delivery."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         temporal = sync_connect()
         workflow_id = f"test-delivery-subscription-{subscription.id}"

@@ -10,13 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type { PatchedSessionSummariesConfigApi, SessionSummariesApi, SessionSummariesConfigApi } from './api.schemas'
 
-/**
- * Retrieve the team's session summaries configuration (product context used to tailor single-session replay summaries).
- */
 export const getRetrieveSessionSummariesConfigUrl = (projectId: string) => {
     return `/api/environments/${projectId}/session_summaries/config/`
 }
 
+/**
+ * Retrieve the team's session summaries configuration (product context used to tailor single-session replay summaries).
+ */
 export const retrieveSessionSummariesConfig = async (
     projectId: string,
     options?: RequestInit
@@ -27,16 +27,16 @@ export const retrieveSessionSummariesConfig = async (
     })
 }
 
-/**
- * Update the team's session summaries configuration (product context used to tailor single-session replay summaries).
- */
 export const getUpdateSessionSummariesConfigUrl = (projectId: string) => {
     return `/api/environments/${projectId}/session_summaries/config/`
 }
 
+/**
+ * Update the team's session summaries configuration (product context used to tailor single-session replay summaries).
+ */
 export const updateSessionSummariesConfig = async (
     projectId: string,
-    patchedSessionSummariesConfigApi: PatchedSessionSummariesConfigApi,
+    patchedSessionSummariesConfigApi?: PatchedSessionSummariesConfigApi,
     options?: RequestInit
 ): Promise<SessionSummariesConfigApi> => {
     return apiMutator<SessionSummariesConfigApi>(getUpdateSessionSummariesConfigUrl(projectId), {
@@ -47,13 +47,13 @@ export const updateSessionSummariesConfig = async (
     })
 }
 
-/**
- * Generate AI summary for a group of session recordings to find patterns and generate a notebook.
- */
 export const getCreateSessionSummariesUrl = (projectId: string) => {
     return `/api/environments/${projectId}/session_summaries/create_session_summaries/`
 }
 
+/**
+ * Generate AI summary for a group of session recordings to find patterns and generate a notebook.
+ */
 export const createSessionSummaries = async (
     projectId: string,
     sessionSummariesApi: SessionSummariesApi,

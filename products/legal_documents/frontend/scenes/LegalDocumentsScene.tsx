@@ -53,6 +53,18 @@ function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItem
                     disabledReason: alreadyExistsReason('BAA'),
                     'data-attr': 'new-legal-document-menu-baa',
                 },
+                {
+                    label: (
+                        <div className="flex flex-col text-sm py-1">
+                            <strong>Master Service Agreement (MSA)</strong>
+                            <span className="text-xs font-normal text-muted">
+                                Negotiated with sales — contact your TAM or PostHog support to sign one.
+                            </span>
+                        </div>
+                    ),
+                    disabledReason: 'MSAs are negotiated by sales. Contact your TAM or PostHog support to sign an MSA.',
+                    'data-attr': 'new-legal-document-menu-msa',
+                },
             ],
         },
     ]
