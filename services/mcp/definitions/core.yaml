@@ -395,6 +395,9 @@ tools:
     legal-documents-create:
         operation: legal_documents_create
         enabled: false
+    legal-documents-destroy:
+        operation: legal_documents_destroy
+        enabled: false
     legal-documents-download-retrieve:
         operation: legal_documents_download_retrieve
         enabled: false
