@@ -406,6 +406,10 @@ class TestRunnerCancellation(BaseTest):
 
     async def test_cancellation_yields_generic_failure_message_and_reraises(self):
         runner, mock_graph = self._create_mock_runner(asyncio.CancelledError())
+        # Set agent_mode so the assertion covers the non-None propagation path. The
+        # handler reads self._state.agent_mode; in production it's set by
+        # _init_or_update_state before the try block.
+        runner._state = MagicMock(agent_mode="product_analytics")
 
         with (
             patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
@@ -434,12 +438,13 @@ class TestRunnerCancellation(BaseTest):
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "cancellation")
             self.assertEqual(capture_call_args[1]["properties"]["tag"], "max_ai")
             self.assertEqual(capture_call_args[1]["properties"]["thread_id"], str(self.conversation.id))
+            self.assertEqual(capture_call_args[1]["properties"]["agent_mode"], "product_analytics")
 
             mock_logger.exception.assert_called_with(
                 "Assistant stream cancelled before completion",
                 conversation_id=str(self.conversation.id),
                 team_id=self.team.id,
-                agent_mode=None,
+                agent_mode="product_analytics",
             )
 
             # Don't await in the cancel handler; aupdate_state could re-raise

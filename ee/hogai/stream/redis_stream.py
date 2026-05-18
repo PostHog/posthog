@@ -406,6 +406,10 @@ class ConversationRedisStream:
             # the producer's FailureMessage, rather than the executor yielding a
             # second generic _failure_message on top. Re-raise so Temporal still
             # sees the activity as cancelled.
+            #
+            # UX coupling: future frontend work that reacts to status="error" (e.g.
+            # a retry affordance) will not fire for these cancellations. The
+            # FailureMessage from the runner is the only user-visible signal.
             try:
                 await self._write_status(StatusPayload(status="complete"))
             except Exception:
