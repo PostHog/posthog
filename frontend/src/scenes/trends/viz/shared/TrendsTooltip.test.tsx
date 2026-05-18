@@ -2,12 +2,16 @@ import { render } from '@testing-library/react'
 
 import type { TooltipContext } from 'lib/hog-charts'
 
-import { TrendsTooltip } from './TrendsTooltip'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
+import { TrendsTooltip } from './TrendsTooltip'
 
-const insightTooltipMock = jest.fn(() => null)
+interface CapturedProps {
+    showHeader?: boolean
+}
+
+const insightTooltipMock = jest.fn<null, [CapturedProps]>(() => null)
 jest.mock('scenes/insights/InsightTooltip/InsightTooltip', () => ({
-    InsightTooltip: (props: Record<string, unknown>) => insightTooltipMock(props),
+    InsightTooltip: (props: CapturedProps) => insightTooltipMock(props),
 }))
 jest.mock('scenes/insights/InsightTooltip/insightTooltipUtils', () => ({
     getDatumTitle: () => '',
@@ -47,7 +51,8 @@ describe('TrendsTooltip', () => {
         { name: 'forwards showHeader=true', showHeader: true, expected: true },
     ])('$name', ({ showHeader, expected }) => {
         render(<TrendsTooltip context={buildContext()} showHeader={showHeader} />)
-        const props = insightTooltipMock.mock.calls.at(-1)?.[0] as { showHeader?: boolean }
-        expect(props.showHeader).toBe(expected)
+        const lastCall = insightTooltipMock.mock.calls[insightTooltipMock.mock.calls.length - 1]
+        expect(lastCall).toBeDefined()
+        expect(lastCall[0].showHeader).toBe(expected)
     })
 })
