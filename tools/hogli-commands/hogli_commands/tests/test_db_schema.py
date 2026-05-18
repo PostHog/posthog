@@ -320,3 +320,25 @@ def test_restore_schema_fresh_recreates_target_db(monkeypatch: pytest.MonkeyPatc
 
     assert result.exit_code == 0
     assert calls == [{"target_db": "posthog_e2e_test", "recreate": True, "ensure_defaults": True}]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        db_schema.db_download_schema,
+        db_schema.db_restore_test_db,
+        db_schema.db_restore_schema_fresh,
+        db_schema.db_restore_schema_if_fresh,
+    ],
+    ids=lambda cmd: cmd.name,
+)
+def test_converted_commands_accept_forwarded_yes_flag(command: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """hogli composite commands forward --yes to children; converted click
+    commands must silently accept it (regression for db:prime-test-db --yes)."""
+    monkeypatch.setattr(db_schema, "download_latest_compatible_schema", lambda **kwargs: None)
+    monkeypatch.setattr(db_schema, "restore_schema_dump", lambda **kwargs: None)
+    monkeypatch.setattr(db_schema, "restore_schema_if_fresh", lambda **kwargs: None)
+
+    for flag in ("--yes", "-y"):
+        result = runner.invoke(command, [flag])
+        assert result.exit_code == 0, f"{command.name} {flag} failed: {result.output}"

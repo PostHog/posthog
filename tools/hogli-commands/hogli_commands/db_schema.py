@@ -522,6 +522,20 @@ def _effective_base_branch(base_branch: str | None) -> str:
     return base_branch or os.environ.get("POSTHOG_SCHEMA_RESTORE_BASE_BRANCH") or DEFAULT_BASE_BRANCH
 
 
+# hogli's CompositeCommand wrapper forwards --yes/-y to every child step
+# (tools/hogli/src/hogli/command_types.py). YAML-backed children silently
+# accept it via the hogli registration wrapper; `click:` entries are loaded
+# as-is, so each non-confirming command must declare a no-op --yes itself.
+_hogli_yes_compat = click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    expose_value=False,
+    hidden=True,
+    help="Compatibility flag; accepted when forwarded by composite hogli commands.",
+)
+
+
 @click.command(name="db:download-schema", help="Download the latest compatible pre-migrated schema artifact")
 @click.option(
     "--base-branch",
@@ -529,6 +543,7 @@ def _effective_base_branch(base_branch: str | None) -> str:
     help="Source branch of the workflow run to pull artifacts from. "
     "Defaults to POSTHOG_SCHEMA_RESTORE_BASE_BRANCH or master.",
 )
+@_hogli_yes_compat
 def db_download_schema(base_branch: str | None) -> None:
     try:
         download_latest_compatible_schema(base_branch=_effective_base_branch(base_branch))
@@ -546,11 +561,13 @@ def _recreate_test_db() -> None:
 @click.command(
     name="db:restore-test-db", help="Restore a fresh test database from .postgres-backups/schema-latest.sql.gz"
 )
+@_hogli_yes_compat
 def db_restore_test_db() -> None:
     _recreate_test_db()
 
 
 @click.command(name="db:restore-schema-fresh", help="Alias for db:restore-test-db")
+@_hogli_yes_compat
 def db_restore_schema_fresh() -> None:
     _recreate_test_db()
 
@@ -565,6 +582,7 @@ def db_restore_schema_fresh() -> None:
     help="Restore mode. Defaults to POSTHOG_SCHEMA_RESTORE_IN_DEV or auto.",
 )
 @click.option("--target-db", default="posthog", show_default=True, help="Database to inspect and restore")
+@_hogli_yes_compat
 def db_restore_schema_if_fresh(mode: str | None, target_db: str) -> None:
     effective_mode = _effective_mode(mode)
     try:
