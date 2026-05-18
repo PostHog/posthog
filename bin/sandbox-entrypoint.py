@@ -31,7 +31,11 @@ from pathlib import Path
 from textwrap import dedent
 
 WORKSPACE = Path("/workspace")
-SANDBOX_HOME = Path("/tmp/sandbox-home")
+# The sandbox user's $HOME. The base image creates this user at runtime (it's
+# UID-agnostic and shared); the per-user tools image creates it at build time.
+# Both must agree on this path, so it is mirrored by SANDBOX_HOME_IN_CONTAINER
+# in bin/sandbox_tools.py — keep the two in sync.
+SANDBOX_HOME = Path("/home/sandbox")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
 # Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.

@@ -20,7 +20,7 @@ SANDBOX_DOCKERFILE = Path(__file__).resolve().parent.parent / "Dockerfile.sandbo
 
 # In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
 # bin/sandbox-entrypoint.py; this is what ~ resolves to inside the container.
-SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
+SANDBOX_HOME_IN_CONTAINER = "/home/sandbox"
 
 
 def expand_sandbox_path(raw: str) -> str:
@@ -145,18 +145,21 @@ def write_user_dockerfile(tools: list[Tool], *, out: Path = USER_DOCKERFILE) -> 
     # BuildKit layer cache shares the base content across users by content,
     # so there is no separate base-image tag to manage.
     #
-    # Creates the sandbox user at build time so `npm install -g` etc. resolve
-    # against /home/sandbox; the entrypoint's create_sandbox_user is idempotent.
+    # Creates the sandbox user at build time with home = SANDBOX_HOME_IN_CONTAINER
+    # (the same path the entrypoint uses at runtime) so `npm install -g` etc. and
+    # ~ resolve consistently. The entrypoint's create_sandbox_user is idempotent:
+    # it skips when this build-time user already exists.
+    home = SANDBOX_HOME_IN_CONTAINER
     parts = [
         SANDBOX_DOCKERFILE.read_text().rstrip(),
         "\n\n# --- Personal tool layers (generated from ~/.posthog-sandboxes/tools.yaml) ---\n",
         "ARG SANDBOX_UID\nARG SANDBOX_GID\n\n",
         "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\\n",
-        " && useradd  -u ${SANDBOX_UID} -g ${SANDBOX_GID} -m -s /bin/bash sandbox\n\n",
+        f" && useradd  -u ${{SANDBOX_UID}} -g ${{SANDBOX_GID}} -d {home} -m -s /bin/bash sandbox\n\n",
         "USER sandbox\n",
-        "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global\n",
-        "ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${PATH}\n",
-        "RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin\n\n",
+        f"ENV NPM_CONFIG_PREFIX={home}/.npm-global\n",
+        f"ENV PATH={home}/.npm-global/bin:{home}/.local/bin:${{PATH}}\n",
+        f"RUN mkdir -p {home}/.npm-global/bin {home}/.local/bin\n\n",
     ]
     for t in tools:
         snippet = (t.install or "").strip()
