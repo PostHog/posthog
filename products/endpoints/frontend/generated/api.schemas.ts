@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -109,7 +105,7 @@ export interface EndpointColumnApi {
  * Per-column bucket overrides for range variable materialization.
  * @nullable
  */
-export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Full endpoint representation returned by list/retrieve/create/update.
@@ -193,7 +189,7 @@ export interface PaginatedEndpointResponseListApi {
  * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
  * @nullable
  */
-export type EndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointRequestApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -205,7 +201,7 @@ export interface EndpointRequestApi {
      */
     name?: string | null
     /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
-    query?: unknown | null
+    query?: unknown
     /**
      * Human-readable description of what this endpoint returns.
      * @nullable
@@ -252,7 +248,7 @@ export interface EndpointRequestApi {
  * Per-column bucket overrides for range variable materialization.
  * @nullable
  */
-export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Extended endpoint representation when viewing a specific version.
@@ -342,7 +338,7 @@ export interface EndpointVersionResponseApi {
  * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
  * @nullable
  */
-export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -354,7 +350,7 @@ export interface PatchedEndpointRequestApi {
      */
     name?: string | null
     /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
-    query?: unknown | null
+    query?: unknown
     /**
      * Human-readable description of what this endpoint returns.
      * @nullable
@@ -401,7 +397,7 @@ export interface PatchedEndpointRequestApi {
  * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
  * @nullable
  */
-export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null | null
+export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null
 
 export interface MaterializationPreviewRequestApi {
     version?: number
@@ -438,9 +434,8 @@ For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `
 For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
 
 Unknown variable names will return a 400 error.
- * @nullable
  */
-export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null | null
+export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null
 
 export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
 
@@ -473,11 +468,8 @@ export const MultipleBreakdownTypeApi = {
 } as const
 
 export interface BreakdownApi {
-    /** @nullable */
     group_type_index?: number | null
-    /** @nullable */
     histogram_bin_count?: number | null
-    /** @nullable */
     normalize_url?: boolean | null
     property: string | number
     type?: MultipleBreakdownTypeApi | null
@@ -485,23 +477,13 @@ export interface BreakdownApi {
 
 export interface BreakdownFilterApi {
     breakdown?: string | (string | number)[] | number | null
-    /** @nullable */
     breakdown_group_type_index?: number | null
-    /** @nullable */
     breakdown_hide_other_aggregation?: boolean | null
-    /** @nullable */
     breakdown_histogram_bin_count?: number | null
-    /** @nullable */
     breakdown_limit?: number | null
-    /** @nullable */
     breakdown_normalize_url?: boolean | null
-    /** @nullable */
     breakdown_path_cleaning?: boolean | null
     breakdown_type?: BreakdownTypeApi | null
-    /**
-     * @maxItems 3
-     * @nullable
-     */
     breakdowns?: BreakdownApi[] | null
 }
 
@@ -544,41 +526,21 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
-/**
- * Event properties
- */
-export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
-
-export const EventPropertyFilterApiType = {
-    Event: 'event',
-} as const
-
 export interface EventPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator?: PropertyOperatorApi | null
     /** Event properties */
-    type?: EventPropertyFilterApiType
+    type?: 'event'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-/**
- * Person properties
- */
-export type PersonPropertyFilterApiType = (typeof PersonPropertyFilterApiType)[keyof typeof PersonPropertyFilterApiType]
-
-export const PersonPropertyFilterApiType = {
-    Person: 'person',
-} as const
-
 export interface PersonPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     /** Person properties */
-    type?: PersonPropertyFilterApiType
+    type?: 'person'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -591,74 +553,36 @@ export const Key10Api = {
     Selector: 'selector',
 } as const
 
-export type ElementPropertyFilterApiType =
-    (typeof ElementPropertyFilterApiType)[keyof typeof ElementPropertyFilterApiType]
-
-export const ElementPropertyFilterApiType = {
-    Element: 'element',
-} as const
-
 export interface ElementPropertyFilterApi {
     key: Key10Api
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: ElementPropertyFilterApiType
+    type?: 'element'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type EventMetadataPropertyFilterApiType =
-    (typeof EventMetadataPropertyFilterApiType)[keyof typeof EventMetadataPropertyFilterApiType]
-
-export const EventMetadataPropertyFilterApiType = {
-    EventMetadata: 'event_metadata',
-} as const
 
 export interface EventMetadataPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: EventMetadataPropertyFilterApiType
+    type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type SessionPropertyFilterApiType =
-    (typeof SessionPropertyFilterApiType)[keyof typeof SessionPropertyFilterApiType]
-
-export const SessionPropertyFilterApiType = {
-    Session: 'session',
-} as const
 
 export interface SessionPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: SessionPropertyFilterApiType
+    type?: 'session'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type CohortPropertyFilterApiKey = (typeof CohortPropertyFilterApiKey)[keyof typeof CohortPropertyFilterApiKey]
-
-export const CohortPropertyFilterApiKey = {
-    Id: 'id',
-} as const
-
-export type CohortPropertyFilterApiType = (typeof CohortPropertyFilterApiType)[keyof typeof CohortPropertyFilterApiType]
-
-export const CohortPropertyFilterApiType = {
-    Cohort: 'cohort',
-} as const
-
 export interface CohortPropertyFilterApi {
-    /** @nullable */
     cohort_name?: string | null
-    key?: CohortPropertyFilterApiKey
-    /** @nullable */
+    key?: 'id'
     label?: string | null
     operator?: PropertyOperatorApi | null
-    type?: CohortPropertyFilterApiType
+    type?: 'cohort'
     value: number
 }
 
@@ -670,183 +594,88 @@ export const DurationTypeApi = {
     InactiveSeconds: 'inactive_seconds',
 } as const
 
-export type RecordingPropertyFilterApiType =
-    (typeof RecordingPropertyFilterApiType)[keyof typeof RecordingPropertyFilterApiType]
-
-export const RecordingPropertyFilterApiType = {
-    Recording: 'recording',
-} as const
-
 export interface RecordingPropertyFilterApi {
     key: DurationTypeApi | string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: RecordingPropertyFilterApiType
+    type?: 'recording'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type LogEntryPropertyFilterApiType =
-    (typeof LogEntryPropertyFilterApiType)[keyof typeof LogEntryPropertyFilterApiType]
-
-export const LogEntryPropertyFilterApiType = {
-    LogEntry: 'log_entry',
-} as const
 
 export interface LogEntryPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: LogEntryPropertyFilterApiType
+    type?: 'log_entry'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type GroupPropertyFilterApiType = (typeof GroupPropertyFilterApiType)[keyof typeof GroupPropertyFilterApiType]
-
-export const GroupPropertyFilterApiType = {
-    Group: 'group',
-} as const
-
-/**
- * @nullable
- */
-export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
 
 export interface GroupPropertyFilterApi {
-    /** @nullable */
     group_key_names?: GroupPropertyFilterApiGroupKeyNames
-    /** @nullable */
     group_type_index?: number | null
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: GroupPropertyFilterApiType
+    type?: 'group'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-/**
- * Event property with "$feature/" prepended
- */
-export type FeaturePropertyFilterApiType =
-    (typeof FeaturePropertyFilterApiType)[keyof typeof FeaturePropertyFilterApiType]
-
-export const FeaturePropertyFilterApiType = {
-    Feature: 'feature',
-} as const
 
 export interface FeaturePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     /** Event property with "$feature/" prepended */
-    type?: FeaturePropertyFilterApiType
+    type?: 'feature'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-/**
- * Only flag_evaluates_to operator is allowed for flag dependencies
- */
-export type FlagPropertyFilterApiOperator =
-    (typeof FlagPropertyFilterApiOperator)[keyof typeof FlagPropertyFilterApiOperator]
-
-export const FlagPropertyFilterApiOperator = {
-    FlagEvaluatesTo: 'flag_evaluates_to',
-} as const
-
-/**
- * Feature flag dependency
- */
-export type FlagPropertyFilterApiType = (typeof FlagPropertyFilterApiType)[keyof typeof FlagPropertyFilterApiType]
-
-export const FlagPropertyFilterApiType = {
-    Flag: 'flag',
-} as const
 
 export interface FlagPropertyFilterApi {
     /** The key should be the flag ID */
     key: string
-    /** @nullable */
     label?: string | null
     /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: FlagPropertyFilterApiOperator
+    operator?: 'flag_evaluates_to'
     /** Feature flag dependency */
-    type?: FlagPropertyFilterApiType
+    type?: 'flag'
     /** The value can be true, false, or a variant name */
     value: boolean | string
 }
 
-export type HogQLPropertyFilterApiType = (typeof HogQLPropertyFilterApiType)[keyof typeof HogQLPropertyFilterApiType]
-
-export const HogQLPropertyFilterApiType = {
-    Hogql: 'hogql',
-} as const
-
 export interface HogQLPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
-    type?: HogQLPropertyFilterApiType
+    type?: 'hogql'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type EmptyPropertyFilterApiType = (typeof EmptyPropertyFilterApiType)[keyof typeof EmptyPropertyFilterApiType]
-
-export const EmptyPropertyFilterApiType = {
-    Empty: 'empty',
+export const EmptyPropertyFilterApiValue = {
+    type: 'empty',
 } as const
-
-export interface EmptyPropertyFilterApi {
-    type?: EmptyPropertyFilterApiType
-}
-
-export type DataWarehousePropertyFilterApiType =
-    (typeof DataWarehousePropertyFilterApiType)[keyof typeof DataWarehousePropertyFilterApiType]
-
-export const DataWarehousePropertyFilterApiType = {
-    DataWarehouse: 'data_warehouse',
-} as const
+export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
 
 export interface DataWarehousePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: DataWarehousePropertyFilterApiType
+    type?: 'data_warehouse'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type DataWarehousePersonPropertyFilterApiType =
-    (typeof DataWarehousePersonPropertyFilterApiType)[keyof typeof DataWarehousePersonPropertyFilterApiType]
-
-export const DataWarehousePersonPropertyFilterApiType = {
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
 
 export interface DataWarehousePersonPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: DataWarehousePersonPropertyFilterApiType
+    type?: 'data_warehouse_person_property'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type ErrorTrackingIssueFilterApiType =
-    (typeof ErrorTrackingIssueFilterApiType)[keyof typeof ErrorTrackingIssueFilterApiType]
-
-export const ErrorTrackingIssueFilterApiType = {
-    ErrorTrackingIssue: 'error_tracking_issue',
-} as const
-
 export interface ErrorTrackingIssueFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: ErrorTrackingIssueFilterApiType
+    type?: 'error_tracking_issue'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -860,7 +689,6 @@ export const LogPropertyFilterTypeApi = {
 
 export interface LogPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     type: LogPropertyFilterTypeApi
@@ -877,54 +705,33 @@ export const SpanPropertyFilterTypeApi = {
 
 export interface SpanPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     type: SpanPropertyFilterTypeApi
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type RevenueAnalyticsPropertyFilterApiType =
-    (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
-
-export const RevenueAnalyticsPropertyFilterApiType = {
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
 export interface RevenueAnalyticsPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: RevenueAnalyticsPropertyFilterApiType
+    type?: 'revenue_analytics'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type WorkflowVariablePropertyFilterApiType =
-    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
-
-export const WorkflowVariablePropertyFilterApiType = {
-    WorkflowVariable: 'workflow_variable',
-} as const
-
 export interface WorkflowVariablePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: WorkflowVariablePropertyFilterApiType
+    type?: 'workflow_variable'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
-    /** @nullable */
     date_from?: string | null
-    /** @nullable */
     date_to?: string | null
-    /** @nullable */
     explicitDate?: boolean | null
-    /** @nullable */
     properties?:
         | (
               | EventPropertyFilterApi
@@ -960,45 +767,27 @@ export const EndpointRefreshModeApi = {
 } as const
 
 export interface EndpointRunRequestApi {
-    /**
-     * Client provided query ID. Can be used to retrieve the status or cancel the query.
-     * @nullable
-     */
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string | null
-    /**
-     * Whether to include debug information (such as the executed HogQL) in the response.
-     * @nullable
-     */
+    /** Whether to include debug information (such as the executed HogQL) in the response. */
     debug?: boolean | null
     filters_override?: DashboardFilterApi | null
-    /**
-     * Maximum number of results to return. If not provided, returns all results.
-     * @nullable
-     */
+    /** Maximum number of results to return. If not provided, returns all results. */
     limit?: number | null
-    /**
-     * Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.
-     * @nullable
-     */
+    /** Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints. */
     offset?: number | null
     refresh?: EndpointRefreshModeApi | null
-    /**
-   * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
+    /** Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
-For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+  For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
 
-For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+  For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
 
-For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+  For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
 
-Unknown variable names will return a 400 error.
-   * @nullable
-   */
+  Unknown variable names will return a 400 error. */
     variables?: EndpointRunRequestApiVariables
-    /**
-     * Specific endpoint version to execute. If not provided, the latest version is used.
-     * @nullable
-     */
+    /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: number | null
 }
 
@@ -1024,47 +813,26 @@ export interface ClickhouseQueryProgressApi {
 }
 
 export interface QueryStatusApi {
-    /**
-     * Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.
-     * @nullable
-     */
+    /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
-    /** @nullable */
     dashboard_id?: number | null
-    /**
-     * When did the query execution task finish (whether successfully or not).
-     * @nullable
-     */
+    /** When did the query execution task finish (whether successfully or not). */
     end_time?: string | null
-    /**
-     * If the query failed, this will be set to true. More information can be found in the error_message field.
-     * @nullable
-     */
+    /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** @nullable */
     error_message?: string | null
-    /** @nullable */
     expiration_time?: string | null
     id: string
-    /** @nullable */
     insight_id?: number | null
-    /** @nullable */
     labels?: string[] | null
-    /**
-     * When was the query execution task picked up by a worker.
-     * @nullable
-     */
+    /** When was the query execution task picked up by a worker. */
     pickup_time?: string | null
     /** ONLY async queries use QueryStatus. */
-    query_async?: boolean
+    query_async?: true
     query_progress?: ClickhouseQueryProgressApi | null
-    results?: unknown | null
-    /**
-     * When was query execution task enqueued.
-     * @nullable
-     */
+    results?: unknown
+    /** When was query execution task enqueued. */
     start_time?: string | null
-    /** @nullable */
     task_id?: string | null
     team_id: number
 }

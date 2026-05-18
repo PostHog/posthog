@@ -1,6 +1,11 @@
-import type { Series } from 'lib/hog-charts'
+import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
 import { hexToRGBA } from 'lib/utils'
 
+import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+import type { IntervalType } from '~/types'
+
+import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import { COMPARE_PREVIOUS_DIM_OPACITY } from '../trendsAdapterConstants'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
@@ -48,6 +53,40 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): Series<M>[] {
     return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data))
+}
+
+export interface BuildTrendsBarTimeSeriesConfigOpts {
+    trendsFilter?: TrendsFilter | null
+    baseCurrency?: CurrencyCode
+    isPercentStackView: boolean
+    isGrouped: boolean
+    yAxisScaleType?: string | null
+    interval?: IntervalType | null
+    timezone?: string
+    allDays?: string[]
+    goalLines?: SchemaGoalLine[] | null
+    valueLabels?: TimeSeriesBarChartConfig['valueLabels']
+    tooltip?: TimeSeriesBarChartConfig['tooltip']
+}
+
+export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesConfigOpts): TimeSeriesBarChartConfig {
+    const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
+        yAxisScaleType: opts.yAxisScaleType,
+        showGrid: true,
+    })
+    const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
+    return {
+        xAxis: {
+            timezone: opts.timezone,
+            interval: opts.interval ?? 'day',
+            allDays: opts.allDays ?? [],
+        },
+        yAxis,
+        valueLabels: opts.valueLabels,
+        goalLines: goalLineConfigs,
+        barLayout: opts.isPercentStackView ? 'percent' : opts.isGrouped ? 'grouped' : 'stacked',
+        tooltip: opts.tooltip,
+    }
 }
 
 // Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with

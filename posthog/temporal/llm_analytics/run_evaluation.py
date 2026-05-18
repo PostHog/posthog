@@ -17,7 +17,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.llm_analytics.metrics import (
     increment_emit_event_outcome,
     increment_errors,
@@ -664,19 +664,26 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
 
     # Extract input/output based on event type
     input_raw, output_raw = extract_event_io(event_type, properties)
+    tools_raw = extract_event_tools(properties)
 
     # Extract readable text from message structures
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
+    tools_data = format_tool_definitions(tools_raw)
 
     # Build judge prompt based on allows_na config
     type_config = get_output_type_config(allows_na)
     system_prompt = build_system_prompt(prompt, allows_na)
     response_format = type_config.response_format
 
-    user_prompt = f"""Input: {input_data}
-
-Output: {output_data}"""
+    # Insert a `Tools available:` section between Input and Output when the
+    # event captured the tool catalog. The judge needs to see what the agent
+    # *could* call to evaluate prompts like "did it pick the right tool?".
+    sections = [f"Input: {input_data}"]
+    if tools_data:
+        sections.append(f"Tools available:\n{tools_data}")
+    sections.append(f"Output: {output_data}")
+    user_prompt = "\n\n".join(sections)
 
     # Get eval-specific config when using PostHog defaults (no provider_key)
     config = get_eval_config(provider) if provider_key is None else None
@@ -699,7 +706,7 @@ Output: {output_data}"""
             )
         )
     except AuthenticationError:
-        increment_errors("auth_error")
+        increment_errors("auth_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
@@ -708,7 +715,7 @@ Output: {output_data}"""
             )
         raise
     except ModelPermissionError:
-        increment_errors("permission_error")
+        increment_errors("permission_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
@@ -717,7 +724,7 @@ Output: {output_data}"""
             )
         raise
     except QuotaExceededError:
-        increment_errors("quota_error")
+        increment_errors("quota_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
@@ -726,7 +733,7 @@ Output: {output_data}"""
             )
         raise
     except RateLimitError:
-        increment_errors("rate_limit")
+        increment_errors("rate_limit", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key is being rate limited.",
@@ -735,21 +742,28 @@ Output: {output_data}"""
             )
         raise
     except ModelNotFoundError:
-        increment_errors("model_not_found")
+        increment_errors("model_not_found", provider=provider)
         raise ApplicationError(
             f"Model '{model}' not found.",
             non_retryable=True,
         )
     except StructuredOutputParseError as e:
-        increment_errors("parse_error")
+        increment_errors("parse_error", provider=provider)
         raise ApplicationError(
             str(e),
             {"error_type": "parse_error"},
             non_retryable=True,
         ) from e
 
-    except Exception:
-        increment_errors("unknown_error")
+    except Exception as e:
+        logger.exception(
+            "Unhandled error from LLM client",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error_class=type(e).__name__,
+        )
+        increment_errors(type(e).__name__, provider=provider)
         raise
 
     # Parse structured output
@@ -830,6 +844,18 @@ def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, 
         input_raw = properties.get("$ai_input_state", "")
         output_raw = properties.get("$ai_output_state", "")
     return input_raw, output_raw
+
+
+def extract_event_tools(properties: dict[str, Any]) -> Any:
+    """Extract the tool catalog (`$ai_tools`) captured on the event, regardless
+    of event type.
+
+    `$ai_generation` is the canonical carrier today, but custom span/trace
+    events (e.g. an agent loop's `run_summary`) may also forward the catalog,
+    and the judge prompt benefits from it for any event shape. Presence of
+    `$ai_tools` drives whether the Tools section renders.
+    """
+    return properties.get("$ai_tools")
 
 
 def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
@@ -994,6 +1020,8 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
+            "$ai_target_id": event_data["uuid"],
+            "$ai_target_type": "generation_uuid",
             "$ai_trace_id": source_props.get("$ai_trace_id"),
             # Carry the trigger user's session_id from the source event so evals
             # can link back to the session recording that originated the trace.
@@ -1261,7 +1289,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception:
-            increment_errors("emit_evaluation_event_failed")
+            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
             raise
 
         # Activity 5: Emit internal telemetry (fire-and-forget). Internal telemetry tracks model,

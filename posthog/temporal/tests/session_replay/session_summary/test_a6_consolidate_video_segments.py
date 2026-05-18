@@ -7,9 +7,11 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.session_replay.session_summary.activities.video_based.a6_consolidate_video_segments import (
+    _validate_tagging_output,
     consolidate_video_segments_activity,
 )
 from posthog.temporal.session_replay.session_summary.types.video import (
+    SessionTaggingOutput,
     VideoSegmentOutput,
     VideoSummarySingleSessionInputs,
 )
@@ -119,3 +121,19 @@ async def test_retries_when_llm_response_is_invalid_json():
     # 2 attempts for consolidation + 1 for tagging
     assert client.models.generate_content.await_count == 3
     assert len(result["consolidated_analysis"].segments) == 2
+
+
+@pytest.mark.parametrize(
+    "team_taxonomy,llm_custom,expected",
+    [
+        ({"insight_creation": "..."}, ["insight_creation", "hallucinated"], ["insight_creation"]),
+        (None, ["insight_creation"], []),
+        ({"insight_creation": "..."}, [], []),
+    ],
+)
+def test_validate_tagging_output_drops_custom_tags_not_in_team_taxonomy(team_taxonomy, llm_custom, expected):
+    output = SessionTaggingOutput(
+        tags_fixed=["onboarding"], tags_custom=llm_custom, tags_freeform=["dashboard"], highlighted=False
+    )
+    result = _validate_tagging_output(output, custom_tags=team_taxonomy)
+    assert result.tags_custom == expected

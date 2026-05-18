@@ -37,6 +37,7 @@ export function AnnotationModal({
         isModalOpen,
         existingModalAnnotation,
         annotationModal,
+        annotationModalChanged,
         isAnnotationModalSubmitting,
         onSavedInsight,
         timezone,
@@ -103,6 +104,7 @@ export function AnnotationModal({
             contentRef={contentRef}
             isOpen={isModalOpen}
             onClose={closeModal}
+            hasUnsavedInput={annotationModalChanged}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
             description="Use annotations to comment on insights, dashboards"
             footer={

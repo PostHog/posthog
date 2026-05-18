@@ -339,6 +339,33 @@ class FakePersonHogClient:
                 missing.append(gi)
         return group_pb2.GroupsResponse(groups=found, missing_groups=missing)
 
+    def list_groups(self, request: group_pb2.ListGroupsRequest) -> group_pb2.ListGroupsResponse:
+        self.calls.append(_Call("list_groups", request))
+        all_groups = [
+            g
+            for (team_id, gti, _key), g in self._groups.items()
+            if team_id == request.team_id and gti == request.group_type_index
+        ]
+        if request.group_key_contains:
+            pattern = request.group_key_contains.lower()
+            all_groups = [g for g in all_groups if pattern in g.group_key.lower()]
+        if request.search:
+            search_lower = request.search.lower()
+            all_groups = [
+                g
+                for g in all_groups
+                if search_lower in g.group_properties.decode().lower() or g.group_key == request.search
+            ]
+        all_groups.sort(key=lambda g: (-g.created_at, -g.id))
+        if request.cursor_created_at_ms > 0:
+            all_groups = [
+                g for g in all_groups if (g.created_at, g.id) < (request.cursor_created_at_ms, request.cursor_id)
+            ]
+        limit = request.limit if request.limit > 0 else 100
+        has_more = len(all_groups) > limit
+        page = all_groups[:limit]
+        return group_pb2.ListGroupsResponse(groups=page, has_more=has_more)
+
     def get_groups_batch(self, request: group_pb2.GetGroupsBatchRequest) -> group_pb2.GetGroupsBatchResponse:
         self.calls.append(_Call("get_groups_batch", request))
         results = []

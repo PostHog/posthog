@@ -2,7 +2,7 @@ import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Any, Optional, get_args
+from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
@@ -11,6 +11,8 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
+from rest_framework.permissions import BasePermission
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -24,6 +26,8 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
 )
 from posthog.models.exported_asset import ExportedAsset
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
@@ -56,7 +60,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        exclude = ["team_id"]
+        fields = "__all__"
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -207,18 +211,78 @@ class JSONStringFilterField(serializers.JSONField):
 
 
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
-    start_date = serializers.DateTimeField(required=False)
-    end_date = serializers.DateTimeField(required=False)
-    users = serializers.ListField(child=serializers.UUIDField(), required=False, default=[])
-    scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
-    activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
-    clients = serializers.ListField(child=serializers.CharField(), required=False, default=[])
-    search_text = serializers.CharField(required=False, allow_blank=True)
-    detail_filters = JSONStringFilterField(required=False)
-    hogql_filter = serializers.CharField(required=False, allow_blank=True)
-    was_impersonated = OptionalBooleanField(required=False)
-    is_system = OptionalBooleanField(required=False)
-    item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    start_date = serializers.DateTimeField(
+        required=False,
+        help_text="Lower bound on `created_at` (inclusive), ISO-8601.",
+    )
+    end_date = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound on `created_at` (inclusive), ISO-8601.",
+    )
+    users = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=[],
+        help_text="Filter by users who performed the activity (user UUIDs).",
+    )
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text='Filter by activity scopes (e.g. "FeatureFlag", "Insight").',
+    )
+    activities = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text='Filter by activity types (e.g. "created", "updated", "deleted").',
+    )
+    clients = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+    )
+    team_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=[],
+        help_text=(
+            "Filter by project (team) IDs. Only honored on the organization-scoped endpoint; "
+            "ignored on the project-scoped endpoint."
+        ),
+    )
+    search_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-text search across the `detail` JSON column.",
+    )
+    detail_filters = JSONStringFilterField(
+        required=False,
+        help_text=(
+            "JSON-encoded map of `detail` field paths to {operation, value} filters. "
+            "Allowed operations: exact, contains, in."
+        ),
+    )
+    hogql_filter = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Reserved for future HogQL-based filtering.",
+    )
+    was_impersonated = OptionalBooleanField(
+        required=False,
+        help_text="When set, filters rows where the actor was impersonating another user.",
+    )
+    is_system = OptionalBooleanField(
+        required=False,
+        help_text="When set, filters rows authored by the system (no user).",
+    )
+    item_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by the `item_id` of the affected resource(s).",
+    )
     page = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -447,3 +511,68 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self.logger.exception(f"Failed to create export: {e}")
             capture_exception(e)
             return Response({"error": "Failed to create export"}, status=500)
+
+
+class OrganizationActivityLogPermission(BasePermission):
+    """
+    Restrict the organization-scoped activity logs endpoint to organization admins and owners.
+
+    Used in addition to OrganizationMemberPermissions, which TeamAndOrgViewSetMixin adds for
+    org-nested viewsets (so we already know the user is in the organization).
+    """
+
+    message = "Only organization admins and owners can view organization-wide activity logs."
+
+    def has_permission(self, request: Request, view) -> bool:
+        try:
+            organization = view.organization
+        except (Organization.DoesNotExist, ValueError):
+            return False
+
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            return False
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
+
+
+@extend_schema(tags=["activity_logs", "platform_features"])
+class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
+    """
+    Organization-wide view of activity logs across every project in the organization.
+
+    Mounted at /api/organizations/<organization_id>/advanced_activity_logs/.
+    Restricted to organization admins and owners.
+    """
+
+    permission_classes = [PremiumFeaturePermission, OrganizationActivityLogPermission]
+    # The parent declares {"project_id": "team_id"} but our nested route only carries
+    # organization_id, so the rewrite would KeyError on missing "project_id". Reset it.
+    filter_rewrite_rules: dict[str, str] = {}
+
+    def _should_skip_parents_filter(self) -> bool:
+        # parents_query_dict is {"organization_id": <uuid>} on this nested route, so let
+        # TeamAndOrgViewSetMixin filter the queryset by organization_id automatically.
+        return False
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        queryset = queryset.select_related("user")
+
+        lookback_date = get_activity_log_lookback_restriction(self.organization)
+        if lookback_date:
+            queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+
+        return queryset.order_by("-created_at")
+
+    @action(detail=False, methods=["POST"])
+    def export(self, request, **kwargs):  # type: ignore[override]
+        # Override the parent's export action: it depends on self.team (for ExportedAsset.team)
+        # which is not available on org-nested routes. Defer export support until we have an
+        # org-aware ExportedAsset story.
+        return Response(
+            {"error": "Export is not yet supported on the organization-scoped activity logs endpoint."},
+            status=400,
+        )

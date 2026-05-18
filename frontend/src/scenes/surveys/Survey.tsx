@@ -6,6 +6,7 @@ import { LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -14,9 +15,10 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyMatchType, SurveyType } from '~/types'
 
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { HostedSurveyEdit } from './HostedSurveyEdit'
 import SurveyEdit from './SurveyEdit'
 import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
@@ -79,6 +81,8 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, targetingFlagFilters } = useValues(surveyLogic)
+    const isHostedEditorEnabled = useFeatureFlag('SURVEYS_HOSTED_EDITOR')
+    const useHostedEditor = isHostedEditorEnabled && survey.type === SurveyType.ExternalSurvey
 
     return (
         <Form
@@ -89,10 +93,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             className="deprecated-space-y-4"
             enableFormOnSubmit
         >
-            <SurveyEdit id={id} />
-            <LemonDivider />
-            <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
-            <LemonDivider />
+            {useHostedEditor ? <HostedSurveyEdit id={id} /> : <SurveyEdit id={id} />}
+            {!useHostedEditor && (
+                <>
+                    <LemonDivider />
+                    <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
+                    <LemonDivider />
+                </>
+            )}
         </Form>
     )
 }

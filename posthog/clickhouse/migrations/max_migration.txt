@@ -1,1 +1,1 @@
-0250_property_values_lowercase_text_index
+0253_drop_dead_msk_kafka_tables
