@@ -9,6 +9,7 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
+import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -17,6 +18,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
+import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
@@ -48,6 +50,12 @@ export const globalModalsLogic = kea<globalModalsLogicType>([
             },
         ],
     }),
+    bindModalToUrl({
+        urlKey: 'create-organization',
+        openActionKey: 'showCreateOrganizationModal',
+        closeActionKey: 'hideCreateOrganizationModal',
+        isOpenKey: 'isCreateOrganizationModalShown',
+    }),
 ])
 
 export function GlobalModals(): JSX.Element {
@@ -78,6 +86,7 @@ export function GlobalModals(): JSX.Element {
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigurePinnedTabsModal isOpen={isConfigurePinnedTabsModalOpen} onClose={hideConfigurePinnedTabsModal} />
+            <MaybeWelcomeDialog />
         </>
     )
 }

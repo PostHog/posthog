@@ -1,5 +1,7 @@
 use crate::{
     api::{
+        body_read_metrics::BodyReadDuration,
+        concurrency_metrics::ConcurrencyLimitWait,
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
@@ -10,12 +12,12 @@ use crate::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
-    metrics::consts::FLAG_QUEUE_TIME_MS,
+    metrics::consts::{FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS},
     router,
     utils::user_agent::UserAgentInfo,
 };
 // TODO: stream this instead
-use axum::extract::{MatchedPath, Query, State};
+use axum::extract::{Extension, MatchedPath, Query, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
@@ -199,10 +201,20 @@ fn get_versioned_response(
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 pub async fn flags(
     state: State<router::State>,
     InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
+    // Populated by the `record_concurrency_wait` middleware after
+    // `ConcurrencyLimitLayer` hands off a permit. Optional so the handler
+    // tolerates the layer pair being removed or temporarily disabled.
+    concurrency_wait: Option<Extension<ConcurrencyLimitWait>>,
+    // Populated by the `record_body_read` middleware after it buffers
+    // the inbound POST body to memory. Optional so the handler tolerates
+    // the shim being removed or absent on routes that bypass it (e.g. a
+    // future `/flags`-only sub-router).
+    body_read_duration: Option<Extension<BodyReadDuration>>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
@@ -258,6 +270,13 @@ pub async fn flags(
     // Convert IP to string once and reuse throughout the request
     let ip_string = ip.to_string();
 
+    // Anchor for `flags_pre_handler_time_ms` — placed before UA parse so
+    // that synchronous pre-handler work (UA parse → token rate-limit) is
+    // included end-to-end, matching the metric's documented scope. The
+    // actual emission happens inside the canonical-log scope so the metric
+    // carries a `team_id` label once it's resolved.
+    let pre_handler_start = std::time::Instant::now();
+
     // Parse User-Agent and extract SDK info for logging
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
@@ -273,6 +292,19 @@ pub async fn flags(
         .map(|start_ms| now_ms - start_ms)
         .filter(|&delta| delta >= 0);
 
+    // Concurrency-limit permit-wait, captured by the `record_concurrency_wait`
+    // middleware. `as_millis()` returns `u128`; the `as u64` cast truncates
+    // above `u64::MAX` ms — irrelevant in practice since reaching that bound
+    // would take longer than the age of the universe.
+    let concurrency_limit_wait_ms = concurrency_wait.map(|Extension(w)| w.0.as_millis() as u64);
+
+    // Body-buffering wall-clock, captured by `record_body_read`. Sub-ms
+    // precision (paired with the sub-ms-floor `BODY_READ_BUCKETS_MS`):
+    // integer-ms truncation would collapse fast in-memory POSTs into the
+    // 0-ms bucket and hide the very tail behavior the buckets exist to
+    // surface.
+    let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_secs_f64() * 1000.0);
+
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -284,6 +316,8 @@ pub async fn flags(
         lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
         api_version: query_params.version.clone(),
         queue_time_ms,
+        concurrency_limit_wait_ms,
+        body_read_ms,
         ..Default::default()
     };
 
@@ -344,8 +378,18 @@ pub async fn flags(
 
         let mut rate_limit_warned = false;
 
-        // Check IP-based rate limit first
-        match state.ip_rate_limiter.allow_request(&ip_string) {
+        // Check IP-based rate limit first.
+        // Time the governor `allow_request` call (sharded DashMap + sync
+        // mutex) — Mutex contention on a hot token is a known source of
+        // pre-handler latency spikes. Guard records on drop, before the
+        // match arm runs.
+        let ip_rl_result = {
+            let _t =
+                common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
+                    .label("kind", "ip");
+            state.ip_rate_limiter.allow_request(&ip_string)
+        };
+        match ip_rl_result {
             RateLimitResult::Blocked => {
                 return Err(rate_limit_error(FlagError::ClientFacing(
                     ClientFacingError::IpRateLimited,
@@ -356,10 +400,21 @@ pub async fn flags(
         }
 
         // Check token-based rate limit
-        // Extract token from body, use IP as fallback if extraction fails
-        let rate_limit_key =
-            decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
-        match state.flags_rate_limiter.allow_request(&rate_limit_key) {
+        // Extract token from body, use IP as fallback if extraction fails.
+        // Time the JSON DOM scan separately — pathological large bodies
+        // are the suspected outlier driver here.
+        let rate_limit_key = {
+            let _t = common_metrics::timing_guard_high_precision(FLAG_TOKEN_EXTRACT_TIME_MS, &[]);
+            decoding::extract_token(&context.body)
+        }
+        .unwrap_or_else(|| ip_string.clone());
+        let token_rl_result = {
+            let _t =
+                common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
+                    .label("kind", "token");
+            state.flags_rate_limiter.allow_request(&rate_limit_key)
+        };
+        match token_rl_result {
             RateLimitResult::Blocked => {
                 return Err(rate_limit_error(FlagError::ClientFacing(
                     ClientFacingError::TokenRateLimited,
@@ -373,6 +428,13 @@ pub async fn flags(
             with_canonical_log(|l| l.rate_limit_warned = true);
         }
 
+        // Stamp pre-handler duration into the canonical log just before we
+        // hand off to async processing. `Instant::now()` is monotonic, so
+        // this is robust to wall-clock jumps. Emission of the histogram is
+        // deferred to `emit_timing_metrics` once `team_id` is resolved.
+        let pre_handler_duration_ms = pre_handler_start.elapsed().as_millis() as u64;
+        with_canonical_log(|l| l.pre_handler_duration_ms = Some(pre_handler_duration_ms));
+
         process_request(context).await
     })
     .instrument(_span)
@@ -380,11 +442,13 @@ pub async fn flags(
 
     // Emit DB operations metrics before the canonical log
     log.emit_db_operations_metrics();
-
-    // Emit queue time histogram for proxy-to-app latency dashboards
-    if let Some(delta) = log.queue_time_ms {
-        common_metrics::histogram(FLAG_QUEUE_TIME_MS, &[], delta as f64);
-    }
+    // Emit queue/pre-handler/concurrency-wait histograms with team_id labels.
+    // Must run after `process_request` returns so `log.team_id` is populated.
+    log.emit_timing_metrics();
+    // Emit per-phase histograms accumulated by `PhaseGuard` drops inside
+    // `process_request_inner`. Same `team_id` resolution requirement as
+    // `emit_timing_metrics`, so it must run alongside it.
+    log.emit_phase_metrics();
 
     match result {
         Ok(response) => {

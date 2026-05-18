@@ -415,14 +415,14 @@ export const supportLogic = kea<supportLogicType>([
             ['user'],
             preflightLogic,
             ['preflight'],
-            sidePanelStateLogic,
-            ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
             billingLogic,
             ['billing'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -511,7 +511,6 @@ export const supportLogic = kea<supportLogicType>([
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
-                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {

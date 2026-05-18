@@ -199,7 +199,7 @@ class AnthropicAdapter:
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
         if model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_CACHE_CONTROL:
-            system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": {"type": "ephemeral"}})]
+            system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": {"type": "ephemeral"}})]  # ty: ignore[missing-typed-dict-key]
             formatted_messages = self._prepare_messages_with_cache_control(messages)
         else:
             system_prompt = [TextBlockParam(text=system, type="text")]
@@ -296,7 +296,7 @@ class AnthropicAdapter:
                     )
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an Anthropic API key by making a lightweight API call."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -325,7 +325,7 @@ class AnthropicAdapter:
         return set(AnthropicConfig.SUPPORTED_MODELS)
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available Anthropic models.
 
         Without a key, returns the curated SUPPORTED_MODELS list.

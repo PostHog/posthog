@@ -35,11 +35,14 @@ import type {
     PatchedCommentApi,
     PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
+    PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PinnedSceneTabsApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    WelcomeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -143,7 +146,7 @@ export const getApprovalPoliciesPartialUpdateUrl = (projectId: string, id: strin
 export const approvalPoliciesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedApprovalPolicyApi: NonReadonly<PatchedApprovalPolicyApi>,
+    patchedApprovalPolicyApi?: NonReadonly<PatchedApprovalPolicyApi>,
     options?: RequestInit
 ): Promise<ApprovalPolicyApi> => {
     return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesPartialUpdateUrl(projectId, id), {
@@ -207,18 +210,18 @@ export const changeRequestsRetrieve = async (
     })
 }
 
-/**
- * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
- */
 export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/change_requests/${id}/approve/`
 }
 
+/**
+ * Approve a change request.
+If quorum is reached, automatically applies the change immediately.
+ */
 export const changeRequestsApproveCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi: NonReadonly<ChangeRequestApi>,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
     options?: RequestInit
 ): Promise<ChangeRequestApi> => {
     return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
@@ -229,18 +232,18 @@ export const changeRequestsApproveCreate = async (
     })
 }
 
-/**
- * Cancel a change request.
-Only the requester can cancel their own pending change request.
- */
 export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/change_requests/${id}/cancel/`
 }
 
+/**
+ * Cancel a change request.
+Only the requester can cancel their own pending change request.
+ */
 export const changeRequestsCancelCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi: NonReadonly<ChangeRequestApi>,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
     options?: RequestInit
 ): Promise<ChangeRequestApi> => {
     return apiMutator<ChangeRequestApi>(getChangeRequestsCancelCreateUrl(projectId, id), {
@@ -251,17 +254,17 @@ export const changeRequestsCancelCreate = async (
     })
 }
 
-/**
- * Reject a change request.
- */
 export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/change_requests/${id}/reject/`
 }
 
+/**
+ * Reject a change request.
+ */
 export const changeRequestsRejectCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi: NonReadonly<ChangeRequestApi>,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
     options?: RequestInit
 ): Promise<ChangeRequestApi> => {
     return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
@@ -343,7 +346,7 @@ export const getPartialUpdateUrl = (id: string) => {
 
 export const partialUpdate = async (
     id: string,
-    patchedOrganizationApi: NonReadonly<PatchedOrganizationApi>,
+    patchedOrganizationApi?: NonReadonly<PatchedOrganizationApi>,
     options?: RequestInit
 ): Promise<OrganizationApi> => {
     return apiMutator<OrganizationApi>(getPartialUpdateUrl(id), {
@@ -399,7 +402,7 @@ export const getMembersUpdateUrl = (organizationId: string, userUuid: string) =>
 export const membersUpdate = async (
     organizationId: string,
     userUuid: string,
-    organizationMemberApi: NonReadonly<OrganizationMemberApi>,
+    organizationMemberApi?: NonReadonly<OrganizationMemberApi>,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
     return apiMutator<OrganizationMemberApi>(getMembersUpdateUrl(organizationId, userUuid), {
@@ -417,7 +420,7 @@ export const getMembersPartialUpdateUrl = (organizationId: string, userUuid: str
 export const membersPartialUpdate = async (
     organizationId: string,
     userUuid: string,
-    patchedOrganizationMemberApi: NonReadonly<PatchedOrganizationMemberApi>,
+    patchedOrganizationMemberApi?: NonReadonly<PatchedOrganizationMemberApi>,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
     return apiMutator<OrganizationMemberApi>(getMembersPartialUpdateUrl(organizationId, userUuid), {
@@ -538,7 +541,7 @@ export const getRolesPartialUpdateUrl = (organizationId: string, id: string) => 
 export const rolesPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedRoleApi: NonReadonly<PatchedRoleApi>,
+    patchedRoleApi?: NonReadonly<PatchedRoleApi>,
     options?: RequestInit
 ): Promise<RoleApi> => {
     return apiMutator<RoleApi>(getRolesPartialUpdateUrl(organizationId, id), {
@@ -639,6 +642,23 @@ export const rolesRoleMembershipsDestroy = async (
     return apiMutator<void>(getRolesRoleMembershipsDestroyUrl(organizationId, roleId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getWelcomeCurrentRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/welcome/current/`
+}
+
+/**
+ * Aggregated payload for the invited-user welcome screen.
+ */
+export const welcomeCurrentRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<WelcomeResponseApi> => {
+    return apiMutator<WelcomeResponseApi>(getWelcomeCurrentRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -807,7 +827,7 @@ export const getCommentsPartialUpdateUrl = (projectId: string, id: string) => {
 export const commentsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedCommentApi: NonReadonly<PatchedCommentApi>,
+    patchedCommentApi?: NonReadonly<PatchedCommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsPartialUpdateUrl(projectId, id), {
@@ -818,17 +838,53 @@ export const commentsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getCommentsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/comments/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const commentsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getCommentsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCommentsCompleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/complete/`
+}
+
+/**
+ * Mark a task-comment as complete. Sets completed_at and completed_by. 400 if the comment is not a task or is already complete.
+ */
+export const commentsCompleteCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsCompleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getCommentsReopenCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/reopen/`
+}
+
+/**
+ * Reopen a completed task-comment. Clears completed_at and completed_by. 400 if the comment is not a task or is already open.
+ */
+export const commentsReopenCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsReopenCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -851,5 +907,39 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUserHomeSettingsRetrieveUrl = (uuid: string) => {
+    return `/api/user_home_settings/${uuid}/`
+}
+
+/**
+ * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
+ */
+export const userHomeSettingsRetrieve = async (uuid: string, options?: RequestInit): Promise<PinnedSceneTabsApi> => {
+    return apiMutator<PinnedSceneTabsApi>(getUserHomeSettingsRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserHomeSettingsPartialUpdateUrl = (uuid: string) => {
+    return `/api/user_home_settings/${uuid}/`
+}
+
+/**
+ * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
+ */
+export const userHomeSettingsPartialUpdate = async (
+    uuid: string,
+    patchedPinnedSceneTabsApi?: PatchedPinnedSceneTabsApi,
+    options?: RequestInit
+): Promise<PinnedSceneTabsApi> => {
+    return apiMutator<PinnedSceneTabsApi>(getUserHomeSettingsPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedPinnedSceneTabsApi),
     })
 }

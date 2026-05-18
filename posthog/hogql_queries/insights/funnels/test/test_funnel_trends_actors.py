@@ -3,7 +3,15 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, FunnelVizType, IntervalType
+from posthog.schema import (
+    BreakdownFilter,
+    DateRange,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelVizType,
+    IntervalType,
+)
 
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -126,6 +134,80 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             # [person["matched_recordings"][0]["session_id"] for person in results],
             [next(iter(results[0][2]))["session_id"]],
             ["s1c"],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_funnel_trend_persons_filters_by_breakdown(self):
+        persons = journeys_for(
+            {
+                "chrome_user": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 1),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 1, 2),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                ],
+                "safari_user": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 1),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 1, 2),
+                        "properties": {"$browser": "Safari"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        breakdown_query = funnels_query.model_copy(
+            update={"breakdownFilter": BreakdownFilter(breakdown="$browser", breakdown_type="event")}
+        )
+
+        chrome_results = get_actors(
+            breakdown_query,
+            self.team,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            funnel_step_breakdown=["Chrome"],
+        )
+        assert [row[0] for row in chrome_results] == [persons["chrome_user"].uuid]
+
+        safari_results = get_actors(
+            breakdown_query,
+            self.team,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            funnel_step_breakdown=["Safari"],
+        )
+        assert [row[0] for row in safari_results] == [persons["safari_user"].uuid]
+
+        all_results = get_actors(
+            breakdown_query,
+            self.team,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+        )
+        assert sorted(row[0] for row in all_results) == sorted(
+            [persons["chrome_user"].uuid, persons["safari_user"].uuid]
         )
 
     @snapshot_clickhouse_queries

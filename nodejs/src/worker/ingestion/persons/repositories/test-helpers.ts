@@ -20,9 +20,12 @@ export async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
  * These methods are only used in tests and should not be used in production code.
  */
 
-export async function fetchPersons(postgres: PostgresRouter): Promise<InternalPerson[]> {
+export async function fetchPersons(postgres: PostgresRouter, teamId?: number): Promise<InternalPerson[]> {
+    const query =
+        teamId !== undefined ? 'SELECT * FROM posthog_person WHERE team_id = $1' : 'SELECT * FROM posthog_person'
+    const params = teamId !== undefined ? [teamId] : undefined
     return await postgres
-        .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+        .query<RawPerson>(PostgresUse.PERSONS_WRITE, query, params, 'fetchPersons')
         .then(({ rows }) => rows.map(toPerson))
 }
 

@@ -1,7 +1,11 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { useRef, useState } from 'react'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { Meta, StoryObj } from '@storybook/react'
+import { useEffect, useRef, useState } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -12,7 +16,11 @@ import { AvailableFeature, InsightShortId, Realm } from '~/types'
 
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
-type StoryArgs = SubscriptionsModalProps & { noIntegrations?: boolean; featureAvailable?: boolean }
+type StoryArgs = SubscriptionsModalProps & {
+    noIntegrations?: boolean
+    featureAvailable?: boolean
+    aiSummaryAtLimit?: boolean
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Subscriptions',
@@ -23,11 +31,28 @@ const meta: Meta<StoryArgs> = {
         mockDate: '2023-01-31 12:00:00',
     },
     render: (args) => {
-        const { noIntegrations = false, featureAvailable = true, ...props } = args
+        const { noIntegrations = false, featureAvailable = true, aiSummaryAtLimit = false, ...props } = args
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
         const [modalOpen, setModalOpen] = useState(false)
 
         useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
+
+        useEffect(() => {
+            if (!aiSummaryAtLimit) {
+                return
+            }
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
+                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
+            })
+            // Reset on unmount so the flag doesn't leak into other stories
+            // rendered later in the same Storybook session.
+            return () => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: false,
+                })
+            }
+        }, [aiSummaryAtLimit])
 
         useStorybookMocks({
             get: {
@@ -40,6 +65,14 @@ const meta: Meta<StoryArgs> = {
                         : { available: true, client_id: 'test-client-id' },
                     site_url: noIntegrations ? 'bad-value' : window.location.origin,
                 },
+                ...(aiSummaryAtLimit
+                    ? {
+                          '/api/organizations/@current/': {
+                              ...MOCK_DEFAULT_ORGANIZATION,
+                              is_ai_data_processing_approved: true,
+                          },
+                      }
+                    : {}),
                 '/api/environments/:id/subscriptions': {
                     results:
                         insightShortIdRef.current === 'empty'
@@ -62,6 +95,9 @@ const meta: Meta<StoryArgs> = {
                               ],
                 },
                 '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
+                '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
+                    ? { active_count: 10, limit: 10, at_limit: true }
+                    : { active_count: 0, limit: 10, at_limit: false },
                 '/api/projects/:id/integrations': { results: !noIntegrations ? [mockIntegration] : [] },
                 '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
             },
@@ -122,4 +158,8 @@ export const SubscriptionsEdit: Story = {
 
 export const SubscriptionsUnavailable: Story = {
     args: { featureAvailable: false },
+}
+
+export const SubscriptionAtAISummaryLimit: Story = {
+    args: { subscriptionId: 'new', aiSummaryAtLimit: true },
 }

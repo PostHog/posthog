@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -31,6 +31,7 @@ from posthog.schema import (
     AssistantUpdateEvent,
     BaseAssistantMessage,
     ContextMessage,
+    DataVisualizationNode,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
@@ -99,6 +100,7 @@ AnyAssistantGeneratedQuery = (
     | AssistantLifecycleQuery
     | AssistantRetentionQuery
     | AssistantHogQLQuery
+    | DataVisualizationNode
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 
@@ -147,7 +149,7 @@ def replace_supermode(left: AgentMode | str | None, right: AgentMode | str | Non
     # If it's in left (current state), that's a bug - treat as None
     if result == CLEAR_SUPERMODE:
         return None
-    return result  # type: ignore[return-value]
+    return cast("AgentMode", result)
 
 
 def append(left: Sequence, right: Sequence) -> Sequence:
@@ -256,7 +258,9 @@ class InsightArtifact(TaskArtifact):
     An insight artifact created by a task.
     """
 
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    query: Union[
+        AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery, DataVisualizationNode
+    ]
 
 
 class TaskResult(BaseModel):

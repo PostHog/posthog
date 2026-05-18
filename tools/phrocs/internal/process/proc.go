@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ const (
 	StatusStopped
 	StatusDone
 	StatusCrashed
+	StatusStandby // in registry but not loaded — config stub only
 )
 
 func (s Status) String() string {
@@ -48,6 +50,8 @@ func (s Status) String() string {
 		return "done"
 	case StatusCrashed:
 		return "crashed"
+	case StatusStandby:
+		return "standby"
 	default:
 		return "unknown"
 	}
@@ -113,6 +117,7 @@ type Process struct {
 	shellBin     string // shell binary for running shell commands
 	readyPattern *regexp.Regexp
 	maxLines     int
+	logDir       string // if non-empty, raw PTY output is teed to <logDir>/<Name>.log
 	status       Status
 	cmd          *exec.Cmd
 
@@ -123,12 +128,22 @@ type Process struct {
 	hasPrompt bool             // true when last PTY output had no trailing \n (likely waiting for input)
 	unread    bool             // true when new output arrived since the last MarkRead call
 	waitDone  chan struct{}    // closed by the goroutine that calls cmd.Wait()
+	logFile   *os.File         // nil when file logging disabled or file couldn't be opened
 
 	startedAt      time.Time
 	readyAt        time.Time
 	exitCode       *int
 	metrics        *Metrics
 	metricsEnabled atomic.Bool
+}
+
+// SetLogDir enables per-process log file teeing. When non-empty, Start opens
+// <dir>/<Name>.log (truncated) and readLoop writes raw PTY bytes to it alongside
+// the in-memory scrollback. Empty string disables file logging (the default).
+func (p *Process) SetLogDir(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logDir = dir
 }
 
 func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell string) *Process {
@@ -154,6 +169,22 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell 
 	return p
 }
 
+// NewStandbyProcess creates a lightweight config-only process placeholder.
+// It has StatusStandby, no PTY, and no emulator — just enough to appear in the
+// sidebar and be promoted to a real process via Manager.Add when the user starts it.
+func NewStandbyProcess(name string, cfg config.ProcConfig) *Process {
+	return &Process{
+		Name:   name,
+		Cfg:    cfg,
+		status: StatusStandby,
+	}
+}
+
+// IsStandby reports whether this process is a registry-only placeholder.
+func (p *Process) IsStandby() bool {
+	return p.Status().IsStandby()
+}
+
 func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -162,6 +193,10 @@ func (p *Process) Status() Status {
 
 func (s Status) IsRunning() bool {
 	return s == StatusRunning || s == StatusPending
+}
+
+func (s Status) IsStandby() bool {
+	return s == StatusStandby
 }
 
 func (p *Process) IsRunning() bool {
@@ -408,6 +443,24 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		_ = p.stdinPipe.Close()
 		p.stdinPipe = nil
 	}
+	// Rotate the per-process log file: truncate on each start so the file
+	// reflects the current run. Errors are best-effort; file logging is
+	// advisory, the in-memory scrollback is the source of truth.
+	if p.logFile != nil {
+		_ = p.logFile.Close()
+		p.logFile = nil
+	}
+	if p.logDir != "" {
+		if err := os.MkdirAll(p.logDir, 0o755); err == nil {
+			if f, err := os.OpenFile(
+				filepath.Join(p.logDir, p.Name+".log"),
+				os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+				0o644,
+			); err == nil {
+				p.logFile = f
+			}
+		}
+	}
 	p.mu.Unlock()
 
 	cmd := p.buildCmd()
@@ -593,6 +646,10 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 	}
 	finalStatus := p.status
 	shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed && finalStatus != StatusStopped
+	if p.logFile != nil {
+		_ = p.logFile.Close()
+		p.logFile = nil
+	}
 	p.mu.Unlock()
 
 	send(StatusMsg{Name: p.Name, Status: finalStatus})
@@ -666,11 +723,15 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 				p.mu.Unlock()
 			}
 
-			// Feed raw bytes into the VT emulator
+			// Feed raw bytes into the VT emulator. Capture the logFile
+			// pointer under the lock but defer the actual disk write until
+			// after unlock — a slow disk (NFS, contended FS) would otherwise
+			// hold p.mu and block status queries and metrics sampling.
 			p.mu.Lock()
 			if p.emulator != nil {
 				_, _ = p.emulator.Write(data)
 			}
+			logFile := p.logFile
 			// Detect interactive prompts: if the chunk doesn't end with \n,
 			// the process likely wrote a partial line and is waiting for input.
 			// This works for line-based prompts and TUI frameworks like Ink
@@ -678,6 +739,9 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			p.hasPrompt = data[len(data)-1] != '\n'
 			p.unread = true
 			p.mu.Unlock()
+			if logFile != nil {
+				_, _ = logFile.Write(data)
+			}
 			dirty = true
 
 		case <-flushTicker.C:

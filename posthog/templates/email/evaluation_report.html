@@ -1,0 +1,19 @@
+{% extends "email/base.html" %}
+
+{% block heading %}{% endblock %}
+
+{% block section %}
+
+{% comment %}
+report_body is markdown rendered by markdown-it-py with html=False, so raw HTML in
+the markdown source is escaped. Content originates from our own LLM agent via
+structured tool outputs (not user input), and is delivered via email only.
+{% endcomment %}
+{# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
+{{ report_body|safe }}
+
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ evaluation_url }}">View evaluation in PostHog</a>
+</div>
+
+{% endblock %}

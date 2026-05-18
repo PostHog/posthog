@@ -12,6 +12,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     AnyCohortCriteriaType,
@@ -121,6 +122,7 @@ export const cohortsModel = kea<cohortsModelType>([
         updateCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
+        hydrateAllCohortsFromExport: (cohorts: Pick<CohortType, 'id' | 'name'>[]) => ({ cohorts }),
     })),
     loaders(() => ({
         cohorts: {
@@ -219,6 +221,19 @@ export const cohortsModel = kea<cohortsModelType>([
                     results: state.results.filter((c) => c.id !== cohort.id),
                 }
             },
+            hydrateAllCohortsFromExport: (_, { cohorts }: { cohorts: Pick<CohortType, 'id' | 'name'>[] }) => {
+                // Sparse CohortType — id+name is all cohortsById consumers need for name lookup.
+                const results = cohorts.map(
+                    ({ id, name }) =>
+                        ({
+                            id,
+                            name,
+                            groups: [],
+                            filters: { properties: { type: FilterLogicalOperator.And, values: [] } },
+                        }) as unknown as CohortType
+                )
+                return { count: results.length, results }
+            },
         },
     }),
     selectors({
@@ -267,8 +282,13 @@ export const cohortsModel = kea<cohortsModelType>([
     }),
     afterMount(({ actions, values }) => {
         if (isAuthenticatedTeam(values.currentTeam)) {
-            // Don't load on shared insights/dashboards
             actions.loadAllCohorts()
+        } else {
+            // Shared views can't hit /api/cohorts — seed from the inlined export payload.
+            const exportedCohorts = getCurrentExporterData()?.cohorts
+            if (exportedCohorts?.length) {
+                actions.hydrateAllCohortsFromExport(exportedCohorts)
+            }
         }
         actions.loadCohorts()
     }),

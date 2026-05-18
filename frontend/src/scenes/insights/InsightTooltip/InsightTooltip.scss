@@ -28,7 +28,8 @@
     .InsightTooltip__close {
         opacity: 0;
 
-        .InsightTooltipWrapper--pinned & {
+        .InsightTooltipWrapper--pinned &,
+        .hog-charts-tooltip--pinned & {
             opacity: 1;
         }
     }
@@ -64,7 +65,8 @@
             vertical-align: top;
             background: transparent;
 
-            .InsightTooltipWrapper--pinned & {
+            .InsightTooltipWrapper--pinned &,
+            .hog-charts-tooltip--pinned & {
                 background: linear-gradient(to right, transparent, var(--color-bg-surface-primary) 30%);
             }
         }

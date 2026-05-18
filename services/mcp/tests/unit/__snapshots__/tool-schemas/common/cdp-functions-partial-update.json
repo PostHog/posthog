@@ -35,14 +35,7 @@
                     },
                     "type": "array"
                 },
-                "bytecode": {
-                    "anyOf": [
-                        {},
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
+                "bytecode": {},
                 "bytecode_error": {
                     "type": "string"
                 },
@@ -173,26 +166,16 @@
                     "templating": {
                         "anyOf": [
                             {
-                                "const": true,
                                 "type": "boolean"
                             },
                             {
-                                "const": false,
-                                "type": "boolean"
-                            },
-                            {
-                                "const": "hog",
-                                "type": "string"
-                            },
-                            {
-                                "const": "liquid",
+                                "enum": ["hog", "liquid"],
                                 "type": "string"
                             }
-                        ],
-                        "description": "* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid"
+                        ]
                     },
                     "type": {
-                        "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags",
+                        "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours",
                         "enum": [
                             "string",
                             "number",
@@ -205,7 +188,8 @@
                             "email",
                             "native_email",
                             "posthog_assignee",
-                            "posthog_ticket_tags"
+                            "posthog_ticket_tags",
+                            "posthog_business_hours"
                         ],
                         "type": "string"
                     }
@@ -337,26 +321,16 @@
                                         "templating": {
                                             "anyOf": [
                                                 {
-                                                    "const": true,
                                                     "type": "boolean"
                                                 },
                                                 {
-                                                    "const": false,
-                                                    "type": "boolean"
-                                                },
-                                                {
-                                                    "const": "hog",
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "const": "liquid",
+                                                    "enum": ["hog", "liquid"],
                                                     "type": "string"
                                                 }
-                                            ],
-                                            "description": "* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid"
+                                            ]
                                         },
                                         "type": {
-                                            "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags",
+                                            "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours",
                                             "enum": [
                                                 "string",
                                                 "number",
@@ -369,7 +343,8 @@
                                                 "email",
                                                 "native_email",
                                                 "posthog_assignee",
-                                                "posthog_ticket_tags"
+                                                "posthog_ticket_tags",
+                                                "posthog_business_hours"
                                             ],
                                             "type": "string"
                                         }
@@ -398,12 +373,6 @@
                 {
                     "properties": {
                         "bytecode": {
-                            "anyOf": [
-                                {},
-                                {
-                                    "type": "null"
-                                }
-                            ],
                             "description": "Compiled bytecode for the hash expression. Auto-generated."
                         },
                         "hash": {
@@ -464,25 +433,17 @@
         "type": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
-                            "enum": [
-                                "destination",
-                                "site_destination",
-                                "internal_destination",
-                                "source_webhook",
-                                "warehouse_source_webhook",
-                                "site_app",
-                                "transformation"
-                            ],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
+                    "enum": [
+                        "destination",
+                        "site_destination",
+                        "internal_destination",
+                        "source_webhook",
+                        "warehouse_source_webhook",
+                        "site_app",
+                        "transformation"
+                    ],
+                    "type": "string"
                 },
                 {
                     "type": "null"

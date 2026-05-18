@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 from posthog.models import Insight, PersonalAPIKey, Team, User
@@ -172,7 +173,8 @@ def create_organization_with_team(
             "skip_user_product_list": True,
         }
 
-        command.handle(**options)
+        with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+            command.handle(**options)
 
         user = User.objects.get(email=user_email)
         organization = user.organization
@@ -184,11 +186,11 @@ def create_organization_with_team(
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
-    # Add advanced permissions feature for password-protected sharing
+    # Add access control feature for password-protected sharing
     organization.available_product_features = [
         {
-            "key": AvailableFeature.ADVANCED_PERMISSIONS,
-            "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            "key": AvailableFeature.ACCESS_CONTROL,
+            "name": AvailableFeature.ACCESS_CONTROL,
         }
     ]
     organization.save()
@@ -394,10 +396,11 @@ def _create_experiments(
 def _count_events_in_clickhouse(team_id: int) -> int:
     from posthog.clickhouse.client import sync_execute
 
-    result = sync_execute(
-        "SELECT count() FROM events WHERE team_id = %(team_id)s",
-        {"team_id": team_id},
-    )
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        result = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": team_id},
+        )
     return int(result[0][0])
 
 

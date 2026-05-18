@@ -21,6 +21,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -35,6 +36,8 @@ import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
+import { EvaluationReportConfig } from './components/EvaluationReportConfig'
+import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
@@ -145,24 +148,48 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
         : evaluation.evaluation_config.prompt.trim().length > 0
-    const basicFieldsValid = evaluation.name.length > 0 && configValid
-    const percentageUnset = evaluation.conditions.some((c) => c.rollout_percentage === 0)
-    const saveButtonDisabled = !basicFieldsValid
+    const hasName = evaluation.name.length > 0
+    const basicFieldsValid = hasName && configValid
+    const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
+    const percentageOutOfRange = evaluation.conditions.some(
+        (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
+    )
+    const hasConditions = evaluation.conditions.length > 0
+    const saveButtonDisabledReason = !hasName
+        ? 'Add a name for this evaluation'
+        : !configValid
+          ? isHog
+              ? 'Add evaluation code before saving'
+              : 'Add an evaluation prompt before saving'
+          : undefined
+
+    const focusTriggers = (): void => {
+        setActiveTab('configuration')
+        requestAnimationFrame(() => {
+            triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
+    }
 
     const handleSave = (): void => {
-        // If percentage is unset but other fields are valid, switch to settings and scroll to triggers
         if (basicFieldsValid && percentageUnset) {
-            setActiveTab('configuration')
-            requestAnimationFrame(() => {
-                triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            })
+            focusTriggers()
+            lemonToast.warning('Set a sampling percentage between 0.1% and 100% for every condition set before saving.')
             return
         }
 
-        // Otherwise proceed with save if form is valid
-        if (formValid) {
-            saveEvaluation()
+        if (!formValid) {
+            if (!hasConditions) {
+                lemonToast.error('Add at least one condition set before saving.')
+            } else if (percentageOutOfRange) {
+                lemonToast.error('Sampling percentage must be between 0.1% and 100%.')
+            } else {
+                lemonToast.error('Some required fields are missing. Please review the configuration.')
+            }
+            focusTriggers()
+            return
         }
+
+        saveEvaluation()
     }
 
     const handleCancel = (): void => {
@@ -231,7 +258,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 onClick={handleSave}
-                                disabled={saveButtonDisabled}
+                                disabledReason={saveButtonDisabledReason}
                                 loading={evaluationFormSubmitting}
                             >
                                 {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
@@ -317,6 +344,18 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </div>
                         ),
                     },
+                    !isNewEvaluation &&
+                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                            key: 'reports',
+                            label: 'Reports',
+                            'data-attr': 'llma-evaluation-reports-tab',
+                            content: (
+                                <EvaluationReportsTab
+                                    evaluationId={evaluation.id}
+                                    onConfigureClick={() => setActiveTab('configuration')}
+                                />
+                            ),
+                        },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -473,7 +512,20 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </p>
                                         <EvaluationTriggers />
                                     </div>
+
+                                    {/* Scheduled Reports (inline config for new evaluations) */}
+                                    {isNewEvaluation &&
+                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                            <EvaluationReportConfig evaluationId="new" />
+                                        )}
                                 </Form>
+
+                                {/* Scheduled Reports (for existing evaluations, outside the form) */}
+                                {!isNewEvaluation && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                    <div className="mt-6">
+                                        <EvaluationReportConfig evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                             </div>
                         ),
                     },

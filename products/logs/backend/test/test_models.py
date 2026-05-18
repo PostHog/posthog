@@ -5,7 +5,9 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
+from parameterized import parameterized
+
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 
 class TestLogsAlertConfiguration(BaseTest):
@@ -25,7 +27,7 @@ class TestLogsAlertConfiguration(BaseTest):
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         assert alert.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE
         assert alert.window_minutes == 5
-        assert alert.check_interval_minutes == 1
+        assert alert.check_interval_minutes == 5
         assert alert.evaluation_periods == 1
         assert alert.datapoints_to_alarm == 1
         assert alert.cooldown_minutes == 0
@@ -87,13 +89,13 @@ class TestLogsAlertConfiguration(BaseTest):
     def test_get_recent_breaches_ordering_and_limit(self):
         alert = self._create_alert(evaluation_periods=3)
         for i, breached in enumerate([False, True, False, True, True]):
-            check = LogsAlertCheck.objects.create(
+            check = LogsAlertEvent.objects.create(
                 alert=alert,
                 threshold_breached=breached,
                 state_before="not_firing",
                 state_after="not_firing",
             )
-            LogsAlertCheck.objects.filter(pk=check.pk).update(created_at=datetime(2026, 3, 19, 12, i, tzinfo=UTC))
+            LogsAlertEvent.objects.filter(pk=check.pk).update(created_at=datetime(2026, 3, 19, 12, i, tzinfo=UTC))
 
         result = alert.get_recent_breaches()
         assert result == (True, True, False)
@@ -101,17 +103,43 @@ class TestLogsAlertConfiguration(BaseTest):
     def test_get_recent_breaches_excludes_errored_checks(self):
         alert = self._create_alert(evaluation_periods=5)
         for i, (breached, error) in enumerate([(True, None), (False, "timeout"), (False, None)]):
-            check = LogsAlertCheck.objects.create(
+            check = LogsAlertEvent.objects.create(
                 alert=alert,
                 threshold_breached=breached,
                 state_before="not_firing",
                 state_after="not_firing",
                 error_message=error,
             )
-            LogsAlertCheck.objects.filter(pk=check.pk).update(created_at=datetime(2026, 3, 19, 12, i, tzinfo=UTC))
+            LogsAlertEvent.objects.filter(pk=check.pk).update(created_at=datetime(2026, 3, 19, 12, i, tzinfo=UTC))
 
         result = alert.get_recent_breaches()
         assert result == (False, True)
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    def test_get_recent_breaches_excludes_non_check_kinds(self, _name, non_check_kind):
+        # Control-plane rows (resets, snoozes, etc.) must never participate in N-of-M.
+        # A non-CHECK row with threshold_breached=False would otherwise inject a spurious
+        # "not-breaching" data point into the evaluator's window.
+        alert = self._create_alert(evaluation_periods=3)
+        check = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        LogsAlertEvent.objects.filter(pk=check.pk).update(created_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC))
+        control = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.filter(pk=control.pk).update(created_at=datetime(2026, 3, 19, 12, 1, tzinfo=UTC))
+
+        result = alert.get_recent_breaches()
+        assert result == (True,)
 
     def test_clean_valid_n_of_m(self):
         alert = self._create_alert(datapoints_to_alarm=2, evaluation_periods=3, filters={"severityLevels": ["error"]})
@@ -128,7 +156,7 @@ class TestLogsAlertConfiguration(BaseTest):
         assert "datapoints_to_alarm cannot exceed evaluation_periods" in str(ctx.exception)
 
 
-class TestLogsAlertCheck(BaseTest):
+class TestLogsAlertEvent(BaseTest):
     def _create_alert(self, **kwargs) -> LogsAlertConfiguration:
         defaults = {
             "team": self.team,
@@ -139,7 +167,7 @@ class TestLogsAlertCheck(BaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    def _create_check(self, alert: LogsAlertConfiguration, **kwargs) -> LogsAlertCheck:
+    def _create_check(self, alert: LogsAlertConfiguration, **kwargs) -> LogsAlertEvent:
         defaults = {
             "alert": alert,
             "threshold_breached": False,
@@ -147,38 +175,38 @@ class TestLogsAlertCheck(BaseTest):
             "state_after": "not_firing",
         }
         defaults.update(kwargs)
-        return LogsAlertCheck.objects.create(**defaults)
+        return LogsAlertEvent.objects.create(**defaults)
 
     @freeze_time("2026-03-09T12:00:00Z")
-    def test_clean_up_old_checks_prunes_rows_older_than_event_retention(self):
+    def test_clean_up_old_events_prunes_rows_older_than_event_retention(self):
         alert = self._create_alert()
         old_errored = self._create_check(alert, error_message="CH timeout")
         recent_transition = self._create_check(
             alert, state_before="not_firing", state_after="firing", threshold_breached=True
         )
-        LogsAlertCheck.objects.filter(pk=old_errored.pk).update(
-            created_at=datetime.now(UTC) - timedelta(days=LogsAlertCheck.EVENT_RETENTION_DAYS + 1)
+        LogsAlertEvent.objects.filter(pk=old_errored.pk).update(
+            created_at=datetime.now(UTC) - timedelta(days=LogsAlertEvent.EVENT_RETENTION_DAYS + 1)
         )
 
-        deleted = LogsAlertCheck.clean_up_old_checks()
+        deleted = LogsAlertEvent.clean_up_old_events()
 
         assert deleted == 1
-        assert not LogsAlertCheck.objects.filter(pk=old_errored.pk).exists()
-        assert LogsAlertCheck.objects.filter(pk=recent_transition.pk).exists()
+        assert not LogsAlertEvent.objects.filter(pk=old_errored.pk).exists()
+        assert LogsAlertEvent.objects.filter(pk=recent_transition.pk).exists()
 
     @freeze_time("2026-03-09T12:00:00Z")
-    def test_clean_up_old_checks_does_not_prune_non_event_rows(self):
+    def test_clean_up_old_events_does_not_prune_non_event_rows(self):
         # Non-event rows are the activity's problem (inline cap). If a stale OK row sits
-        # in the table, clean_up_old_checks should leave it alone — the activity will
+        # in the table, clean_up_old_events should leave it alone — the activity will
         # trim it on the next tick.
         alert = self._create_alert()
         for _ in range(MAX_EVALUATION_PERIODS + 5):
             self._create_check(alert)
 
-        deleted = LogsAlertCheck.clean_up_old_checks()
+        deleted = LogsAlertEvent.clean_up_old_events()
 
         assert deleted == 0
-        assert LogsAlertCheck.objects.filter(alert=alert).count() == MAX_EVALUATION_PERIODS + 5
+        assert LogsAlertEvent.objects.filter(alert=alert).count() == MAX_EVALUATION_PERIODS + 5
 
     def test_cascade_delete_with_alert(self):
         alert = self._create_alert()
@@ -187,4 +215,4 @@ class TestLogsAlertCheck(BaseTest):
 
         alert.delete()
 
-        assert LogsAlertCheck.objects.count() == 0
+        assert LogsAlertEvent.objects.count() == 0

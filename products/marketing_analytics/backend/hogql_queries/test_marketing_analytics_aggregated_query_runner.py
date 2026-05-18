@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from posthog.schema import BaseMathType, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
 
+from posthog.hogql.parser import parse_select
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_aggregated_query_runner import (
@@ -54,7 +55,7 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         # Mock the adapters to return a simple query
         mock_adapter = Mock()
         mock_adapter.get_source_id.return_value = "test_source"
-        mock_adapter.build_query_string.return_value = (
+        mock_adapter.build_query.return_value = parse_select(
             "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
             "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
             "'Campaign' as match_key"

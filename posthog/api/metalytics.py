@@ -4,7 +4,7 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.plugin import PluginConfig
@@ -37,6 +37,6 @@ class MetalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
         }
 
-        KafkaProducer().produce(topic=KAFKA_APP_METRICS2, data=payload)
+        get_producer(topic=KAFKA_APP_METRICS2).produce(topic=KAFKA_APP_METRICS2, data=payload)
 
         return response.Response({})

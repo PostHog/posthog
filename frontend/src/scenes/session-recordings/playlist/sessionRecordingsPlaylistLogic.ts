@@ -1369,7 +1369,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording) {
+                if (!activeSessionRecording || !autoplayDirection) {
                     return
                 }
                 const activeSessionRecordingIndex = recordings.findIndex((x) => x.id === activeSessionRecording.id)
@@ -1404,29 +1404,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         ? 0
                         : 1)
                 )
-            },
-        ],
-
-        summarizeDisabledReason: [
-            (s) => [
-                s.totalFiltersCount,
-                s.recordings,
-                s.sessionRecordingsResponseLoading,
-                (_, props) => props.type,
-                (_, props) => props.personUUID,
-                (_, props) => props.pinnedFilters,
-            ],
-            (totalFiltersCount, recordings, loading, type, personUUID, pinnedFilters): string | undefined => {
-                if (loading) {
-                    return 'Loading…'
-                }
-                if (recordings.length === 0) {
-                    return 'No recordings in the list'
-                }
-                if (!type && !personUUID && !pinnedFilters && totalFiltersCount === 0) {
-                    return 'Add filters to summarize recordings'
-                }
-                return undefined
             },
         ],
 

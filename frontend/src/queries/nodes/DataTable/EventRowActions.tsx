@@ -8,28 +8,36 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { saveActionFromEvent } from '~/models/saveAsActionDialog'
 import { EventType, SurveyEventName } from '~/types'
 
-export function EventRowActions({ event }: { event: EventType }): JSX.Element {
+export function EventRowActions({
+    event,
+    hideRecordingButton,
+}: {
+    event: EventType
+    hideRecordingButton?: boolean
+}): JSX.Element {
     return (
         <div className="flex items-center justify-end gap-1">
-            <ViewRecordingButton
-                iconOnly
-                sessionId={event.properties.$session_id}
-                recordingStatus={event.properties.$recording_status}
-                timestamp={event.timestamp}
-                hasRecording={event.properties.$has_recording as boolean | undefined}
-                openPlayerIn={RecordingPlayerType.NewTab}
-                size="xsmall"
-                type="secondary"
-                data-attr="events-table-inline-recording-button"
-            />
+            {!hideRecordingButton && (
+                <ViewRecordingButton
+                    iconOnly
+                    sessionId={event.properties.$session_id}
+                    recordingStatus={event.properties.$recording_status}
+                    timestamp={event.timestamp}
+                    hasRecording={event.properties.$has_recording as boolean | undefined}
+                    openPlayerIn={RecordingPlayerType.NewTab}
+                    size="xsmall"
+                    type="secondary"
+                    data-attr="events-table-inline-recording-button"
+                />
+            )}
             <More overlay={<EventRowActionsDropdown event={event} />} />
         </div>
     )
@@ -43,13 +51,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
             {getCurrentTeamId() && (
                 <LemonButton
                     onClick={() =>
-                        void createActionFromEvent(
-                            getCurrentTeamId(),
-                            event,
-                            0,
-                            teamLogic.findMounted()?.values.currentTeam?.data_attributes || [],
-                            'Unfiled/Actions'
-                        )
+                        saveActionFromEvent(event, teamLogic.findMounted()?.values.currentTeam?.data_attributes || [])
                     }
                     fullWidth
                     data-attr="events-table-create-action"

@@ -18,12 +18,11 @@ import {
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, formatDate } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -45,7 +44,7 @@ import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import type { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
-import { AlertStateTable } from './AlertStateTable'
+import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 import { DetectorSelector, getDefaultWindow } from './DetectorSelector'
 import { InlineAlertNotifications } from './InlineAlertNotifications'
 import { QuietHoursFields } from './QuietHoursFields'
@@ -115,7 +114,9 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const _alertLogic = alertLogic({ alertId })
+    const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
+
+    const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
     const { alert, alertLoading } = useValues(_alertLogic)
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
@@ -141,6 +142,7 @@ export function EditAlertModal({
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
+        historyChartEnabled: alertsHistoryChartEnabled,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -155,12 +157,12 @@ export function EditAlertModal({
         useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
-    const anomalyDetectionEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_ANOMALY_DETECTION]
-    const inlineNotificationsEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS]
-    const quietHoursEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_QUIET_HOURS]
+    const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
+    const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
+    const quietHoursEnabled = useFeatureFlag('ALERTS_QUIET_HOURS')
+    const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -227,8 +229,8 @@ export function EditAlertModal({
     ])
 
     return (
-        <LemonModal onClose={handleClose} isOpen={isOpen} width={750} simple title="">
-            {alertLoading ? (
+        <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
+            {alertLoading && !alert ? (
                 <SpinnerOverlay />
             ) : (
                 <Form
@@ -477,6 +479,103 @@ export function EditAlertModal({
                                         />
                                     )}
 
+                                    {alertMode === 'detector' &&
+                                        alertForm.detector_config &&
+                                        investigationAgentEnabled && (
+                                            <div className="deprecated-space-y-2">
+                                                <div className="flex items-center gap-1">
+                                                    <h4 className="m-0">Investigation agent</h4>
+                                                    <Tooltip
+                                                        title="An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
+                                                        placement="right"
+                                                        delayMs={0}
+                                                    >
+                                                        <IconInfo />
+                                                    </Tooltip>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                                    <LemonCheckbox
+                                                        data-attr="alertForm-investigation-agent-enabled"
+                                                        checked={!!alertForm.investigation_agent_enabled}
+                                                        onChange={(checked) =>
+                                                            setAlertFormValue('investigation_agent_enabled', checked)
+                                                        }
+                                                        label={
+                                                            <span className="flex items-center gap-1">
+                                                                Run investigation agent when this alert fires
+                                                                <Tooltip
+                                                                    title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </span>
+                                                        }
+                                                    />
+                                                    <LemonCheckbox
+                                                        data-attr="alertForm-investigation-gates-notifications"
+                                                        checked={!!alertForm.investigation_gates_notifications}
+                                                        onChange={(checked) =>
+                                                            setAlertFormValue(
+                                                                'investigation_gates_notifications',
+                                                                checked
+                                                            )
+                                                        }
+                                                        disabledReason={
+                                                            !alertForm.investigation_agent_enabled
+                                                                ? 'Enable the investigation agent first'
+                                                                : undefined
+                                                        }
+                                                        label={
+                                                            <span className="flex items-center gap-1">
+                                                                Wait for the verdict before notifying
+                                                                <Tooltip
+                                                                    title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </span>
+                                                        }
+                                                    />
+                                                </div>
+                                                {alertForm.investigation_agent_enabled &&
+                                                    alertForm.investigation_gates_notifications && (
+                                                        <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
+                                                            <span>On inconclusive verdict</span>
+                                                            <LemonSegmentedButton
+                                                                size="xsmall"
+                                                                value={
+                                                                    alertForm.investigation_inconclusive_action ??
+                                                                    'notify'
+                                                                }
+                                                                onChange={(value) =>
+                                                                    setAlertFormValue(
+                                                                        'investigation_inconclusive_action',
+                                                                        value
+                                                                    )
+                                                                }
+                                                                options={[
+                                                                    {
+                                                                        value: 'notify',
+                                                                        label: 'Notify',
+                                                                        tooltip:
+                                                                            'Safe default — an unsure agent is itself signal.',
+                                                                    },
+                                                                    {
+                                                                        value: 'suppress',
+                                                                        label: 'Suppress',
+                                                                        tooltip: 'Only notify on true positives.',
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        </div>
+                                                    )}
+                                            </div>
+                                        )}
+
                                     {alertMode === 'detector' && alertForm.detector_config && (
                                         <div className="deprecated-space-y-2">
                                             <div className="flex gap-2 items-center">
@@ -705,7 +804,13 @@ export function EditAlertModal({
                             </div>
                         </div>
 
-                        {alert && <AlertStateTable alert={alert} />}
+                        {!creatingNewAlert && alertId ? (
+                            alert ? (
+                                <AlertHistorySection alertId={alert.id} />
+                            ) : alertLoading ? (
+                                <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
+                            ) : null
+                        ) : null}
                     </LemonModal.Content>
 
                     <LemonModal.Footer>

@@ -5,6 +5,7 @@ This module contains serializers that are used across other serializers for nest
 import copy
 from typing import Any, Optional
 
+from opentelemetry import trace
 from rest_framework import serializers
 from rest_framework.fields import SkipField
 from rest_framework.relations import PKOnlyObject
@@ -13,6 +14,8 @@ from rest_framework.utils import model_meta
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
+
+tracer = trace.get_tracer(__name__)
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -202,6 +205,10 @@ class TeamBasicSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    @tracer.start_as_current_span("team_basic_serializer.to_representation")
+    def to_representation(self, instance):
+        return super().to_representation(instance)
+
 
 class TeamPublicSerializer(serializers.ModelSerializer):
     """
@@ -241,6 +248,10 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
             organization=organization, user=self.context["request"].user
         ).first()
         return OrganizationMembership.Level(membership.level) if membership is not None else None
+
+    @tracer.start_as_current_span("organization_basic_serializer.to_representation")
+    def to_representation(self, instance):
+        return super().to_representation(instance)
 
 
 class FilterBaseSerializer(serializers.Serializer):

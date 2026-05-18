@@ -204,65 +204,38 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
     if timestamp < flag.created_at:
         return None
 
-    # We need to check the activity log to see if there were any deletions/restorations
-    # that happened between the flag's last update and the query timestamp
-    # We can't just return the current version when timestamp >= updated_at because
-    # there might be soft-delete operations recorded in the activity log after updated_at
-
-    # Get activity log entries at or before the timestamp, streaming with .iterator()
-    # to avoid loading all entries into memory. We need to check both deletion state
-    # and find the most recent entry that contains version information.
+    # Get activity log entries at or before the timestamp, newest first
     entries = (
         ActivityLog.objects.filter(
             team_id=team_id,
             scope="FeatureFlag",
             item_id=str(flag.id),
             activity__in=["updated", "deleted", "restored"],
-            created_at__lte=timestamp,  # Only entries at or before the timestamp
+            created_at__lte=timestamp,
         )
-        .order_by("-created_at", "-id")  # Most recent first
-        .values_list("activity", "detail", flat=False)[:MAX_HISTORY_ENTRIES]
+        .order_by("-created_at", "-id")
+        .values_list("activity", "detail")[:MAX_HISTORY_ENTRIES]
         .iterator()
     )
 
-    # Track deletion state and find the most recent version information
-    # We need to determine the net state: was the flag deleted at this timestamp?
-    # Process entries in chronological order to track state changes
-    most_recent_version = None
-    flag_was_deleted = False
-
-    # Process entries in reverse order (oldest first) to track state transitions
-    entries_list = list(entries)
-    for activity, detail in reversed(entries_list):
-        # Extract version information from this entry first
+    for activity, detail in entries:
         changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
 
-        # Only consider entries that have version information
-        # Bulk delete entries without version changes should be skipped
+        # Track deletion/restoration regardless of whether this entry carried a
+        # version change. Bulk deletes are logged with empty changes.
+        if activity == "deleted":
+            return None
+
         if version_after is not None:
-            most_recent_version = version_after
+            return version_after
 
-            # Track the deletion/restoration state transitions only for versioned entries
-            if activity == "deleted":
-                flag_was_deleted = True
-            elif activity == "restored":
-                flag_was_deleted = False
-
-    # If flag was in a deleted state at the timestamp, treat as non-existent
-    if flag_was_deleted:
-        return None
-
-    # If we found version information and flag wasn't deleted, return the version
-    if most_recent_version is not None:
-        return most_recent_version
-
-    # If we found no version changes but timestamp is after the flag's last update,
-    # return the current version (unless flag was deleted)
+    # No activity log entries found. If timestamp is after the flag's last update,
+    # return the current version. The scan has authoritative deletion state,
+    # or we wouldn't reach here.
     if timestamp >= (flag.updated_at or flag.created_at):
         return flag.version
 
-    # If we found no version changes, the flag was at version 1 (creation)
     return 1
 
 
@@ -272,10 +245,13 @@ def reconstruct_flag_at_timestamp(
     team_id: int,
 ) -> dict[str, Any]:
     """
-    Reconstruct a feature flag's state at a given timestamp.
+    Resolve the version active at timestamp and return that version's state.
 
-    This is a convenience wrapper around find_version_at_timestamp + reconstruct_flag_at_version
-    to avoid duplicating orchestration and reconstruction logic.
+    Raises VersionNotFound if the flag did not exist at the timestamp (before creation,
+    or soft-deleted without a subsequent restore).
+    Raises VersionHistoryIncomplete if the flag is missing version metadata, or if the
+    activity log is missing entries needed for reconstruction.
+    Raises ValueError if timestamp is not timezone-aware.
     """
     # Find the version that was active at the timestamp
     target_version = find_version_at_timestamp(flag, timestamp, team_id)

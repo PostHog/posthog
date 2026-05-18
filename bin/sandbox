@@ -1521,25 +1521,23 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
+def _attach_tmux(container: str, target: str | None = None) -> None:
     """Exec into the tmux session (replaces current process)."""
-    os.execvp(
+    cmd = [
         "docker",
-        [
-            "docker",
-            "exec",
-            "-it",
-            "-u",
-            f"{os.getuid()}:{os.getgid()}",
-            container,
-            "tmux",
-            "-L",
-            "sandbox",
-            "attach-session",
-            "-t",
-            target,
-        ],
-    )
+        "exec",
+        "-it",
+        "-u",
+        f"{os.getuid()}:{os.getgid()}",
+        container,
+        "tmux",
+        "-L",
+        "sandbox",
+        "attach-session",
+    ]
+    if target:
+        cmd.extend(["-t", target])
+    os.execvp("docker", cmd)
 
 
 def _attach_with_health_poll(container: str, health_url: str) -> None:
@@ -1607,7 +1605,7 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
         time.sleep(2)
     else:
         fatal("Timed out waiting for tmux. Run `sandbox logs <branch>` to investigate.")
-    info("Attaching to Claude... (detach with Ctrl-b d, Ctrl-b 1 for setup log, Ctrl-b 2 for phrocs)")
+    info("Attaching to sandbox... (detach with Ctrl-b d, Ctrl-b 2 for setup log, Ctrl-b 3 for phrocs)")
     _attach_tmux(container)
 
 
@@ -1616,7 +1614,7 @@ def cmd_shell(branch: str) -> None:
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to Claude in {container}... (detach with Ctrl-b d, Ctrl-b 2 for phrocs)")
+    info(f"Attaching to sandbox in {container}... (detach with Ctrl-b d)")
     _attach_tmux(container)
 
 
@@ -1650,7 +1648,7 @@ def cmd_phrocs(branch: str) -> None:
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d, Ctrl-b 0 for Claude)")
+    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d, Ctrl-b 1 for Claude)")
     _attach_tmux(container, target="posthog:phrocs")
 
 

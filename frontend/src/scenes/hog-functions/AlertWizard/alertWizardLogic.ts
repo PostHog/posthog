@@ -46,6 +46,9 @@ export interface AlertWizardLogicProps {
     subTemplateIds: HogFunctionSubTemplateIdType[]
     triggers: WizardTrigger[]
     destinations: WizardDestination[]
+    disableUrlSync?: boolean
+    presetTriggerKey?: HogFunctionSubTemplateIdType
+    onAlertCreated?: () => void
 }
 
 const PRIMARY_DESTINATION_LIMIT = 3
@@ -111,7 +114,8 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             WizardStep.Destination as WizardStep,
             {
                 setStep: (_, { step }) => step,
-                setDestinationKey: () => WizardStep.Trigger as WizardStep,
+                setDestinationKey: () =>
+                    (logicProps.presetTriggerKey ? WizardStep.Configure : WizardStep.Trigger) as WizardStep,
                 restoreWizardState: (_, { state }) => state.step,
                 resetWizard: () => WizardStep.Destination as WizardStep,
             },
@@ -125,11 +129,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             },
         ],
         selectedTriggerKey: [
-            null as HogFunctionSubTemplateIdType | null,
+            (logicProps.presetTriggerKey ?? null) as HogFunctionSubTemplateIdType | null,
             {
                 setTriggerKey: (_, { triggerKey }) => triggerKey,
                 restoreWizardState: (_, { state }) => state.triggerKey,
-                resetWizard: () => null,
+                resetWizard: () => (logicProps.presetTriggerKey ?? null) as HogFunctionSubTemplateIdType | null,
             },
         ],
         alertCreated: [
@@ -284,10 +288,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props: logicProps }) => ({
         createAlertSuccess: () => {
             actions.resetWizard()
             actions.loadExistingAlerts()
+            logicProps.onAlertCreated?.()
         },
 
         setAlertCreationView: ({ view }) => {
@@ -313,6 +318,15 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 actions.loadTemplate(destination.templateId)
             }
             actions.setStep(WizardStep.Configure)
+        },
+
+        setDestinationKey: ({ destinationKey }) => {
+            if (logicProps.presetTriggerKey) {
+                const destination = values.allDestinations.find((d) => d.key === destinationKey)
+                if (destination) {
+                    actions.loadTemplate(destination.templateId)
+                }
+            }
         },
 
         testConfiguration: async (_, breakpoint) => {
@@ -419,6 +433,8 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 const configuration: Record<string, any> = {
                     type: 'internal_destination',
                     template_id: destination.templateId,
+                    name: subTemplate.name,
+                    description: subTemplate.description,
                     filters: subTemplate.filters,
                     enabled: true,
                     masking: null,
@@ -444,7 +460,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props: logicProps }) => {
+        if (logicProps.disableUrlSync) {
+            return {}
+        }
+
         const buildURL = (): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
@@ -480,8 +500,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props: logicProps }) => ({
         '**': (_, searchParams) => {
+            if (logicProps.disableUrlSync) {
+                return
+            }
             const wizardStep = searchParams.wizard_step as WizardStep | undefined
             const wizardDest = searchParams.wizard_dest as string | undefined
             const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined

@@ -292,6 +292,12 @@ describe('ErrorTrackingPipeline', () => {
                 dlq: new SingleIngestionOutput('dlq', 'error_tracking_dlq', mockKafkaProducer, 'test'),
                 overflow: new SingleIngestionOutput('overflow', 'error_tracking_overflow', mockKafkaProducer, 'test'),
                 tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockKafkaProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockKafkaProducer,
+                    'test'
+                ),
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,
@@ -302,6 +308,7 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             overflowEnabled: false,
+            preservePartitionLocality: false,
             topHog: mockTopHog,
         }
     })
@@ -643,8 +650,8 @@ describe('ErrorTrackingPipeline', () => {
             // so Kafka doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 10 times (initial + 9 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(10)
+            // Cymbal was called 3 times (initial + 2 retries) before giving up
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 
@@ -931,7 +938,7 @@ describe('ErrorTrackingPipeline', () => {
 
             topHog = new TopHog({
                 outputs: tophogOutputs,
-                pipeline: 'error_tracking',
+                pipeline: 'errortracking',
                 lane: 'main',
             })
         })
@@ -1038,7 +1045,7 @@ describe('ErrorTrackingPipeline', () => {
             const messages = getTopHogMessages()
             expect(messages.length).toBeGreaterThan(0)
             for (const msg of messages) {
-                expect(msg.pipeline).toBe('error_tracking')
+                expect(msg.pipeline).toBe('errortracking')
                 expect(msg.lane).toBe('main')
             }
         })

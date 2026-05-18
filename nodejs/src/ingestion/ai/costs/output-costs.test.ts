@@ -1,22 +1,6 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
 import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
-
-// Helper function to create a PluginEvent with default values
-function createAIEvent(properties?: Record<string, any>): PluginEvent {
-    return {
-        event: '$ai_generation',
-        properties: properties || {},
-        ip: '',
-        site_url: '',
-        team_id: 0,
-        now: '',
-        distinct_id: '',
-        uuid: '',
-        timestamp: '',
-    }
-}
+import { createAIEvent } from './test-helpers'
 
 // Helper function to create a ModelRow with defaults
 function createModel(
@@ -169,6 +153,44 @@ describe('calculateOutputCost()', () => {
             const result = calculateOutputCost(event, gemini25ProModel)
 
             expect(parseFloat(result)).toBeGreaterThan(10000)
+        })
+    })
+
+    describe('gemini 3 models - reasoning token handling', () => {
+        // Real rates from llm-costs.json
+        const gemini3FlashModel = createModel('gemini-3-flash-preview', 'google', 5e-7, 3e-6)
+        const gemini31ProModel = createModel('gemini-3.1-pro-preview', 'google', 2e-6, 1.2e-5)
+
+        it.each([
+            {
+                modelName: 'gemini-3-flash-preview',
+                modelRow: gemini3FlashModel,
+                outputTokens: 2,
+                reasoningTokens: 77,
+                // (2 + 77) * 3e-6 = 0.000237
+                expectedCost: 0.000237,
+                description: 'includes reasoning tokens for gemini-3-flash-preview (issue #3160)',
+            },
+            {
+                modelName: 'gemini-3.1-pro-preview',
+                modelRow: gemini31ProModel,
+                outputTokens: 100,
+                reasoningTokens: 200,
+                // (100 + 200) * 1.2e-5 = 0.0036
+                expectedCost: 0.0036,
+                description: 'includes reasoning tokens for gemini-3.1-pro-preview',
+            },
+        ])('$description', ({ modelName, modelRow, outputTokens, reasoningTokens, expectedCost }) => {
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: modelName,
+                $ai_output_tokens: outputTokens,
+                $ai_reasoning_tokens: reasoningTokens,
+            })
+
+            const result = calculateOutputCost(event, modelRow)
+
+            expectCost(result, expectedCost)
         })
     })
 
@@ -345,6 +367,27 @@ describe('calculateOutputCost()', () => {
             expectCost(result, 0.039225, 6)
         })
 
+        it('handles image output with reasoning tokens for gemini-3', () => {
+            // Gemini 3 Pro Image Preview pricing (from llm-costs.json):
+            // Text output: $12/1M tokens ($1.2e-5/token)
+            // Image output: $120/1M tokens ($1.2e-4/token)
+            const gemini3ImageModel = createModel('gemini-3-pro-image-preview', 'google', 2e-6, 1.2e-5, 1.2e-4)
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-3-pro-image-preview',
+                $ai_output_tokens: 1500,
+                $ai_image_output_tokens: 1290,
+                $ai_text_output_tokens: 10,
+                $ai_reasoning_tokens: 200,
+            })
+
+            const result = calculateOutputCost(event, gemini3ImageModel)
+
+            // Text tokens with reasoning: 10 + 200 = 210
+            // Expected: (210 * 1.2e-5) + (1290 * 1.2e-4) = 0.00252 + 0.1548 = 0.15732
+            expectCost(result, 0.15732, 5)
+        })
+
         it('handles zero image tokens with image pricing (text only)', () => {
             const event = createAIEvent({
                 $ai_provider: 'google',
@@ -467,6 +510,143 @@ describe('calculateOutputCost()', () => {
 
             // Should include reasoning tokens: (100 + 200) * 0.0000025 = 0.00075
             expectCost(result, 0.00075)
+        })
+    })
+
+    describe('audio output tokens - modality cost calculation', () => {
+        // gpt-4o-audio-preview pricing:
+        // - text output: $10/1M ($0.00001/token)
+        // - audio output: $80/1M ($0.00008/token)
+        const audioModel: ResolvedModelCost = {
+            model: 'gpt-4o-audio-preview',
+            provider: 'openai',
+            cost: {
+                prompt_token: 0.0000025,
+                completion_token: 0.00001,
+                audio: 0.00004,
+                audio_output: 0.00008,
+            },
+        }
+
+        it('bills audio output at the audio_output rate, separate from text', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o-audio-preview',
+                $ai_output_tokens: 1000, // 200 text + 800 audio
+                $ai_audio_output_tokens: 800,
+            })
+
+            const result = calculateOutputCost(event, audioModel)
+
+            // Text: (1000 - 800) × 0.00001 = 0.002
+            // Audio: 800 × 0.00008 = 0.064
+            // Total: 0.066
+            expectCost(result, 0.066, 5)
+        })
+
+        it('falls back to completion rate when no audio_output rate is defined', () => {
+            const modelWithoutAudioOutput: ResolvedModelCost = {
+                model: 'some-model',
+                provider: 'unknown',
+                cost: { prompt_token: 0.000001, completion_token: 0.000002 },
+            }
+            const event = createAIEvent({
+                $ai_provider: 'unknown',
+                $ai_model: 'some-model',
+                $ai_output_tokens: 1000,
+                $ai_audio_output_tokens: 800,
+            })
+
+            const result = calculateOutputCost(event, modelWithoutAudioOutput)
+
+            // No separate rate, audio falls back to completion rate.
+            // Total stays at 1000 × 0.000002 = 0.002
+            expectCost(result, 0.002)
+        })
+
+        it('combines audio output with image output for fully multimodal models', () => {
+            const multiModalModel: ResolvedModelCost = {
+                model: 'multi-modal',
+                provider: 'imaginary',
+                cost: {
+                    prompt_token: 0.000001,
+                    completion_token: 0.000002,
+                    image_output: 0.00003,
+                    audio_output: 0.00004,
+                },
+            }
+            const event = createAIEvent({
+                $ai_provider: 'imaginary',
+                $ai_model: 'multi-modal',
+                $ai_output_tokens: 2000, // 200 text + 800 audio + 1000 image
+                $ai_audio_output_tokens: 800,
+                $ai_image_output_tokens: 1000,
+            })
+
+            const result = calculateOutputCost(event, multiModalModel)
+
+            // Text: 200 × 0.000002 = 0.0004
+            // Audio: 800 × 0.00004 = 0.032
+            // Image: 1000 × 0.00003 = 0.03
+            // Total: 0.0624
+            expectCost(result, 0.0624, 5)
+        })
+    })
+
+    describe('text output tokens type handling', () => {
+        const basicModel: ResolvedModelCost = {
+            model: 'test-model',
+            provider: 'openai',
+            cost: { prompt_token: 0.000001, completion_token: 0.000002 },
+        }
+
+        it('uses explicit numeric $ai_text_output_tokens when provided', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 999, // ignored because text is explicit
+                $ai_text_output_tokens: 100,
+            })
+
+            // 100 × 0.000002 = 0.0002
+            expectCost(calculateOutputCost(event, basicModel), 0.0002)
+        })
+
+        it('uses string-encoded $ai_text_output_tokens (some SDKs serialise as strings)', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 999,
+                $ai_text_output_tokens: '100',
+            })
+
+            // bigDecimal accepts strings; "100" × 0.000002 = 0.0002
+            expectCost(calculateOutputCost(event, basicModel), 0.0002)
+        })
+
+        it('falls back to derivation when $ai_text_output_tokens is null', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 100,
+                $ai_text_output_tokens: null as any,
+            })
+
+            // Derived = 100; cost = 100 × 0.000002 = 0.0002
+            expectCost(calculateOutputCost(event, basicModel), 0.0002)
+        })
+
+        it('treats unparseable $ai_text_output_tokens as zero rather than poisoning the total', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 100,
+                $ai_text_output_tokens: 'abc' as any, // garbage from a malformed SDK payload
+            })
+
+            // numericProperty returns 0 for non-numeric strings, so text cost is 0.
+            // No NaN propagation through bigDecimal.
+            expectCost(calculateOutputCost(event, basicModel), 0)
         })
     })
 })

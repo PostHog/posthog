@@ -1,6 +1,7 @@
 import os
 import json
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 import pytest
 from unittest import mock
@@ -11,10 +12,15 @@ import pyarrow as pa
 
 from posthog.models import Team
 from posthog.models.organization import Organization
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsIsMccAccountConfig, GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+    GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
+    GoogleAdsTable,
+    _search_as_arrow_tables,
     get_schemas,
+    google_ads_client,
     google_ads_source,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -195,11 +201,185 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         "shopping_performance_view",
         "conversion_action",
     ):
-        source = google_ads_source(cfg, resource_name=resource, team_id=team.id)
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        source = google_ads_source(
+            cfg,
+            resource_name=resource,
+            team_id=team.id,
+            resumable_source_manager=manager,
+        )
 
         items = source.items()
         assert isinstance(items, Iterable)
         list(items)
+
+
+@dataclass
+class _FakePage:
+    results: list
+    next_page_token: str
+    field_mask: mock.MagicMock
+
+
+class _FakeSearchResponse:
+    """Mimics the gapic ``SearchPager`` by yielding pre-built pages."""
+
+    def __init__(self, pages: list[_FakePage]):
+        self._pages = pages
+
+    @property
+    def pages(self):
+        yield from self._pages
+
+
+def _make_search_service(pages_by_token: dict[str, list[_FakePage]]) -> mock.MagicMock:
+    """Return a mock ``GoogleAdsService`` whose ``search`` resolves each ``page_token``
+    to a pre-built sequence of pages.
+    """
+
+    def _search(**kwargs):
+        request = kwargs.get("request") or {}
+        token = request.get("page_token", "") or ""
+        return _FakeSearchResponse(pages_by_token[token])
+
+    service = mock.MagicMock()
+    service.search.side_effect = _search
+    return service
+
+
+def _make_table() -> GoogleAdsTable:
+    """Minimal table whose ``to_arrow_schema`` shape matches the stub rows below."""
+    table = mock.MagicMock(spec=GoogleAdsTable)
+    table.name = "campaign"
+    table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+    return table
+
+
+def _field_mask(paths: list[str]) -> mock.MagicMock:
+    fm = mock.MagicMock()
+    fm.paths = paths
+    return fm
+
+
+class TestSearchAsArrowTablesResume:
+    @pytest.mark.parametrize(
+        "can_resume,loaded_state,pages_by_token,response_rows,expected_yielded_tables,expected_saved_tokens,expected_first_call_token",
+        [
+            pytest.param(
+                False,
+                None,
+                {
+                    "": [_FakePage(results=[], next_page_token="TOKEN_2", field_mask=_field_mask([]))],
+                    "TOKEN_2": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[{"id": 1}], [{"id": 2}]],
+                2,
+                ["TOKEN_2"],
+                "",
+                id="fresh_run_saves_next_page_token_after_each_yield",
+            ),
+            pytest.param(
+                True,
+                GoogleAdsResumeConfig(page_token="SAVED_TOKEN"),
+                {
+                    "SAVED_TOKEN": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[{"id": 99}]],
+                1,
+                [],
+                "SAVED_TOKEN",
+                id="resume_path_starts_from_saved_token_and_skips_initial_page",
+            ),
+            pytest.param(
+                False,
+                None,
+                {
+                    "": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[{"id": 1}]],
+                1,
+                [],
+                "",
+                id="final_page_does_not_save_state",
+            ),
+            pytest.param(
+                False,
+                None,
+                {
+                    "": [_FakePage(results=[], next_page_token="", field_mask=_field_mask([]))],
+                },
+                [[]],
+                0,
+                [],
+                "",
+                id="empty_page_does_not_yield_or_save",
+            ),
+        ],
+    )
+    def test_resume_contract(
+        self,
+        can_resume: bool,
+        loaded_state: GoogleAdsResumeConfig | None,
+        pages_by_token: dict[str, list[_FakePage]],
+        response_rows: list[list[dict]],
+        expected_yielded_tables: int,
+        expected_saved_tokens: list[str],
+        expected_first_call_token: str,
+    ) -> None:
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = can_resume
+        manager.load_state.return_value = loaded_state
+        service = _make_search_service(pages_by_token)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
+            side_effect=[iter(rows) for rows in response_rows],
+        ):
+            tables = list(
+                _search_as_arrow_tables(
+                    service=service,
+                    customer_id="1234567890",
+                    query="SELECT id FROM campaign",
+                    table=_make_table(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert len(tables) == expected_yielded_tables
+        assert service.search.call_args_list[0][1]["request"]["page_token"] == expected_first_call_token
+        saved_tokens = [call.args[0].page_token for call in manager.save_state.call_args_list]
+        assert saved_tokens == expected_saved_tokens
+
+
+class TestGoogleAdsSourceResumableBinding:
+    def test_get_resumable_source_manager_round_trips_resume_config(self) -> None:
+        source = GoogleAdsSource()
+        fake_inputs = mock.MagicMock()
+        fake_inputs.team_id = 1
+        fake_inputs.job_id = "test-google-ads-job"
+        fake_inputs.logger = mock.MagicMock()
+
+        manager = source.get_resumable_source_manager(fake_inputs)
+
+        assert isinstance(manager, ResumableSourceManager)
+
+        store: dict[str, bytes] = {}
+        fake_redis = mock.MagicMock()
+        fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
+        fake_redis.get.side_effect = lambda key: store.get(key)
+        fake_redis.exists.side_effect = lambda key: 1 if key in store else 0
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.common.resumable.get_client",
+            return_value=fake_redis,
+        ):
+            original = GoogleAdsResumeConfig(page_token="TEST_TOKEN")
+            manager.save_state(original)
+            loaded = manager.load_state()
+
+        assert isinstance(loaded, GoogleAdsResumeConfig)
+        assert loaded == original
 
 
 class TestGoogleAdsSourceValidation:
@@ -355,3 +535,58 @@ class TestGoogleAdsSourceValidation:
         assert is_valid is False
         assert error is not None
         assert "is not accessible" in error
+
+
+class TestGoogleAdsClientStaleConnection:
+    """Regression tests for stale Postgres connections inside `google_ads_client`.
+
+    When an import streams rows for many minutes, the Django connection that the
+    Temporal worker thread holds can be dropped server-side. The next call into
+    `Integration.objects.get(...)` from `get_rows` then raises
+    `OperationalError: server closed the connection unexpectedly`. We close stale
+    connections before the ORM query so the next lookup grabs a fresh one.
+    """
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.Integration")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    def test_oauth_client_closes_stale_connections_before_integration_lookup(
+        self, mock_close_old_connections, mock_integration_model, mock_client_cls
+    ):
+        manager = mock.MagicMock()
+        manager.attach_mock(mock_close_old_connections, "close_old_connections")
+        manager.attach_mock(mock_integration_model.objects.get, "integration_get")
+
+        mock_integration = mock.MagicMock()
+        mock_integration.refresh_token = "fake-refresh-token"
+        mock_integration_model.objects.get.return_value = mock_integration
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=42)
+
+        google_ads_client(config, team_id=7)
+
+        mock_close_old_connections.assert_called_once_with()
+        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=7)
+        # Order matters: closing stale connections AFTER the failing query would
+        # not prevent the OperationalError we are guarding against.
+        call_order = [name for name, _, _ in manager.mock_calls]
+        assert call_order.index("close_old_connections") < call_order.index("integration_get")
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.service_account")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    def test_service_account_client_does_not_touch_django_connections(
+        self, mock_close_old_connections, mock_client_cls, mock_service_account
+    ):
+        config = GoogleAdsServiceAccountSourceConfig(
+            customer_id="1234567890",
+            private_key="pk",
+            private_key_id="pk_id",
+            client_email="sa@example.com",
+            token_uri="https://example.com",
+            developer_token="dev",
+        )
+
+        google_ads_client(config, team_id=7)
+
+        mock_close_old_connections.assert_not_called()

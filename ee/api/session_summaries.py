@@ -1,14 +1,17 @@
 import os
+import re
+import json
 import asyncio
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet
+from django.http import StreamingHttpResponse
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -24,26 +27,41 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.models import Team, User
+from posthog.event_usage import EventSource, get_event_source
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.session_replay.session_summary.types.group import SessionSummaryStreamUpdate
+from posthog.renderers import ServerSentEventRenderer
+from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
+from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 from posthog.utils import relative_date_parse
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.session_group.summarize_session_group import (
+    find_sessions_timestamps,
+    partition_sessions_by_recording_existence,
+)
 from ee.hogai.session_summaries.tracking import (
+    SummarySource,
     capture_session_summary_generated,
     capture_session_summary_started,
     generate_tracking_id,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
 from ee.models.session_summaries import SessionGroupSummary
+from ee.models.team_session_summaries_config import (
+    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
+    CUSTOM_TAG_NAME_MAX_LENGTH,
+    CUSTOM_TAGS_MAX_COUNT,
+    PRODUCT_CONTEXT_MAX_LENGTH,
+    TeamSessionSummariesConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -60,11 +78,88 @@ class SessionSummariesSerializer(serializers.Serializer):
     )
 
 
+_PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
+_CUSTOM_TAG_NAME_RE = re.compile(rf"^[a-z0-9_]{{1,{CUSTOM_TAG_NAME_MAX_LENGTH}}}$")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+
+def _sanitize_custom_tag_description(value: str) -> str:
+    collapsed = _WHITESPACE_RUN_RE.sub(" ", value or "").strip()
+    return collapsed.replace("<", "").replace(">", "")
+
+
+# Substring used by ``execute_summarize_session`` (via the Temporal workflow) when the workflow
+# finished successfully but produced no summary row — typically because ``fetch_session_data_activity``
+# returned False (no events / recording too short). Kept here as a module-level constant so the coupling
+# between the workflow's exception text and the API-layer classification is explicit and grep-able.
+_NO_READY_SUMMARY_ERROR_SUBSTRING = "No ready summary found in DB"
+
+# Cap on concurrent in-flight per-session summary tasks within a single streaming request.
+# Each task triggers a Temporal workflow that issues ClickHouse + LLM provider calls, so an
+# unbounded fan-out (e.g. 300 sessions in one batch) can spike both. 10 keeps backpressure
+# reasonable while still amortizing latency for typical batch sizes.
+_STREAM_BATCH_CONCURRENCY = 10
+
+
+class SessionSummariesConfigSerializer(serializers.ModelSerializer):
+    product_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=PRODUCT_CONTEXT_MAX_LENGTH,
+        help_text=(
+            "Free-form description of the team's product, used to tailor AI-generated single-session replay "
+            "summaries. Injected into the system prompt of every summary generated for this team via the "
+            "replay page."
+        ),
+    )
+    custom_tags = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            f"Team-defined tags layered on top of the fixed taxonomy, as a {{name: description}} map. "
+            f"Names must be lowercase snake_case (max {CUSTOM_TAG_NAME_MAX_LENGTH} chars), descriptions "
+            f"max {CUSTOM_TAG_DESCRIPTION_MAX_LENGTH} chars, max {CUSTOM_TAGS_MAX_COUNT} entries."
+        ),
+    )
+
+    class Meta:
+        model = TeamSessionSummariesConfig
+        fields = ["product_context", "custom_tags"]
+
+    def validate_product_context(self, value: str) -> str:
+        # Prevent prompt injection via the <product_context> wrapper in the summary prompt.
+        return _PRODUCT_CONTEXT_WRAPPER_TAG_RE.sub("", value).strip()
+
+    def validate_custom_tags(self, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > CUSTOM_TAGS_MAX_COUNT:
+            raise exceptions.ValidationError(f"At most {CUSTOM_TAGS_MAX_COUNT} custom tags are allowed.")
+        cleaned: dict[str, str] = {}
+        for name, description in value.items():
+            if not _CUSTOM_TAG_NAME_RE.match(name):
+                raise exceptions.ValidationError(
+                    f"Invalid tag name '{name}': must be lowercase snake_case, "
+                    f"1-{CUSTOM_TAG_NAME_MAX_LENGTH} chars, [a-z0-9_]."
+                )
+            description = _sanitize_custom_tag_description(description or "")
+            if not description:
+                raise exceptions.ValidationError(f"Description for tag '{name}' is required.")
+            if len(description) > CUSTOM_TAG_DESCRIPTION_MAX_LENGTH:
+                raise exceptions.ValidationError(
+                    f"Description for tag '{name}' exceeds {CUSTOM_TAG_DESCRIPTION_MAX_LENGTH} characters."
+                )
+            cleaned[name] = description
+        return cleaned
+
+
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionSummariesSerializer
+
+    @staticmethod
+    def _resolve_summary_source(request: Request) -> SummarySource:
+        return "mcp" if get_event_source(request) == EventSource.MCP else "api"
 
     def _validate_user(self, request: Request) -> User:
         if not request.user.is_authenticated:
@@ -76,45 +171,26 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("Session summaries are not enabled for this user")
         return user
 
     def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:
+        """Strict input validation for the group flow — needs all sessions to exist to compute timestamps."""
+        session_ids, extra_summary_context = self._parse_input(request)
+        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
+        return session_ids, min_timestamp, max_timestamp, extra_summary_context
+
+    def _parse_input(self, request: Request) -> tuple[list[str], ExtraSummaryContext | None]:
+        """Parse and validate request body without checking session existence.
+
+        Used by the individual flow, which surfaces "no recording" as a per-session error rather
+        than failing the whole batch when one ID is bad.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         session_ids = serializer.validated_data["session_ids"]
         focus_area = serializer.validated_data.get("focus_area")
-        # Check that sessions exist and get min/max timestamps for follow-up queries
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
-        # Prepare extra context, if provided
-        extra_summary_context = None
-        if focus_area:
-            extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
-        return session_ids, min_timestamp, max_timestamp, extra_summary_context
-
-    def _determine_video_validation_enabled(self, user: User) -> bool | Literal["full"]:
-        """
-        Check if the user has the video validation for session summaries feature flag enabled.
-        """
-        if posthoganalytics.feature_enabled(
-            "max-session-summarization-video-as-base",
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            return "full"  # Use video as base of summarization
-        return (
-            posthoganalytics.feature_enabled(
-                "max-session-summarization-video-validation",
-                str(user.distinct_id),
-                groups={"organization": str(self.team.organization_id)},
-                group_properties={"organization": {"id": str(self.team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-            or False
-        )
+        extra_summary_context = ExtraSummaryContext(focus_area=focus_area) if focus_area else None
+        return session_ids, extra_summary_context
 
     @staticmethod
     async def _get_summary_from_progress_stream(
@@ -123,7 +199,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         team: Team,
         min_timestamp: datetime,
         max_timestamp: datetime,
-        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
@@ -135,7 +210,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
             summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
-            video_validation_enabled=video_validation_enabled,
             extra_summary_context=extra_summary_context,
         ):
             if update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
@@ -165,11 +239,11 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         description="Generate AI summary for a group of session recordings to find patterns and generate a notebook.",
         request=SessionSummariesSerializer,
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
     def create_session_summaries(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, min_timestamp, max_timestamp, extra_summary_context = self._validate_input(request)
-        video_validation_enabled = self._determine_video_validation_enabled(user)
+        summary_source = self._resolve_summary_source(request)
         tracking_id = (
             generate_tracking_id()
         )  # Unified id to combine start/end, calculate duration, check success rate and so
@@ -177,11 +251,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source=summary_source,
             summary_type="group",
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
         )
         # Summarize provided sessions
         try:
@@ -191,18 +263,15 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team=self.team,
                 min_timestamp=min_timestamp,
                 max_timestamp=max_timestamp,
-                video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
             capture_session_summary_generated(
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="group",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=True,
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
@@ -217,11 +286,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="group",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
@@ -231,11 +298,28 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
     @staticmethod
+    def _classify_summary_error(err: BaseException) -> tuple[str, str]:
+        """Map an internal exception to a (error_type, error_message) pair returned to the caller.
+
+        We don't surface raw exception strings — they leak internals and aren't actionable. The handful of
+        types below cover the failure modes the API layer can observe today; everything else falls through to
+        a generic ``summary_failed``.
+        """
+        message = str(err)
+        # Raised by execute_summarize_session when the workflow finished but no summary row was written —
+        # in practice that means fetch_session_data_activity returned False (no events / too short).
+        if isinstance(err, ValueError) and _NO_READY_SUMMARY_ERROR_SUBSTRING in message:
+            return (
+                "no_events_or_too_short",
+                "Recording has no usable events to summarize (typically because it is too short).",
+            )
+        return ("summary_failed", "Failed to generate a summary for this session. Please try again later.")
+
+    @staticmethod
     async def _summarize_session(
         session_id: str,
         user: User,
         team: Team,
-        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> SessionSummarySerializer | Exception:
         try:
@@ -243,7 +327,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_id=session_id,
                 user=user,
                 team=team,
-                video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
             summary = SessionSummarySerializer(data=summary_raw)
@@ -258,9 +341,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids: list[str],
         user: User,
         team: Team,
-        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, dict[str, Any]]:
+        """Run per-session summaries concurrently. Returns one entry per requested session.
+
+        Successful entries match the existing summary shape (``segments``, ``key_actions``, etc.). Failed
+        entries return ``{"error": <type>, "error_message": <human-readable>}`` so callers can tell
+        "skipped on purpose" from "tool broke" without re-invoking with singletons.
+        """
         tasks = {}
         async with asyncio.TaskGroup() as tg:
             for session_id in session_ids:
@@ -269,63 +357,78 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         session_id=session_id,
                         user=user,
                         team=team,
-                        video_validation_enabled=video_validation_enabled,
                         extra_summary_context=extra_summary_context,
                     )
                 )
-        summaries: dict[str, dict[str, Any]] = {}
+        results: dict[str, dict[str, Any]] = {}
         for session_id, task in tasks.items():
             res: SessionSummarySerializer | Exception = task.result()
             if isinstance(res, Exception):
+                error_type, error_message = self._classify_summary_error(res)
                 logger.exception(
                     f"Failed to generate individual session summary for session {session_id} from team {team.pk} by user {user.id}: {res}",
                     team_id=team.pk,
                     user_id=user.id,
+                    error_type=error_type,
                 )
+                results[session_id] = {"error": error_type, "error_message": error_message}
             else:
-                # Return only successful summaries
-                summaries[session_id] = res.data
-        return summaries
+                results[session_id] = res.data
+        return results
 
     @extend_schema(
         operation_id="create_session_summaries_individually",
         description="Generate AI individual summary for each session, without grouping.",
         request=SessionSummariesSerializer,
+        tags=["replay"],
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
-        session_ids, _, _, extra_summary_context = self._validate_input(request)
-        video_validation_enabled = self._determine_video_validation_enabled(user)
+        session_ids, extra_summary_context = self._parse_input(request)
+        summary_source = self._resolve_summary_source(request)
+        # Don't fail the whole batch if some sessions have no recording — partition them out and surface
+        # each missing session as a per-session error in the response (matches the partial-success contract
+        # this endpoint already had for downstream summary failures).
+        found_session_ids, missing_session_ids = partition_sessions_by_recording_existence(
+            session_ids=session_ids, team=self.team
+        )
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source=summary_source,
             summary_type="single",
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
         )
         # Summarize provided sessions individually
         try:
-            summaries = async_to_sync(self._get_individual_summaries)(
-                session_ids=session_ids,
-                user=user,
-                team=self.team,
-                video_validation_enabled=video_validation_enabled,
-                extra_summary_context=extra_summary_context,
-            )
+            summaries: dict[str, dict[str, Any]] = {}
+            if found_session_ids:
+                summaries.update(
+                    async_to_sync(self._get_individual_summaries)(
+                        session_ids=found_session_ids,
+                        user=user,
+                        team=self.team,
+                        extra_summary_context=extra_summary_context,
+                    )
+                )
+            for missing_id in missing_session_ids:
+                summaries[missing_id] = {
+                    "error": "recording_not_found",
+                    "error_message": (
+                        "No recording found for this session ID. The recording may not have been captured, "
+                        "may have expired, or may belong to a different team."
+                    ),
+                }
             capture_session_summary_generated(
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="single",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=True,
             )
             return Response(summaries, status=status.HTTP_200_OK)
@@ -340,11 +443,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="single",
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
@@ -352,6 +453,153 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="stream_batch",
+        required_scopes=["session_recording:read"],
+        renderer_classes=[ServerSentEventRenderer],
+    )
+    def stream_batch_session_summaries(self, request: Request, **kwargs) -> StreamingHttpResponse:
+        user = self._validate_user(request)
+        # Use _parse_input (not _validate_input) — the individual flow must surface bad
+        # session IDs as per-session error events, not fail the whole batch up front.
+        session_ids, extra_summary_context = self._parse_input(request)
+        tracking_id = generate_tracking_id()
+        team = self.team
+
+        capture_session_summary_started(
+            user=user,
+            team=team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            session_ids=session_ids,
+        )
+
+        async def async_stream() -> AsyncGenerator[bytes, None]:
+            SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
+
+            sem = asyncio.Semaphore(_STREAM_BATCH_CONCURRENCY)
+            pending: set[asyncio.Task[tuple[str, SessionSummarySerializer | Exception]]] = set()
+            for session_id in session_ids:
+
+                async def _run(sid: str = session_id) -> tuple[str, SessionSummarySerializer | Exception]:
+                    async with sem:
+                        result = await self._summarize_session(
+                            session_id=sid,
+                            user=user,
+                            team=team,
+                            extra_summary_context=extra_summary_context,
+                        )
+                    return sid, result
+
+                pending.add(asyncio.create_task(_run()))
+
+            completed_ids: list[str] = []
+            failed_ids: list[str] = []
+
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending, timeout=SSE_KEEPALIVE_INTERVAL, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if not done:
+                        yield SSE_KEEPALIVE_COMMENT
+                        continue
+
+                    for task in done:
+                        sid, result = task.result()
+                        if isinstance(result, Exception):
+                            error_type, error_message = self._classify_summary_error(result)
+                            # _summarize_session returns exceptions as values, so we're not in an except
+                            # block here — sys.exc_info() is empty. Pass exc_info=result explicitly so
+                            # the traceback isn't dropped.
+                            logger.error(
+                                f"Failed to generate streaming session summary for session {sid} from team {team.pk} by user {user.id}: {result}",
+                                team_id=team.pk,
+                                user_id=user.id,
+                                error_type=error_type,
+                                exc_info=result,
+                            )
+                            failed_ids.append(sid)
+                            event_data = json.dumps(
+                                {
+                                    "session_id": sid,
+                                    "error": error_type,
+                                    "error_message": error_message,
+                                }
+                            )
+                            yield f"event: error\ndata: {event_data}\n\n".encode()
+                        else:
+                            completed_ids.append(sid)
+                            event_data = json.dumps({"session_id": sid, "summary": result.data})
+                            yield f"event: summary\ndata: {event_data}\n\n".encode()
+            finally:
+                # Cancel still-running tasks on client disconnect or any other early exit
+                # to avoid wasting Temporal workflow + LLM calls.
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+
+            capture_session_summary_generated(
+                user=user,
+                team=team,
+                tracking_id=tracking_id,
+                summary_source="api",
+                summary_type="single",
+                session_ids=session_ids,
+                success=len(failed_ids) == 0,
+            )
+
+            done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
+            yield f"event: done\ndata: {done_data}\n\n".encode()
+
+        return StreamingHttpResponse(
+            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="retrieve_session_summaries_config",
+        description=(
+            "Retrieve the team's session summaries configuration "
+            "(product context used to tailor single-session replay summaries)."
+        ),
+        responses=SessionSummariesConfigSerializer,
+    )
+    @extend_schema(
+        operation_id="update_session_summaries_config",
+        description=(
+            "Update the team's session summaries configuration "
+            "(product context used to tailor single-session replay summaries)."
+        ),
+        request=SessionSummariesConfigSerializer,
+        responses=SessionSummariesConfigSerializer,
+        methods=["PATCH"],
+    )
+    @action(methods=["GET", "PATCH"], detail=False, serializer_class=SessionSummariesConfigSerializer)
+    def config(self, request: Request, **kwargs) -> Response:
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        if request.method == "PATCH":
+            effective_level = self.user_permissions.team(self.team).effective_membership_level
+            if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied("Only project admins can modify the session summaries configuration.")
+            serializer = SessionSummariesConfigSerializer(team_config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        else:
+            serializer = SessionSummariesConfigSerializer(team_config)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):
@@ -372,7 +620,7 @@ class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):
     def get_session_count(self, obj: SessionGroupSummary) -> int:
         # Use annotated value if available (from list action), otherwise calculate
         if hasattr(obj, "session_count"):
-            return obj.session_count or 0
+            return int(obj.session_count or 0)
         return len(obj.session_ids) if obj.session_ids else 0
 
 

@@ -55,6 +55,24 @@ and describe the desired outcome for the customer.
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
 
+### When to write a skill
+
+The decision flow:
+
+1. **Ask PostHog Code or Claude Code to do X.** If it works on its own, you don't need a skill.
+2. **If it can't do X, fix the tool prompts first.**
+   Tool names, descriptions, and schemas are the cheapest lever — most "the agent doesn't know how to do X" problems are really "the tool description doesn't explain how to do X."
+   See [Adding tools to the MCP server](/handbook/engineering/ai/implementing-mcp-tools).
+3. **If improving tool prompts doesn't unlock the task — or the agent burns significant tokens figuring out which work to do — write a skill.**
+
+Additional signals that a skill is the right answer even when tool prompts are already solid:
+
+- **Complex inputs or outputs.** LLM analytics, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
+- **The guidance naturally splits into entry point plus references.**
+  SQL skills are the canonical example — a top-level workflow with optional schemas, query patterns, and function indexes loaded on demand. If your guidance has that shape, structure it as a skill with `references/`.
+
+Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
+
 ### Referencing MCP tools in skills
 
 When a skill references an MCP tool, use the `posthog:` namespace prefix
@@ -101,8 +119,8 @@ Every skill entry point must have YAML frontmatter with `name` and `description`
 
 ```yaml
 ---
-name: query-examples
-description: 'HogQL query examples and reference material for PostHog data. Read when writing SQL queries...'
+name: querying-posthog-data
+description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog...'
 ---
 ```
 
@@ -114,7 +132,7 @@ Both fields are required and validated at build time.
 Reference files are loaded on demand – only the entry point is read initially.
 Keep `SKILL.md` under 500 lines and split detailed content into `references/`.
 
-See [`query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md)
+See [`querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md)
 for how this works in practice –
 the entry point links to 30+ reference files
 covering model schemas, query patterns, and HogQL extensions.
@@ -130,8 +148,8 @@ Use lowercase kebab-case. Prefer gerund form (verb + -ing):
 
 | Pattern                   | Examples                                                                  |
 | ------------------------- | ------------------------------------------------------------------------- |
-| Gerund form (preferred)   | `analyzing-llm-traces`, `writing-hogql-queries`, `managing-feature-flags` |
-| Noun phrases (acceptable) | `query-examples`, `error-tracking-guide`                                  |
+| Gerund form (preferred)   | `querying-posthog-data`, `exploring-llm-traces`, `managing-feature-flags` |
+| Noun phrases (acceptable) | `error-tracking-guide`                                                    |
 
 Skills **must not** be prefixed with `posthog-*`.
 The `posthog-` prefix is added automatically depending on the consumer agent.
@@ -165,9 +183,11 @@ description: >
   experiments, surveys, data warehouse).
 
 description: >
-  Step-by-step guide for analyzing LLM traces in PostHog.
-  Use when inspecting AI generation latency, token usage,
-  human feedback, or trace hierarchies.
+  Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
+  Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
+  asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
+  verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
+  or analyze token usage and costs.
 ```
 
 **Bad descriptions:**
@@ -182,25 +202,35 @@ description: 'Everything about PostHog AI features'
 
 ## Good and bad skill examples
 
-### Good: `analyzing-llm-traces`
+### Good: `exploring-llm-traces`
 
-A focused skill that guides the agent through a specific workflow:
+A focused skill that guides the agent through a specific workflow –
+see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/SKILL.md):
 
-- Starts by verifying that `$ai_trace`, `$ai_generation`, `$ai_feedback` events exist.
-- Provides HogQL queries to retrieve trace data with the right properties.
-- Explains how to join generations to traces via `$ai_trace_id`.
-- Describes the desired outcome (latency analysis, feedback summary, cost breakdown).
+- Declares the exact MCP tools it relies on (`posthog:query-llm-traces-list`, `posthog:query-llm-trace`, `posthog:execute-sql`).
+- Explains the `$ai_trace` / `$ai_span` / `$ai_generation` / `$ai_embedding` event hierarchy
+  and how events link via `$ai_parent_id`.
+- Walks through concrete workflows (debugging a trace from a URL, cost analysis, tool-use verification)
+  rather than listing generic instructions.
+- Uses progressive disclosure – details like the full event schema live in `references/`
+  so the entry point stays focused.
+- Ships with pre-written Python helpers in
+  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/llm_analytics/skills/exploring-llm-traces/scripts)
+  that cover the common workflows.
+  The agent runs these instead of re-deriving the shape of the trace JSON,
+  slicing nested payloads by hand, or burning tokens on exploratory parsing –
+  which streamlines its trajectory and keeps the context window clean.
 
-The agent knows what tools to use (execute-sql, read-data-schema),
-in what order, and what a successful result looks like.
+The agent knows _which_ tools to use, _in what order_, and what a successful result looks like –
+which is exactly what separates a skill from a generic prompt.
 
-### Good: `query-examples`
+### Good: `querying-posthog-data`
 
 A reference skill with a clear entry point and 30+ reference files:
 
-- Entry point ([`SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md))
+- Entry point ([`SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md))
   links to model schemas, query patterns, and HogQL extensions.
-- Guidelines file ([`references/guidelines.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/references/guidelines.md))
+- Guidelines file ([`references/guidelines.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/guidelines.md))
   explains schema verification workflow, time ranges, joins, and HogQL differences.
 - Uses progressive disclosure – agents load only the references they need.
 
@@ -327,15 +357,22 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 
 ## Distribution
 
-Distribution is automatic.
-Built skills are published through the [posthog/skills](https://github.com/PostHog/skills) repo
-and consumed via plugins for coding agents at [PostHog/ai-plugin](https://github.com/PostHog/ai-plugin).
+Distribution is automatic – once a skill lands on `master`,
+CI builds the `dist/skills.zip` artifact and publishes it to two downstream repositories:
 
-PostHog Code already consumes skills automatically.
-PostHog AI will consume the same set of skills.
+- [`PostHog/skills`](https://github.com/PostHog/skills) –
+  the canonical distribution repo.
+  Each built skill is pushed as a standalone directory so it can be synced directly into
+  any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
+- [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
+  the plugin distribution used by coding agents that consume PostHog capabilities
+  (PostHog Code, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
+  so agents get the "how" and the "what" together.
 
-Product teams don't need to handle distribution –
-the pipeline and CI take care of it.
+PostHog Code already consumes skills automatically, and PostHog AI consumes the same set.
+Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
+you don't need to handle distribution yourself –
+merge your skill and it shows up in both places on the next CI run.
 
 ## Testing
 
@@ -343,13 +380,13 @@ To test a product skill locally with Claude Code, sync it to `.agents/skills/`:
 
 ```sh
 # Build and sync a specific skill
-hogli sync:skill -- --name query-examples
+hogli sync:skill -- --name querying-posthog-data
 
-# The skill is now available at .agents/skills/query-examples/
+# The skill is now available at .agents/skills/querying-posthog-data/
 # Claude Code picks it up via the .claude/skills -> .agents/skills symlink
 
 # When done testing, remove the synced copy
-hogli unsync:skill -- --name query-examples
+hogli unsync:skill -- --name querying-posthog-data
 ```
 
 Synced skills are automatically gitignored and should not be committed.

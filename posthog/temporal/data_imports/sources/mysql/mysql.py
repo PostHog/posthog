@@ -174,8 +174,12 @@ def _build_query(
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
+    force_index_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
+    table = f"{_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
+    hint = f" FORCE INDEX ({_sanitize_identifier(force_index_name)})" if force_index_name else ""
+
+    query = f"SELECT * FROM {table}{hint}"
 
     if not should_use_incremental_field:
         return query, {}
@@ -186,11 +190,90 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)} WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s ORDER BY {_sanitize_identifier(incremental_field)} ASC"
+    query = (
+        f"SELECT * FROM {table}{hint}"
+        f" WHERE {_sanitize_identifier(incremental_field)} > %(incremental_value)s"
+        f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
+    )
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+# pymysql error code for "Lost connection to MySQL server during query" — the
+# symptom we see when the optimizer picks a bad plan (full scan + filesort) and
+# the filesort preparation exceeds a middlebox / server-side query timeout
+# before any rows stream back.
+_LOST_CONNECTION_DURING_QUERY_CODE = 2013
+
+
+def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
+    """Return True if the error suggests we hit a bad-plan-induced query timeout.
+
+    Narrowly matches `OperationalError(2013, ...)`. Other `OperationalError`s
+    (access denied, table missing, etc.) should propagate untouched.
+    """
+    code = e.args[0] if e.args else None
+    return code == _LOST_CONNECTION_DURING_QUERY_CODE
+
+
+def _find_index_for_cursor(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    cursor_field: str,
+    logger: FilteringBoundLogger,
+) -> str | None:
+    """Return the name of an index whose leading column is `cursor_field`.
+
+    Used to target a `FORCE INDEX` hint at the right index when the optimizer
+    picks a full table scan over the incremental field's index. Returns None
+    when no usable index exists — callers should fall through to the original
+    error in that case (same behavior as today, with a clearer log).
+    """
+    try:
+        query = f"SHOW INDEX FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        column_names = [col[0] for col in cursor.description or []]
+        # SHOW INDEX column positions vary by MySQL version; look them up by name.
+        try:
+            key_name_idx = column_names.index("Key_name")
+            seq_idx = column_names.index("Seq_in_index")
+            column_idx = column_names.index("Column_name")
+        except ValueError:
+            logger.debug("SHOW INDEX returned unexpected columns: %s", column_names)
+            return None
+
+        for row in rows:
+            if row[column_idx] == cursor_field and row[seq_idx] == 1:
+                return row[key_name_idx]
+        return None
+    except Exception as e:
+        logger.debug(f"_find_index_for_cursor failed: {e}", exc_info=e)
+        return None
+
+
+def _explain_query(cursor: Cursor, query: str, query_args: dict[str, Any], logger: FilteringBoundLogger) -> None:
+    """Log the MySQL EXPLAIN output for `query` at debug level.
+
+    Useful for diagnosing sync failures on large tables: reveals whether the
+    optimizer chose a full table scan + filesort (the failure mode where
+    nothing streams back before middlebox/query timeouts) vs. a range scan
+    on the incremental index.
+    """
+    try:
+        explain_query = f"EXPLAIN {query}"
+        logger.debug(f"Running EXPLAIN on: {query}")
+        cursor.execute(explain_query, query_args)
+        rows = cursor.fetchall()
+        column_names = [col[0] for col in cursor.description or []]
+        explain_lines = [str(dict(zip(column_names, row))) for row in rows]
+        logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
+    except Exception as e:
+        logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
+        capture_exception(e)
 
 
 def _get_rows_to_sync(
@@ -289,6 +372,65 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: Error: {e}. Returning None", exc_info=e)
         capture_exception(e)
         return None
+
+
+def get_leading_index_columns_for_schemas(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+    using_ssl: bool = True,
+) -> dict[str, set[str]] | None:
+    """Return the leading column of each index per table.
+
+    `information_schema.STATISTICS` lists every index (including primary, unique,
+    secondary) row-per-column. `SEQ_IN_INDEX = 1` identifies the first column
+    of each index, which is what speeds up `WHERE col >= …` predicates.
+
+    Returns None when discovery fails so the caller defaults to no warning.
+    Tables with no indexes still appear in the dict with an empty set so the
+    UI distinguishes them from "lookup failed".
+    """
+    if not table_names:
+        return {}
+
+    result: dict[str, set[str]] = {table: set() for table in table_names}
+
+    try:
+        ssl_ca: str | None = None
+        if using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        with pymysql.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=10,
+            ssl_ca=ssl_ca,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT TABLE_NAME, COLUMN_NAME
+                    FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA = %(schema)s
+                      AND TABLE_NAME IN %(names)s
+                      AND SEQ_IN_INDEX = 1
+                    """,
+                    {"schema": schema, "names": tuple(table_names)},
+                )
+                for table_name, column_name in cursor.fetchall():
+                    result.setdefault(table_name, set()).add(column_name)
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index columns for MySQL schemas", exc_info=e)
+        return None
+
+    return result
 
 
 def get_primary_keys_for_schemas(
@@ -679,9 +821,16 @@ def mysql_source(
                 if primary_keys is None and "id" in table:
                     primary_keys = ["id"]
 
-    def get_rows() -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
+    arrow_schema = table.to_arrow_schema()
 
+    def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
+        """Open a fresh connection and stream rows from `db_incremental_field_last_value`.
+
+        The pipeline itself persists the per-batch cursor value (see
+        `update_incremental_field_values`), so a retry that restarts from the
+        original starting cursor is correct but occasionally replays a few
+        already-processed rows; the delta merge dedupes by primary key.
+        """
         with tunnel() as (host, port):
             # PlanetScale needs this to be set
             init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
@@ -717,8 +866,16 @@ def mysql_source(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
+                        force_index_name=force_index_name,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
+
+                    # EXPLAIN before the streaming query to help diagnose
+                    # failures where MySQL picks full scan + filesort over
+                    # the incremental index. _explain_query consumes its
+                    # rows via fetchall(), leaving the cursor in a clean
+                    # state for the streaming execute() below.
+                    _explain_query(cursor, query, args, logger)
 
                     cursor.execute(query, args)
 
@@ -731,6 +888,72 @@ def mysql_source(
                             break
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+    def get_rows() -> Iterator[Any]:
+        # Track whether any batch reached the pipeline. If one did, the retry
+        # path can't safely restart from the original cursor: the delta merge
+        # only dedupes rows for `incremental` writes into an existing table
+        # (see `delta_table_helper.write_to_deltalake`), so full-refresh and
+        # first-ever-sync scenarios would get silent duplicates on replay.
+        # The observed bad-plan failure fails before any rows stream, so this
+        # guard is defensive — it enforces the invariant the PR assumes.
+        yielded_any = False
+        try:
+            for chunk in _stream_with_optional_force_index(force_index_name=None):
+                yielded_any = True
+                yield chunk
+            return
+        except pymysql.err.OperationalError as e:
+            if not _is_bad_plan_timeout(e):
+                raise
+            if yielded_any:
+                logger.warning(
+                    f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}) "
+                    f"after already yielding rows — skipping FORCE INDEX fallback to avoid duplicates."
+                )
+                raise
+            logger.warning(
+                f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
+                f"Attempting FORCE INDEX fallback."
+            )
+            if not should_use_incremental_field or not incremental_field:
+                # Without an incremental field there's no cursor to force an index on.
+                logger.warning(
+                    "Bad-plan timeout hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
+                )
+                raise
+
+            with tunnel() as (host, port):
+                # Match the streaming connection's PlanetScale workload hint so
+                # future proxy-side policy changes don't silently break the probe.
+                init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
+
+                with pymysql.connect(
+                    host=host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                    connect_timeout=10,
+                    ssl_ca=ssl_ca,
+                    init_command=init_command,
+                    conv=_MYSQL_SAFE_CONVERSIONS,
+                ) as probe_connection:
+                    with probe_connection.cursor() as probe_cursor:
+                        force_index_name = _find_index_for_cursor(
+                            probe_cursor, schema, table_name, incremental_field, logger
+                        )
+
+            if not force_index_name:
+                logger.warning(
+                    f"Bad-plan timeout hit and no usable index on "
+                    f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
+                    f"Customer should add an index on the incremental field."
+                )
+                raise
+
+            logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
+            yield from _stream_with_optional_force_index(force_index_name)
 
     name = NamingConvention.normalize_identifier(table_name)
 

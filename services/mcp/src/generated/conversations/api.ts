@@ -27,11 +27,20 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
             'Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.'
         ),
     channel_detail: zod
-        .enum(['slack_bot_mention', 'slack_channel_message', 'slack_emoji_reaction', 'widget_api', 'widget_embedded'])
+        .enum([
+            'github_issue',
+            'slack_bot_mention',
+            'slack_channel_message',
+            'slack_emoji_reaction',
+            'teams_bot_mention',
+            'teams_channel_message',
+            'widget_api',
+            'widget_embedded',
+        ])
         .optional()
         .describe('Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).'),
     channel_source: zod
-        .enum(['email', 'slack', 'widget'])
+        .enum(['email', 'github', 'slack', 'teams', 'widget'])
         .optional()
         .describe('Filter by the channel the ticket originated from.'),
     date_from: zod
@@ -51,16 +60,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .enum([
-            '-created_at',
-            '-sla_due_at',
-            '-ticket_number',
-            '-updated_at',
-            'created_at',
-            'sla_due_at',
-            'ticket_number',
-            'updated_at',
-        ])
+        .string()
         .optional()
         .describe('Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.'),
     priority: zod
@@ -129,14 +129,17 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
-        sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
-        snoozed_until: zod.iso.datetime({}).nullish(),
+        sla_due_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('SLA deadline set via workflows. Null means no SLA.'),
+        snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')

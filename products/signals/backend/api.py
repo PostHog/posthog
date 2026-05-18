@@ -1,12 +1,18 @@
+import enum
 from datetime import timedelta
+from typing import get_args
 
 from django.conf import settings
 
+import pydantic
 import tiktoken
+import structlog
 import temporalio
+import posthoganalytics
 
 from posthog.schema import SignalInput
 
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -16,8 +22,35 @@ from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
+logger = structlog.get_logger(__name__)
+
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+
+def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
+    """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
+    args = get_args(field.annotation)
+    if args:
+        return args
+    if isinstance(field.annotation, type) and issubclass(field.annotation, enum.Enum):
+        return tuple(m.value for m in field.annotation)
+    if field.default is not pydantic.fields.PydanticUndefined:
+        return (field.default,)
+    return ()
+
+
+# Build a lookup from (source_product, source_type) -> variant model class
+# so we can validate signals without needing the synthetic discriminator tag.
+_SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
+for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
+    _product_field = _variant_type.model_fields.get("source_product")
+    _type_field = _variant_type.model_fields.get("source_type")
+    if _product_field is None or _type_field is None:
+        continue
+    for _product in _get_field_values(_product_field):
+        for _source_type in _get_field_values(_type_field):
+            _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
 async def emit_signal(
@@ -73,8 +106,21 @@ async def emit_signal(
             f"Truncate the description before calling emit_signal."
         )
 
-    # Raise if signal doesn't match any known schema
-    SignalInput.model_validate(
+    # Validate the signal against the matching schema variant
+    variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    if variant_model is None:
+        raise pydantic.ValidationError.from_exception_data(
+            title="SignalInput",
+            line_errors=[
+                {
+                    "type": "value_error",
+                    "loc": ("source_product", "source_type"),
+                    "input": {"source_product": source_product, "source_type": source_type},
+                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
+                }
+            ],
+        )
+    variant_model.model_validate(
         {
             "source_product": source_product,
             "source_type": source_type,
@@ -84,6 +130,29 @@ async def emit_signal(
             "extra": extra or {},
         }
     )
+
+    # Fire a "started" marker so direct callers (error tracking, LLM analytics evals, etc.)
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The
+    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    try:
+        posthoganalytics.capture(
+            event="signal_emission_started",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emission_started event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )
 
     client = await async_connect()
 
@@ -118,3 +187,25 @@ async def emit_signal(
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         run_timeout=timedelta(minutes=10),
     )
+
+    # Fire the analytics event only after the signal is definitively queued so
+    # Temporal/connection failures don't inflate the "signals emitted" metric.
+    try:
+        posthoganalytics.capture(
+            event="signal_emitted",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emitted event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )

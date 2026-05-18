@@ -1,8 +1,12 @@
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any, Optional
 
-from django.db import models
+from django.core.cache import cache
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save, pre_save
+from django.dispatch import receiver
 
+import structlog
 from celery import shared_task
 from rest_framework import serializers
 
@@ -10,18 +14,23 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.utils import get_instance_realm
+from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+logger = structlog.get_logger(__name__)
 
 """
 How to use this model:
@@ -180,6 +189,28 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
         return self.team.ingested_event
 
+    def has_activated_llm_analytics(self) -> bool:
+        has_ai_generation = EventDefinition.objects.filter(team=self.team, name="$ai_generation").exists()
+        if not has_ai_generation:
+            return False
+
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="llm_analytics",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+
+        # Activated when the user has engaged with the dashboard (15s dwell) or viewed a trace
+        return contexts.get("llm_analytics_viewed", 0) >= 1 or contexts.get("llm_analytics_trace_viewed", 0) >= 1
+
+    def has_activated_workflows(self) -> bool:
+        # At least one workflow needs to be active (not just drafted)
+        return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
@@ -197,6 +228,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             "error_tracking": self.has_activated_error_tracking,
             "product_analytics": self.has_activated_product_analytics,
             "surveys": self.has_activated_surveys,
+            "llm_analytics": self.has_activated_llm_analytics,
+            "workflows": self.has_activated_workflows,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
@@ -285,6 +318,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def calculate_product_activation(team_id: int, only_calc_if_days_since_last_checked: int = 1) -> None:
     """
     Calculate product activation for a team.
@@ -302,3 +336,109 @@ def calculate_product_activation(team_id: int, only_calc_if_days_since_last_chec
         ):
             continue
         product_intent.check_and_update_activation()
+
+
+# Intentionally matches the default of `only_calc_if_days_since_last_checked=1`
+# in `calculate_product_activation` above. The two together define the
+# activation re-check cadence — tune them together.
+PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS = 24 * 60 * 60
+
+
+def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
+    """Enqueue `calculate_product_activation` for this team at most once per 24h.
+
+    The Celery task itself already short-circuits each not-yet-activated intent with
+    `only_calc_if_days_since_last_checked=1`, so enqueueing on every page render was
+    wasted broker traffic that the worker would no-op. This guard skips the enqueue
+    when we've already done it for this team within the debounce window.
+
+    Failure mode: if the cache backend errors (e.g. Redis blip), fail open and
+    enqueue anyway — better to take the broker round-trip than to 500 the team
+    list endpoint. The inner task's per-intent short-circuit limits the cost.
+
+    Best-effort: the debounce key is set unconditionally before enqueueing, so a
+    Celery enqueue or worker failure leaves the team debounced for up to 24h. The
+    primary activation path is `ProductIntent.register()` which calls
+    `check_and_update_activation()` synchronously; this helper exists only for the
+    periodic re-check of criteria that became met after registration.
+
+    Returns True when the task was enqueued, False when the call was debounced.
+    """
+    debounce_key = f"product_activation_enqueued:{team_id}"
+    try:
+        was_added = cache.add(debounce_key, "1", timeout=PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS)
+    except Exception as e:
+        # Cache error must not block the enqueue path; fall through to .delay().
+        # Log + capture so a chronic Redis problem still surfaces in monitoring
+        # rather than silently degrading to "every render enqueues" (which would
+        # otherwise look identical to working code).
+        logger.warning("product_activation_debounce_cache_failure", team_id=team_id, exc_info=True)
+        capture_exception(e)
+        was_added = True
+    if was_added:
+        calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        return True
+    return False
+
+
+PRODUCT_INTENTS_CACHE_TTL_SECONDS = 60 * 60
+
+
+def _team_product_intents_cache_key(team_id: int) -> str:
+    return f"team_serializer:product_intents:{team_id}"
+
+
+def _fetch_product_intents(team_id: int) -> list[dict[str, Any]]:
+    return list(
+        ProductIntent.objects.filter(team_id=team_id).values(
+            "product_type", "created_at", "onboarding_completed_at", "updated_at"
+        )
+    )
+
+
+def cached_product_intents_for_team(team_id: int) -> list[dict[str, Any]]:
+    """Per-team cache for the product_intents response on the team serializer.
+
+    Production traces showed `team_serializer.product_intents` taking up to 532ms
+    on the home view. The query result changes only when a ProductIntent row writes
+    or deletes; the post_save / post_delete receivers below invalidate immediately.
+    A 1h TTL caps staleness for any path that bypasses the ORM signals.
+    """
+    cache_key = _team_product_intents_cache_key(team_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = _fetch_product_intents(team_id)
+    safe_cache_set(cache_key, result, timeout=PRODUCT_INTENTS_CACHE_TTL_SECONDS)
+    return result
+
+
+def _invalidate_product_intents_cache(team_id: int) -> None:
+    safe_cache_delete(_team_product_intents_cache_key(team_id))
+    transaction.on_commit(lambda: safe_cache_delete(_team_product_intents_cache_key(team_id)))
+
+
+@receiver(pre_save, sender=ProductIntent)
+def _capture_original_team_id(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    # Stash the persisted team_id before save so post_save can invalidate the previous
+    # team's cache when an intent is reassigned (instance.team_id != original).
+    # For new rows the filter returns None (no row yet), which is the right value to stash.
+    try:
+        instance._original_team_id = (  # type: ignore[attr-defined]
+            ProductIntent.objects.filter(pk=instance.pk).values_list("team_id", flat=True).first()
+        )
+    except Exception:
+        instance._original_team_id = None  # type: ignore[attr-defined]
+
+
+@receiver(post_save, sender=ProductIntent)
+def _invalidate_product_intents_on_save(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    _invalidate_product_intents_cache(instance.team_id)
+    original_team_id = getattr(instance, "_original_team_id", None)
+    if original_team_id is not None and original_team_id != instance.team_id:
+        _invalidate_product_intents_cache(original_team_id)
+
+
+@receiver(post_delete, sender=ProductIntent)
+def _invalidate_product_intents_on_delete(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    _invalidate_product_intents_cache(instance.team_id)

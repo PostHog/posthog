@@ -6,6 +6,11 @@
             "description": "Whether to also copy scheduled changes for this flag",
             "type": "boolean"
         },
+        "disable_copied_flag": {
+            "default": false,
+            "description": "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",
+            "type": "boolean"
+        },
         "feature_flag_key": {
             "description": "Key of the feature flag to copy",
             "type": "string"

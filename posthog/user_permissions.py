@@ -194,7 +194,7 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
-        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Use prefetched data to check team privacy and access
@@ -285,10 +285,8 @@ class UserDashboardPermissions:
     @cached_property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
-            self.dashboard.restriction_level
-            if cast(Organization, self.p.current_organization).is_feature_available(
-                AvailableFeature.ADVANCED_PERMISSIONS
-            )
+            Dashboard.RestrictionLevel(self.dashboard.restriction_level)
+            if cast(Organization, self.p.current_organization).is_feature_available(AvailableFeature.ACCESS_CONTROL)
             else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 

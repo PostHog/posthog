@@ -182,7 +182,7 @@ export type HogFunctionFilterGlobals = {
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
 }
 
-export type MetricLogSource = 'hog_function' | 'hog_flow'
+export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'
 
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -336,6 +336,7 @@ export type HogFunctionInputSchemaType = {
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

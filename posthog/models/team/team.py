@@ -264,7 +264,7 @@ class Team(UUIDTClassicModel):
                 # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
-                check=models.Q(project_id__isnull=False),
+                condition=models.Q(project_id__isnull=False),
             )
         ]
 
@@ -386,7 +386,7 @@ class Team(UUIDTClassicModel):
     session_recording_retention_period = field_access_control(
         models.CharField(
             max_length=3,
-            choices=SessionRecordingRetentionPeriod.choices,
+            choices=SessionRecordingRetentionPeriod,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
         "project",
@@ -492,12 +492,37 @@ class Team(UUIDTClassicModel):
     access_control = models.BooleanField(default=False)
 
     week_start_day = field_access_control(
-        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices), "project", "admin"
+        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay), "project", "admin"
     )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
 
-    test_account_filters = field_access_control(models.JSONField(default=list), "project", "admin")
+    test_account_filters = field_access_control(
+        models.JSONField(
+            default=list,
+            help_text="""Filters used to identify internal/test users. Each entry is a property filter.
+
+            Supported entry types and the exact shape each accepts:
+
+            # Person property — match (or exclude) by a person property
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+            # Event property — match by an event property
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+            # Cohort membership — match (or exclude) members of a cohort.
+            # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+            # `negation` field here — `negation` is specific to cohort *definitions*
+            # (the inner sub-filters that build a cohort) and is rejected by the
+            # property-filter schema.
+            {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+        ),
+        "project",
+        "admin",
+    )
     test_account_filters_default_checked = field_access_control(
         models.BooleanField(null=True, blank=True), "project", "admin"
     )
@@ -527,7 +552,7 @@ class Team(UUIDTClassicModel):
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
-            choices=CookielessServerHashMode.choices,
+            choices=CookielessServerHashMode,
             null=True,
         ),
         "project",
@@ -638,7 +663,7 @@ class Team(UUIDTClassicModel):
     default_experiment_stats_method = field_access_control(
         models.CharField(
             max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod.choices,
+            choices=Organization.DefaultExperimentStatsMethod,
             default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
             help_text="Default statistical method for new experiments in this environment.",
             null=True,
@@ -651,7 +676,7 @@ class Team(UUIDTClassicModel):
     business_model = field_access_control(
         models.CharField(
             max_length=10,
-            choices=BusinessModel.choices,
+            choices=BusinessModel,
             null=True,
             blank=True,
             help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
@@ -727,8 +752,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_OVERRIDE
+        person_on_events_override = getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None)
+        if person_on_events_override is not None:
+            return person_on_events_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -752,8 +778,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+        person_on_events_v2_override = getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None)
+        if person_on_events_v2_override is not None:
+            return person_on_events_v2_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -1065,7 +1092,7 @@ class Team(UUIDTClassicModel):
             )
 
             # Union all sets of user IDs
-            user_ids_queryset = cast(Any, admin_user_ids.union(member_access_user_ids)).union(role_user_ids)
+            user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)
 
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
@@ -1087,6 +1114,18 @@ def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
+
+
+@mutable_receiver(post_save, sender=Team)
+def reevaluate_authorized_urls_health(sender, instance: Team, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "app_urls" not in update_fields:
+        return
+
+    from posthog.tasks.health_checks import evaluate_health_check_for_team
+
+    team_id = instance.id
+    transaction.on_commit(lambda: evaluate_health_check_for_team.delay("authorized_urls", team_id))
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

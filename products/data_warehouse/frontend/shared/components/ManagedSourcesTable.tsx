@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import {
@@ -13,26 +14,40 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
 
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
+import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
 import { SourceIcon } from './SourceIcon'
+
+const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
+    ExternalDataSchemaStatus.Failed,
+    ExternalDataSchemaStatus.Paused,
+    ExternalDataSchemaStatus.Cancelled,
+    ExternalDataSchemaStatus.Running,
+    ExternalDataSchemaStatus.Completed,
+]
 
 export function ManagedSourcesTable(): JSX.Element {
     const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
         useValues(sourceManagementLogic)
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     if (availableSourcesLoading) {
         return <LemonSkeleton />
@@ -110,6 +125,32 @@ export function ManagedSourcesTable(): JSX.Element {
                                 .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
                                 .toLocaleString(),
                     },
+                    ...(showMetrics
+                        ? [
+                              {
+                                  title: 'Rows synced (7d)',
+                                  key: 'rows_synced_sparkline',
+                                  render: function RenderSparkline(_: unknown, source: { id: string }) {
+                                      return (
+                                          <AppMetricsSparkline
+                                              logicKey={`dwh-source-sparkline-${source.id}`}
+                                              loadOnChanges
+                                              successMetricNames={['rows_synced']}
+                                              metricLabels={{ rows_synced: 'Rows synced' }}
+                                              forceParams={{
+                                                  appSource: DATA_WAREHOUSE_APP_SOURCE,
+                                                  appSourceId: source.id,
+                                                  metricName: ['rows_synced'],
+                                                  breakdownBy: 'metric_name',
+                                                  interval: 'day',
+                                                  dateFrom: '-7d',
+                                              }}
+                                          />
+                                      )
+                                  },
+                              },
+                          ]
+                        : []),
                     {
                         title: 'Status',
                         key: 'status',
@@ -117,15 +158,57 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const tagContent = (
-                                <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
-                            )
-                            return source.latest_error && source.status === 'Failed' ? (
-                                <Tooltip title={source.latest_error} interactive>
-                                    {tagContent}
-                                </Tooltip>
-                            ) : (
-                                tagContent
+                            const syncingSchemas = source.schemas.filter((s) => s.should_sync)
+                            const counts = SCHEMA_STATUS_ORDER.map((status) => ({
+                                status,
+                                schemas: syncingSchemas.filter((s) => s.status === status),
+                            })).filter(({ schemas }) => schemas.length > 0)
+
+                            if (counts.length === 0) {
+                                // Source has schemas but none are enabled — source.status can be stale
+                                // ("Running" from before they were disabled), so show a neutral tag instead.
+                                if (source.schemas.length > 0) {
+                                    return <LemonTag type="muted">Not syncing</LemonTag>
+                                }
+                                const tagContent = (
+                                    <LemonTag type={StatusTagSetting[source.status] || 'default'}>
+                                        {source.status}
+                                    </LemonTag>
+                                )
+                                return source.latest_error && source.status === 'Failed' ? (
+                                    <Tooltip title={source.latest_error} interactive>
+                                        {tagContent}
+                                    </Tooltip>
+                                ) : (
+                                    tagContent
+                                )
+                            }
+
+                            const sourceUrl = urls.dataWarehouseSource(`managed-${source.id}`)
+                            return (
+                                <div className="flex flex-wrap gap-1">
+                                    {counts.map(({ status, schemas }) => (
+                                        <Tooltip
+                                            key={status}
+                                            interactive
+                                            title={
+                                                <ul className="list-disc pl-4 m-0">
+                                                    {schemas.map((s) => (
+                                                        <li key={s.id}>{s.name}</li>
+                                                    ))}
+                                                </ul>
+                                            }
+                                        >
+                                            <LemonTag
+                                                type={StatusTagSetting[status] || 'default'}
+                                                forceClickable
+                                                onClick={() => router.actions.push(sourceUrl)}
+                                            >
+                                                {schemas.length} {status.toLowerCase()}
+                                            </LemonTag>
+                                        </Tooltip>
+                                    ))}
+                                </div>
                             )
                         },
                     },

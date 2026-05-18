@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# Claim a flags-cache-jumphost pod from the dev pool, drop into bash, and
+# auto-delete the pod on exit. Thin shim that delegates to
+# tools/infra-scripts/clitools/toolbox.py with --pool flags-cache-jumphost
+# and --auto-delete; all the orphan-relabel-claim logic lives there.
+#
+# Prerequisites:
+#   - kubectl context pointing at the target cluster, or pass
+#     KUBE_CONTEXT=… (e.g. KUBE_CONTEXT=posthog-dev).
+#
+# Usage:
+#   bin/rust-jumphost                       # claim + connect
+#   KUBE_CONTEXT=posthog-dev bin/rust-jumphost
+#   KUBE_NAMESPACE=posthog   bin/rust-jumphost
+#   bin/rust-jumphost --claim-duration 4    # 4h claim window
+#
+# Inside the pod:
+#   warm-flags-cache --help
+#   warm-flags-cache --team-ids <id> --no-stagger
+
+set -euo pipefail
+
+if ! command -v kubectl >/dev/null 2>&1; then
+    echo "Error: kubectl not found on PATH."
+    exit 1
+fi
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$REPO_ROOT/tools/infra-scripts/clitools/toolbox.py" \
+    --pool flags-cache-jumphost \
+    --auto-delete \
+    "$@"

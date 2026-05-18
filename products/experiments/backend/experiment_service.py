@@ -29,6 +29,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
@@ -41,6 +42,15 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
+)
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+    create_notification,
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -59,12 +69,16 @@ DEFAULT_VARIANTS = [
 
 class ExperimentQueryStatus(str, Enum):
     """
-    Note: The frontend still treats paused experiments as a UI-only variant of "running"
-    when the linked flag is disabled, so the API only filters on stored experiment statuses.
+    Filter values for the experiment list endpoint.
+
+    PAUSED is derived (not stored): an experiment is paused when its stored status is RUNNING and
+    its linked feature flag is inactive. RUNNING and PAUSED are mutually exclusive at the API
+    layer — RUNNING returns only experiments whose flag is active.
     """
 
     DRAFT = "draft"
     RUNNING = "running"
+    PAUSED = "paused"
     STOPPED = "stopped"
     ALL = "all"
 
@@ -99,6 +113,25 @@ class ExperimentService:
                 raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
 
     @staticmethod
+    def validate_variant_percentages(parameters: dict | None) -> None:
+        """Each variant must carry split_percent (recommended) or rollout_percentage (deprecated).
+
+        The API serializer translates split_percent to rollout_percentage before this runs, but we
+        check for either field so direct service callers (facade, max_tools) are also covered.
+        Once we fully migrate to split_percent, we can remove this validation and make split_percent
+        required in the type system instead.
+        """
+        if not parameters:
+            return
+        for variant in parameters.get("feature_flag_variants", []) or []:
+            if not isinstance(variant, dict):
+                continue  # validate_variant_shapes handles this
+            if "split_percent" not in variant and "rollout_percentage" not in variant:
+                raise ValidationError(
+                    "Each variant must include split_percent (recommended) or rollout_percentage (deprecated)."
+                )
+
+    @staticmethod
     def validate_experiment_parameters(parameters: dict | None) -> None:
         """Validate experiment parameters accepted by the API layer.
 
@@ -109,6 +142,7 @@ class ExperimentService:
             return
 
         ExperimentService.validate_variant_shapes(parameters)
+        ExperimentService.validate_variant_percentages(parameters)
 
         variants = parameters.get("feature_flag_variants", [])
 
@@ -119,27 +153,135 @@ class ExperimentService:
                 raise ValidationError(
                     "Feature flag must have at least 2 variants (control and at least one test variant)"
                 )
-            if "control" not in [variant["key"] for variant in variants]:
-                raise ValidationError("Feature flag variants must contain a control variant")
+            keys = [variant["key"] for variant in variants]
+            if "control" not in keys:
+                # Surface the keys we did receive so LLM callers can self-correct without a
+                # second roundtrip. Capitalized 'Control' is auto-normalized in
+                # ExperimentParametersField.to_internal_value, so anything reaching this
+                # branch genuinely lacks a baseline variant.
+                raise ValidationError(
+                    "Feature flag variants must contain a variant with key 'control' "
+                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
+                    "'key' to 'control'."
+                )
 
-    @staticmethod
-    def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
-        """Validate experiment exposure criteria payloads."""
-        if not exposure_criteria:
+    EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
+
+    EXPOSURE_CONFIG_HINT = (
+        "Expected either an event-based config like "
+        "{'kind': 'ExperimentEventExposureConfig', 'event': '<event_name>', 'properties': []} "
+        "or an action-based config like {'kind': 'ActionsNode', 'id': <action_id>}."
+    )
+
+    # Cap user-supplied values reflected into validation error messages so a large
+    # or sensitive payload cannot bloat responses, logs, or error tracking. repr()
+    # already escapes control characters, so the only remaining concern is length.
+    _ERROR_VALUE_MAX_LEN = 80
+
+    @classmethod
+    def _safe_repr(cls, value: object) -> str:
+        rendered = repr(value)
+        if len(rendered) > cls._ERROR_VALUE_MAX_LEN:
+            return rendered[: cls._ERROR_VALUE_MAX_LEN] + "...(truncated)"
+        return rendered
+
+    @classmethod
+    def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
+        """Validate experiment exposure criteria payloads.
+
+        Accepts `object` because the input arrives from a DRF `JSONField`, which
+        can deserialize to any JSON shape. The validator narrows defensively.
+        """
+        if exposure_criteria is None:
             return
 
-        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
-            raise ValidationError("filterTestAccounts must be a boolean")
+        if not isinstance(exposure_criteria, dict):
+            raise ValidationError(
+                f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
+                "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
+            )
+
+        if "filterTestAccounts" in exposure_criteria:
+            filter_test_accounts = exposure_criteria["filterTestAccounts"]
+            if not isinstance(filter_test_accounts, bool):
+                raise ValidationError(
+                    f"exposure_criteria.filterTestAccounts must be a boolean, got "
+                    f"{type(filter_test_accounts).__name__}: {cls._safe_repr(filter_test_accounts)}."
+                )
 
         if "exposure_config" in exposure_criteria:
             exposure_config = exposure_criteria["exposure_config"]
+
+            if not isinstance(exposure_config, dict):
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config must be an object, got "
+                    f"{type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
+            # to mirror the pydantic Literal default on that model.
+            kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+            if kind not in cls.EXPOSURE_CONFIG_KINDS:
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config.kind must be one of "
+                    f"{list(cls.EXPOSURE_CONFIG_KINDS)}, got {cls._safe_repr(kind)}. "
+                    f"{cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
             try:
-                if exposure_config.get("kind") == "ActionsNode":
-                    ActionsNode.model_validate(exposure_config)
-                else:
-                    ExperimentEventExposureConfig.model_validate(exposure_config)
-            except Exception:
-                raise ValidationError("Invalid exposure criteria")
+                model_cls.model_validate(exposure_config)
+            except pydantic.ValidationError as e:
+                # Surface only the field locations and error types from pydantic — not the
+                # echoed `input` and `url` fields, which would reflect arbitrary user data
+                # back into the response.
+                safe_errors = [
+                    {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+                ]
+                raise ValidationError(
+                    f"Invalid exposure_criteria.exposure_config (kind={cls._safe_repr(kind)}): "
+                    f"{safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+    # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
+    # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant
+    # the caller picked. A drift test asserts this stays in sync with the ExperimentMetric union.
+    _METRIC_TYPE_TO_CLASS = {
+        "mean": "ExperimentMeanMetric",
+        "funnel": "ExperimentFunnelMetric",
+        "ratio": "ExperimentRatioMetric",
+        "retention": "ExperimentRetentionMetric",
+    }
+
+    # Cap reported pydantic errors so a funnel with many steps (each producing union-variant
+    # errors) cannot blow up the response size. The first N errors are the most actionable.
+    _MAX_REPORTED_METRIC_ERRORS = 15
+
+    _EVENTS_NODE_ID_HINT = (
+        "EventsNode does not accept an 'id' field. "
+        "To reference an event, use {'kind': 'EventsNode', 'event': '<event_name>'} (omit 'id'). "
+        "To reference an action, switch to {'kind': 'ActionsNode', 'id': <integer_action_id>} (omit 'event')."
+    )
+
+    @staticmethod
+    def _is_events_node_actions_node_confusion(err: dict) -> bool:
+        """An `id` field was passed on an EventsNode (probably meant ActionsNode)."""
+        loc = tuple(err.get("loc") or ())
+        if len(loc) < 2 or err.get("type") != "extra_forbidden":
+            return False
+        return loc[-1] == "id" and "EventsNode" in loc
+
+    @classmethod
+    def _build_metric_validation_hint(cls, safe_errors: list[dict]) -> str:
+        """Return a targeted hint for an observed pydantic error pattern, or '' if none applies.
+
+        The structural shape of valid metrics is conveyed by `safe_errors` itself (loc, type,
+        msg) — adding prose duplicates the pydantic models and rots silently. Only hints
+        whose facts are independent of metric shape belong here."""
+        for err in safe_errors:
+            if cls._is_events_node_actions_node_confusion(err):
+                return cls._EVENTS_NODE_ID_HINT
+        return ""
 
     @classmethod
     def validate_experiment_metrics(cls, metrics: list | None) -> None:
@@ -168,14 +310,43 @@ class ExperimentService:
                 try:
                     validated_metric = ExperimentMetric.model_validate(metric)
 
-                    # Additional validation for funnel metrics with DW steps
                     # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
                     actual_metric = validated_metric.root
                     if isinstance(actual_metric, ExperimentFunnelMetric):
+                        # The experiment exposure event is prepended as step_0 at query time,
+                        # so series must contain at least one user-supplied step for the funnel
+                        # to yield a meaningful conversion metric.
+                        if not actual_metric.series:
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
+                                "The experiment exposure event is added as the initial step automatically."
+                            )
+                        # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
 
                 except pydantic.ValidationError as e:
-                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
+                    # Surface only the field locations and error types from pydantic — not the
+                    # echoed `input`, `ctx`, and `url` fields, which would reflect arbitrary
+                    # user data back into the response (potentially unbounded in size).
+                    safe_errors = [
+                        {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+                    ]
+                    # ExperimentMetric is a union of four variants; pydantic reports errors against
+                    # every variant by default. If the caller picked a metric_type, narrow to that
+                    # variant's errors so the message stays actionable instead of dumping 25+ errors.
+                    metric_type = metric.get("metric_type")
+                    variant_class = cls._METRIC_TYPE_TO_CLASS.get(metric_type) if isinstance(metric_type, str) else None
+                    if variant_class is not None:
+                        filtered = [err for err in safe_errors if err["loc"] and err["loc"][0] == variant_class]
+                        if filtered:
+                            safe_errors = filtered
+                    hint = cls._build_metric_validation_hint(safe_errors)
+                    if len(safe_errors) > cls._MAX_REPORTED_METRIC_ERRORS:
+                        truncated = safe_errors[: cls._MAX_REPORTED_METRIC_ERRORS]
+                        truncated.append({"truncated": f"...{len(safe_errors) - cls._MAX_REPORTED_METRIC_ERRORS} more"})
+                        safe_errors = truncated
+                    suffix = f" {hint}" if hint else ""
+                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
@@ -289,8 +460,20 @@ class ExperimentService:
                 kind = node.get("kind")
                 if kind == "EventsNode":
                     event = node.get("event")
-                    if event is not None:
+                    # Treat None and empty/whitespace-only strings as "no event"
+                    # (semantically equivalent to "All events"). The pydantic
+                    # schema permits "" but it can't reference a real event.
+                    if isinstance(event, str) and event.strip():
                         event_names.add(event)
+                    elif event is not None and not isinstance(event, str):
+                        # Pydantic should have rejected non-str/None upstream;
+                        # log so we can catch any path that bypassed validation
+                        # rather than silently dropping the value.
+                        logger.warning(
+                            "experiment_metric_unexpected_event_type",
+                            event_type=type(event).__name__,
+                            event_value=repr(event)[:100],
+                        )
                 elif kind == "ActionsNode":
                     if (action_id := node.get("id")) is not None:
                         action_ids.add(int(action_id))
@@ -324,13 +507,18 @@ class ExperimentService:
             )
 
     def validate_metric_event_names(self, metrics: list[dict] | None) -> None:
-        """Validate that all EventsNode event names have been seen by this team.
+        """Validate that all EventsNode event names have been seen by this project.
 
         The frontend event picker already prevents selecting unknown events, so an
         unrecognized name coming through the API is almost certainly a typo.
         Callers that intentionally reference not-yet-ingested events (e.g. setting up
         an experiment before deploying the emitting code) can pass
         ``allow_unknown_events=True`` to bypass this check.
+
+        Scope must match the picker: the EventDefinition list endpoint is
+        project-scoped (see posthog/api/event_definition.py), so a user in a
+        multi-team project can pick an event ingested by a sibling team. We
+        mirror that scope here to avoid rejecting legitimate selections.
         """
         event_names, _ = self._extract_entity_nodes(metrics)
         if not event_names:
@@ -338,19 +526,39 @@ class ExperimentService:
 
         from products.event_definitions.backend.models.event_definition import EventDefinition
 
+        project_id = self.team.project_id
+        # Uses `team_id = project_id` (not team_id = self.team.id)
+        # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
+        # *primary* team, and primary_team.id == project.id by convention. This
+        # mirrors the picker SQL in posthog/api/event_definition.py so sibling
+        # teams can validate against legacy primary-team events the picker shows.
         existing = set(
             EventDefinition.objects.filter(
-                team_id=self.team.id,
+                Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
                 name__in=event_names,
             ).values_list("name", flat=True)
         )
         unknown = event_names - existing
         if unknown:
+            # Capture the rejected payload shape so we can identify clients
+            # that send malformed metrics (e.g. event="").
+            logger.warning(
+                "experiment_metric_event_validation_rejected",
+                team_id=self.team.id,
+                project_id=project_id,
+                unknown_events=sorted(unknown),
+                all_extracted_events=sorted(event_names),
+                metrics_count=len(metrics) if metrics else 0,
+            )
             unknown_str = ", ".join(f"'{name}'" for name in sorted(unknown))
             raise ValidationError(
                 f"Event(s) {unknown_str} not found. "
                 "No events with these names have been ingested by this project. "
-                "If this is intentional, set allow_unknown_events=True."
+                "If you meant a different event, please correct it. "
+                "Only if the user has explicitly confirmed they want to proceed with "
+                "the unknown event (e.g. they will instrument it shortly), "
+                "call again with allow_unknown_events=True. "
+                "Do not flip the flag silently to bypass this check."
             )
 
     @transaction.atomic
@@ -376,7 +584,7 @@ class ExperimentService:
         create_in_folder: str | None = None,
         filters: dict | None = None,
         scheduling_config: dict | None = None,
-        only_count_matured_users: bool = False,
+        only_count_matured_users: bool | None = None,
         archived: bool = False,
         deleted: bool = False,
         conclusion: str | None = None,
@@ -387,7 +595,10 @@ class ExperimentService:
         creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        metrics = self._assign_uuids_to_metrics(metrics)
+        metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary)
         self.validate_variant_shapes(parameters)
+        self.validate_variant_percentages(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -409,14 +620,16 @@ class ExperimentService:
             serializer_context=serializer_context,
         )
 
-        stats_config = self._apply_stats_config_defaults(stats_config)
+        team_config = self._get_team_experiments_config()
+        stats_config = self._apply_stats_config_defaults(stats_config, team_config)
         exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
+
+        if only_count_matured_users is None:
+            only_count_matured_users = team_config.default_only_count_matured_users
 
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
-                if not metric.get("uuid"):
-                    metric["uuid"] = str(uuid4())
                 metric["fingerprint"] = compute_metric_fingerprint(
                     metric,
                     start_date,
@@ -426,8 +639,6 @@ class ExperimentService:
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
-                if not metric.get("uuid"):
-                    metric["uuid"] = str(uuid4())
                 metric["fingerprint"] = compute_metric_fingerprint(
                     metric,
                     start_date,
@@ -623,6 +834,22 @@ class ExperimentService:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
     @staticmethod
+    def _assign_uuids_to_metrics(metrics: list[dict] | None) -> list[dict] | None:
+        """Return a deep copy of ``metrics`` with a ``uuid`` filled in on every entry.
+
+        Run this before metric validation so the validated dict already carries its
+        final uuid. Callers pass dicts by reference, so we deepcopy to avoid leaking
+        the generated uuid back into their data.
+        """
+        if metrics is None:
+            return None
+        prepared = deepcopy(metrics)
+        for metric in prepared:
+            if not metric.get("uuid"):
+                metric["uuid"] = str(uuid4())
+        return prepared
+
+    @staticmethod
     def _recompute_fingerprints(
         metrics: list[dict],
         start_date: datetime | None,
@@ -645,14 +872,15 @@ class ExperimentService:
             updated.append(metric_copy)
         return updated
 
-    def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
+    def _get_team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
+    def _apply_stats_config_defaults(
+        self, stats_config: dict | None, team_config: TeamExperimentsConfig | None = None
+    ) -> dict:
         """Apply team-level defaults to stats_config."""
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
         result = dict(stats_config or {})
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config = team_config or self._get_team_experiments_config()
 
         if not result.get("method"):
             default_method = config.default_experiment_stats_method or "bayesian"
@@ -870,6 +1098,39 @@ class ExperimentService:
         )
 
     # ------------------------------------------------------------------
+    # Unarchive
+    # ------------------------------------------------------------------
+
+    def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Unarchive an archived experiment: validate it is archived, set archived=False."""
+        if not experiment.archived:
+            raise ValidationError("Experiment is not archived.")
+
+        experiment.archived = False
+        experiment.save()
+
+        self._report_experiment_unarchived(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_unarchived(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment unarchived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
 
@@ -1048,6 +1309,40 @@ class ExperimentService:
             request=request,
         )
 
+        # Skip notifying the creator when they're the one ending the experiment —
+        # surfacing a notification for an action they just performed is noise.
+        if experiment.created_by_id and experiment.created_by_id != self.user.id:
+            try:
+                significant = completed_metadata.get("significant")
+                body = ""
+                if significant is True:
+                    body = "Primary metric: significant"
+                elif significant is False:
+                    body = "Primary metric: inconclusive"
+
+                create_notification(
+                    NotificationData(
+                        team_id=experiment.team_id,
+                        notification_type=NotificationType.EXPERIMENT_CONCLUDED,
+                        priority=Priority.NORMAL,
+                        title=f"Experiment concluded: {experiment.name}"[:100],
+                        body=body,
+                        target_type=TargetType.USER,
+                        target_id=str(experiment.created_by_id),
+                        resource_type="experiment",
+                        resource_id=str(experiment.id),
+                        source_url=f"/project/{self.team.project_id}/experiments/{experiment.id}",
+                        source_type=SourceType.EXPERIMENT,
+                        source_id=str(experiment.id),
+                    )
+                )
+            except Exception as e:
+                logger.exception(
+                    "experiment_concluded.realtime_failed",
+                    experiment_id=experiment.id,
+                    error=str(e),
+                )
+
     # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
@@ -1105,15 +1400,20 @@ class ExperimentService:
         experiment: Experiment,
         variant_key: str,
         *,
+        release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         request: Any,
     ) -> Experiment:
-        """Ship a variant to 100% of users, optionally ending the experiment.
+        """Ship a variant and (optionally) end the experiment.
 
-        Rewrites the feature flag so the selected variant is served to everyone.
-        Existing release conditions (flag groups) are preserved so the change can
-        be rolled back by deleting the auto-added release condition in the flag UI.
+        Updates the feature flag so the selected variant gets 100% of the variant
+        distribution. By default (``release_to_everyone=False``) existing release
+        conditions on the flag are preserved untouched — the variant is served
+        only to users who already match them, and any per-user variant overrides
+        continue to apply. Pass ``release_to_everyone=True`` to also prepend a
+        catch-all release condition that rolls the variant out to 100% of users
+        (overrides any existing release conditions and per-user overrides).
 
         Can be called on both running and stopped experiments — supports the
         workflow where a user ends an experiment first, then ships the winner
@@ -1140,7 +1440,9 @@ class ExperimentService:
         if not any(v["key"] == variant_key for v in variants):
             raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
 
-        new_filters = self._transform_filters_for_winning_variant(flag.filters, variant_key)
+        new_filters = self._transform_filters_for_winning_variant(
+            flag.filters, variant_key, release_to_everyone=release_to_everyone
+        )
 
         # Update the flag through the serializer to preserve the approval
         # workflow. If change-request approval is required, this raises
@@ -1174,7 +1476,9 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_variant_shipped(experiment, variant_key=variant_key, request=request)
+        self._report_experiment_variant_shipped(
+            experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
+        )
         if was_running:
             self._report_experiment_ended(experiment, request=request)
 
@@ -1184,13 +1488,31 @@ class ExperimentService:
     def _transform_filters_for_winning_variant(
         current_filters: dict,
         variant_key: str,
+        *,
+        release_to_everyone: bool = False,
     ) -> dict:
-        """Port of frontend transformFiltersForWinningVariant().
+        """Rewrite flag filters so the selected variant gets 100% of the variant distribution.
 
-        Rewrites flag filters so that the selected variant gets 100% rollout
-        and all others get 0%. Prepends a catch-all release condition and
-        preserves existing release conditions (flag groups) for rollback.
+        When ``release_to_everyone`` is False (default), existing release conditions on
+        the flag are preserved untouched: the variant is served only to users who
+        already match them, and any per-user variant overrides keep applying.
+
+        When ``release_to_everyone`` is True, a catch-all release condition is prepended
+        that rolls the variant out to 100% of users — note that under top-down
+        first-match evaluation this overrides any existing release conditions and
+        per-user variant overrides below it.
         """
+        groups = list(current_filters.get("groups", []))
+        if release_to_everyone:
+            groups = [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100,
+                    "description": "Added automatically when the experiment was ended to keep only one variant.",
+                },
+                *groups,
+            ]
+
         return {
             "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
             "payloads": current_filters.get("payloads", {}),
@@ -1204,14 +1526,7 @@ class ExperimentService:
                     for v in current_filters.get("multivariate", {}).get("variants", [])
                 ],
             },
-            "groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100,
-                    "description": "Added automatically when the experiment was ended to keep only one variant.",
-                },
-                *(current_filters.get("groups", [])),
-            ],
+            "groups": groups,
         }
 
     def _report_experiment_variant_shipped(
@@ -1219,6 +1534,7 @@ class ExperimentService:
         experiment: Experiment,
         *,
         variant_key: str,
+        release_to_everyone: bool = False,
         request: Any | None = None,
     ) -> None:
         if request is None:
@@ -1226,6 +1542,7 @@ class ExperimentService:
 
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
+        metadata["release_to_everyone"] = release_to_everyone
         metadata["parameters"] = experiment.parameters
 
         report_user_action(
@@ -1260,10 +1577,14 @@ class ExperimentService:
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
+            update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"])
+            self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
         if "metrics_secondary" in update_data:
+            update_data["metrics_secondary"] = self._assign_uuids_to_metrics(update_data["metrics_secondary"])
+            self.validate_experiment_metrics(update_data["metrics_secondary"])
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
@@ -1318,22 +1639,27 @@ class ExperimentService:
                 variants = update_data["parameters"].get("feature_flag_variants", [])
                 aggregation_group_type_index = update_data["parameters"].get("aggregation_group_type_index")
 
-                feature_flag_filters = feature_flag.filters
                 existing_groups = feature_flag.filters.get("groups", [])
                 experiment_rollout_percentage = update_data["parameters"].get("rollout_percentage")
                 if experiment_rollout_percentage is not None and existing_groups:
-                    existing_groups[0]["rollout_percentage"] = experiment_rollout_percentage
+                    new_groups = [
+                        {**existing_groups[0], "rollout_percentage": experiment_rollout_percentage},
+                        *existing_groups[1:],
+                    ]
+                else:
+                    new_groups = list(existing_groups)
 
-                feature_flag_filters["groups"] = existing_groups
-                feature_flag_filters["multivariate"] = {"variants": variants or list(DEFAULT_VARIANTS)}
-                feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters.update(
-                    holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None)
-                )
+                new_filters = {
+                    **feature_flag.filters,
+                    "groups": new_groups,
+                    "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
+                    "aggregation_group_type_index": aggregation_group_type_index,
+                    **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
+                }
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": feature_flag_filters},
+                    data={"filters": new_filters},
                     partial=True,
                     context=context,
                 )
@@ -1517,7 +1843,7 @@ class ExperimentService:
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
+                parameters["feature_flag_variants"] = deepcopy(existing_flag.filters["multivariate"]["variants"])
 
         self.validate_experiment_parameters(parameters)
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
@@ -1738,8 +2064,19 @@ class ExperimentService:
                         )
                     elif status_enum == ExperimentQueryStatus.RUNNING:
                         queryset = queryset.filter(
-                            Q(status=Experiment.Status.RUNNING)
-                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                            Q(feature_flag__active=True)
+                            & (
+                                Q(status=Experiment.Status.RUNNING)
+                                | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                            )
+                        )
+                    elif status_enum == ExperimentQueryStatus.PAUSED:
+                        queryset = queryset.filter(
+                            Q(feature_flag__active=False)
+                            & (
+                                Q(status=Experiment.Status.RUNNING)
+                                | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                            )
                         )
                     elif status_enum == ExperimentQueryStatus.STOPPED:
                         queryset = queryset.filter(

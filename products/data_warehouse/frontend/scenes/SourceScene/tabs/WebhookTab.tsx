@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
@@ -9,14 +10,17 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
 
+import { sourceFieldToElement } from '../../../shared/components/forms/SourceForm'
 import {
     WebhookRefreshButton,
     WebhookSetupForm,
     WebhookStatusTags,
     WebhookUrlDisplay,
 } from '../../../shared/components/forms/WebhookSetupForm'
+import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { webhookTabLogic } from './webhookTabLogic'
 
 const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const
@@ -34,7 +38,7 @@ const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; 
     },
 }
 
-export function WebhookTab({ id }: { id: string }): JSX.Element {
+export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.Element {
     const {
         webhookInfo,
         webhookInfoLoading,
@@ -47,8 +51,8 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         sourceConfig,
         canDeleteWebhook,
         webhookDeleting,
-    } = useValues(webhookTabLogic({ id }))
-    const { createWebhook, loadWebhookInfo, deleteWebhook } = useActions(webhookTabLogic({ id }))
+    } = useValues(webhookTabLogic({ id, tabId }))
+    const { createWebhook, loadWebhookInfo, deleteWebhook } = useActions(webhookTabLogic({ id, tabId }))
 
     if (webhookInfoLoading && !webhookInfo) {
         return (
@@ -61,7 +65,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
     }
 
     // No webhook exists yet — show setup flow (or re-creation if external webhook is missing)
-    const logicProps = { id }
+    const logicProps = { id, tabId }
 
     if (!webhookInfo?.exists) {
         return (
@@ -98,13 +102,44 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                     webhookCreating={webhookCreating}
                     createWebhookResult={createWebhookResult}
                     onCreateWebhook={createWebhook}
+                    tabId={tabId}
                 />
             )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
+            {sourceConfig && (sourceConfig.webhookFields?.length ?? 0) > 0 && (
+                <WebhookConfigurationSection sourceConfig={sourceConfig} formLogicProps={logicProps} />
+            )}
             {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
             <WebhookDeleteSection canDelete={canDeleteWebhook} deleting={webhookDeleting} onDelete={deleteWebhook} />
         </div>
+    )
+}
+
+function WebhookConfigurationSection({
+    sourceConfig,
+    formLogicProps,
+}: {
+    sourceConfig: SourceConfig
+    formLogicProps: { id: string; tabId?: string }
+}): JSX.Element {
+    const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))
+    const webhookFields = sourceConfig.webhookFields ?? []
+
+    return (
+        <LemonCard hoverEffect={false} className="space-y-3">
+            <h3 className="text-lg font-semibold">Configuration</h3>
+            <Form logic={webhookTabLogic} props={formLogicProps} formKey="webhookFieldInputs" enableFormOnSubmit>
+                <div className="space-y-3 ph-no-capture">
+                    {webhookFields.map((field: SourceFieldConfig) =>
+                        sourceFieldToElement(field, sourceConfig, webhookFieldInputs[field.name], true)
+                    )}
+                    <LemonButton type="primary" htmlType="submit" loading={isWebhookFieldInputsSubmitting}>
+                        Save changes
+                    </LemonButton>
+                </div>
+            </Form>
+        </LemonCard>
     )
 }
 
@@ -186,6 +221,7 @@ function WebhookStatusSection({
 
 function WebhookRecreateSection({
     id,
+    tabId,
     sourceName,
     sourceConfig,
     webhookCreating,
@@ -193,10 +229,11 @@ function WebhookRecreateSection({
     onCreateWebhook,
 }: {
     id: string
+    tabId?: string
     sourceName: string
     sourceConfig: any
     webhookCreating: boolean
-    createWebhookResult: { success: boolean; webhook_url: string; error?: string } | null
+    createWebhookResult: WebhookCreateResult | null
     onCreateWebhook: () => void
 }): JSX.Element {
     return (
@@ -206,7 +243,7 @@ function WebhookRecreateSection({
             webhookResult={createWebhookResult}
             webhookCreating={webhookCreating}
             onCreateWebhook={onCreateWebhook}
-            formLogic={webhookTabLogic({ id })}
+            formLogic={webhookTabLogic({ id, tabId })}
             formKey="webhookFieldInputs"
         />
     )

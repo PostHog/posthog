@@ -20,13 +20,21 @@ interface IsStrippable {
     childNodes: serializedNodeWithId[]
 }
 
+function hasAttribute(
+    node: serializedNodeWithId,
+    attribute: string
+): node is serializedNodeWithId & { attributes: Record<string, unknown> } {
+    const attributes = (node as { attributes?: unknown }).attributes
+    return !!attributes && typeof attributes === 'object' && attribute in attributes
+}
+
 function safelyCheckCSSAttribute(
     node: serializedNodeWithId,
     attribute: string,
     needles: string[],
     matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
-    const hasAttributes = 'attributes' in node && attribute in node.attributes && !!node.attributes[attribute]
+    const hasAttributes = hasAttribute(node, attribute) && !!node.attributes[attribute]
     if (!hasAttributes) {
         return false
     }
@@ -51,7 +59,7 @@ function safelyCheckClassAttribute(
     needle: string,
     matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
-    const hasAttributes = 'attributes' in node && 'class' in node.attributes && !!node.attributes['class']
+    const hasAttributes = hasAttribute(node, 'class') && !!node.attributes['class']
     if (!hasAttributes) {
         return false
     }
@@ -108,7 +116,7 @@ function safelyCheckIDAttribute(
     needles: string[],
     matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
-    const hasID = 'attributes' in node && 'id' in node.attributes && !!node.attributes['id']
+    const hasID = hasAttribute(node, 'id') && !!node.attributes['id']
     if (!hasID) {
         return false
     }

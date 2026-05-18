@@ -14,43 +14,34 @@ import {
     CohortsRetrieveParams,
 } from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CohortsListSchema = CohortsListQueryParams
+const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
+    project_id: true,
+}).extend(CohortsAddPersonsToStaticCohortPartialUpdateBody.shape)
 
-const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schemas.PaginatedCohortList>> =>
-    withUiApp('cohort-list', {
-        name: 'cohorts-list',
-        schema: CohortsListSchema,
-        handler: async (context: Context, params: z.infer<typeof CohortsListSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedCohortList>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
-                query: {
-                    limit: params.limit,
-                    offset: params.offset,
-                },
-            })
-            const filtered = {
-                ...result,
-                results: (result.results ?? []).map((item: any) =>
-                    pickResponseFields(item, ['id', 'name', 'description', 'count', 'is_static', 'created_at'])
-                ),
-            } as typeof result
-            return await withPostHogUrl(
-                context,
-                {
-                    ...filtered,
-                    results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
-                    ),
-                },
-                '/cohorts'
-            )
-        },
-    })
+const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
+    typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema,
+    unknown
+> => ({
+    name: 'cohorts-add-persons-to-static-cohort-partial-update',
+    schema: CohortsAddPersonsToStaticCohortPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.person_ids !== undefined) {
+            body['person_ids'] = params.person_ids
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/add_persons_to_static_cohort/`,
+            body,
+        })
+        return result
+    },
+})
 
 const CohortsCreateSchema = CohortsCreateBody.omit({ _create_in_folder: true, _create_static_person_ids: true })
 
@@ -88,25 +79,47 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
         },
     })
 
-const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
+const CohortsListSchema = CohortsListQueryParams.extend({
+    limit: z.preprocess(castStringToInt, CohortsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, CohortsListQueryParams.shape['offset']).optional(),
+})
 
-const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUrl<Schemas.Cohort>> =>
-    withUiApp('cohort', {
-        name: 'cohorts-retrieve',
-        schema: CohortsRetrieveSchema,
-        handler: async (context: Context, params: z.infer<typeof CohortsRetrieveSchema>) => {
+const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schemas.PaginatedCohortList>> =>
+    withUiApp('cohort-list', {
+        name: 'cohorts-list',
+        schema: CohortsListSchema,
+        handler: async (context: Context, params: z.infer<typeof CohortsListSchema>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Cohort>({
+            const result = await context.api.request<Schemas.PaginatedCohortList>({
                 method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
+                query: {
+                    limit: params.limit,
+                    offset: params.offset,
+                },
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            const filtered = {
+                ...result,
+                results: (result.results ?? []).map((item: any) =>
+                    pickResponseFields(item, ['id', 'name', 'description', 'count', 'is_static', 'created_at'])
+                ),
+            } as typeof result
+            return await withPostHogUrl(
+                context,
+                {
+                    ...filtered,
+                    results: await Promise.all(
+                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
+                    ),
+                },
+                '/cohorts'
+            )
         },
     })
 
-const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
-    CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape
-)
+const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true })
+    .extend(CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']) })
 
 const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, WithPostHogUrl<Schemas.Cohort>> =>
     withUiApp('cohort', {
@@ -145,30 +158,23 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, Wit
         },
     })
 
-const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
-    project_id: true,
-}).extend(CohortsAddPersonsToStaticCohortPartialUpdateBody.shape)
-
-const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
-    typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema,
-    unknown
-> => ({
-    name: 'cohorts-add-persons-to-static-cohort-partial-update',
-    schema: CohortsAddPersonsToStaticCohortPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.person_ids !== undefined) {
-            body['person_ids'] = params.person_ids
-        }
-        const result = await context.api.request<unknown>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/add_persons_to_static_cohort/`,
-            body,
-        })
-        return result
-    },
+const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, CohortsRetrieveParams.shape['id']),
 })
+
+const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUrl<Schemas.Cohort>> =>
+    withUiApp('cohort', {
+        name: 'cohorts-retrieve',
+        schema: CohortsRetrieveSchema,
+        handler: async (context: Context, params: z.infer<typeof CohortsRetrieveSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Cohort>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+        },
+    })
 
 const CohortsRmPersonFromStaticCohortPartialUpdateSchema = CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({
     project_id: true,
@@ -196,10 +202,10 @@ const cohortsRmPersonFromStaticCohortPartialUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'cohorts-list': cohortsList,
-    'cohorts-create': cohortsCreate,
-    'cohorts-retrieve': cohortsRetrieve,
-    'cohorts-partial-update': cohortsPartialUpdate,
     'cohorts-add-persons-to-static-cohort-partial-update': cohortsAddPersonsToStaticCohortPartialUpdate,
+    'cohorts-create': cohortsCreate,
+    'cohorts-list': cohortsList,
+    'cohorts-partial-update': cohortsPartialUpdate,
+    'cohorts-retrieve': cohortsRetrieve,
     'cohorts-rm-person-from-static-cohort-partial-update': cohortsRmPersonFromStaticCohortPartialUpdate,
 }

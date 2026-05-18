@@ -5,16 +5,16 @@ use batch_ingestion::process_batch;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
-    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CACHE_HITS, CACHE_LEN, CACHE_MISSES, COMPACTED_UPDATES,
-    DUPLICATES_IN_BATCH, EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CACHE_LEN, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
+    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, RECV_DEQUEUED,
+    SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
+    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 
 use ahash::AHashSet;
 use tokio::sync::mpsc::error::TrySendError;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use update_cache::Cache;
 
 use crate::{
@@ -37,9 +37,9 @@ pub async fn update_consumer_loop(
     cache: Arc<Cache>,
     context: Arc<AppContext>,
     mut channel: MeasuringReceiver<Update>,
+    handle: lifecycle::Handle,
 ) {
-    let mut prev_hits = [0u64; 3];
-    let mut prev_misses = [0u64; 3];
+    let _guard = handle.process_scope();
 
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
@@ -47,7 +47,7 @@ pub async fn update_consumer_loop(
         let batch_start = tokio::time::Instant::now();
         let batch_time = common_metrics::timing_guard(BATCH_ACQUIRE_TIME, &[]);
         while batch.len() < config.update_batch_size {
-            context.worker_liveness.report_healthy().await;
+            handle.report_healthy();
 
             metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT)
                 .set(channel.get_inflight_messages_count() as f64);
@@ -58,10 +58,14 @@ pub async fn update_consumer_loop(
             let sleep = tokio::time::sleep(Duration::from_secs(1));
 
             tokio::select! {
+                _ = handle.shutdown_recv() => {
+                    info!("Consumer loop received shutdown signal");
+                    return;
+                }
                 got = recv => {
                     if got == 0 {
-                        // Indicates all workers have exited, so we should too
-                        panic!("Coordinator recv failed, dying");
+                        info!("Channel closed, all producers exited");
+                        return;
                     }
                     metrics::gauge!(RECV_DEQUEUED).set(got as f64);
                     continue;
@@ -77,6 +81,10 @@ pub async fn update_consumer_loop(
         }
         batch_time.fin();
 
+        if batch.is_empty() {
+            continue;
+        }
+
         // We de-duplicate the batch, in case racing inserts slipped through the shared-cache filter. This
         // is important because duplicate updates touch the same row, and we issue in parallel, so we'd end
         // up deadlocking ourselves. We can still encounter deadlocks due to other pods, but those should
@@ -87,42 +95,34 @@ pub async fn update_consumer_loop(
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
-        // Per-cache metrics once per batch (before DB write path)
-        let caps = [
-            (config.eventdefs_cache_capacity, "eventdefs"),
-            (config.eventprops_cache_capacity, "eventprops"),
-            (config.propdefs_cache_capacity, "propdefs"),
+        // Per-subcache size gauges once per batch. Hit/miss/eviction counters
+        // are emitted from inside `Cache::contains_key` and the EvictingLifecycle
+        // impl in `update_cache.rs`, not here.
+        let per_cache = [
+            (
+                config.eventdefs_cache_capacity,
+                "eventdefs",
+                cache.eventdefs_len(),
+            ),
+            (
+                config.eventprops_cache_capacity,
+                "eventprops",
+                cache.eventprops_len(),
+            ),
+            (
+                config.propdefs_cache_capacity,
+                "propdefs",
+                cache.propdefs_len(),
+            ),
         ];
-        let lens = [
-            cache.eventdefs_len(),
-            cache.eventprops_len(),
-            cache.propdefs_len(),
-        ];
-        let hits = [
-            cache.eventdefs_hits(),
-            cache.eventprops_hits(),
-            cache.propdefs_hits(),
-        ];
-        let misses = [
-            cache.eventdefs_misses(),
-            cache.eventprops_misses(),
-            cache.propdefs_misses(),
-        ];
-        for (i, (cap, label)) in caps.iter().enumerate() {
-            let len = lens[i];
-            let cap_f = *cap as f64;
-            metrics::gauge!(CACHE_CONSUMED, &[("cache", *label)]).set(if cap_f > 0.0 {
+        for (cap, label, len) in per_cache {
+            let cap_f = cap as f64;
+            metrics::gauge!(CACHE_CONSUMED, &[("cache", label)]).set(if cap_f > 0.0 {
                 len as f64 / cap_f
             } else {
                 0.0
             });
-            metrics::gauge!(CACHE_LEN, &[("cache", *label)]).set(len as f64);
-            let delta_hits = hits[i].saturating_sub(prev_hits[i]);
-            let delta_misses = misses[i].saturating_sub(prev_misses[i]);
-            metrics::counter!(CACHE_HITS, &[("cache", *label)]).increment(delta_hits);
-            metrics::counter!(CACHE_MISSES, &[("cache", *label)]).increment(delta_misses);
-            prev_hits[i] = hits[i];
-            prev_misses[i] = misses[i];
+            metrics::gauge!(CACHE_LEN, &[("cache", label)]).set(len as f64);
         }
 
         // enrich batch group events with resolved group_type_indices
@@ -146,11 +146,21 @@ pub async fn update_producer_loop(
     consumer: SingleTopicConsumer,
     shared_cache: Arc<Cache>,
     channel: MeasuringSender<Update>,
+    handle: lifecycle::Handle,
 ) {
+    let _guard = handle.process_scope();
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
-        let (event, offset): (Event, _) = match consumer.json_recv().await {
+        let recv_result = tokio::select! {
+            _ = handle.shutdown_recv() => {
+                info!("Producer loop shutting down");
+                return;
+            }
+            r = consumer.json_recv() => r,
+        };
+
+        let (event, offset): (Event, _) = match recv_result {
             Ok(r) => r,
             Err(RecvErr::Empty) => {
                 warn!("Received empty event");
@@ -163,7 +173,8 @@ pub async fn update_producer_loop(
                 continue;
             }
             Err(RecvErr::Kafka(e)) => {
-                panic!("Kafka error: {e:?}"); // We just panic if we fail to recv from kafka, if it's down, we're down
+                handle.signal_failure(format!("Kafka error: {e:?}"));
+                return;
             }
         };
 
@@ -218,7 +229,7 @@ pub async fn update_producer_loop(
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
                 if shared_cache.contains_key(&update) {
-                    // the above can replace this metric when we have new hit/miss stats both flowing
+                    // kept for back-compat; equivalent to sum(prop_defs_cache_hits)
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
                 }
@@ -235,9 +246,9 @@ pub async fn update_producer_loop(
                     Err(TrySendError::Full(update)) => {
                         warn!("Worker blocked");
                         metrics::counter!(WORKER_BLOCKED).increment(1);
-                        // Workers should just die if the channel is dropped, since that indicates
-                        // the main loop is dead.
-                        channel.send(update).await.unwrap();
+                        if channel.send(update).await.is_err() {
+                            return;
+                        }
                     }
                     Err(e) => {
                         warn!("Coordinator send failed: {:?}", e);

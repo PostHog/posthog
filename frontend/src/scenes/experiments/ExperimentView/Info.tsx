@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, previousRefreshAnalytics } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -27,8 +27,6 @@ import { RunningTimeNew } from './RunningTimeNew'
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
         experiment,
-        legacyPrimaryMetricsResults,
-        legacySecondaryMetricsResults,
         primaryMetricsResults,
         secondaryMetricsResults,
         primaryMetricsResultsLoading,
@@ -38,6 +36,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
+        currentRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
@@ -58,11 +57,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     // Get the last refresh timestamp from either legacy or new results format
     // Check both primary and secondary metrics for the most recent timestamp
-    const lastRefresh =
-        legacyPrimaryMetricsResults?.[0]?.last_refresh ||
-        legacySecondaryMetricsResults?.[0]?.last_refresh ||
-        primaryMetricsResults?.[0]?.last_refresh ||
-        secondaryMetricsResults?.[0]?.last_refresh
+    const lastRefresh = primaryMetricsResults?.[0]?.last_refresh || secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
     const isPaused = isExperimentPaused(experiment)
@@ -82,7 +77,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                         placement="bottom"
                                         title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
-                                        <StatusTag status={status} isPaused={isPaused} />
+                                        <StatusTag status={status} />
                                     </Tooltip>
                                 ) : (
                                     <StatusTag status={status} />
@@ -222,6 +217,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             triggered_by: 'manual',
                                             auto_refresh_enabled: autoRefresh.enabled,
                                             auto_refresh_interval: autoRefresh.interval,
+                                            ...previousRefreshAnalytics(currentRefresh),
                                         })
                                         refreshExperimentResults(true, 'manual')
                                     }}

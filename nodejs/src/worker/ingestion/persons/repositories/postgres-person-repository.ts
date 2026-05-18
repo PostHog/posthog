@@ -83,7 +83,7 @@ export class PostgresPersonRepository
                     violation_type: 'existing_record_violates_limit',
                 })
                 return await this.handleExistingOversizedRecord(person, update, tx)
-            } catch (error) {
+            } catch {
                 logger.warn('Failed to handle previously oversized person record', {
                     team_id: person.team_id,
                     person_id: person.id,

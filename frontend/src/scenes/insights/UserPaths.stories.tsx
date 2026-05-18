@@ -1,7 +1,7 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
 
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
@@ -110,6 +110,7 @@ UserPathsEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
         viewportWidths: ['medium', 'wide', 'superwide'],
+        snapshotBrowsers: [],
     },
 }
 UserPathsEditViewports.play = waitForPathsCanvasToStabilize

@@ -7,11 +7,12 @@ import { isHogQLQuery } from '~/queries/utils'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
 
 export function LLMAnalyticsUsers(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { setUsersSort } = useActions(llmAnalyticsUsersLogic)
     const { usersQuery, usersSort } = useValues(llmAnalyticsUsersLogic)
 
@@ -31,9 +32,16 @@ export function LLMAnalyticsUsers(): JSX.Element {
                 }
                 const { filters = {} } = query.source
                 const { dateRange = {} } = filters
-                setDates(dateRange.date_from || null, dateRange.date_to || null)
-                setShouldFilterTestAccounts(filters.filterTestAccounts || false)
-                setPropertyFilters(filters.properties || [])
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: dateRange.date_from || null,
+                        dateTo: dateRange.date_to || null,
+                        shouldFilterTestAccounts: filters.filterTestAccounts || false,
+                        propertyFilters: filters.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
             }}
             context={{
                 columns: {

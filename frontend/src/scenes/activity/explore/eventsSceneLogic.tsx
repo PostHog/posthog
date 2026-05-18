@@ -8,9 +8,10 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -24,22 +25,29 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
     tabAwareScene(),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+        ],
     })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     selectors({
         defaultQuery: [
-            (s) => [s.currentTeam],
-            (currentTeam): DataTableNode => {
+            (s) => [s.currentTeam, s.filterTestAccountsDefault],
+            (currentTeam, filterTestAccountsDefault): DataTableNode => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
                 const base = defaultSourceForTeam
                     ? { ...defaultForScene, source: defaultSourceForTeam }
                     : defaultForScene
                 return {
-                    ...base,
+                    ...applyTestAccountFilter(base, currentTeam, filterTestAccountsDefault),
                     showPropertyFilter: true,
                 }
             },

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest
 
@@ -286,12 +286,12 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
     )
     def test_find_version_at_timestamp_boundary(self, _name, offset, flag_version, expected):
         flag = self._create_flag(version=flag_version)
-        timestamp = flag.created_at + offset if _name != "current_version" else datetime.now(UTC)
+        timestamp = flag.created_at + offset
         assert find_version_at_timestamp(flag, timestamp, self.team.id) == expected
 
     def test_find_version_at_timestamp_no_version_raises(self):
         flag = self._create_flag(version=None)
-        timestamp = datetime.now(UTC)
+        timestamp = flag.created_at + timedelta(hours=1)
         with self.assertRaises(VersionHistoryIncomplete) as cm:
             find_version_at_timestamp(flag, timestamp, self.team.id)
         assert f"Flag {flag.id} is missing version metadata" in str(cm.exception)
@@ -367,7 +367,7 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
 
     def test_reconstruct_flag_at_timestamp_current_version(self):
         flag = self._create_flag(name="Current", version=2)
-        future_timestamp = datetime.now(UTC)
+        future_timestamp = flag.created_at + timedelta(hours=1)
 
         result = reconstruct_flag_at_timestamp(flag, future_timestamp, self.team.id)
 
@@ -454,8 +454,7 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
         )
 
         # Query for current time should return None (flag was deleted)
-
-        current_timestamp = datetime.now(UTC)
+        current_timestamp = flag.created_at + timedelta(hours=1)
         version = find_version_at_timestamp(flag, current_timestamp, self.team.id)
         assert version is None
 
@@ -494,8 +493,7 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
         )
 
         # Query after restoration should return the restored version
-
-        future_timestamp = datetime.now(UTC)
+        future_timestamp = flag.created_at + timedelta(hours=1)
         version = find_version_at_timestamp(flag, future_timestamp, self.team.id)
         assert version == 3
 
@@ -519,10 +517,30 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
         )
 
         # Attempting to reconstruct after deletion should raise VersionNotFound
-
-        future_timestamp = datetime.now(UTC)
+        future_timestamp = flag.created_at + timedelta(hours=1)
 
         with self.assertRaises(VersionNotFound) as cm:
             reconstruct_flag_at_timestamp(flag, future_timestamp, self.team.id)
 
         assert "did not exist" in str(cm.exception)
+
+    def test_bulk_delete_without_version_returns_none(self):
+        """Regression test: bulk delete entries with empty changes should return None."""
+        flag = self._create_flag(name="V1", version=1)
+
+        # Log a bulk delete with empty changes (like posthog/api/feature_flag.py:2844)
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(changes=[], name=flag.key),  # Empty changes, no version info
+        )
+
+        # Query after bulk delete should return None
+        future_timestamp = flag.created_at + timedelta(hours=1)
+        version = find_version_at_timestamp(flag, future_timestamp, self.team.id)
+        assert version is None

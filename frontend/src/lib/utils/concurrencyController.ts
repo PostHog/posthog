@@ -118,5 +118,5 @@ export class ConcurrencyController {
 
 // Create a fake AbortError that allows us to use e.name === 'AbortError' to check if an error is an AbortError
 class FakeAbortError extends Error {
-    name = 'AbortError'
+    override name = 'AbortError'
 }

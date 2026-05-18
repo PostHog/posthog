@@ -1,6 +1,6 @@
 use crate::parsing::u64_or_string;
+use crate::types::PropVal;
 use crate::unordered_steps::AggregateFunnelRowUnordered;
-use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -24,7 +24,7 @@ pub struct Event {
     pub steps: Vec<i8>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Args {
     pub num_steps: usize,
     #[serde(deserialize_with = "u64_or_string")]
@@ -67,27 +67,38 @@ pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     steps: 0,
 };
 
-pub fn process_line(line: &str) -> Value {
-    let args = parse_args(line);
+pub fn run(args: &Args) -> Vec<Result> {
     if args.funnel_order_type == "unordered" {
-        let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
+        let mut row = AggregateFunnelRowUnordered {
             results: Vec::with_capacity(args.prop_vals.len()),
             breakdown_step: Option::None,
         };
-        let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-        return json!({ "result": result });
+        row.calculate_funnel_from_user_events(args);
+        return row.results;
     }
-    let mut aggregate_funnel_row = AggregateFunnelRow {
+    let mut row = AggregateFunnelRow {
         results: Vec::with_capacity(args.prop_vals.len()),
         breakdown_step: Option::None,
     };
-    let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-    json!({ "result": result })
+    row.calculate_funnel_from_user_events(args);
+    row.results
+}
+
+pub fn process_line(line: &str) -> Value {
+    match parse_args(line) {
+        Ok(args) => json!({ "result": run(&args) }),
+        Err(e) => {
+            eprintln!(
+                "funnels error: invalid JSON input while parsing steps Args: {e}. Input: {line}"
+            );
+            json!({ "error": format!("invalid JSON input: {e}") })
+        }
+    }
 }
 
 #[inline(always)]
-fn parse_args(line: &str) -> Args {
-    serde_json::from_str(line).expect("Invalid JSON input")
+fn parse_args(line: &str) -> std::result::Result<Args, serde_json::Error> {
+    serde_json::from_str(line)
 }
 
 impl AggregateFunnelRow {

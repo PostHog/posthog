@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -14,7 +14,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -22,16 +22,29 @@ from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.models.organization import Organization
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-# Allow max 10 full video exports per team per calendar month
-FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
+# Full video exports per team per calendar month, tiered by plan.
+FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
+    "free": 10,
+    "paid": 15,
+    "enterprise": 25,
+}
+
+
+def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:
+    """Monthly full video export limit for the organization's plan tier."""
+    tier = organization.get_plan_tier() if organization is not None else "free"
+    return FULL_VIDEO_EXPORTS_LIMIT_BY_TIER[tier]
+
 
 logger = structlog.get_logger(__name__)
 
@@ -118,32 +131,41 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-            existing_full_video_exports_count = ExportedAsset.objects.filter(
-                team_id=self.context["team_id"],
-                export_format__in=["video/mp4", "video/webm", "image/gif"],
-                export_context__session_recording_id__isnull=False,
-                created_at__gte=start_of_month,
-            ).count()
+            existing_full_video_exports_count = (
+                ExportedAsset.objects.filter(
+                    team_id=self.context["team_id"],
+                    export_format__in=["video/mp4", "video/webm", "image/gif"],
+                    export_context__session_recording_id__isnull=False,
+                    created_at__gte=start_of_month,
+                )
+                .exclude(is_system=True)
+                .count()
+            )
 
-            # Get team-specific limit from extra_settings, fallback to default
-            team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            # Plan-tier default with an optional per-team override that acts as a floor.
+            # Taking max() preserves the override's original purpose — bumping a team above
+            # their tier default — without silently downgrading orgs whose tier default is
+            # now higher than a legacy override set during the flat-10 era.
+            get_organization = self.context.get("get_organization")
+            organization = get_organization() if get_organization is not None else None
+            team_limit = get_full_video_exports_limit_for_organization(organization)
+
             get_team = self.context.get("get_team")
-            if get_team is not None:
-                team = get_team()
-                if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
-                    limit_value = team.extra_settings["full_video_exports_limit"]
-                    try:
-                        team_limit = int(limit_value)
-                        if team_limit <= 0:
-                            raise ValueError("Limit must be positive")
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            "invalid_full_video_exports_limit",
-                            team_id=team.id,
-                            limit_value=limit_value,
-                            limit_value_type=type(limit_value).__name__,
-                        )
-                        team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            team = get_team() if get_team is not None else None
+            if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
+                limit_value = team.extra_settings["full_video_exports_limit"]
+                try:
+                    override_limit = int(limit_value)
+                    if override_limit <= 0:
+                        raise ValueError("Limit must be positive")
+                    team_limit = max(team_limit, override_limit)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "invalid_full_video_exports_limit",
+                        team_id=team.id,
+                        limit_value=limit_value,
+                        limit_value_type=type(limit_value).__name__,
+                    )
 
             if not self.context["request"].user.is_staff and existing_full_video_exports_count >= team_limit:
                 raise ValidationError(
@@ -210,6 +232,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
                 logger.info("starting_rasterize_recording_workflow", asset_id=instance.id)
 
+                session_recording_id = instance.export_context.get("session_recording_id")
+
                 async def _start():
                     client = await async_connect()
                     await client.execute_workflow(
@@ -220,6 +244,12 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                         execution_timeout=timedelta(hours=1),
+                        search_attributes=TypedSearchAttributes(
+                            search_attributes=[
+                                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id),
+                                SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=session_recording_id),
+                            ]
+                        ),
                     )
 
                 try:
@@ -358,9 +388,22 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(created_by=self.request.user)
+        """
+        List shows only exports you created (quota + history are per user).
 
+        Retrieve/content by id: exports without export_context.session_recording_id are only
+        readable by their author; session recording exports are readable by any project member
+        who passes recording viewer checks in safely_get_object.
+        """
         if self.action == "list":
+            queryset = queryset.filter(created_by=self.request.user)
+
+            session_recording_filter = self.request.query_params.get("session_recording_id")
+            if session_recording_filter:
+                queryset = queryset.filter(
+                    export_context__session_recording_id=session_recording_filter,
+                )
+
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
@@ -375,18 +418,30 @@ class ExportedAssetViewSet(
     def safely_get_object(self, queryset):
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
 
-        resource = instance.dashboard or instance.insight
-        if not resource and instance.export_context:
-            session_recording_id = instance.export_context.get("session_recording_id")
-            if session_recording_id:
-                from posthog.session_recordings.models.session_recording import SessionRecording
-
-                resource = SessionRecording.objects.filter(
-                    team_id=instance.team_id, session_id=session_recording_id
-                ).first()
-
-        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+        if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
             raise NotFound()
+
+        export_context = instance.export_context or {}
+        session_recording_id = export_context.get("session_recording_id")
+
+        resource = instance.dashboard or instance.insight
+        if not resource and session_recording_id:
+            from posthog.session_recordings.models.session_recording import SessionRecording
+
+            resource = SessionRecording.objects.filter(
+                team_id=instance.team_id, session_id=session_recording_id
+            ).first()
+
+        if resource is not None:
+            if not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+                raise NotFound()
+        elif session_recording_id:
+            # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
+            # session_recording resource default so detail/content are not fail-open.
+            if not self.user_access_control.check_access_level_for_resource(
+                "session_recording", required_level="viewer"
+            ):
+                raise NotFound()
 
         return instance
 

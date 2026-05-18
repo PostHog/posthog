@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconPencil } from '@posthog/icons'
+import { IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonTable,
     LemonTableColumn,
@@ -13,6 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -34,7 +36,7 @@ export const scene: SceneExport = {
 
 export function SharedMetrics(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId } = useValues(sharedMetricsLogic)
-    const { setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricsLogic)
+    const { setSearchTerm, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
 
     const searchLower = searchTerm.toLowerCase()
@@ -103,29 +105,66 @@ export function SharedMetrics(): JSX.Element {
         createdAtColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         {
             key: 'actions',
-            title: 'Actions',
+            title: '',
+            width: 0,
             render: (_, sharedMetric) => {
                 return (
-                    <div className="flex gap-1">
-                        <LemonButton
-                            className="max-w-72"
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconPencil />}
-                            onClick={() => {
-                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
-                            }}
-                        />
-                        <LemonButton
-                            className="max-w-72"
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconCopy />}
-                            onClick={() => {
-                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
-                            }}
-                        />
-                    </div>
+                    <More
+                        size="xsmall"
+                        overlay={
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconPencil />}
+                                    onClick={() => {
+                                        router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
+                                    }}
+                                >
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconCopy />}
+                                    onClick={() => {
+                                        router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
+                                    }}
+                                >
+                                    Duplicate
+                                </LemonButton>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconTrash />}
+                                    status="danger"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete this metric?',
+                                            content: (
+                                                <div className="text-sm text-secondary">
+                                                    This action cannot be undone.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                onClick: () => deleteSharedMetric(sharedMetric.id),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },

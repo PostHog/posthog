@@ -194,16 +194,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
-        # preempt any previous run of this DAG that is still in progress
+        # NOTE: this should be handled by temporal's cancellation policy but
+        # we leave this in to clean up any jobs left in a dirty state
         await temporalio.workflow.execute_activity(
             preempt_dag_run_activity,
             PreemptDAGRunInputs(
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=2,
             ),
         )
         try:
@@ -224,9 +225,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=2,
             ),
         )
         executable_nodes = dag_structure.executable_nodes

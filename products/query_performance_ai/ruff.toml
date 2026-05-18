@@ -1,0 +1,15 @@
+extend = "../ruff.toml"
+
+[lint.extend-per-file-ignores]
+# Pi plugin and in-sandbox driver scripts use stdout as their orchestration
+# protocol (pi-autoresearch's `METRIC name=value` parse format, the campaign
+# init's human-readable banner, structured log lines for the host-side
+# coordinator) so the no-print lint doesn't apply.
+"sandboxed_autoresearch_agent/pi_plugin/scripts/**" = ["T201"]
+"sandboxed_autoresearch_agent/pi_plugin/templates/workspace/**" = ["T201"]
+"sandboxed_autoresearch_agent/driver/run_campaign.py" = ["T201"]
+
+# In-sandbox driver: shell-callable scripts where ANN policing isn't worth
+# the noise (overrides Python stdlib base-class signatures without re-typing
+# every arg).
+"sandboxed_autoresearch_agent/driver/**" = ["ANN"]
