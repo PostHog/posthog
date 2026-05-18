@@ -5,6 +5,7 @@ from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInlin
 from posthog.models import PluginConfig
 
 
+@admin.register(PluginConfig)
 class PluginConfigAdmin(admin.ModelAdmin):
     list_select_related = ("plugin", "team")
     list_display = ("id", "plugin_name", "team_name", "enabled", "deleted")

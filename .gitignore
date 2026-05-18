@@ -203,3 +203,8 @@ junit.xml
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
 .pnpm-store
+
+# Local-only HogQL log-corpus dumps (downloaded from Metabase by
+# posthog/hogql/scripts/log_corpus_diagnostic.py — contains
+# redacted production queries; not for git).
+posthog/hogql/scripts/.local/

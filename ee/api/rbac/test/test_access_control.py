@@ -24,7 +24,7 @@ class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -1681,9 +1681,9 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         """Without ROLE_BASED_ACCESS, role-based resource overrides are inert at runtime,
         so the per-role preview must show the resource default as the effective level.
         Project-level role overrides remain effective (runtime still honors them via
-        UserTeamPermissions when ADVANCED_PERMISSIONS is enabled)."""
+        UserTeamPermissions when ACCESS_CONTROL is enabled)."""
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -1854,12 +1854,12 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
         Project-level role overrides are deliberately NOT gated by this feature, because
         UserTeamPermissions.effective_membership_level_for_parent_membership honors
-        role-backed project AccessControl rows whenever ADVANCED_PERMISSIONS is enabled
+        role-backed project AccessControl rows whenever ACCESS_CONTROL is enabled
         (no ROLE_BASED_ACCESS check). The preview must match that runtime behaviour.
         """
-        # Remove the ROLE_BASED_ACCESS feature, keep ADVANCED_PERMISSIONS
+        # Remove the ROLE_BASED_ACCESS feature, keep ACCESS_CONTROL
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
