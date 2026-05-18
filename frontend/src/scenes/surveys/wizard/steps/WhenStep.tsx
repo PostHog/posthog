@@ -107,11 +107,17 @@ export function WhenStep(): JSX.Element {
         }
     }
 
-    const setSeenSurveyWaitPeriod = (value: number | null): void => {
+    // Reactive gate: typing a positive number turns the wait-period switch on; clearing or
+    // entering 0 turns it off. The switch itself just provides a quick way to seed/clear the value.
+    const setSeenSurveyWaitPeriod = (value: number | null | undefined): void => {
         setSurveyValue('conditions', {
             ...conditions,
             seenSurveyWaitPeriodInDays: value && value > 0 ? value : null,
         })
+    }
+
+    const setResponsesLimit = (value: number | null | undefined): void => {
+        setSurveyValue('responses_limit', value && value > 0 ? value : null)
     }
 
     const setRepeatedActivation = (enabled: boolean): void => {
@@ -253,7 +259,7 @@ export function WhenStep(): JSX.Element {
                     </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
                     <span>Then wait</span>
                     <LemonInput
                         type="number"
@@ -287,7 +293,7 @@ export function WhenStep(): JSX.Element {
                 )}
 
                 {frequency !== 'once' && (
-                    <div className="flex flex-wrap items-center gap-2 text-sm mt-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
                         <span>Show up to</span>
                         <LemonInput
                             type="number"
@@ -304,7 +310,7 @@ export function WhenStep(): JSX.Element {
                     </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2 text-sm mt-3">
+                <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
                     <LemonSwitch
                         checked={seenSurveyWaitPeriodInDays != null}
                         onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
@@ -314,9 +320,8 @@ export function WhenStep(): JSX.Element {
                     <LemonInput
                         type="number"
                         min={1}
-                        value={seenSurveyWaitPeriodInDays ?? NaN}
-                        onChange={(val) => setSeenSurveyWaitPeriod(val ?? null)}
-                        disabled={seenSurveyWaitPeriodInDays == null}
+                        value={seenSurveyWaitPeriodInDays ?? undefined}
+                        onChange={setSeenSurveyWaitPeriod}
                         className="w-20 tabular-nums"
                     />
                     <span className="text-secondary">days after any other survey was shown to the same user.</span>
@@ -327,15 +332,14 @@ export function WhenStep(): JSX.Element {
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                     <LemonCheckbox
                         checked={survey.responses_limit != null}
-                        onChange={(checked) => setSurveyValue('responses_limit', checked ? 100 : null)}
+                        onChange={(checked) => setResponsesLimit(checked ? 100 : null)}
                         label="Stop after"
                     />
                     <LemonInput
                         type="number"
                         min={1}
                         value={survey.responses_limit ?? undefined}
-                        onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : null)}
-                        disabled={survey.responses_limit == null}
+                        onChange={setResponsesLimit}
                         className="w-20 tabular-nums"
                     />
                     <span className="text-secondary">completed responses.</span>
