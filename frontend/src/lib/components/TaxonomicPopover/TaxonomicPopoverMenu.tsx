@@ -15,6 +15,8 @@
  */
 import { useMemo } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
+
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import {
@@ -152,6 +154,17 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                         <LemonButton
                             type="secondary"
                             {...triggerButtonProps}
+                            // LemonButton only auto-adds the dropdown chevron
+                            // inside a LemonDropdown; this trigger isn't, so
+                            // default it explicitly (legacy parity). A caller
+                            // passing `sideIcon={null}` still suppresses it.
+                            sideIcon={
+                                triggerButtonProps?.sideIcon === undefined ? (
+                                    <IconChevronDown />
+                                ) : (
+                                    triggerButtonProps.sideIcon
+                                )
+                            }
                             active={open}
                             data-attr="taxonomic-popover-menu-trigger"
                         >

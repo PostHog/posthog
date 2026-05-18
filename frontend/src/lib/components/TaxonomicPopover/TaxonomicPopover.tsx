@@ -228,7 +228,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     enableKeywordShortcuts={enableKeywordShortcuts}
                     triggerButtonProps={{
                         icon: buttonPropsRest.icon,
-                        sideIcon: sideIcon ?? undefined,
+                        sideIcon: sideIcon,
                         fullWidth: buttonPropsRest.fullWidth,
                         size: buttonPropsRest.size,
                         type: buttonPropsRest.type ?? 'secondary',
