@@ -1,8 +1,10 @@
 import json
+import datetime as dt
 from collections.abc import Generator
 from typing import Any, Optional
 
 import requests
+import structlog
 from linkedin_api.clients.restli.client import RestliClient
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -14,9 +16,15 @@ from .schemas import (
     LinkedinAdsResource,
 )
 
+logger = structlog.get_logger(__name__)
+
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
+CREATIVES_PAGE_SIZE = 100  # creatives backend returns transient 500s on heavier requests
 API_VERSION = "202508"
+# `q=analytics` truncates at 15k rows; we slice the date range to stay under it.
+ANALYTICS_RESPONSE_CAP = 15000
+ANALYTICS_CHUNK_DAYS = 7
 
 
 class LinkedinAdsRetryableError(Exception):
@@ -61,32 +69,79 @@ class LinkedinAdsClient:
             starting_page_token=starting_page_token,
         )
 
+    def get_creatives(
+        self, account_id: str, starting_page_token: Optional[str] = None
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+        """Get creatives with pagination. Uses `q=criteria` and reduced page size
+        (the creatives backend 500s on heavier requests)."""
+        account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
+        creatives_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Creatives]
+        yield from self._make_paginated_request(
+            endpoint=LinkedinAdsResource.Creatives,
+            path=f"/{account_endpoint}/{account_id}/{creatives_endpoint}",
+            starting_page_token=starting_page_token,
+            finder="criteria",
+            page_size=CREATIVES_PAGE_SIZE,
+        )
+
     def get_analytics(
         self,
         account_id: str,
         pivot: LinkedinAdsPivot = LinkedinAdsPivot.CAMPAIGN,
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
-        resource = (
-            LinkedinAdsResource.CampaignStats
-            if pivot == LinkedinAdsPivot.CAMPAIGN
-            else LinkedinAdsResource.CampaignGroupStats
-        )
-        fields = ",".join(self._get_fields_for_resource(resource))
-
-        params: dict[str, Any] = {
-            "q": "analytics",
-            "pivot": pivot.value,
-            "timeGranularity": "DAILY",
-            "accounts": [f"{LINKEDIN_SPONSORED_URN_PREFIX}Account:{account_id}"],
-            "fields": fields,
+    ) -> Generator[tuple[list[dict[str, Any]], None], None, None]:
+        """Fetch analytics in weekly chunks to stay under the 15k-row response
+        cap. Capped chunks yield partial data and log a warning — we don't
+        retry/split because extra calls under rate-limit pressure cost more
+        than the missing rows recover."""
+        resource_by_pivot = {
+            LinkedinAdsPivot.CAMPAIGN: LinkedinAdsResource.CampaignStats,
+            LinkedinAdsPivot.CAMPAIGN_GROUP: LinkedinAdsResource.CampaignGroupStats,
+            LinkedinAdsPivot.CREATIVE: LinkedinAdsResource.CreativeStats,
         }
+        resource = resource_by_pivot.get(pivot, LinkedinAdsResource.CampaignStats)
+        fields = ",".join(self._get_fields_for_resource(resource))
+        accounts = [f"{LINKEDIN_SPONSORED_URN_PREFIX}Account:{account_id}"]
 
-        if date_start and date_end:
-            params["dateRange"] = self._format_date_range(date_start, date_end)
+        def _build_params(chunk_start: Optional[str], chunk_end: Optional[str]) -> dict[str, Any]:
+            params: dict[str, Any] = {
+                "q": "analytics",
+                "pivot": pivot.value,
+                "timeGranularity": "DAILY",
+                "accounts": accounts,
+                "fields": fields,
+            }
+            if chunk_start and chunk_end:
+                params["dateRange"] = self._format_date_range(chunk_start, chunk_end)
+            return params
 
-        return self._make_request(endpoint=resource, finder="analytics", extra_params=params)
+        if not (date_start and date_end):
+            yield (
+                self._make_request(endpoint=resource, finder="analytics", extra_params=_build_params(None, None)),
+                None,
+            )
+            return
+
+        chunk_start = dt.date.fromisoformat(date_start)
+        end_date = dt.date.fromisoformat(date_end)
+        while chunk_start <= end_date:
+            chunk_end = min(chunk_start + dt.timedelta(days=ANALYTICS_CHUNK_DAYS - 1), end_date)
+            elements = self._make_request(
+                endpoint=resource,
+                finder="analytics",
+                extra_params=_build_params(chunk_start.isoformat(), chunk_end.isoformat()),
+            )
+            if len(elements) >= ANALYTICS_RESPONSE_CAP:
+                logger.warning(
+                    "linkedin_ads.analytics_chunk_capped",
+                    pivot=pivot.value,
+                    chunk_start=chunk_start.isoformat(),
+                    chunk_end=chunk_end.isoformat(),
+                    received=len(elements),
+                )
+            yield elements, None
+            chunk_start = chunk_end + dt.timedelta(days=1)
 
     def get_data_by_resource(
         self,
@@ -98,8 +153,9 @@ class LinkedinAdsClient:
     ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
         """Get data by resource, yielding each page and its nextPageToken (if any).
 
-        starting_page_token applies only to paginated endpoints (campaigns, campaign_groups)
-        and is ignored for single-shot endpoints (accounts, analytics).
+        `starting_page_token` applies to the paginated entity endpoints (campaigns,
+        campaign_groups, creatives) and is ignored for single-shot endpoints
+        (accounts, analytics — analytics paginates by date-range chunking instead).
         """
         if resource == LinkedinAdsResource.Accounts:
             yield self.get_accounts(), None
@@ -107,8 +163,10 @@ class LinkedinAdsClient:
             yield from self.get_campaigns(account_id, starting_page_token=starting_page_token)
         elif resource == LinkedinAdsResource.CampaignGroups:
             yield from self.get_campaign_groups(account_id, starting_page_token=starting_page_token)
+        elif resource == LinkedinAdsResource.Creatives:
+            yield from self.get_creatives(account_id, starting_page_token=starting_page_token)
         elif resource in LINKEDIN_ADS_PIVOTS:
-            yield self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end), None
+            yield from self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end)
         else:
             raise ValueError(f"Unsupported resource: {resource}")
 
@@ -168,22 +226,23 @@ class LinkedinAdsClient:
         endpoint: LinkedinAdsResource,
         path: str,
         starting_page_token: Optional[str] = None,
+        finder: str = "search",
+        page_size: int = MAX_PAGE_SIZE,
+        extra_params: Optional[dict[str, Any]] = None,
     ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
-        """Make paginated requests yielding each page with its nextPageToken.
-
-        Yields (elements, next_page_token) where next_page_token is the token to request
-        the page AFTER the one just yielded (None for the final page). Callers can persist
-        this token to resume a run at the next page without re-fetching yielded data.
-        """
+        """Yield each page as `(elements, next_page_token)` (None on the last page).
+        Callers persist `next_page_token` to resume without re-fetching."""
         page_token = starting_page_token
 
         while True:
             fields = self._get_fields_for_resource(endpoint)
-            params = {"fields": ",".join(fields), "pageSize": MAX_PAGE_SIZE}
+            params: dict[str, Any] = {"fields": ",".join(fields), "pageSize": page_size}
+            if extra_params:
+                params.update(extra_params)
             if page_token:
                 params["pageToken"] = page_token
 
-            response = self._call_finder(resource_path=path, finder="search", params=params)
+            response = self._call_finder(resource_path=path, finder=finder, params=params)
 
             if not response.elements:
                 break

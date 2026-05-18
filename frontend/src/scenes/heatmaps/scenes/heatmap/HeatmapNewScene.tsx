@@ -6,10 +6,11 @@ import { Spinner } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
+import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
-import { HeatmapsUrlsList } from 'scenes/heatmaps/components/HeatmapsInfo'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,7 @@ export function HeatmapNewScene(): JSX.Element {
     const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized, displayUrlIsPattern } =
         useValues(logic)
     const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl, setDataUrlUserTouched } = useActions(logic)
+    const { topUrls, topUrlsLoading, noPageviews } = useValues(heatmapsBrowserLogic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)
@@ -57,7 +59,28 @@ export function HeatmapNewScene(): JSX.Element {
                 }}
             />
             <SceneSection title="Page URL" description="URL to your website">
-                <LemonInput value={displayUrl || ''} onChange={setDisplayUrl} placeholder="https://www.example.com" />
+                <LemonInputSelect
+                    mode="single"
+                    allowCustomValues
+                    disableEditing
+                    fullWidth
+                    placeholder="https://www.example.com"
+                    loading={topUrlsLoading}
+                    value={displayUrl ? [displayUrl] : []}
+                    onChange={(next) => setDisplayUrl(next[0] ?? '')}
+                    options={(topUrls ?? []).map(({ url }) => ({
+                        key: url,
+                        label: url,
+                        labelComponent: (
+                            <span className="block min-w-0 max-w-full truncate ph-no-capture" title={url}>
+                                {url}
+                            </span>
+                        ),
+                    }))}
+                    title={topUrls && topUrls.length > 0 ? 'Most viewed pages' : undefined}
+                    popoverClassName="max-w-0"
+                    data-attr="heatmap-new-page-url"
+                />
                 {displayUrl && !isDisplayUrlValid ? (
                     displayUrlIsPattern ? (
                         <LemonBanner type="error" className="mt-2">
@@ -67,7 +90,9 @@ export function HeatmapNewScene(): JSX.Element {
                         <HeatmapsInvalidURL />
                     )
                 ) : null}
-                {!displayUrl && <HeatmapsUrlsList />}
+                {!displayUrl && noPageviews && !topUrlsLoading ? (
+                    <div className="text-xs text-muted mt-1">No pageview events have been received yet.</div>
+                ) : null}
             </SceneSection>
             <SceneDivider />
             <SceneSection

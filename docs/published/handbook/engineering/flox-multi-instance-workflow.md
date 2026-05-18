@@ -58,9 +58,6 @@ brew install direnv gh jq
 # Add direnv hook to your shell (~/.zshrc or ~/.bashrc)
 eval "$(direnv hook zsh)"  # or bash
 
-# Add the phw function for auto-cd functionality
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc  # or ~/.bashrc
-
 # Reload your shell
 source ~/.zshrc  # or ~/.bashrc
 
@@ -352,12 +349,11 @@ flox activate
 
 ### phw command not found
 
-```bash
-# Make sure you've sourced the phw script
-source ~/dev/posthog/posthog/bin/phw
+Make sure the Flox environment is activated:
 
-# Add it permanently to your shell profile
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc
+```bash
+cd ~/dev/posthog/posthog
+flox activate
 ```
 
 ### Dependencies out of sync
@@ -401,18 +397,20 @@ git worktree prune
 For a complete one-time setup, run:
 
 ```bash
-# For zsh users
+# For zsh users (replace ~/dev/posthog/posthog with your repo path)
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc && \
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc && \
 source ~/.zshrc && \
+cd ~/dev/posthog/posthog && \
+flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 
-# For bash users
+# For bash users (replace ~/dev/posthog/posthog with your repo path)
 brew install direnv gh jq && \
 echo 'eval "$(direnv hook bash)"' >> ~/.bashrc && \
-echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.bashrc && \
 source ~/.bashrc && \
+cd ~/dev/posthog/posthog && \
+flox activate -- true && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 ```
 

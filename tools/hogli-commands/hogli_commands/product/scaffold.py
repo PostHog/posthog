@@ -203,7 +203,7 @@ def _prompt_for_separate_db(name: str) -> tuple[bool, str | None]:
     return True, db_name
 
 
-def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
+def bootstrap_product(name: str, dry_run: bool, force: bool, *, non_interactive: bool = False) -> None:
     if not _VALID_PRODUCT_NAME_RE.match(name):
         raise click.ClickException(
             f"Invalid product name '{name}' — must be lowercase, start with a letter, and contain only [a-z0-9_]."
@@ -214,8 +214,9 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
         raise click.ClickException(f"Product '{name}' already exists at {product_dir}. Use --force to overwrite.")
 
     # Resolve the DB layout up front so file rendering can branch on it.
-    # Dry-run defaults to separate-DB to mirror the previous preview output.
-    if dry_run:
+    # Dry-run and non-interactive both default to separate-DB to match the
+    # previous preview / automation behavior.
+    if dry_run or non_interactive:
         separate_db, db_name = True, name
     else:
         separate_db, db_name = _prompt_for_separate_db(name)
@@ -271,6 +272,8 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     # product.yaml — canonical metadata
     if dry_run:
         _write_product_yaml(product_dir, _default_display_name(name), ["team-CHANGEME"], dry_run=True)
+    elif non_interactive:
+        _write_product_yaml(product_dir, _default_display_name(name), ["team-devex"], dry_run=False)
     else:
         display_name = click.prompt("  Display name", default=_default_display_name(name), show_default=True)
         owner = click.prompt(

@@ -101,6 +101,7 @@ InsightVariable
 InsightViewed
 Integration
 IntegrationRepositoryCacheEntry
+IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
@@ -131,6 +132,8 @@ PropertyAccessControl
 QueryTabState
 QuickFilter
 QuickFilterContext
+ReplayLens
+ReplayObservation
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem
@@ -173,6 +176,7 @@ TraceReviewScore
 UploadedMedia
 UserHomeSettings
 UserInterview
+UserInterviewTopic
 UserProductList
 UserRepoPreference
 UserScenePersonalisation

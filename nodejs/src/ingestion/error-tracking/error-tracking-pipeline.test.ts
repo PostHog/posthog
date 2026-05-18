@@ -308,6 +308,7 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             overflowEnabled: false,
+            preservePartitionLocality: false,
             topHog: mockTopHog,
         }
     })
@@ -649,8 +650,8 @@ describe('ErrorTrackingPipeline', () => {
             // so Kafka doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 10 times (initial + 9 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(10)
+            // Cymbal was called 3 times (initial + 2 retries) before giving up
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 

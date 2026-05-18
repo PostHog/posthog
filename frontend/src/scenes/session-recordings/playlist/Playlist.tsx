@@ -95,7 +95,7 @@ export function Playlist({
         otherRecordings,
         hasNext,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId, loadSessionRecordings } =
+    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
         useActions(sessionRecordingsPlaylistLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
 
@@ -253,7 +253,7 @@ export function Playlist({
                             setFilters={setFilters}
                             totalFiltersCount={totalFiltersCount}
                             currentSessionRecordingId={activeSessionRecordingId}
-                            onReload={() => loadSessionRecordings()}
+                            onReload={() => maybeLoadSessionRecordings()}
                         />
                     </DraggableToNotebook>
                 </div>
