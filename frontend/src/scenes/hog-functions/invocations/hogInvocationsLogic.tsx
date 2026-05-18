@@ -59,7 +59,11 @@ export interface HogInvocationsFilters {
     date_to?: string
     status?: RunStatus[]
     error_kind?: string[]
-    is_retry?: 'only_retries' | 'only_originals' | undefined
+    /**
+     * Row-kind filter: scope the list to real invocations (`hog_function` /
+     * `hog_flow`), to replay wrapper jobs (`*_replay`), or show both.
+     */
+    kind?: 'invocations' | 'replay_jobs'
     search?: string
     order_by?: RunsOrderBy
 }
@@ -97,7 +101,7 @@ const URL_PARAMS = {
     date_to: `${URL_PARAM_PREFIX}date_to`,
     status: `${URL_PARAM_PREFIX}status`,
     error_kind: `${URL_PARAM_PREFIX}error_kind`,
-    is_retry: `${URL_PARAM_PREFIX}retry`,
+    kind: `${URL_PARAM_PREFIX}kind`,
     search: `${URL_PARAM_PREFIX}search`,
     order_by: `${URL_PARAM_PREFIX}order`,
 } as const
@@ -107,7 +111,7 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.date_to]: filters.date_to,
     [URL_PARAMS.status]: filters.status?.length ? filters.status.join(',') : undefined,
     [URL_PARAMS.error_kind]: filters.error_kind?.length ? filters.error_kind.join(',') : undefined,
-    [URL_PARAMS.is_retry]: filters.is_retry,
+    [URL_PARAMS.kind]: filters.kind,
     [URL_PARAMS.search]: filters.search,
     [URL_PARAMS.order_by]: filters.order_by === 'first_scheduled' ? undefined : filters.order_by,
 })
@@ -129,9 +133,9 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     if (errorKind) {
         next.error_kind = errorKind.split(',').filter(Boolean)
     }
-    const retry = searchParams[URL_PARAMS.is_retry]
-    if (retry === 'only_retries' || retry === 'only_originals') {
-        next.is_retry = retry
+    const kind = searchParams[URL_PARAMS.kind]
+    if (kind === 'invocations' || kind === 'replay_jobs') {
+        next.kind = kind
     }
     if (searchParams[URL_PARAMS.search]) {
         next.search = searchParams[URL_PARAMS.search]
@@ -148,7 +152,7 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
     date_to: undefined,
     status: undefined,
     error_kind: undefined,
-    is_retry: undefined,
+    kind: undefined,
     search: undefined,
     order_by: 'first_scheduled',
 }
@@ -232,6 +236,25 @@ export const dateClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof
 }
 
 /**
+ * `function_kind` predicate driven by the kind filter — `invocations` returns
+ * only real rows, `replay_jobs` returns only the wrapper rows, and the default
+ * (undefined) returns both kinds for this function id.
+ */
+export const kindClauseFor = (
+    props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters
+): ReturnType<typeof hogql.raw> => {
+    const wrapperKind = replayWrapperKindFor(props.functionKind)
+    if (filters.kind === 'invocations') {
+        return hogql.raw(`function_kind = '${props.functionKind}'`)
+    }
+    if (filters.kind === 'replay_jobs') {
+        return hogql.raw(`function_kind = '${wrapperKind}'`)
+    }
+    return hogql.raw(`function_kind IN ('${props.functionKind}', '${wrapperKind}')`)
+}
+
+/**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
  * expression and the equivalent client-side interval (in ms) so we can
  * generate every bucket boundary in the filter range, not just the ones CH
@@ -283,25 +306,17 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
 }
 
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
-    const replayWrapperKind = replayWrapperKindFor(props.functionKind)
     const { intervalMs, bucketExpr } = pickSparklineTier(filters)
 
-    // Apply the visible filters so the sparkline reflects the same population
-    // as the list — referencing the SELECT aliases (status / error_kind /
-    // is_retry) rather than wrapping in argMax again to dodge the alias
-    // substitution that produces nested aggregates.
+    // Filters reference the SELECT aliases (status / error_kind) so we don't
+    // re-wrap in argMax inline — that would collide with the alias and
+    // produce a nested aggregate error.
     const optionalStatusClause = filters.status?.length
         ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(',')})`)
         : hogql.raw('')
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(',')})`)
         : hogql.raw('')
-    const optionalRetryClause =
-        filters.is_retry === 'only_retries'
-            ? hogql.raw('AND is_retry = 1')
-            : filters.is_retry === 'only_originals'
-              ? hogql.raw('AND is_retry = 0')
-              : hogql.raw('')
     const trimmedSearch = filters.search?.trim()
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
@@ -314,6 +329,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
           )
         : hogql.raw('')
 
+    const kindClause = kindClauseFor(props, filters)
     const dateClause = dateClauseFor(filters)
     const query = hogql`
         SELECT
@@ -325,20 +341,18 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
                 invocation_id,
                 argMax(status, version)         AS status,
                 argMax(error_kind, version)     AS error_kind,
-                argMax(is_retry, version)       AS is_retry,
                 argMax(event_uuid, version)     AS event_uuid,
                 argMax(distinct_id, version)    AS distinct_id,
                 argMax(person_id, version)      AS person_id,
                 min(scheduled_at)               AS first_scheduled_at
             FROM posthog.hog_invocation_results
-            WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
+            WHERE ${kindClause}
               AND function_id = ${props.id}
               ${dateClause}
             GROUP BY invocation_id, function_kind
             HAVING argMax(is_deleted, version) = 0
                ${optionalStatusClause}
                ${optionalErrorKindClause}
-               ${optionalRetryClause}
                ${optionalSearchClause}
         )
         GROUP BY bucket, status
@@ -393,12 +407,6 @@ async function fetchRunsPage(
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(', ')})`)
         : hogql.raw('')
-    const optionalRetryClause =
-        filters.is_retry === 'only_retries'
-            ? hogql.raw('AND is_retry = 1')
-            : filters.is_retry === 'only_originals'
-              ? hogql.raw('AND is_retry = 0')
-              : hogql.raw('')
     const trimmedSearch = filters.search?.trim()
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
@@ -411,7 +419,6 @@ async function fetchRunsPage(
           )
         : hogql.raw('')
 
-    const replayWrapperKind = replayWrapperKindFor(props.functionKind)
     // `ORDER BY max(scheduled_at)` is safe only because the SELECT alias isn't
     // named `scheduled_at` — otherwise HogQL substitutes the alias and produces
     // `max(max(scheduled_at))`.
@@ -419,6 +426,7 @@ async function fetchRunsPage(
         filters.order_by === 'first_scheduled'
             ? hogql.raw('ORDER BY min(scheduled_at) DESC, invocation_id DESC')
             : hogql.raw('ORDER BY max(scheduled_at) DESC, invocation_id DESC')
+    const kindClause = kindClauseFor(props, filters)
     const dateClause = dateClauseFor(filters)
     const query = hogql`
         SELECT
@@ -439,14 +447,13 @@ async function fetchRunsPage(
             argMax(person_id, version)      AS person_id,
             argMax(parent_run_id, version)  AS parent_run_id
         FROM posthog.hog_invocation_results
-        WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
+        WHERE ${kindClause}
           AND function_id = ${props.id}
           ${dateClause}
         GROUP BY invocation_id, function_kind
         HAVING argMax(is_deleted, version) = 0
            ${optionalStatusClause}
            ${optionalErrorKindClause}
-           ${optionalRetryClause}
            ${optionalSearchClause}
         ${orderClause}
         LIMIT ${HOG_INVOCATIONS_PAGE_SIZE}

@@ -463,24 +463,18 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                             })
                         }
                     />
-                    <LemonSelect<'all' | 'only_originals' | 'only_retries'>
+                    <LemonSelect<'all' | 'invocations' | 'replay_jobs'>
                         size="small"
-                        value={filters.is_retry ?? 'all'}
+                        value={filters.kind ?? 'all'}
                         onChange={(v) =>
                             setFilters({
-                                is_retry:
-                                    v === 'only_originals' || v === 'only_retries'
-                                        ? (v as 'only_originals' | 'only_retries')
-                                        : undefined,
+                                kind: v === 'invocations' || v === 'replay_jobs' ? v : undefined,
                             })
                         }
                         options={[
-                            { value: 'all', label: 'All runs' },
-                            {
-                                value: 'only_originals',
-                                label: 'Originals only',
-                            },
-                            { value: 'only_retries', label: 'Replays only' },
+                            { value: 'all', label: 'All rows' },
+                            { value: 'invocations', label: 'Invocations only' },
+                            { value: 'replay_jobs', label: 'Replay jobs only' },
                         ]}
                     />
                     <DateFilter
