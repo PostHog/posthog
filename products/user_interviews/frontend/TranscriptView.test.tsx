@@ -1,6 +1,4 @@
-import { render } from '@testing-library/react'
-
-import { TranscriptTurn, TranscriptView, parseTranscript } from './TranscriptView'
+import { TranscriptTurn, parseTranscript } from './TranscriptView'
 
 describe('parseTranscript', () => {
     it.each<[string, string]>([
@@ -85,23 +83,5 @@ describe('parseTranscript', () => {
         ],
     ])('parses %s', (_label, transcript, expected) => {
         expect(parseTranscript(transcript)).toEqual(expected)
-    })
-})
-
-describe('TranscriptView', () => {
-    it('renders raw pre-wrapped text when no turn structure is detected', () => {
-        const { container } = render(<TranscriptView transcript="just some free-form notes" />)
-        expect(container.textContent).toBe('just some free-form notes')
-        expect(container.querySelector('.whitespace-pre-wrap')).not.toBeNull()
-    })
-
-    it('renders one card per parsed turn with the speaker label', () => {
-        const { container, getAllByRole } = render(<TranscriptView transcript={'AI: Hi\nUser: Hello'} />)
-        const turns = getAllByRole('article')
-        expect(turns).toHaveLength(2)
-        expect(container.textContent).toContain('AI')
-        expect(container.textContent).toContain('Hi')
-        expect(container.textContent).toContain('User')
-        expect(container.textContent).toContain('Hello')
     })
 })

@@ -12,10 +12,8 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
-        "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
-        "jest": "*",
         "react": "*"
     }
 }
