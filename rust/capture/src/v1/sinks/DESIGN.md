@@ -1009,7 +1009,7 @@ original property ordering and formatting.
 | `session_id` | `$session_id` | |
 | `window_id` | `$window_id` | |
 | `options.cookieless_mode` | `$cookieless_mode` | |
-| `options.disable_skew_adjustment` | `$ignore_sent_at` | Legacy rename |
+| `options.disable_skew_correction` | `$ignore_sent_at` | Legacy rename (alias: `disable_skew_adjustment`) |
 | `options.product_tour_id` | `$product_tour_id` | |
 | `options.process_person_profile` | `$process_person_profile` | |
 

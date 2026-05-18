@@ -12,8 +12,8 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
 from products.growth.backend.constants import (
-    SDK_CACHE_EXPIRY,
     SDK_TYPES,
+    TEAM_SDK_CACHE_EXPIRY,
     SdkVersionEntry,
     github_sdk_versions_key,
     team_sdk_versions_key,
@@ -74,7 +74,7 @@ def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry
     pipe = redis_client.pipeline()
     for team_id, sdk_data in team_sdk_data.items():
         cache_key = team_sdk_versions_key(team_id)
-        pipe.setex(cache_key, SDK_CACHE_EXPIRY, json.dumps(sdk_data))
+        pipe.setex(cache_key, TEAM_SDK_CACHE_EXPIRY, json.dumps(sdk_data))
     pipe.execute()
 
 

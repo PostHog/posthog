@@ -3,10 +3,17 @@
  *
  * Three patterns are handled before handing schemas to Orval:
  *
- * 1. Named schemas with meaningless PascalCase keys (SCHEMAS_TO_INLINE)
- *    TimezoneEnum has 596 IANA identifiers like "Africa/Abidjan" that become
- *    "AfricaAbidjan" — losing the path separator and making lookups impossible.
- *    We delete the schema and replace every $ref with { type: 'string' }.
+ * 1. Named schemas that should be inlined (SCHEMAS_TO_INLINE)
+ *    Each entry maps a component name to the inline schema that replaces every
+ *    $ref to it. Two cases use this today:
+ *      - TimezoneEnum has 596 IANA identifiers like "Africa/Abidjan" that
+ *        PascalCase to "AfricaAbidjan", losing the path separator. We replace
+ *        refs with { type: 'string' }.
+ *      - NullEnum is drf-spectacular's named ref for a `{type: 'null'}` schema
+ *        emitted alongside every nullable enum. The component is structural
+ *        noise — it produces a `NullEnumApi = null` type alias that just
+ *        forwards to `null`. We replace refs with { type: 'null'} so consumers
+ *        see `Role | "" | null` directly.
  *
  * 2. Inline ordering enums with colliding keys (stripCollidingInlineEnums)
  *    DRF ordering params include both "created_at" and "-created_at", which
@@ -28,18 +35,28 @@ export const INT32_MIN = -2147483648
 export const INT32_MAX = 2147483647
 const INTEGER_BOUND_KEYS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum']
 
-/** Schema names that should be inlined as { type: 'string' } instead of referenced. */
-export const SCHEMAS_TO_INLINE = new Set(['TimezoneEnum'])
+/**
+ * Component names whose $refs get replaced inline, mapped to the substitute schema.
+ * The component itself is also removed from `components.schemas` after substitution.
+ */
+export const SCHEMAS_TO_INLINE = new Map([
+    ['TimezoneEnum', { type: 'string' }],
+    ['NullEnum', { type: 'null' }],
+])
 
 /**
- * Replace $refs to SCHEMAS_TO_INLINE entries with { type: 'string' } in-place.
+ * Replace $refs to SCHEMAS_TO_INLINE entries with their substitute schema in-place.
  */
 export function inlineSchemaRefs(obj) {
     if (!obj || typeof obj !== 'object') {
         return obj
     }
-    if (obj.$ref && SCHEMAS_TO_INLINE.has(obj.$ref.replace('#/components/schemas/', ''))) {
-        return { type: 'string' }
+    if (obj.$ref) {
+        const name = obj.$ref.replace('#/components/schemas/', '')
+        const substitute = SCHEMAS_TO_INLINE.get(name)
+        if (substitute) {
+            return { ...substitute }
+        }
     }
     for (const [key, value] of Object.entries(obj)) {
         obj[key] = inlineSchemaRefs(value)
@@ -112,7 +129,7 @@ export function clampIntegerBounds(obj) {
  */
 export function preprocessSchema(schema) {
     inlineSchemaRefs(schema)
-    for (const name of SCHEMAS_TO_INLINE) {
+    for (const name of SCHEMAS_TO_INLINE.keys()) {
         delete schema.components?.schemas?.[name]
     }
     stripCollidingInlineEnums(schema)

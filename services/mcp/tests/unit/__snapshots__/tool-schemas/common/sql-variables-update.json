@@ -2,12 +2,6 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "default_value": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "Default value used when a query references this variable."
         },
         "id": {
@@ -25,12 +19,6 @@
             "type": "string"
         },
         "values": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "Allowed values for List variables. Null for other variable types."
         }
     },

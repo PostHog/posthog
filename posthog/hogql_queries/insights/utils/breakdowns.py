@@ -1,5 +1,21 @@
 from posthog.schema import BreakdownFilter
 
+from posthog.hogql import ast
+from posthog.hogql.visitor import CloningVisitor
+
+
+class _AliasStripper(CloningVisitor):
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
+        return self.visit(node.expr)
+
+
+def strip_user_aliases(expr: ast.Expr) -> ast.Expr:
+    # User-supplied `AS <name>` on a breakdown is display-only; leaving aliases in the
+    # SQL AST risks colliding with system aliases or rendering invalid SQL in WHERE.
+    # Strip recursively to cover nested (`x AS a AS b`) and inner-position
+    # (`concat(x AS a, y)`) variants.
+    return _AliasStripper().visit(expr)
+
 
 def has_single_breakdown(breakdown_filter: BreakdownFilter | None) -> bool:
     """Return whether the single-field `breakdown` representation is populated."""

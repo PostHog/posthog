@@ -23,7 +23,7 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsCreateBodyPrimaryPropertyMax)
@@ -50,7 +50,7 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsUpdateBodyPrimaryPropertyMax)
@@ -77,7 +77,7 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsPartialUpdateBodyPrimaryPropertyMax)
@@ -110,9 +110,9 @@ export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.obje
         .describe('List of object IDs to update tags on.'),
     action: zod
         .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
         .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })

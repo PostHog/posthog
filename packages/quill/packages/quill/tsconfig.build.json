@@ -8,7 +8,8 @@
         "skipLibCheck": true,
         "verbatimModuleSyntax": true,
         "jsx": "react-jsx",
-        "noEmit": true
+        "noEmit": true,
+        "rootDir": "./src"
     },
     "include": ["src"]
 }

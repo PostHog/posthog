@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+from collections.abc import Sequence
 
 import pytest
 from unittest.mock import MagicMock
@@ -30,6 +31,33 @@ from products.data_warehouse.backend.models.credential import DataWarehouseCrede
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+
+class _FakeColumn:
+    def __init__(self, name: str, type_code: int) -> None:
+        self.name = name
+        self.type_code = type_code
+
+
+class _FakeVerificationCursor:
+    def __init__(self, description: Sequence[object] | None) -> None:
+        self.description = description
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        raise AssertionError("schema fetching should use cursor.description")
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        raise AssertionError("schema fetching should use cursor.description")
+
+
+class _FakeVerificationConnection:
+    def __init__(self, description: Sequence[object] | None) -> None:
+        self.description = description
+        self.calls: list[tuple[str, Sequence[object] | None]] = []
+
+    def execute(self, query: str, params: Sequence[object] | None = None) -> _FakeVerificationCursor:
+        self.calls.append((query, params))
+        return _FakeVerificationCursor(self.description)
 
 
 @pytest.mark.asyncio
@@ -812,6 +840,51 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     assert results[0].passed is True
     assert results[1].name == "outside_tolerance"
     assert results[1].passed is False
+
+
+_DUCKGRES_CURSOR_DESCRIPTION = [_FakeColumn("id", 20), _FakeColumn("name", 25)]
+_DUCKGRES_EXPECTED_SCHEMA = [("id", "20"), ("name", "25")]
+_DUCKDB_CURSOR_DESCRIPTION = [
+    ("id", "BIGINT", None, None, None, None, None),
+    ("name", "VARCHAR", None, None, None, None, None),
+]
+_DUCKDB_EXPECTED_SCHEMA = [("id", "BIGINT"), ("name", "VARCHAR")]
+
+
+@pytest.mark.parametrize(
+    "description, expected_schema",
+    [
+        pytest.param(_DUCKGRES_CURSOR_DESCRIPTION, _DUCKGRES_EXPECTED_SCHEMA, id="duckgres_psycopg_columns"),
+        pytest.param(_DUCKDB_CURSOR_DESCRIPTION, _DUCKDB_EXPECTED_SCHEMA, id="duckdb_dbapi_tuples"),
+    ],
+)
+def test_fetch_delta_schema_uses_select_metadata(description, expected_schema):
+    conn = _FakeVerificationConnection(description)
+
+    result = ducklake_module._fetch_delta_schema(conn, "s3://bucket/staged/customers", parameter_placeholder="%s")
+
+    assert result == expected_schema
+    assert conn.calls == [
+        ("SELECT * FROM delta_scan(%s) LIMIT 0", ["s3://bucket/staged/customers"]),
+    ]
+
+
+@pytest.mark.parametrize(
+    "description, expected_schema",
+    [
+        pytest.param(_DUCKGRES_CURSOR_DESCRIPTION, _DUCKGRES_EXPECTED_SCHEMA, id="duckgres_psycopg_columns"),
+        pytest.param(_DUCKDB_CURSOR_DESCRIPTION, _DUCKDB_EXPECTED_SCHEMA, id="duckdb_dbapi_tuples"),
+    ],
+)
+def test_fetch_schema_uses_select_metadata(description, expected_schema):
+    conn = _FakeVerificationConnection(description)
+
+    result = ducklake_module._fetch_schema(conn, "posthog_data_imports_team_1.postgres_customers")
+
+    assert result == expected_schema
+    assert conn.calls == [
+        ("SELECT * FROM posthog_data_imports_team_1.postgres_customers LIMIT 0", None),
+    ]
 
 
 def test_ducklake_copy_data_imports_workflow_parse_inputs():
