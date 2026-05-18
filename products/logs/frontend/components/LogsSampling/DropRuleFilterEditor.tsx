@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -13,7 +13,10 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-const ROOT_KEY = 'logs-drop-rule'
+// Namespace prefix only — the real per-mount key is appended below so that two
+// editors mounted simultaneously (e.g. during fast scene navigation) don't share
+// universalFiltersLogic / taxonomicFilterLogic instances.
+const ROOT_KEY_PREFIX = 'logs-drop-rule'
 const TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.Logs,
     TaxonomicFilterGroupType.LogResourceAttributes,
@@ -23,26 +26,31 @@ const TAXONOMIC_GROUP_TYPES = [
 export const DropRuleFilterEditor = memo(function DropRuleFilterEditor({
     filterGroup,
     onChange,
+    logicKey,
 }: {
     filterGroup: UniversalFiltersGroup
     onChange: (group: UniversalFiltersGroup) => void
+    /** Optional explicit key (e.g. `rule-${id}`); defaults to a per-mount React id. */
+    logicKey?: string
 }): JSX.Element {
+    const fallback = useId()
+    const rootKey = logicKey ?? `${ROOT_KEY_PREFIX}:${fallback}`
     return (
         <UniversalFilters
-            rootKey={ROOT_KEY}
+            rootKey={rootKey}
             group={filterGroup}
             taxonomicGroupTypes={TAXONOMIC_GROUP_TYPES}
             onChange={onChange}
         >
             <div className="space-y-2">
-                <DropRuleFilterSearch />
+                <DropRuleFilterSearch logicKey={rootKey} />
                 <DropRuleAppliedFilters />
             </div>
         </UniversalFilters>
     )
 })
 
-function DropRuleFilterSearch(): JSX.Element {
+function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -59,7 +67,7 @@ function DropRuleFilterSearch(): JSX.Element {
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = useMemo(
         () => ({
-            taxonomicFilterLogicKey: ROOT_KEY,
+            taxonomicFilterLogicKey: logicKey,
             taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
             onChange: (taxonomicGroup, value, item) => {
                 if (item.value === undefined) {
@@ -85,7 +93,7 @@ function DropRuleFilterSearch(): JSX.Element {
             },
             autoSelectItem: true,
         }),
-        [addGroupFilter, setGroupValues]
+        [addGroupFilter, setGroupValues, logicKey]
     )
 
     const showDropdown = useCallback(() => setVisible(true), [])
