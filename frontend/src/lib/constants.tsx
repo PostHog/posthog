@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_AI_FIRST_EMPTY_STATE: 'surveys-ai-first-empty-state', // owner: #team-surveys, enables ai-first empty state
+    SURVEYS_HOSTED_EDITOR: 'surveys-hosted-editor', // owner: #team-surveys, enables the dedicated hosted-survey editor UI
     SURVEYS_REDESIGNED_VIEW: 'surveys-redesigned-view', // owner: #team-surveys, enables the redesigned survey view with sidebar
     SURVEYS_TRANSLATIONS: 'surveys-translations', // owner: #team-surveys
     TRACK_DETACHED_ELEMENTS: 'track-detached-elements', // owner: @pauldambra #team-replay
@@ -497,6 +498,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_LIVE_FILTERS: 'web-analytics-live-filters', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
+    WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN: 'web-analytics-live-person-drilldown', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics

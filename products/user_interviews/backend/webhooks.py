@@ -11,6 +11,7 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 import hmac
 import json
+import string
 import hashlib
 from typing import Any
 
@@ -31,6 +32,8 @@ from posthog.schema import EmbeddingModelName
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from .models import UserInterview, UserInterviewTopic
 
@@ -89,13 +92,6 @@ def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTop
             )
 
 
-def _verify_signature(secret: str, raw_body: bytes, provided_signature: str | None) -> bool:
-    if not secret or not provided_signature:
-        return False
-    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(provided_signature, expected)
-
-
 def _resolve_share(access_token: str) -> SharingConfiguration | None:
     """Resolve a share token to its `SharingConfiguration`, mirroring the filters
     used by `SharingViewerPageViewSet.get_object()`:
@@ -129,6 +125,73 @@ def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bo
     )
 
 
+_TOPIC_MAX_CHARS = 200
+
+FIRST_MESSAGE_PROMPT_NAME = "user_interviews_vapi_first_message"
+
+DEFAULT_FIRST_MESSAGE_TEMPLATE = (
+    "Hey $user_name! Thanks for making time — I know you're busy. "
+    "I'm here to learn how you actually use $topic_text in the wild. "
+    "Mind if I ask a few questions? Should take about 5-10 minutes."
+)
+
+_FIRST_MESSAGE_MAX_CHARS = 1000
+
+
+def _normalise_topic(topic_text: str) -> str:
+    return " ".join(topic_text.split())[:_TOPIC_MAX_CHARS]
+
+
+def _resolve_first_message_template(team: Team) -> str:
+    try:
+        cached = get_prompt_by_name_from_cache(team, FIRST_MESSAGE_PROMPT_NAME)
+    except Exception as err:
+        logger.warning(
+            "user_interviews_first_message_prompt_lookup_failed",
+            team_id=team.id,
+            error=str(err),
+        )
+        return DEFAULT_FIRST_MESSAGE_TEMPLATE
+    if cached is not None:
+        template = cached.get("prompt")
+        if isinstance(template, str) and template.strip():
+            return template
+    return DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+
+def _build_first_message(
+    template: str,
+    *,
+    user_name: str,
+    topic_text: str,
+    team_id: int | None = None,
+) -> str:
+    name_part = user_name.strip() or "there"
+    topic_part = _normalise_topic(topic_text) or "your experience"
+    try:
+        rendered = string.Template(template).substitute(user_name=name_part, topic_text=topic_part)
+    except (KeyError, ValueError):
+        logger.warning(
+            "user_interviews_first_message_template_invalid",
+            team_id=team_id,
+            template_prefix=template[:60],
+        )
+        rendered = string.Template(DEFAULT_FIRST_MESSAGE_TEMPLATE).substitute(
+            user_name=name_part, topic_text=topic_part
+        )
+    if len(rendered) > _FIRST_MESSAGE_MAX_CHARS:
+        logger.warning(
+            "user_interviews_first_message_too_long",
+            team_id=team_id,
+            rendered_chars=len(rendered),
+            limit=_FIRST_MESSAGE_MAX_CHARS,
+        )
+        rendered = string.Template(DEFAULT_FIRST_MESSAGE_TEMPLATE).substitute(
+            user_name=name_part, topic_text=topic_part
+        )
+    return rendered[:_FIRST_MESSAGE_MAX_CHARS]
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -147,6 +210,7 @@ def start_call(request: Request, access_token: str) -> Response:
     from .api import _merge_agent_context, _parse_identifier
 
     if not settings.VAPI_PUBLIC_KEY or not settings.VAPI_ASSISTANT_ID:
+        logger.warning("user_interviews_start_call_misconfigured")
         return Response(
             {"error": "Vapi is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -154,22 +218,41 @@ def start_call(request: Request, access_token: str) -> Response:
 
     sharing_config = _resolve_share(access_token)
     if sharing_config is None or sharing_config.interviewee_context is None:
+        logger.warning("user_interviews_start_call_unknown_access_token")
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
     if _public_sharing_disabled_for_org(sharing_config):
         # Match the public viewer's behavior: return 404 so the kill switch is opaque to
         # link recipients (doesn't reveal whether the token is real, just disabled).
+        logger.info(
+            "user_interviews_start_call_sharing_disabled",
+            team_id=sharing_config.team_id,
+        )
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
 
     ic = sharing_config.interviewee_context
     topic = ic.topic
     user_name, _ = _parse_identifier(ic.interviewee_identifier)
     agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
+    first_message_template = _resolve_first_message_template(sharing_config.team)
+    first_message = _build_first_message(
+        first_message_template,
+        user_name=user_name,
+        topic_text=topic.topic or "",
+        team_id=sharing_config.team_id,
+    )
+
+    logger.info(
+        "user_interviews_start_call_issued",
+        team_id=sharing_config.team_id,
+        topic_id=str(topic.id),
+    )
 
     return Response(
         {
             "public_key": settings.VAPI_PUBLIC_KEY,
             "assistant_id": settings.VAPI_ASSISTANT_ID,
             "assistant_overrides": {
+                "firstMessage": first_message,
                 "variableValues": {
                     "userName": user_name,
                     "topic": topic.topic or "",
@@ -203,18 +286,47 @@ def vapi_webhook(request: Request) -> Response:
     existing interview's id instead of creating a second row.
     """
     if not settings.VAPI_WEBHOOK_SECRET:
+        logger.warning("user_interviews_vapi_webhook_secret_missing")
         return Response(
             {"error": "Vapi webhook secret is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     provided = request.headers.get("x-vapi-signature") or request.headers.get("X-Vapi-Signature")
-    if not _verify_signature(settings.VAPI_WEBHOOK_SECRET, request.body, provided):
+    expected = (
+        hmac.new(settings.VAPI_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest() if provided else None
+    )
+    logger.info(
+        "user_interviews_vapi_webhook_received",
+        header_keys=sorted(request.headers.keys()),
+        has_provided_signature=bool(provided),
+        body_bytes=len(request.body),
+    )
+    if not (provided and expected and hmac.compare_digest(provided, expected)):
+        # TODO: REMOVE — temporary diagnostic dump of the raw body and the
+        # provided signature so we can locally reproduce Vapi's HMAC and find
+        # the byte-level mismatch that's causing 100% signature_failed. Safe
+        # only because user_interviews is not yet shipped to real users.
+        logger.warning(
+            "user_interviews_vapi_webhook_signature_failed",
+            has_provided_signature=bool(provided),
+            expected_prefix=expected[:8] if expected else None,
+            provided_prefix=provided[:8] if provided else None,
+            provided_length=len(provided) if provided else 0,
+            body_bytes=len(request.body),
+            provided_signature=provided,
+            raw_body=request.body.decode("utf-8", errors="replace"),
+        )
         return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
     payload = request.data if isinstance(request.data, dict) else {}
     message: dict[str, Any] = payload.get("message", {})
-    if message.get("type") != "end-of-call-report":
+    message_type = message.get("type")
+    if message_type != "end-of-call-report":
         # Other event types (status updates, transcripts mid-call) are ignored.
+        logger.info(
+            "user_interviews_vapi_webhook_ignored_message_type",
+            message_type=message_type,
+        )
         return Response({"status": "ignored"})
 
     call: dict[str, Any] = message.get("call", {}) or {}
@@ -223,6 +335,10 @@ def vapi_webhook(request: Request) -> Response:
     call_id = call.get("id")
 
     if not access_token:
+        logger.warning(
+            "user_interviews_vapi_webhook_missing_access_token",
+            call_id=call_id,
+        )
         return Response(
             {"error": "missing sharing_access_token in call.metadata"},
             status=status.HTTP_400_BAD_REQUEST,
@@ -230,10 +346,19 @@ def vapi_webhook(request: Request) -> Response:
 
     sharing_config = _resolve_share(access_token)
     if sharing_config is None:
+        logger.warning(
+            "user_interviews_vapi_webhook_unknown_access_token",
+            call_id=call_id,
+        )
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
 
     interviewee_context = sharing_config.interviewee_context
     if interviewee_context is None:
+        logger.warning(
+            "user_interviews_vapi_webhook_wrong_share_type",
+            team_id=sharing_config.team_id,
+            call_id=call_id,
+        )
         return Response(
             {"error": "access_token does not belong to a user interview share"},
             status=status.HTTP_400_BAD_REQUEST,
@@ -274,6 +399,5 @@ def vapi_webhook(request: Request) -> Response:
         team_id=sharing_config.team_id,
         topic_id=str(topic.id),
         interview_id=str(interview.id),
-        interviewee=interviewee_context.interviewee_identifier,
     )
     return Response({"status": "created", "interview_id": str(interview.id)}, status=status.HTTP_201_CREATED)
