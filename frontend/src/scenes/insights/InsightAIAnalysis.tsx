@@ -23,7 +23,6 @@ export function InsightAIAnalysis(): JSX.Element | null {
             <h2 className="font-semibold text-lg m-0 mb-2 flex items-center gap-2">AI analysis</h2>
             <p className="text-muted mb-4">
                 Get AI-powered insights about your data, including trends, patterns, and actionable recommendations.
-                Find similar insights and get suggestions for next steps.
             </p>
             <div className="flex gap-2 flex-wrap">
                 <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}>
