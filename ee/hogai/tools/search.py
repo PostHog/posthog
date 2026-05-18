@@ -14,7 +14,7 @@ from products.business_knowledge.backend.logic import has_ready_sources, search_
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool
 from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
 
@@ -166,6 +166,8 @@ class SearchTool(MaxTool):
                 raise MaxToolRetryableError(
                     "Business knowledge search is not available: this project has no ready knowledge sources."
                 )
+            if not self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer"):
+                raise MaxToolAccessDeniedError("business_knowledge", "viewer", action="search")
             return await self._search_business_knowledge(query), None
 
         if kind not in self._fts_entities:
