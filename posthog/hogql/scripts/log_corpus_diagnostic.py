@@ -70,7 +70,7 @@ django.setup()
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.scripts._diagnostic_common import _diff_path, _format_diff_path, _node_type
+from posthog.hogql.scripts._diagnostic_common import _GOT_RE, _diff_path, _format_diff_path, _node_type, _probe_backend
 from posthog.hogql.visitor import clear_locations
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -325,7 +325,8 @@ def _try_parse(query: str, backend: str) -> tuple[str, ast.AST | None, str | Non
 # Error bucketing
 # ---------------------------------------------------------------------------
 
-_GOT_RE = re.compile(r"got\s+\S+", re.IGNORECASE)
+# `_GOT_RE` is shared with the other diagnostic scripts; `_AT_RE` is local —
+# only this script's `_bucket_error` strips position suffixes.
 _AT_RE = re.compile(r"at\s+(line\s+\d+|offset\s+\d+|position\s+\d+|\d+:\d+)", re.IGNORECASE)
 
 
@@ -453,16 +454,12 @@ def main() -> int:
     if args.limit is not None and args.limit <= 0:
         p.error("--limit must be a positive integer")
 
-    # Fail fast on a bad backend name. Probe via `parse_select` directly,
-    # not `_try_parse` — the latter's `except Exception` would swallow
-    # the `KeyError` a typoed `--candidate` raises.
+    # Fail fast on a bad backend name — `_probe_backend` bypasses the
+    # `except Exception` in `_try_parse` that would swallow a typo's `KeyError`.
     for label, backend in (("oracle", args.oracle), ("candidate", args.candidate)):
-        try:
-            parse_select("SELECT 1", backend=backend)
-        except BaseHogQLError:
-            pass  # rejecting `SELECT 1` would be surprising but isn't a backend failure
-        except Exception as e:
-            print(f"ERROR: {label} backend {backend!r} unavailable: {e}")
+        err = _probe_backend("select", backend)
+        if err is not None:
+            print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
             return 1
 
     if args.oracle == args.candidate:
