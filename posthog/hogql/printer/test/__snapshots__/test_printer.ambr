@@ -2555,7 +2555,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestMaterializedColumnOptimization.test_lower_in_optimization_gives_correct_results_on_persons
+# name: TestMaterializedColumnOptimization.test_lower_in_optimization_on_persons
   '''
   SELECT persons.id AS id,
          persons.properties___email AS email

@@ -4564,9 +4564,11 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             assert "index" in str(exc_info.value).lower()
 
-    def test_lower_in_optimization_gives_correct_results_on_persons(self) -> None:
-        # Verifies the rewrite stays correct through the persons table's deduplication subquery
-        with materialized("person", "email", is_nullable=True, create_bloom_filter_lower_index=True):
+    def test_lower_in_optimization_on_persons(self) -> None:
+        # The user-facing query the optimization targets. The persons table pushes the WHERE filter into
+        # an IN-subquery that scans `person` directly; ClickHouse EXPLAIN does not expand a set-building
+        # IN-subquery, so index usage is verified by EXPLAINing the emitted subquery form directly.
+        with materialized("person", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             _create_person(
                 distinct_ids=["p_foo"], team=self.team, properties={"email": "Foo@Example.com"}, immediate=True
             )
@@ -4577,6 +4579,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=["p_other"], team=self.team, properties={"email": "other@example.com"}, immediate=True
             )
 
+            # Correctness: case-insensitive match through the deduplication subquery
             result = execute_hogql_query(
                 team=self.team,
                 query=(
@@ -4586,8 +4589,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 ),
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
-            # Case-insensitive match: "Foo@Example.com" and "bar@example.com" qualify, "other@..." does not
             assert {email for (_id, email) in result.results} == {"Foo@Example.com", "bar@example.com"}
+
+            # Index usage: the printer-shape tests above pin that nullable `lower(prop) IN (...)` is emitted as
+            # `has([...], lower(coalesce(col, '')))` - verify that exact subquery form hits the skip index.
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            subquery = (
+                f"SELECT id FROM person WHERE team_id = {self.team.pk} "
+                f"AND has(['foo@example.com', 'bar@example.com'], lower(coalesce({mat_col.name}, ''))) "
+                f"AND {mat_col.name} IS NOT NULL"
+            )
+            index_info = get_index_from_explain(subquery, index_name)
+            assert index_info is not None, f"Expected skip index {index_name} to be used for:\n{subquery}"
 
     def test_lower_in_uses_bloom_filter_lower_index_on_events(self) -> None:
         # Events are a single direct scan, so EXPLAIN exposes the skip index (the persons dedup hides it in an
