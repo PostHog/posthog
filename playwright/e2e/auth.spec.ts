@@ -64,10 +64,8 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/project\/\d+/)
     })
 
-    test('Redirect to appropriate place after login', async ({ page }) => {
-        await page.goto('/logout', { waitUntil: 'commit' })
-        await expect(page).toHaveURL(/\/login/)
-
+    test('Redirect to appropriate place after login', async ({ page, context }) => {
+        await context.clearCookies()
         await page.goto('/activity/explore')
         await expect(page).toHaveURL(/\/login/)
 
@@ -81,10 +79,8 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/activity\/explore/)
     })
 
-    test('Redirect to appropriate place after login with complex URL', async ({ page }) => {
-        await page.goto('/logout')
-        await expect(page).toHaveURL(/\/login/)
-
+    test('Redirect to appropriate place after login with complex URL', async ({ page, context }) => {
+        await context.clearCookies()
         await page.goto('/insights?search=testString')
         await expect(page).toHaveURL(/\/login/)
 
@@ -106,7 +102,9 @@ test.describe('Auth', () => {
 
     test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
         const secondPage = await context.newPage()
-        await secondPage.goto('/logout')
+        await secondPage.goto('/')
+        await secondPage.locator('[data-attr=new-account-menu-button]').click()
+        await secondPage.locator('[data-attr=new-account-menu-logout-button]').click()
         await secondPage.waitForURL(/\/login/)
 
         // Reload the page to trigger API calls that will detect the logout

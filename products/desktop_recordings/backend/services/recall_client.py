@@ -6,7 +6,7 @@ import requests
 class RecallAIClient:
     """Client for Recall.ai API - only used to create SDK upload tokens"""
 
-    def __init__(self, api_key: str, api_url: str = "https://us-west-2.recall.ai"):
+    def __init__(self, api_key: str, api_url: str = "https://us-west-2.recall.ai") -> None:
         self.api_key = api_key
         self.base_url = api_url.rstrip("/")
 

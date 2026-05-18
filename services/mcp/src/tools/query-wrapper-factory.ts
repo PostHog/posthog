@@ -25,11 +25,16 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     mcpVersion?: number
 }
 
-function buildInsightUrl(baseUrl: string, urlPrefix: string | undefined, query: Record<string, unknown>): string {
+function buildInsightUrl(
+    kind: 'InsightVizNode' | 'DataTableNode',
+    query: Record<string, unknown>,
+    baseUrl: string,
+    urlPrefix?: string
+): string {
     if (urlPrefix) {
         return `${baseUrl}${urlPrefix}`
     }
-    const q = encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))
+    const q = encodeURIComponent(JSON.stringify({ kind, source: query }))
     return `${baseUrl}/insights/new#q=${q}`
 }
 
@@ -51,18 +56,34 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
             if (config.kind.endsWith('ActorsQuery')) {
-                const data = await context.api.query({ projectId }).trendsActors({ query })
+                const sourceKind = (query.source as Record<string, unknown> | undefined)?.kind
+                const queryClient = context.api.query({ projectId })
+                let data
+                switch (sourceKind) {
+                    case 'LifecycleQuery':
+                        data = await queryClient.lifecycleActors({ query })
+                        break
+                    case 'TrendsQuery':
+                        data = await queryClient.trendsActors({ query })
+                        break
+                    default:
+                        throw new Error(`Unsupported source kind for actors query: ${sourceKind}`)
+                }
                 return {
                     ...data,
-                    // TODO: _posthogUrl
+                    _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
                 }
             }
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
+            // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
+            // `trendsFilter.display`.
             return {
+                query,
                 results: data.results,
-                _posthogUrl: buildInsightUrl(baseUrl, config.urlPrefix, query),
+                _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },

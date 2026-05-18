@@ -9,9 +9,12 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+aws-config = { workspace = true, optional = true }
+aws-sdk-s3 = { workspace = true, optional = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, optional = true }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
@@ -24,6 +27,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 bytes = { workspace = true }
+http-body-util = "0.1"
 url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }
@@ -42,10 +46,11 @@ uuid = { workspace = true }
 common-cache = { path = "../common/cache" }
 common-compression = { path = "../common/compression" }
 common-hypercache = { path = "../common/hypercache" }
+common-s3 = { path = "../common/s3", optional = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 strum = { version = "0.28", features = ["derive"] }
-health = { path = "../common/health" }
+lifecycle = { path = "../common/lifecycle" }
 common-metrics = { path = "../common/metrics" }
 common-geoip = { path = "../common/geoip" }
 tower = { workspace = true }
@@ -64,6 +69,21 @@ tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
 serde-pickle = { version = "1.1.1" }
 semver = "1.0.28"
+subtle = "2.6"
+
+[features]
+# Gated to keep the AWS SDK, clap, and common-s3 out of library/server builds.
+warm-flags-cache = [
+  "dep:aws-config",
+  "dep:aws-sdk-s3",
+  "dep:clap",
+  "dep:common-s3",
+]
+
+[[bin]]
+name = "warm-flags-cache"
+path = "src/bin/warm-flags-cache.rs"
+required-features = ["warm-flags-cache"]
 
 [lints]
 workspace = true
@@ -71,9 +91,10 @@ workspace = true
 [dev-dependencies]
 rstest = "0.26"
 assert-json-diff = { workspace = true }
+common-s3 = { path = "../common/s3" }
 reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
+tokio-util = { workspace = true }
 metrics-util = { workspace = true }
-common-s3 = { path = "../common/s3" }

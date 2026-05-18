@@ -4,6 +4,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
@@ -12,6 +13,7 @@ from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import backfill_batch_export, create_batch_export_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import BatchExport, BatchExportBackfill
 from posthog.models.person.util import create_person
 from posthog.models.team import Team
 
@@ -406,6 +408,107 @@ def test_batch_export_earliest_backfill_rejected_without_feature_flag(
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "Backfilling from the beginning of time is not enabled for this team."
+
+
+@override_settings(BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM=2)
+def test_backfill_rejected_when_team_at_concurrent_limit(client: HttpClient, organization, team, user, temporal):
+    """Test backfill creation is rejected with 429 when team is at the concurrent limit."""
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+    batch_export_obj = BatchExport.objects.get(id=batch_export_id)
+
+    for _ in range(2):
+        BatchExportBackfill.objects.create(
+            team=team,
+            batch_export=batch_export_obj,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+            status=BatchExportBackfill.Status.RUNNING,
+        )
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
+    detail = response.json()["detail"]
+    assert "This team already has 2 batch export backfills running" in detail
+
+
+@override_settings(BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM=2)
+def test_backfill_allowed_when_team_below_concurrent_limit(client: HttpClient, organization, team, user, temporal):
+    """Test backfill creation succeeds when team has fewer running backfills than the limit."""
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+    batch_export_obj = BatchExport.objects.get(id=batch_export_id)
+
+    # create one running backfill
+    BatchExportBackfill.objects.create(
+        team=team,
+        batch_export=batch_export_obj,
+        start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+        end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        status=BatchExportBackfill.Status.RUNNING,
+    )
+
+    # also create one completed backfill to ensure the limit is not exceeded
+    BatchExportBackfill.objects.create(
+        team=team,
+        batch_export=batch_export_obj,
+        start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+        end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        status=BatchExportBackfill.Status.COMPLETED,
+    )
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+@override_settings(BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM=2)
+def test_other_teams_backfills_do_not_count_toward_concurrent_limit(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test that running backfills from other teams don't count toward this team's limit."""
+    client.force_login(user)
+
+    other_team = create_team(organization)
+
+    batch_export = _create_batch_export_ok(client, team, "events")
+    batch_export_id = batch_export["id"]
+
+    other_batch_export = _create_batch_export_ok(client, other_team, "events")
+    other_batch_export_obj = BatchExport.objects.get(id=other_batch_export["id"])
+
+    for _ in range(5):
+        BatchExportBackfill.objects.create(
+            team=other_team,
+            batch_export=other_batch_export_obj,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+            status=BatchExportBackfill.Status.RUNNING,
+        )
+
+    response = backfill_batch_export(
+        client=client,
+        team_id=team.pk,
+        batch_export_id=batch_export_id,
+        start_at="2021-01-01T00:00:00+00:00",
+        end_at="2021-01-01T01:00:00+00:00",
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
 def test_batch_export_earliest_backfill_allowed_with_feature_flag(

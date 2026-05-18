@@ -441,6 +441,91 @@ class ClickHousePrinter(BasePrinter):
 
         return self.visit(node.type)
 
+    def visit_field_type(self, type: ast.FieldType):
+        field_sql = super().visit_field_type(type)
+        return self._maybe_apply_json_drop_keys(type, field_sql)
+
+    def _get_materialized_property_source_for_property_type(
+        self, type: ast.PropertyType
+    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+        # If this property is restricted by property-level access control, skip the
+        # materialized-column / property-group shortcut and force the JSON-extract path
+        # below. The JSON column itself is wrapped by ``JSONDropKeys`` in
+        # ``_maybe_apply_json_drop_keys`` (see ``visit_field_type``), so the extracted
+        # value collapses to an empty string instead of leaking the materialized value.
+        if self._is_property_type_restricted(type):
+            return None
+        return super()._get_materialized_property_source_for_property_type(type)
+
+    def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
+        if not self.context.restricted_properties or len(type.chain) == 0:
+            return False
+        keys_to_drop = self._get_restricted_keys_for_table_type(type.field_type.table_type)
+        if not keys_to_drop:
+            return False
+        # Only the first chain element is a top-level key on the JSON blob; nested
+        # accesses (``properties.foo.bar``) are restricted iff their root key is.
+        return str(type.chain[0]) in keys_to_drop
+
+    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
+        """
+        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
+        """
+        if not self.context.restricted_properties:
+            return field_sql
+
+        from posthog.hogql.database.models import StringJSONDatabaseField
+
+        resolved_field = type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, StringJSONDatabaseField):
+            return field_sql
+
+        # Use the resolved DB column name, not ``type.name``. With column-alias table syntax
+        # (``FROM events AS e(uuid, event, ..., p)``) the AST field name is the alias (``p``),
+        # but ClickHouse resolves it back to the original column. Comparing ``type.name`` here
+        # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
+        # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
+        # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
+        if resolved_field.name not in ("properties", "person_properties"):
+            return field_sql
+
+        keys_to_drop = self._get_restricted_keys_for_table_type(type.table_type)
+        if not keys_to_drop:
+            return field_sql
+
+        keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
+        return f"JSONDropKeys({keys_placeholder})({field_sql})"
+
+    def _get_restricted_keys_for_table_type(self, table_type: ast.Type) -> set[str]:
+        """
+        Given a table type, returns the set of property names that should be stripped
+        from the JSON blob based on restricted_properties in the context.
+        """
+        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+
+        from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+        if not isinstance(table_type, ast.BaseTableType):
+            return set()
+
+        try:
+            table = table_type.resolve_database_table(self.context)
+        except Exception:
+            return set()
+
+        if isinstance(table, EventsPersonSubTable):
+            prop_def_type = PropertyDefinition.Type.PERSON
+        elif isinstance(table, EventsTable):
+            prop_def_type = PropertyDefinition.Type.EVENT
+        elif isinstance(table, (PersonsTable, RawPersonsTable)):
+            prop_def_type = PropertyDefinition.Type.PERSON
+        else:
+            return set()
+
+        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
+
     def _get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str
     ) -> PrintableMaterializedPropertyGroupItem | None:
@@ -804,6 +889,75 @@ class ClickHousePrinter(BasePrinter):
             else:
                 return f"notIn({materialized_column_sql}, tuple({values_sql}))"
 
+    def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
+        """If the expression resolves to $session_id on the events table, return the table type."""
+        from posthog.hogql.database.schema.events import EventsTable
+
+        expr_type = resolve_field_type(node)
+
+        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
+            table_type = expr_type.table_type
+        elif (
+            isinstance(expr_type, ast.PropertyType)
+            and expr_type.chain == ["$session_id"]
+            and expr_type.field_type.name == "properties"
+        ):
+            table_type = expr_type.field_type.table_type
+        else:
+            return None
+
+        while isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            return table_type
+        return None
+
+    def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
+        op_name = {
+            ast.CompareOperationOp.Eq: "equals",
+            ast.CompareOperationOp.NotEq: "notEquals",
+            ast.CompareOperationOp.In: "in",
+            ast.CompareOperationOp.NotIn: "notIn",
+        }.get(node.op)
+        if op_name is None:
+            return None
+
+        session_id_table: ast.BaseTableType | None = None
+        constants: list[ast.Constant] = []
+
+        if table := self._get_events_session_id_table_type(node.left):
+            session_id_table = table
+            constants = self._extract_uuid_constants(node.right)
+        elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if table := self._get_events_session_id_table_type(node.right):
+                session_id_table = table
+                constants = self._extract_uuid_constants(node.left)
+
+        if session_id_table is None or not constants:
+            return None
+
+        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
+        wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
+
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return f"{op_name}({field_sql}, {wrapped[0]})"
+        return f"{op_name}({field_sql}, tuple({', '.join(wrapped)}))"
+
+    @staticmethod
+    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
+        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
+        if isinstance(node, ast.Constant):
+            return [node] if UUIDT.is_valid_uuid(node.value) else []
+        if isinstance(node, (ast.Tuple, ast.Array)):
+            result: list[ast.Constant] = []
+            for expr in node.exprs:
+                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
+                    return []
+                result.append(expr)
+            return result
+        return []
+
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
     ) -> str | None:
@@ -986,6 +1140,9 @@ class ClickHousePrinter(BasePrinter):
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
+        if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
+            return optimized_session_id
+
         if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
 

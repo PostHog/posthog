@@ -211,7 +211,8 @@ export function ImpersonationNotice(): JSX.Element | null {
         return <ImpersonationExpiredOverlay expiredSessionInfo={expiredSessionInfo} />
     }
 
-    const showLoginAs = user?.is_staff && !isImpersonated && !!ticketContext
+    // Staff actions (login-as) are now rendered inline in the ticket sidebar via StaffActionsPanel
+    const showLoginAs = false
 
     if (!user || (!isImpersonated && !showLoginAs)) {
         return null

@@ -172,6 +172,7 @@ interface RawMessage {
     content: unknown
     tool_calls?: unknown
     tool_call_id?: unknown
+    type?: string
 }
 
 type ConversationRole = 'user' | 'assistant'
@@ -328,6 +329,20 @@ function flattenOutputMessages(output: unknown, depth: number = 0): RawMessage[]
         if (isObject(output.message)) {
             return flattenOutputMessages(output.message, depth + 1)
         }
+        // OpenAI Responses API top-level function_call / function_call_output items have no role.
+        // Convert them to synthetic RawMessages so extractConversationMessage can format them.
+        // Preserve `type` so isToolResultMessage can still identify function_call_output and fold
+        // it into the preceding assistant turn rather than emitting a standalone user bubble.
+        if (output.type === 'function_call' || output.type === 'function_call_output') {
+            return [
+                {
+                    role: output.type === 'function_call_output' ? InputMessageRole.User : InputMessageRole.Assistant,
+                    content: formatContentBlock(output) ?? '',
+                    tool_call_id: output.call_id,
+                    type: String(output.type),
+                },
+            ]
+        }
         return [
             {
                 role: typeof output.role === 'string' ? output.role : InputMessageRole.Assistant,
@@ -342,6 +357,21 @@ function flattenOutputMessages(output: unknown, depth: number = 0): RawMessage[]
 }
 
 function extractConversationMessage(rawMessage: RawMessage): { role: ConversationRole; content: string } {
+    // OpenAI Responses API sends function_call / function_call_output items at the top level of the
+    // conversation array with no `role`. Route them through formatContentBlock so they get the same
+    // `[Function call: name]` / `[Function output for id]` treatment as typed content blocks.
+    const rawAsBlock = rawMessage as unknown as Record<string, unknown>
+    const topLevelType = rawMessage.type
+    if (
+        typeof rawMessage.role !== 'string' &&
+        (topLevelType === 'function_call' || topLevelType === 'function_call_output')
+    ) {
+        const formatted = formatContentBlock(rawAsBlock) ?? ''
+        const role: ConversationRole =
+            topLevelType === 'function_call_output' ? InputMessageRole.User : InputMessageRole.Assistant
+        return { role, content: formatted }
+    }
+
     const normalizedMessageRole = normalizeRole(rawMessage.role, InputMessageRole.User)
     const enumMap: Partial<Record<string, ConversationRole>> = {
         [InputMessageRole.User]: InputMessageRole.User,
@@ -379,6 +409,10 @@ function extractConversationMessage(rawMessage: RawMessage): { role: Conversatio
 // assistant turn rather than rendered as standalone user bubbles in the playground.
 function isToolResultMessage(raw: RawMessage): boolean {
     if (normalizeRole(raw.role, '') === 'tool') {
+        return true
+    }
+    // OpenAI Responses API top-level function_call_output item (no role)
+    if (raw.type === 'function_call_output') {
         return true
     }
     if (Array.isArray(raw.content) && raw.content.length > 0) {
@@ -429,6 +463,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
+        addResultToConversation: (response: string, promptId?: string) => ({ response, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         clearLinkedSource: true,
         setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
@@ -537,6 +572,22 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         const defaultMessage: Message = { role: 'user', content: '' }
                         return { ...prompt, messages: [...prompt.messages, { ...defaultMessage, ...message }] }
                     }),
+                addResultToConversation: (
+                    state: PromptConfig[],
+                    { response, promptId }: { response: string; promptId?: string }
+                ) => {
+                    if (!response.trim()) {
+                        return state
+                    }
+                    return updatePromptConfigs(state, promptId, (prompt) => ({
+                        ...prompt,
+                        messages: [
+                            ...prompt.messages,
+                            { role: 'assistant', content: response },
+                            { role: 'user', content: '' },
+                        ],
+                    }))
+                },
                 updateMessage: (
                     state: PromptConfig[],
                     { index, payload, promptId }: { index: number; payload: Partial<Message>; promptId?: string }
@@ -890,6 +941,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             lemonToast.error('Could not determine team')
                             return
                         }
+                        // nosemgrep: prefer-codegen-api
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
@@ -924,7 +976,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     try {
                         if (
                             Array.isArray(input) &&
-                            input.every((msg) => msg.role && (msg.content != null || msg.tool_calls))
+                            input.every(
+                                (msg) =>
+                                    // Standard chat message: must have role + content/tool_calls
+                                    (msg.role && (msg.content != null || msg.tool_calls)) ||
+                                    // OpenAI Responses API top-level typed items have no role
+                                    msg.type === 'function_call' ||
+                                    msg.type === 'function_call_output'
+                            )
                         ) {
                             const systemContents = input
                                 .filter((msg) => msg.role === 'system')
@@ -1060,6 +1119,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
@@ -1139,6 +1199,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',

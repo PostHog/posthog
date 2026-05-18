@@ -1,1 +1,1 @@
-0006_mcpservertemplate_installation_fields_and_tools
+0011_normalize_mcp_template_icon_keys

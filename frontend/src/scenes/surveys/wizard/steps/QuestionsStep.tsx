@@ -10,7 +10,9 @@ import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     LinkSurveyQuestion,
@@ -25,10 +27,12 @@ import {
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
+import { splitChoicesOnPaste } from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
 import { WizardSection, WizardStepLayout } from '../WizardLayout'
+import { TranslationsSection } from './TranslationsSection'
 
 const MAX_CHOICES = 10
 
@@ -191,9 +195,26 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
             } as Partial<MultipleSurveyQuestion>)
         }
 
+        const handlePasteIntoChoice = (event: React.ClipboardEvent<HTMLInputElement>, choiceIndex: number): void => {
+            const merged = splitChoicesOnPaste(
+                event.clipboardData.getData('text'),
+                choices,
+                choiceIndex,
+                hasOpenChoice ?? false
+            )
+            if (!merged) {
+                return
+            }
+            event.preventDefault()
+            onUpdate({ choices: merged } as Partial<MultipleSurveyQuestion>)
+        }
+
         return (
             <div className="space-y-2 pt-2 border-t border-border mt-3">
-                <span className="text-xs text-secondary">Choices:</span>
+                <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-secondary">Choices:</span>
+                    <span className="text-[10px] text-muted">Paste a list to add many at once</span>
+                </div>
                 <div className="space-y-1.5">
                     {choices.map((choice, choiceIndex) => {
                         const isOpenChoice = hasOpenChoice && choiceIndex === choices.length - 1
@@ -204,6 +225,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                     value={choice}
                                     placeholder={isOpenChoice ? 'Other (open-ended)' : `Choice ${choiceIndex + 1}`}
                                     onChange={(val) => updateChoice(choiceIndex, val)}
+                                    onPaste={(event) => handlePasteIntoChoice(event, choiceIndex)}
                                     className="flex-1"
                                     suffix={
                                         isOpenChoice ? (
@@ -487,13 +509,20 @@ function SortableQuestionCard({
     )
 }
 
-export function QuestionsStep(): JSX.Element {
+interface QuestionsStepProps {
+    editingLanguage: string | null
+    setEditingLanguage: (language: string | null) => void
+}
+
+export function QuestionsStep({ editingLanguage, setEditingLanguage }: QuestionsStepProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, moveQuestion, removeQuestion } = useActions(surveyLogic)
     const { selectedTemplate } = useValues(surveyWizardLogic)
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
     const [activeId, setActiveId] = useState<string | null>(null)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
     const questions = survey.questions as SurveyQuestion[]
     const sortedItemIds = questions.map((_, index) => index.toString())
@@ -505,8 +534,7 @@ export function QuestionsStep(): JSX.Element {
     }
 
     const deleteQuestion = (index: number): void => {
-        const newQuestions = questions.filter((_, i) => i !== index)
-        setSurveyValue('questions', newQuestions)
+        removeQuestion(index)
     }
 
     const addQuestion = (type: SurveyQuestionType): void => {
@@ -543,11 +571,7 @@ export function QuestionsStep(): JSX.Element {
         if (over && active.id !== over.id) {
             const oldIndex = sortedItemIds.indexOf(active.id.toString())
             const newIndex = sortedItemIds.indexOf(over.id.toString())
-
-            const newQuestions = [...questions]
-            const [removed] = newQuestions.splice(oldIndex, 1)
-            newQuestions.splice(newIndex, 0, removed)
-            setSurveyValue('questions', newQuestions)
+            moveQuestion(oldIndex, newIndex)
         }
     }
 
@@ -616,6 +640,10 @@ export function QuestionsStep(): JSX.Element {
                 appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
                 onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
             />
+
+            {surveyTranslationsEnabled ? (
+                <TranslationsSection editingLanguage={editingLanguage} setEditingLanguage={setEditingLanguage} />
+            ) : null}
         </WizardStepLayout>
     )
 }

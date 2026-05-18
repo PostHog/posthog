@@ -83,16 +83,8 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
             <div className="flex items-center gap-2">
                 <h4 className="text-sm font-medium mb-0">Project access</h4>
                 <Tooltip
-                    title={
-                        <span>
-                            Give this user access to specific projects. These access controls will be applied when the
-                            user accepts the invite and joins the organization. Learn more about{' '}
-                            <Link to="https://posthog.com/docs/settings/access-control" target="_blank">
-                                access controls
-                            </Link>{' '}
-                            in our docs.
-                        </span>
-                    }
+                    docLink="https://posthog.com/docs/settings/access-control"
+                    title="Give this user access to specific projects. These access controls will be applied when the user accepts the invite and joins the organization."
                 >
                     <IconInfo className="text-muted-alt" />
                 </Tooltip>
@@ -201,7 +193,7 @@ export function InviteRow({
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
@@ -298,7 +290,7 @@ export function InviteRow({
                 )}
             </div>
 
-            {hasAdvancedPermissions && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />}
+            {hasAccessControl && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }

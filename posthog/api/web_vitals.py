@@ -22,7 +22,8 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         parameters=[
             OpenApiParameter("pathname", OpenApiTypes.STR, description="Filter web vitals by pathname", required=True),
-        ]
+        ],
+        responses={200: OpenApiTypes.OBJECT},
     )
     def list(self, request: Request, *args, **kwargs):
         if not request.user.is_authenticated:  # for mypy

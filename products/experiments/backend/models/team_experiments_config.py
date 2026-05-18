@@ -28,7 +28,7 @@ class TeamExperimentsConfig(models.Model):
 
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=Organization.DefaultExperimentStatsMethod.choices,
+        choices=Organization.DefaultExperimentStatsMethod,
         default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
         null=True,
         blank=True,

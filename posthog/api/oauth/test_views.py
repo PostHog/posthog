@@ -2943,6 +2943,15 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         resource_scopes = [s for s in scopes if ":" in s]
         self.assertGreater(len(resource_scopes), 0, "Should have resource scopes like 'event_definition:read'")
 
+    def test_metadata_excludes_internal_scope_objects(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+        scopes = metadata["scopes_supported"]
+        for scope in scopes:
+            assert not scope.startswith("clickhouse_test_cluster_perf:"), (
+                f"Internal scope {scope} must not be advertised in OAuth metadata"
+            )
+
     def test_metadata_accessible_without_authentication(self):
         self.client.logout()
 

@@ -89,4 +89,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "__preview_getBotName": HogQLFunctionMeta(
         "__preview_getBotName", 1, 1, signatures=[((StringType(),), StringType())]
     ),
+    "__preview_getBotOperator": HogQLFunctionMeta(
+        "__preview_getBotOperator", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
 }

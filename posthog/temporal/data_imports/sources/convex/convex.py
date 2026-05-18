@@ -1,14 +1,28 @@
 import re
 import logging
+import dataclasses
 from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
+    RequestException,
+)
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class ConvexResumeConfig:
+    cursor: int
+    snapshot: int | None = None
+
 
 _CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
 
@@ -54,14 +68,19 @@ def _headers(deploy_key: str) -> dict[str, str]:
 
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
-    response = requests.get(
+    response = make_tracked_session().get(
         url, headers=_headers(deploy_key), params={"deltaSchema": "true", "format": "json"}, timeout=30
     )
     response.raise_for_status()
     return response.json()
 
 
-def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generator[list[dict[str, Any]], None, int]:
+def list_snapshot(
+    deploy_url: str,
+    deploy_key: str,
+    table_name: str,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
+) -> Generator[list[dict[str, Any]], None, int]:
     """Paginate through a full table snapshot.
 
     Yields batches of documents. Returns the snapshot cursor (as the generator return value)
@@ -71,6 +90,11 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
     cursor: int | None = None
     snapshot: int | None = None
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        cursor = resume_config.cursor
+        snapshot = resume_config.snapshot
+
     while True:
         params: dict[str, Any] = {"tableName": table_name, "format": "json"}
         if cursor is not None:
@@ -78,7 +102,7 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
         if snapshot is not None:
             params["snapshot"] = snapshot
 
-        response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = make_tracked_session().get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
         response.raise_for_status()
         data = response.json()
 
@@ -93,6 +117,9 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
         if not has_more:
             return snapshot or 0
 
+        if cursor is not None:
+            resumable_source_manager.save_state(ConvexResumeConfig(cursor=cursor, snapshot=snapshot))
+
 
 class InvalidWindowError(Exception):
     """Raised when the delta cursor is older than Convex's retention window."""
@@ -101,7 +128,11 @@ class InvalidWindowError(Exception):
 
 
 def document_deltas(
-    deploy_url: str, deploy_key: str, table_name: str, cursor: int
+    deploy_url: str,
+    deploy_key: str,
+    table_name: str,
+    cursor: int,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
 ) -> Generator[list[dict[str, Any]], None, int]:
     """Paginate through incremental document changes since a cursor.
 
@@ -113,10 +144,14 @@ def document_deltas(
     base_url = f"{deploy_url.rstrip('/')}/api/document_deltas"
     current_cursor = cursor
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        current_cursor = resume_config.cursor
+
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
 
-        response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = make_tracked_session().get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
 
         if response.status_code == 400:
             error_data = response.json()
@@ -138,6 +173,8 @@ def document_deltas(
         if not has_more:
             return current_cursor
 
+        resumable_source_manager.save_state(ConvexResumeConfig(cursor=current_cursor))
+
 
 def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | None]:
     try:
@@ -147,7 +184,7 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
     try:
         get_json_schemas(clean_url, deploy_key)
         return True, None
-    except requests.exceptions.HTTPError as e:
+    except HTTPError as e:
         if e.response is not None:
             try:
                 error_data = e.response.json()
@@ -161,9 +198,9 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
             if e.response.status_code in (401, 403):
                 return False, "Invalid deploy key. Check your Convex deploy key and try again."
         return False, str(e)
-    except requests.exceptions.ConnectionError:
+    except RequestsConnectionError:
         return False, "Could not connect to the Convex deployment. Check your deployment URL and try again."
-    except requests.exceptions.RequestException as e:
+    except RequestException as e:
         return False, str(e)
 
 
@@ -183,16 +220,17 @@ def convex_source(
     job_id: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any | None,
+    resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
 ) -> SourceResponse:
     clean_url = validate_deploy_url(deploy_url)
 
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             cursor = int(db_incremental_field_last_value)
-            for batch in document_deltas(clean_url, deploy_key, table_name, cursor):
+            for batch in document_deltas(clean_url, deploy_key, table_name, cursor, resumable_source_manager):
                 yield _normalize_timestamps(batch)
         else:
-            for batch in list_snapshot(clean_url, deploy_key, table_name):
+            for batch in list_snapshot(clean_url, deploy_key, table_name, resumable_source_manager):
                 yield _normalize_timestamps(batch)
 
     return SourceResponse(

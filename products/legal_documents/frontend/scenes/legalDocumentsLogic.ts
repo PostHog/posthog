@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -11,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { BillingType } from '~/types'
 
+import * as api from '../generated/api'
 import type { legalDocumentsLogicType } from './legalDocumentsLogicType'
 
 export type LegalDocumentType = 'BAA' | 'DPA'
@@ -28,7 +28,6 @@ export interface LegalDocument {
     company_name: string
     representative_email: string
     status: LegalDocumentStatus
-    signed_document_url: string
     created_by: LegalDocumentCreator | null
     created_at: string
 }
@@ -72,7 +71,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                     if (!values.currentOrganizationId) {
                         return []
                     }
-                    const response = await api.get(`api/organizations/${values.currentOrganizationId}/legal_documents`)
+                    const response = await api.legalDocumentsList(values.currentOrganizationId)
                     return (response.results ?? []) as LegalDocument[]
                 },
             },
@@ -104,10 +103,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 // single DPA variant, so we never send it on the wire.
                 const { dpa_mode: _dpaMode, ...payload } = formValues
                 try {
-                    const legalDocument = await api.create<LegalDocument>(
-                        `api/organizations/${values.currentOrganizationId}/legal_documents`,
-                        payload
-                    )
+                    const legalDocument = await api.legalDocumentsCreate(values.currentOrganizationId, payload)
                     actions.loadLegalDocuments()
                     actions.resetLegalDocument(defaultsFor(formValues.document_type))
                     lemonToast.success(

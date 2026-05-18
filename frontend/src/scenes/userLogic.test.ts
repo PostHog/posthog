@@ -95,4 +95,95 @@ describe('userLogic', () => {
             }).toMatchValues({ optimisticThemeMode: 'dark' })
         })
     })
+
+    describe('realtime notification preferences', () => {
+        let updateUserSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            updateUserSpy = jest.spyOn(userLogic.actions, 'updateUser')
+        })
+
+        afterEach(() => {
+            updateUserSpy.mockRestore()
+        })
+
+        it('updateRealtimeNotificationForTeam sends a minimal patch toggling one (type, team) pair to disabled', () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                notification_settings: {
+                    ...MOCK_DEFAULT_USER.notification_settings,
+                    realtime_notifications_disabled: {},
+                },
+            } as any)
+
+            userLogic.actions.updateRealtimeNotificationForTeam('comment_mention', 42, false)
+
+            expect(updateUserSpy).toHaveBeenCalledWith({
+                notification_settings: expect.objectContaining({
+                    realtime_notifications_disabled: { comment_mention: { '42': true } },
+                }),
+            })
+        })
+
+        it('updateRealtimeNotificationForProject sets every passed type to disabled for that team', () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                notification_settings: {
+                    ...MOCK_DEFAULT_USER.notification_settings,
+                    realtime_notifications_disabled: {},
+                },
+            } as any)
+
+            userLogic.actions.updateRealtimeNotificationForProject(7, ['comment_mention', 'alert_firing'], false)
+
+            expect(updateUserSpy).toHaveBeenCalledWith({
+                notification_settings: expect.objectContaining({
+                    realtime_notifications_disabled: {
+                        comment_mention: { '7': true },
+                        alert_firing: { '7': true },
+                    },
+                }),
+            })
+        })
+
+        it('updateAllRealtimeNotifications disables every (team, type) pair when enabled=false', () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                notification_settings: {
+                    ...MOCK_DEFAULT_USER.notification_settings,
+                    realtime_notifications_disabled: {},
+                },
+            } as any)
+
+            userLogic.actions.updateAllRealtimeNotifications([1, 2], ['comment_mention'], false)
+
+            expect(updateUserSpy).toHaveBeenCalledWith({
+                notification_settings: expect.objectContaining({
+                    realtime_notifications_disabled: {
+                        comment_mention: { '1': true, '2': true },
+                    },
+                }),
+            })
+        })
+
+        it('updateAllRealtimeNotifications clears disabled entries when enabled=true', () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                notification_settings: {
+                    ...MOCK_DEFAULT_USER.notification_settings,
+                    realtime_notifications_disabled: { comment_mention: { '1': true, '2': true } },
+                },
+            } as any)
+
+            userLogic.actions.updateAllRealtimeNotifications([1, 2], ['comment_mention'], true)
+
+            expect(updateUserSpy).toHaveBeenCalledWith({
+                notification_settings: expect.objectContaining({
+                    realtime_notifications_disabled: {
+                        comment_mention: { '1': false, '2': false },
+                    },
+                }),
+            })
+        })
+    })
 })

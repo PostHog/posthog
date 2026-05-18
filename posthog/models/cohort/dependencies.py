@@ -408,7 +408,7 @@ def clear_team_cohort_dependency_cache(sender, instance: Team, **kwargs):
     """
 
     def clear_cache():
-        team_cohorts = Cohort.objects.filter(team=instance, deleted=False).values_list("id", flat=True)
+        team_cohorts = Cohort.objects.filter(team_id=instance.pk, deleted=False).values_list("id", flat=True)
         for cohort_id in team_cohorts:
             cache.delete(_cohort_dependencies_key(cohort_id))
             cache.delete(_cohort_dependents_key(cohort_id))

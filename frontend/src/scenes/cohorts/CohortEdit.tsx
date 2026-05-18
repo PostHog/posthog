@@ -45,6 +45,7 @@ import { CohortType, SidePanelTab } from '~/types'
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
+import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
@@ -123,6 +124,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     if (cohort.deleted) {
         return (
             <div>
+                <CohortSceneMenuBar id={id} tabId={tabId} />
                 <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
                 <ScenePanel>
                     <ButtonPrimitive
@@ -143,6 +145,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} tabId={tabId} />
+                <CohortSceneMenuBar id={id} tabId={tabId} />
 
                 <ScenePanel>
                     <ScenePanelInfoSection>

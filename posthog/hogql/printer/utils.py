@@ -11,6 +11,7 @@ from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
@@ -23,6 +24,8 @@ from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
+
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
@@ -85,6 +88,15 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
+    # Load property-level access control restrictions before type resolution so that
+    # FieldType.get_child() can block access to restricted properties during resolution.
+    if context.team_id is not None and context.restricted_properties is None:
+        with context.timings.measure("load_restricted_properties"):
+            context.restricted_properties = get_restricted_properties_for_team(
+                team_id=context.team_id,
+                user=context.user,
+            )
+
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
@@ -107,7 +119,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
-    if dialect == "postgres":
+    if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
 
@@ -182,6 +194,13 @@ def print_prepared_ast(
                 )
             case "postgres":
                 printer = PostgresPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
+            case "duckdb":
+                printer = DuckDBPrinter(
                     context=context,
                     stack=printer_stack,
                     settings=settings,

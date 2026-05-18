@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconSort, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconDownload, IconSort, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -117,8 +117,14 @@ const SymbolSetTable = (): JSX.Element => {
         shiftKeyHeld,
         previouslyCheckedIndex,
     } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex, setPage } =
-        useActions(symbolSetLogic)
+    const {
+        deleteSymbolSet,
+        downloadSymbolSet,
+        setSymbolSetOrder,
+        setSelectedSymbolSetIds,
+        setPreviouslyCheckedIndex,
+        setPage,
+    } = useActions(symbolSetLogic)
 
     const symbolSets = symbolSetResponse?.results || []
     const pagination = {
@@ -194,10 +200,13 @@ const SymbolSetTable = (): JSX.Element => {
         },
         {
             title: 'Status',
-            render: (_, { failure_reason }) => {
+            render: (_, { failure_reason, has_uploaded_file }) => {
+                const statusTooltip =
+                    failure_reason || (!has_uploaded_file ? 'No source map file has been uploaded' : undefined)
+
                 return (
-                    <Tooltip title={failure_reason} placement="top">
-                        {failure_reason ? (
+                    <Tooltip title={statusTooltip} placement="top">
+                        {!has_uploaded_file ? (
                             <span className="text-danger cursor-pointer">
                                 <IconWarning /> Missing
                             </span>
@@ -232,9 +241,18 @@ const SymbolSetTable = (): JSX.Element => {
             dataIndex: 'id',
             align: 'right',
 
-            render: (_, { id }) => {
+            render: (_, { id, has_uploaded_file }) => {
                 return (
                     <div className="flex justify-end items-center gap-1">
+                        {has_uploaded_file && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                tooltip="Download source map"
+                                icon={<IconDownload />}
+                                onClick={() => downloadSymbolSet(id)}
+                            />
+                        )}
                         <LemonButton
                             type="tertiary"
                             size="xsmall"

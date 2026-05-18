@@ -46,7 +46,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
 
 type HogQLParserBackend = Literal["python", "cpp-json"]
 
@@ -117,6 +117,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    grace_hash_join_initial_buckets: Optional[int] = None
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None

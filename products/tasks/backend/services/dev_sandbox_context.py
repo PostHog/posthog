@@ -4,7 +4,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 
 def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:

@@ -8,6 +8,7 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -40,6 +41,22 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 ..primary_pool_config.clone()
             };
 
+            let bulk_primary_pool_config = PoolConfig {
+                min_connections: config
+                    .min_pg_connections
+                    .min(config.bulk_max_pg_connections),
+                max_connections: config.bulk_max_pg_connections,
+                acquire_timeout: config.bulk_acquire_timeout(),
+                statement_timeout_ms: config.bulk_statement_timeout(),
+                pool_name: Some("bulk_primary".to_string()),
+                ..primary_pool_config.clone()
+            };
+
+            let bulk_replica_pool_config = PoolConfig {
+                pool_name: Some("bulk_replica".to_string()),
+                ..bulk_primary_pool_config.clone()
+            };
+
             // Create primary pool
             let primary_pool =
                 get_pool_with_config(&config.primary_database_url, primary_pool_config)
@@ -58,7 +75,29 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 pool
             };
 
-            Arc::new(PostgresStorage::new(primary_pool, replica_pool))
+            // Create bulk pools (same URLs, smaller pool with longer timeouts)
+            let bulk_primary_pool =
+                get_pool_with_config(&config.primary_database_url, bulk_primary_pool_config)
+                    .expect("Failed to create bulk primary database pool");
+
+            let bulk_replica_pool = if replica_url == config.primary_database_url {
+                bulk_primary_pool.clone()
+            } else {
+                get_pool_with_config(replica_url, bulk_replica_pool_config)
+                    .expect("Failed to create bulk replica database pool")
+            };
+            tracing::info!(
+                max_connections = config.bulk_max_pg_connections,
+                statement_timeout_ms = config.bulk_statement_timeout_ms,
+                "Created bulk database pools"
+            );
+
+            Arc::new(PostgresStorage::new(
+                primary_pool,
+                replica_pool,
+                bulk_primary_pool,
+                bulk_replica_pool,
+            ))
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
@@ -228,6 +267,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         label: "replica".to_string(),
         max_connections: config.max_pg_connections,
     });
+    pools.push(MonitoredPool {
+        pool: storage.bulk_primary_pool.clone(),
+        label: "bulk_primary".to_string(),
+        max_connections: config.bulk_max_pg_connections,
+    });
+    pools.push(MonitoredPool {
+        pool: storage.bulk_replica_pool.clone(),
+        label: "bulk_replica".to_string(),
+        max_connections: config.bulk_max_pg_connections,
+    });
     spawn_pool_monitor(
         pools,
         Duration::from_secs(config.pool_monitor_interval_secs),
@@ -237,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
 
@@ -252,14 +302,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
+        let mut server = Server::builder()
             .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
+            .http2_keepalive_timeout(keepalive_timeout);
+        if let Some(age) = max_connection_age {
+            server = server.max_connection_age(age);
+        }
+        if let Err(e) = server
             .layer(GrpcMetricsLayer)
             .add_service(
                 PersonHogReplicaServer::new(service)
                     .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
+                    .max_decoding_message_size(max_recv)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

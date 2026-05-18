@@ -1,9 +1,16 @@
 import datetime
 from typing import cast
 
-from posthog.schema import ErrorTrackingIssueFilter, ErrorTrackingQuery, HogQLFilters, PropertyGroupFilterValue
+from posthog.schema import (
+    ErrorTrackingIssueFilter,
+    ErrorTrackingQuery,
+    FilterLogicalOperator,
+    HogQLFilters,
+    PropertyGroupFilterValue,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
 
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
@@ -38,7 +45,7 @@ class ErrorTrackingQueryV1Builder:
     def hogql_filters(self) -> HogQLFilters:
         return HogQLFilters(
             filterTestAccounts=self.query.filterTestAccounts,
-            properties=cast(list, self._hogql_properties),
+            properties=None if self._manual_hogql_property_expr is not None else cast(list, self._hogql_properties),
         )
 
     def process_results(self, columns: list[str], rows: list) -> list:
@@ -70,6 +77,8 @@ class ErrorTrackingQueryV1Builder:
     @property
     def _where(self) -> ast.And:
         exprs = build_event_where_exprs(self.query, self.date_from, self.date_to)
+        if self._manual_hogql_property_expr is not None:
+            exprs.append(self._manual_hogql_property_expr)
 
         # Prefetch issue IDs from Postgres to filter results by properties not available in CH.
         # This is a stopgap — breaks at scale if the list grows too large.
@@ -144,3 +153,31 @@ class ErrorTrackingQueryV1Builder:
     @cached_property
     def _hogql_properties(self):
         return [v for v in self._properties if not isinstance(v, (ErrorTrackingIssueFilter, PropertyGroupFilterValue))]
+
+    @cached_property
+    def _manual_hogql_property_expr(self) -> ast.Expr | None:
+        event_filter = self._event_filter_without_issue_filters()
+        if not isinstance(event_filter, PropertyGroupFilterValue):
+            return None
+        has_nested_group = any(isinstance(value, PropertyGroupFilterValue) for value in event_filter.values)
+        if event_filter.type != FilterLogicalOperator.OR_ and not has_nested_group:
+            return None
+        if len(event_filter.values) <= 1 and not has_nested_group:
+            return None
+        return property_to_expr(event_filter, self.team, scope="event")
+
+    def _event_filter_without_issue_filters(self) -> object | None:
+        if not self.query.filterGroup or not self.query.filterGroup.values:
+            return None
+        return self._without_issue_filters(self.query.filterGroup.values[0])
+
+    def _without_issue_filters(self, value: object) -> object | None:
+        if isinstance(value, ErrorTrackingIssueFilter):
+            return None
+        if not isinstance(value, PropertyGroupFilterValue):
+            return value
+
+        values = [filtered for child in value.values if (filtered := self._without_issue_filters(child)) is not None]
+        if not values:
+            return None
+        return value.model_copy(update={"values": values})

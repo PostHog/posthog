@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 
+@admin.register(GroupTypeMapping)
 class GroupTypeMappingAdmin(admin.ModelAdmin):
     list_display = (
         "group_type_index",

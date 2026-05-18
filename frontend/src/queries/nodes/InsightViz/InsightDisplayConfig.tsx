@@ -3,13 +3,14 @@ import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconInfo } from '@posthog/icons'
+import { IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -73,6 +74,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
+        interval,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -95,7 +97,9 @@ export function InsightDisplayConfig(): JSX.Element {
     const showSmoothing =
         isTrends &&
         !hasBreakdownFilter(breakdownFilter) &&
-        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph)
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
+        !!interval &&
+        (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
     const isLineGraph =
@@ -110,6 +114,22 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
+        ...(showSmoothing
+            ? [
+                  {
+                      title: 'Smoothing',
+                      items: [
+                          {
+                              label: () => (
+                                  <div className="px-2 pb-1.5 w-full">
+                                      <SmoothingFilter />
+                                  </div>
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
         ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
         isRetention ||
         isTrendsFunnel ||
@@ -306,6 +326,7 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
     ]
     const advancedOptionsCount: number =
+        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
@@ -321,7 +342,7 @@ export function InsightDisplayConfig(): JSX.Element {
 
     return (
         <div
-            className="InsightDisplayConfig flex justify-between items-center flex-wrap gap-2"
+            className="InsightDisplayConfig @container flex justify-between items-center flex-wrap gap-2 [&_.LemonButton--small]:[--lemon-button-gap:0.25rem] [&_.LemonButton--small]:[--lemon-button-padding-horizontal:0.375rem]"
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
@@ -334,12 +355,6 @@ export function InsightDisplayConfig(): JSX.Element {
                 {showInterval && (
                     <ConfigFilter>
                         <IntervalFilter />
-                    </ConfigFilter>
-                )}
-
-                {showSmoothing && (
-                    <ConfigFilter>
-                        <SmoothingFilter />
                     </ConfigFilter>
                 )}
 
@@ -367,24 +382,36 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center gap-x-2 flex-wrap">
+            <div className="flex items-center gap-x-2">
                 {advancedOptions.length > 0 && (
-                    <LemonMenu
-                        items={advancedOptions}
-                        closeOnClickInside={false}
-                        placement={isTrendsFunnel ? 'bottom-end' : undefined}
-                    >
-                        <LemonButton size="small" disabledReason={editingDisabledReason}>
-                            <span className="font-medium whitespace-nowrap">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <span className="ml-0.5 text-secondary ligatures-none">
-                                        ({advancedOptionsCount})
-                                    </span>
-                                ) : null}
-                            </span>
-                        </LemonButton>
-                    </LemonMenu>
+                    <>
+                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                aria-label="Options"
+                                className="@max-[780px]:hidden"
+                            >
+                                <span className="font-medium whitespace-nowrap">
+                                    Options
+                                    {advancedOptionsCount ? (
+                                        <span className="ml-0.5 text-secondary ligatures-none">
+                                            ({advancedOptionsCount})
+                                        </span>
+                                    ) : null}
+                                </span>
+                            </LemonButton>
+                        </LemonMenu>
+                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                icon={<IconEllipsis />}
+                                aria-label="Options"
+                                className="hidden @max-[780px]:flex order-[999]"
+                            />
+                        </LemonMenu>
+                    </>
                 )}
                 {supportsDisplay && (
                     <ConfigFilter>

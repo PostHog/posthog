@@ -9,7 +9,7 @@ import structlog
 from prometheus_client import Counter, Gauge
 
 from posthog.api.services.query import process_query_dict
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -38,12 +38,17 @@ CACHE_UPDATE_FAILED_COUNTER = Counter(
 CACHE_UPDATE_SHARED_GAUGE = Gauge(
     "insight_cache_state_update_rows_updated",
     "Number of rows updated during insight cache refresh. A single cache key can be shared by more than one insight/tile.",
+    multiprocess_mode="livesum",
 )
 
 
 def update_cache(caching_state_id: UUID):
     # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
-    caching_state = InsightCachingState.objects.get(pk=caching_state_id)
+    caching_state = InsightCachingState.objects.select_related(
+        "insight__team__organization",
+        "dashboard_tile__insight__team__organization",
+        "dashboard_tile__dashboard",
+    ).get(pk=caching_state_id)
 
     if caching_state.target_cache_age_seconds is None or (
         caching_state.last_refresh is not None
@@ -67,7 +72,7 @@ def update_cache(caching_state_id: UUID):
         "last_refresh_queued_at": caching_state.last_refresh_queued_at,
     }
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warming")
+    tag_queries(**get_team_query_tags(insight.team), insight_id=insight.pk, trigger="warming")
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 

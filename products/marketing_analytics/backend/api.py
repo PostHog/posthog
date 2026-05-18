@@ -14,6 +14,7 @@ from posthog.schema import SourceMap
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
@@ -84,6 +85,7 @@ class UtmAuditResponseSerializer(serializers.Serializer):
 
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     @validated_request(
