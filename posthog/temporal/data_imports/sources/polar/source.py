@@ -80,7 +80,12 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             return False, str(e)
 
     def get_schemas(
-        self, config: PolarSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PolarSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Full refresh only — Polar's list endpoints accept no server-side timestamp filter,
         # so an "incremental" sync would still fetch every page. We surface that honestly by
