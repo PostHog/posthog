@@ -1156,7 +1156,10 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFiltersType {
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    extraSentEventProperties: EventPropertyFilter[] = []
+): CyclotronJobFiltersType {
     const sentEventProperties: EventPropertyFilter[] = [
         {
             key: SurveyEventProperties.SURVEY_ID,
@@ -1170,6 +1173,7 @@ export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFilt
             value: true,
             operator: PropertyOperator.Exact,
         },
+        ...extraSentEventProperties,
     ]
 
     return {
