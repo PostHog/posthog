@@ -28,6 +28,7 @@ import {
     LemonTabs,
     LemonTag,
     Popover,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -181,10 +182,9 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                 <LemonButton
                     type="secondary"
                     onClick={onReload}
-                    icon={<IconRefresh />}
-                    loading={sessionRecordingsResponseLoading}
+                    icon={sessionRecordingsResponseLoading ? <Spinner textColored /> : <IconRefresh />}
                     size="small"
-                    tooltip="Refresh list"
+                    tooltip={sessionRecordingsResponseLoading ? 'Refreshing recordings…' : 'Refresh list'}
                     data-attr="refresh-recordings-list"
                 />
             </div>

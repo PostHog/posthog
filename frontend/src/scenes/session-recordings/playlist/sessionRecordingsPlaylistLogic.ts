@@ -1095,6 +1095,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return // Nothing more to load
             }
             if (values.sessionRecordingsResponseLoading) {
+                // A refresh (no direction) without feedback looks like the button did nothing
+                if (direction === undefined) {
+                    lemonToast.info('Already refreshing recordings…', {
+                        toastId: 'recordings-already-refreshing',
+                    })
+                }
                 return // We don't want to load if we are currently loading
             }
 
