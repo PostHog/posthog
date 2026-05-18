@@ -87,12 +87,14 @@ export function EditSubscription({
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const hourlySubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_HOURLY_FREQUENCY')
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.content_type === 'ai_prompt'
     const aiAllowed =
         Boolean(currentOrganization?.is_ai_data_processing_approved) &&
-        (Boolean(preflight?.cloud) || Boolean(preflight?.is_debug))
+        (Boolean(preflight?.cloud) || Boolean(preflight?.is_debug)) &&
+        Boolean(aiSubscriptionsEnabled)
 
     // Show the hourly option whenever the feature flag is on for this user/org, OR
     // when the subscription being edited is already hourly (so the user can read /

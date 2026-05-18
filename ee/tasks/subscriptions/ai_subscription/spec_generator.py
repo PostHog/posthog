@@ -114,8 +114,14 @@ def generate_query_plan(*, cleaned_prompt: str, context_blob: str, subscription:
         },
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
-    rendered_prompt = PLAN_GENERATION_PROMPT.replace("{{{context_blob}}}", context_blob).replace(
-        "{{{cleaned_prompt}}}", cleaned_prompt
+    # Single-pass substitution: chained .replace() is order-dependent — if the first
+    # substitution's value contained `{{{cleaned_prompt}}}` literally (e.g. an event
+    # name in `context_blob`), the second .replace() would expand it again.
+    substitutions = {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt}
+    rendered_prompt = re.sub(
+        r"\{\{\{(\w+)\}\}\}",
+        lambda m: substitutions.get(m.group(1), m.group(0)),
+        PLAN_GENERATION_PROMPT,
     )
 
     result = llm.invoke([("system", rendered_prompt)])

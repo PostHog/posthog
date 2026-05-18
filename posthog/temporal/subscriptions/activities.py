@@ -616,6 +616,20 @@ async def _deliver_ai_subscription(
     blip) bubble up so the activity's Temporal retry policy can recover them; terminal
     errors (Slack permission revoked) auto-disable the subscription and return.
     """
+    # Reject unsupported targets BEFORE running the LLM — otherwise every Temporal
+    # retry burns full planner + synthesis + HogQL costs against a sub that can never
+    # deliver. Auto-disable matches the non-AI path (see `_auto_disable_and_return`
+    # for the equivalent UNSUPPORTED_TARGET_DISABLE_REASON branch on line ~480).
+    if subscription.target_type not in ("email", "slack"):
+        LOGGER.warning(
+            "deliver_subscription.ai_unsupported_target",
+            subscription_id=subscription.id,
+            target_type=subscription.target_type,
+        )
+        return await _auto_disable_and_return(
+            subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results
+        )
+
     # Let transient LLM / DB errors propagate so Temporal can retry. `PromptRejectedError`
     # (deterministic) is the one exception we know retries can't recover.
     from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError
@@ -702,18 +716,8 @@ async def _deliver_ai_subscription(
                 )
             raise  # Transient Slack errors — let Temporal retry
 
-    LOGGER.warning(
-        "deliver_subscription.ai_unsupported_target",
-        subscription_id=subscription.id,
-        target_type=subscription.target_type,
-    )
-    recipient_results.append(
-        RecipientResult(
-            recipient=subscription.target_value,
-            status="failed",
-            error={"message": f"{subscription.target_type} is not supported for AI subscriptions", "type": "unsupported"},
-        )
-    )
+    # Unreachable: the target_type gate at the top of the function returns early
+    # for anything other than email / slack.
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
