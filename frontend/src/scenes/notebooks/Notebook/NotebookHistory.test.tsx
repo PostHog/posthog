@@ -12,7 +12,7 @@ import { AccessControlLevel, NotebookType } from '~/types'
 
 import { NotebookEditor } from '../types'
 import { notebookCollabLogic } from './notebookCollabLogic'
-import { notebookLogic } from './notebookLogic'
+import { SYNC_DELAY, notebookLogic } from './notebookLogic'
 
 // Skip the API-driven query upgrade step inside migrate so the loader doesn't try
 // to upgrade insight nodes. Our fixture content has no insight nodes anyway, but
@@ -61,10 +61,6 @@ const cachedNotebook: NotebookType = {
     last_modified_by: null,
 } as unknown as NotebookType
 
-// notebookLogic.ts: const SYNC_DELAY = 1000. We can't import it (module-private)
-// but we wait past it so the debounced save dispatch resolves.
-const SYNC_DELAY_MS = 1000
-
 describe('Notebook history revert flow', () => {
     let logic: ReturnType<typeof notebookLogic.build>
     let editorSetContent: jest.Mock
@@ -111,7 +107,7 @@ describe('Notebook history revert flow', () => {
 
         logic.actions.setPreviewContent(HISTORICAL_DOC)
         await expectLogic(logic)
-            .delay(SYNC_DELAY_MS + 100)
+            .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
@@ -135,7 +131,7 @@ describe('Notebook history revert flow', () => {
         logic.actions.clearPreviewContent()
         logic.actions.setLocalContent(HISTORICAL_DOC, true)
         await expectLogic(logic)
-            .delay(SYNC_DELAY_MS + 100)
+            .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
@@ -173,7 +169,7 @@ describe('Notebook history revert flow', () => {
         logic.actions.clearPreviewContent()
         logic.actions.setLocalContent(HISTORICAL_DOC, true)
         await expectLogic(logic)
-            .delay(SYNC_DELAY_MS + 100)
+            .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
         expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
