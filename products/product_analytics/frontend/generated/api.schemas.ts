@@ -1428,6 +1428,15 @@ export interface GoalLineApi {
     value: number
 }
 
+export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
+
+export const LegendPositionApi = {
+    Right: 'right',
+    Bottom: 'bottom',
+    Top: 'top',
+    Left: 'left',
+} as const
+
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
 export const ResultCustomizationByApi = {
@@ -1513,6 +1522,9 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Where the legend renders relative to the chart when `showLegend` is true.
+  Presentation-only — excluded from the insight cache key. */
+    legendPosition?: LegendPositionApi | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */
