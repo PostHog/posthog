@@ -1439,6 +1439,7 @@ class TestComposeTicketAPI(APIBaseTest):
     def test_compose_email_validation(
         self,
         mock_on_commit,
+        _name,
         distinct_ids,
         person_props,
         recipient_email,
