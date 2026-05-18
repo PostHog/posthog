@@ -37,6 +37,7 @@ MAX_REQUEST_BYTES = 5_000_000
 MAX_EVENTS_PER_REQUEST = 1_000
 COMPLETE_ON_CLOSE_HEADER = b"x-posthog-event-stream-complete"
 COMPLETE_ON_CLOSE_FINAL_SEQUENCE_HEADER = b"x-posthog-event-stream-final-seq"
+STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete"
 
 ASGIMessage = dict[str, object]
 ASGIReceive = Callable[[], Awaitable[ASGIMessage]]
@@ -62,6 +63,17 @@ class EventIngestResult:
     accepted: int = 0
     duplicate: int = 0
     last_accepted_seq: int = 0
+
+
+@dataclass
+class EventIngestEventLine:
+    sequence: int
+    event: dict
+
+
+@dataclass
+class EventIngestCompleteLine:
+    final_sequence: int
 
 
 async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive, send: ASGISend) -> bool:
@@ -163,13 +175,25 @@ async def _ingest_event_lines(
     result = EventIngestResult(last_accepted_seq=await redis_stream.get_last_sequence())
 
     event_count = 0
+    completion_line_final_sequence: int | None = None
     try:
         async for line in _iter_request_lines(receive):
+            parsed_line = _parse_ingest_line(line)
+            if isinstance(parsed_line, EventIngestCompleteLine):
+                if completion_line_final_sequence is not None:
+                    raise EventIngestBadRequest("Completion line must be the final event stream line")
+                completion_line_final_sequence = parsed_line.final_sequence
+                continue
+
+            if completion_line_final_sequence is not None:
+                raise EventIngestBadRequest("Completion line must be the final event stream line")
+
             event_count += 1
             if event_count > MAX_EVENTS_PER_REQUEST:
                 raise EventIngestPayloadTooLarge("Too many events in request", result.last_accepted_seq)
 
-            sequence, event = _parse_event_line(line)
+            sequence = parsed_line.sequence
+            event = parsed_line.event
             stream_id = await redis_stream.write_event_with_sequence(event, sequence)
             if stream_id is None:
                 result.duplicate += 1
@@ -184,8 +208,12 @@ async def _ingest_event_lines(
             error.last_accepted_seq = result.last_accepted_seq
         raise
 
-    if complete_on_close_final_sequence is not None:
-        await redis_stream.mark_complete_after_sequence(complete_on_close_final_sequence)
+    final_sequence = completion_line_final_sequence
+    if final_sequence is None:
+        final_sequence = complete_on_close_final_sequence
+
+    if final_sequence is not None:
+        await redis_stream.mark_complete_after_sequence(final_sequence)
 
     return result
 
@@ -237,7 +265,7 @@ def _decode_line(line: bytes) -> str:
         raise EventIngestBadRequest("Invalid UTF-8 in event stream") from error
 
 
-def _parse_event_line(line: str) -> tuple[int, dict]:
+def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteLine:
     try:
         payload = json.loads(line)
     except json.JSONDecodeError as error:
@@ -246,6 +274,12 @@ def _parse_event_line(line: str) -> tuple[int, dict]:
     if not isinstance(payload, dict):
         raise EventIngestBadRequest("Each event line must be a JSON object")
 
+    if payload.get("type") == STREAM_COMPLETE_CONTROL_TYPE:
+        final_sequence = payload.get("final_seq")
+        if type(final_sequence) is not int or final_sequence < 0:
+            raise EventIngestBadRequest("Completion final sequence must be a non-negative integer")
+        return EventIngestCompleteLine(final_sequence=final_sequence)
+
     sequence = payload.get("seq")
     event = payload.get("event")
     if type(sequence) is not int or sequence < 1:
@@ -253,7 +287,7 @@ def _parse_event_line(line: str) -> tuple[int, dict]:
     if not isinstance(event, dict):
         raise EventIngestBadRequest("Event payload must be an object")
 
-    return sequence, event
+    return EventIngestEventLine(sequence=sequence, event=event)
 
 
 def _get_complete_on_close_final_sequence(scope: ASGIMessage) -> int:

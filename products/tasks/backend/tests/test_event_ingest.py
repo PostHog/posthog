@@ -19,6 +19,7 @@ from products.tasks.backend.services.connection_token import (
 from products.tasks.backend.stream.event_ingest import (
     MAX_EVENT_LINE_BYTES,
     MAX_EVENTS_PER_REQUEST,
+    STREAM_COMPLETE_CONTROL_TYPE,
     handle_task_run_event_ingest,
 )
 from products.tasks.backend.stream.redis_stream import (
@@ -259,6 +260,87 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertEqual(body["duplicate"], 1)
         self.assertEqual(body["last_accepted_seq"], 1)
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_completion_control_line_completes_after_streamed_events(self) -> None:
+        token = self._create_token()
+
+        status, body = self._call_ingest(
+            token,
+            [
+                {
+                    "seq": 1,
+                    "event": {"type": "notification", "notification": {"method": "session/update"}},
+                },
+                {
+                    "seq": 2,
+                    "event": {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+                },
+                {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 2},
+            ],
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(body["last_accepted_seq"], 2)
+        events = self._read_stream_events()
+        self.assertEqual(self._read_notification_methods(), ["session/update", "_posthog/task_complete"])
+        self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_completion_control_line_rejects_unaccepted_final_sequence(self) -> None:
+        token = self._create_token()
+
+        status, body = self._call_ingest(
+            token,
+            [
+                {
+                    "seq": 1,
+                    "event": {"type": "notification", "notification": {"method": "session/update"}},
+                },
+                {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 2},
+            ],
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(body["last_accepted_seq"], 1)
+        self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_completion_control_line_must_be_final_line(self) -> None:
+        token = self._create_token()
+
+        status, body = self._call_ingest(
+            token,
+            [
+                {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 0},
+                {
+                    "seq": 1,
+                    "event": {"type": "notification", "notification": {"method": "session/update"}},
+                },
+            ],
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"], "Completion line must be the final event stream line")
+        self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+        self.assertEqual(self._read_notification_methods(), [])
+
+    @parameterized.expand(
+        [
+            ("missing_final_seq", {"type": STREAM_COMPLETE_CONTROL_TYPE}),
+            ("negative_final_seq", {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": -1}),
+            ("string_final_seq", {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": "1"}),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_completion_control_line_rejects_invalid_final_sequence(self, _case_name: str, line: dict) -> None:
+        token = self._create_token()
+
+        status, body = self._call_ingest(token, [line])
+
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"], "Completion final sequence must be a non-negative integer")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_sequence_gap_returns_last_accepted_sequence(self) -> None:
