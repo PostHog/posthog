@@ -73,7 +73,9 @@ export function ComposeTicketModal(): JSX.Element | null {
                         onChange={setRecipientEmail}
                         placeholder="customer@example.com"
                         fullWidth
-                        disabled={!!recipientDistinctId}
+                        disabledReason={
+                            recipientDistinctId && recipientEmail ? 'Email is linked to the selected person' : undefined
+                        }
                     />
                 </div>
 
