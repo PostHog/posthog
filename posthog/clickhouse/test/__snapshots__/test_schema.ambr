@@ -356,6 +356,7 @@
       attempts UInt8,
       is_retry UInt8,
       scheduled_at DateTime64(6, 'UTC'),
+      first_scheduled_at DateTime64(6, 'UTC'),
       started_at Nullable(DateTime64(6, 'UTC')),
       finished_at Nullable(DateTime64(6, 'UTC')),
       duration_ms Nullable(UInt32),
@@ -1836,6 +1837,7 @@
       attempts UInt8,
       is_retry UInt8,
       scheduled_at DateTime64(6, 'UTC'),
+      first_scheduled_at DateTime64(6, 'UTC'),
       started_at Nullable(DateTime64(6, 'UTC')),
       finished_at Nullable(DateTime64(6, 'UTC')),
       duration_ms Nullable(UInt32),
@@ -1871,6 +1873,7 @@
       attempts UInt8,
       is_retry UInt8,
       scheduled_at DateTime64(6, 'UTC'),
+      first_scheduled_at DateTime64(6, 'UTC') DEFAULT scheduled_at,
       started_at Nullable(DateTime64(6, 'UTC')),
       finished_at Nullable(DateTime64(6, 'UTC')),
       duration_ms Nullable(UInt32),
@@ -1915,6 +1918,12 @@
       attempts,
       is_retry,
       scheduled_at,
+      -- Defensive fallback: if the producer omits the field (e.g. an older build
+      -- still in rollout), the Kafka JSONEachRow parser populates the column
+      -- with epoch 0. Substitute `scheduled_at` in that case so the column reads
+      -- sensibly. Once every producer carries the field, this resolves to a
+      -- straight passthrough.
+      if(first_scheduled_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), scheduled_at, first_scheduled_at) AS first_scheduled_at,
       started_at,
       finished_at,
       duration_ms,
@@ -2250,6 +2259,7 @@
       attempts UInt8,
       is_retry UInt8,
       scheduled_at DateTime64(6, 'UTC'),
+      first_scheduled_at DateTime64(6, 'UTC'),
       started_at Nullable(DateTime64(6, 'UTC')),
       finished_at Nullable(DateTime64(6, 'UTC')),
       duration_ms Nullable(UInt32),
@@ -7704,6 +7714,7 @@
       attempts UInt8,
       is_retry UInt8,
       scheduled_at DateTime64(6, 'UTC'),
+      first_scheduled_at DateTime64(6, 'UTC') DEFAULT scheduled_at,
       started_at Nullable(DateTime64(6, 'UTC')),
       finished_at Nullable(DateTime64(6, 'UTC')),
       duration_ms Nullable(UInt32),
