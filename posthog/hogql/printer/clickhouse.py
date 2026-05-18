@@ -806,12 +806,10 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_optimized_materialized_column_lower_in_operation(self, node: ast.CompareOperation) -> str | None:
         """
-        Returns an optimized printed expression for `lower(<property>) IN (...)` comparisons that can use a
-        bloom_filter_lower skip index on an individually materialized column.
+        Returns an optimized printed expression for `lower(<property>) IN (...)` comparisons.
 
         The bloom_filter_lower index is built on `lower(column)` (or `lower(coalesce(column, ''))` for nullable
-        columns). The comparison must be printed against that exact expression for ClickHouse to pick the index,
-        so we wrap the raw materialized column rather than letting the generic path emit nullIf wrapping.
+        columns), so we print the comparison against that exact expression for ClickHouse to pick the index.
         """
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
             return None
@@ -853,8 +851,7 @@ class ClickHousePrinter(BasePrinter):
         values_sql = ", ".join(self.visit(v) for v in values)
 
         if property_source.is_nullable:
-            # The index expression is lower(coalesce(column, '')); match it exactly. coalesce can't produce a
-            # sentinel here because we bailed on '' above, so the IS NOT NULL guard only restores NULL semantics.
+            # Match the index expression exactly; the IS NOT NULL guard restores NULL semantics
             indexed_expr = f"lower(coalesce({materialized_column_sql}, ''))"
             if node.op == ast.CompareOperationOp.In:
                 # has() with a constant array keeps the skip index usable (unlike in() under transform_null_in=1)

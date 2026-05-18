@@ -350,18 +350,10 @@ class NgramLowerIndex:
 @dataclass
 class BloomFilterLowerIndex:
     """
-    A bloom filter index over lower(column), for case-insensitive equality lookups
-    (e.g. lower(col) = 'value' or lower(col) IN (...)).
+    A plain bloom_filter index over lower(column) for case-insensitive equality / IN lookups.
 
-    Unlike NgramLowerIndex this is a plain bloom_filter, so it only accelerates whole-value
-    equality, not substring LIKE matching.
-
-    The same 2 ClickHouse limitations as NgramLowerIndex apply:
-    - bloom filter indexes are case-sensitive, so we index lower(col) and queries must wrap the
-      column in lower() to hit the index
-    - bloom filter indexes are not supported on nullable columns, so the nullable version is
-      wrapped in coalesce(col, '')
-    If either of these limitations change, we should simplify this.
+    Same 2 ClickHouse limitations as NgramLowerIndex (case-sensitive indexes, no nullable columns),
+    so we index lower(col) and wrap nullable columns in coalesce(col, '').
     """
 
     column_name: str
