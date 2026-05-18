@@ -360,7 +360,7 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertFalse(LegalDocument.objects.filter(id=self.document.id).exists())
-        mock_pandadoc_cls.return_value.delete_document.assert_called_once_with(document_id="doc_123")
+        mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_delete_frees_unique_constraint_so_new_dpa_can_be_created(self, _mock_pandadoc_cls) -> None:
@@ -395,7 +395,7 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
-        mock_pandadoc_cls.return_value.delete_document.assert_not_called()
+        mock_pandadoc_cls.return_value.void_document.assert_not_called()
 
     def test_unknown_document_returns_404(self) -> None:
         bogus_url = f"/api/organizations/{self.organization.id}/legal_documents/00000000-0000-0000-0000-000000000000/"
@@ -422,7 +422,7 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
-        mock_pandadoc_cls.return_value.delete_document.assert_not_called()
+        mock_pandadoc_cls.return_value.void_document.assert_not_called()
 
     def test_regular_member_cannot_delete(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -442,7 +442,7 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
         # signer with a still-completable document.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
-        mock_pandadoc_cls.return_value.delete_document.side_effect = pandadoc_module.PandaDocError("boom")
+        mock_pandadoc_cls.return_value.void_document.side_effect = pandadoc_module.PandaDocError("boom")
 
         response = self.client.delete(self.url)
 

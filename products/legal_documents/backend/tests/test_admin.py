@@ -212,7 +212,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         document_id = document.id
         self.admin.delete_model(self._request(), document)
 
-        mock_pandadoc_cls.return_value.delete_document.assert_called_once_with(document_id="doc_123")
+        mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
         mock_storage.delete.assert_not_called()
         self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
 
@@ -308,9 +308,9 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.admin.delete_queryset(self._request(), queryset)
 
         # Two distinct PandaDoc void calls, one per row.
-        self.assertEqual(mock_pandadoc_cls.return_value.delete_document.call_count, 2)
+        self.assertEqual(mock_pandadoc_cls.return_value.void_document.call_count, 2)
         called_ids = {
-            call.kwargs["document_id"] for call in mock_pandadoc_cls.return_value.delete_document.call_args_list
+            call.kwargs["document_id"] for call in mock_pandadoc_cls.return_value.void_document.call_args_list
         }
         self.assertEqual(called_ids, {"doc_111", "doc_222"})
         self.assertFalse(LegalDocument.objects.filter(id__in=[first.id, second.id]).exists())

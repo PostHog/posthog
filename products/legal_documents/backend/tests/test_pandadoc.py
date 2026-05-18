@@ -149,37 +149,56 @@ class TestPandaDocClient(TestCase):
         self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "privacy@posthog.com", "role": "PostHog"})
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
-    def test_delete_document_issues_delete_to_expected_path(self) -> None:
+    def test_void_document_patches_status_endpoint_with_voided_code(self) -> None:
+        # Voided is PandaDoc's "no longer signable" status. We hit the status
+        # endpoint with the numeric code (11) rather than deleting the doc so
+        # PandaDoc retains the audit record of the cancelled signing process.
         fake_response = MagicMock()
         fake_response.status_code = 204
 
         with patch(
-            "products.legal_documents.backend.logic.pandadoc.requests.delete", return_value=fake_response
-        ) as mock_delete:
-            pandadoc.PandaDocClient().delete_document(document_id="doc_123")
+            "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response
+        ) as mock_patch:
+            pandadoc.PandaDocClient().void_document(document_id="doc_123")
 
-        mock_delete.assert_called_once()
-        args, kwargs = mock_delete.call_args
-        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123")
+        mock_patch.assert_called_once()
+        args, kwargs = mock_patch.call_args
+        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/status")
         self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
+        self.assertEqual(kwargs["json"], {"status": 11, "notify_recipients": True})
 
     @override_settings(PANDADOC_API_KEY="key")
-    def test_delete_document_treats_404_as_success(self) -> None:
+    def test_void_document_can_opt_out_of_recipient_notification(self) -> None:
+        # The caller may want to suppress the "your document was cancelled"
+        # email — e.g., the recipient is wrong and we don't want them to even
+        # know the original existed.
+        fake_response = MagicMock()
+        fake_response.status_code = 204
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response
+        ) as mock_patch:
+            pandadoc.PandaDocClient().void_document(document_id="doc_123", notify_recipients=False)
+
+        self.assertEqual(mock_patch.call_args.kwargs["json"]["notify_recipients"], False)
+
+    @override_settings(PANDADOC_API_KEY="key")
+    def test_void_document_treats_404_as_success(self) -> None:
         # The envelope is already gone on PandaDoc's side — that's the state
         # we wanted, so the helper must not raise.
         fake_response = MagicMock()
         fake_response.status_code = 404
         fake_response.text = "not found"
 
-        with patch("products.legal_documents.backend.logic.pandadoc.requests.delete", return_value=fake_response):
-            pandadoc.PandaDocClient().delete_document(document_id="doc_123")
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response):
+            pandadoc.PandaDocClient().void_document(document_id="doc_123")
 
     @override_settings(PANDADOC_API_KEY="key")
-    def test_delete_document_raises_on_other_errors(self) -> None:
+    def test_void_document_raises_on_other_errors(self) -> None:
         fake_response = MagicMock()
         fake_response.status_code = 423
         fake_response.text = "Document is locked for editing"
 
-        with patch("products.legal_documents.backend.logic.pandadoc.requests.delete", return_value=fake_response):
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response):
             with self.assertRaises(pandadoc.PandaDocError):
-                pandadoc.PandaDocClient().delete_document(document_id="doc_123")
+                pandadoc.PandaDocClient().void_document(document_id="doc_123")

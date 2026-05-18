@@ -151,17 +151,18 @@ def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -
       historic admin contract.
     """
     # Only call PandaDoc for in-flight envelopes. Signed envelopes have
-    # already completed on PandaDoc's side; calling void on them returns
-    # 423 Locked and would generate Sentry noise on every staff delete of
-    # a counter-signed document.
+    # already completed on PandaDoc's side; voiding them would 409/423 and
+    # generate Sentry noise on every staff delete of a counter-signed
+    # document. Voiding (status transition) is preferred over a hard delete
+    # so PandaDoc retains the audit record of the cancelled signing process.
     if document.pandadoc_document_id and document.status != LegalDocument.Status.SIGNED:
         try:
-            pandadoc_client.PandaDocClient().delete_document(document_id=document.pandadoc_document_id)
+            pandadoc_client.PandaDocClient().void_document(document_id=document.pandadoc_document_id)
         except pandadoc_client.PandaDocError as exc:
             if strict_pandadoc:
                 raise
             logger.warning(
-                "legal_document_pandadoc_delete_failed",
+                "legal_document_pandadoc_void_failed",
                 document_id=str(document.id),
                 pandadoc_document_id=document.pandadoc_document_id,
                 error=str(exc),

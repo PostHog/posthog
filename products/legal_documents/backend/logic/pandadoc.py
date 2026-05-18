@@ -2,9 +2,9 @@
 Thin client for the PandaDoc public API.
 
 We hit three endpoints:
-    POST   /public/v1/documents              -> create a document from a template
-    POST   /public/v1/documents/{id}/send    -> email the signing envelope
-    DELETE /public/v1/documents/{id}         -> remove an envelope (drafts, sent, etc.)
+    POST  /public/v1/documents              -> create a document from a template
+    POST  /public/v1/documents/{id}/send    -> email the signing envelope
+    PATCH /public/v1/documents/{id}/status  -> move an envelope to voided (no longer signable)
 
 Plus one helper for verifying the HMAC signature on inbound webhooks. Keeping
 this file free of Django/DRF imports so it's straightforward to unit test.
@@ -29,6 +29,12 @@ logger = structlog.get_logger(__name__)
 
 
 DEFAULT_TIMEOUT_SECONDS = 30
+
+# PandaDoc encodes document statuses as small integers in the status-change API.
+# 11 is `document.voided` — the document is no longer available for signature
+# but stays in PandaDoc as an audit record of the cancelled signing process.
+# See https://developers.pandadoc.com/reference/change-document-status-manually
+_PANDADOC_STATUS_VOIDED = 11
 
 
 class PandaDocError(Exception):
@@ -97,15 +103,15 @@ class PandaDocClient:
         except ValueError as exc:
             raise PandaDocError(f"PandaDoc {path} returned non-JSON body: {exc}") from exc
 
-    def _delete(self, path: str) -> int:
+    def _patch(self, path: str, json: dict[str, Any]) -> int:
         """
-        DELETE the given path. Returns the HTTP status code so callers can
-        distinguish a successful delete (204) from a "no-op, already gone"
-        (404) without inspecting an exception.
+        PATCH the given path with a JSON body. Returns the HTTP status code so
+        callers can distinguish a successful change (204) from a "no-op,
+        already gone" (404) without inspecting an exception.
         """
         url = f"{self._base_url}{path}"
         try:
-            response = requests.delete(url, headers=self._headers(), timeout=self._timeout)
+            response = requests.patch(url, headers=self._headers(), json=json, timeout=self._timeout)
         except requests.RequestException as exc:
             raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
         if response.status_code == 404:
@@ -184,15 +190,26 @@ class PandaDocClient:
             {"subject": subject, "message": message, "silent": False},
         )
 
-    def delete_document(self, *, document_id: str) -> None:
+    def void_document(self, *, document_id: str, notify_recipients: bool = True) -> None:
         """
-        Remove the envelope on PandaDoc's side so the recipient can no longer
-        complete it. 404 is treated as success — the envelope was already
-        gone, which is the state we wanted anyway. Any other non-2xx surfaces
-        as PandaDocError so the caller can decide whether to retry or just
-        log + move on.
+        Move the envelope to `document.voided` so the recipient can no longer
+        complete it. Unlike a hard delete, the envelope stays in PandaDoc as
+        an audit record of the cancelled signing process — which is what we
+        want for documents that may end up in a legal review later.
+
+        `notify_recipients=True` sends PandaDoc's standard "this document was
+        cancelled" email to the original signer, so they're not left
+        wondering why the link from earlier no longer works.
+
+        404 is treated as success — the envelope is already gone, which is
+        the state we wanted anyway. Any other non-2xx (e.g., 423 if PandaDoc
+        has the document locked for editing) surfaces as PandaDocError so
+        the caller can decide whether to retry or log + move on.
         """
-        self._delete(f"/public/v1/documents/{document_id}")
+        self._patch(
+            f"/public/v1/documents/{document_id}/status",
+            {"status": _PANDADOC_STATUS_VOIDED, "notify_recipients": notify_recipients},
+        )
 
     @contextmanager
     def stream_document(self, *, document_id: str) -> Iterator[IO[bytes]]:

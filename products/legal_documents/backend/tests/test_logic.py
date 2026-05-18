@@ -55,7 +55,7 @@ class TestDeleteDocument(APIBaseTest):
 
         delete_document(document)
 
-        mock_pandadoc_cls.return_value.delete_document.assert_called_once_with(document_id="doc_123")
+        mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
         mock_storage.delete.assert_not_called()
         self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
 
@@ -66,7 +66,7 @@ class TestDeleteDocument(APIBaseTest):
         # Admin (default `strict_pandadoc=False`) path: PandaDoc unreachable or
         # locked envelope shouldn't block staff from removing a row. Stale
         # envelope on PandaDoc is preferable to staff being unable to delete.
-        mock_pandadoc_cls.return_value.delete_document.side_effect = pandadoc_module.PandaDocError("boom")
+        mock_pandadoc_cls.return_value.void_document.side_effect = pandadoc_module.PandaDocError("boom")
         document = self._document()
         document_id = document.id
 
@@ -81,7 +81,7 @@ class TestDeleteDocument(APIBaseTest):
         # Self-serve path (`strict_pandadoc=True`): a PandaDoc failure must
         # bubble up so the surrounding facade transaction rolls back. The row
         # stays; the API surfaces 503 and the user can retry.
-        mock_pandadoc_cls.return_value.delete_document.side_effect = pandadoc_module.PandaDocError("boom")
+        mock_pandadoc_cls.return_value.void_document.side_effect = pandadoc_module.PandaDocError("boom")
         document = self._document()
         document_id = document.id
 
