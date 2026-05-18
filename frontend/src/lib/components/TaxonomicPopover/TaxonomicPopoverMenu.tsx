@@ -21,9 +21,12 @@ import { IconChevronDown } from '@posthog/icons'
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import {
+    AllowedProperties,
     DataWarehousePopoverField,
     ExcludedProperties,
     SelectedProperties,
+    SimpleOption,
+    TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
@@ -51,7 +54,9 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
     groupTypes?: TaxonomicFilterGroupType[]
-    onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
+    /** The 4th arg is the orchestrator's resolved group — consumers that
+     *  need the full `TaxonomicFilterGroup` (not just its type) can use it. */
+    onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any, group: TaxonomicFilterGroup) => void
     renderValue?: (value: ValueType) => JSX.Element | null
     placeholder?: React.ReactNode
     placeholderClass?: string
@@ -60,6 +65,11 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
     selectedProperties?: SelectedProperties
+    propertyAllowList?: AllowedProperties
+    optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
+    hideBehavioralCohorts?: boolean
+    endpointFilters?: Record<string, any>
+    hogQLGlobals?: Record<string, any>
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
@@ -70,7 +80,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
      *  matches the legacy `TaxonomicPopover` button at the call site. */
     triggerButtonProps?: Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'fullWidth' | 'size' | 'type' | 'className' | 'disabledReason'
+        'icon' | 'sideIcon' | 'fullWidth' | 'size' | 'type' | 'className' | 'disabledReason' | 'truncate'
     >
 }
 
@@ -87,6 +97,11 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     metadataSource,
     excludedProperties,
     selectedProperties,
+    propertyAllowList,
+    optionsFromProp,
+    hideBehavioralCohorts,
+    endpointFilters,
+    hogQLGlobals,
     showNumericalPropsOnly,
     dataWarehousePopoverFields,
     maxContextOptions,
@@ -151,12 +166,17 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
             metadataSource={metadataSource}
             excludedProperties={excludedProperties}
             selectedProperties={selectedProperties}
+            propertyAllowList={propertyAllowList}
+            optionsFromProp={optionsFromProp}
+            hideBehavioralCohorts={hideBehavioralCohorts}
+            endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
             showNumericalPropsOnly={showNumericalPropsOnly}
             maxContextOptions={maxContextOptions}
             allowNonCapturedEvents={allowNonCapturedEvents}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts={enableKeywordShortcuts}
-            onChange={(group, changedValue, item) => onChange(changedValue as ValueType, group.type, item)}
+            onChange={(group, changedValue, item) => onChange(changedValue as ValueType, group.type, item, group)}
         >
             <TaxonomicFilterMenu
                 selected={selected}
