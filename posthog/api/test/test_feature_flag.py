@@ -8564,7 +8564,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8596,7 +8596,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # from the org (their AccessControl row cascade-deletes). Org admins should
         # still be able to find such orphaned flags in the list endpoint.
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8639,7 +8639,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Counterpart to the test above: non-admin members without an explicit
         # grant must still be filtered out by the per-object "none" default.
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
