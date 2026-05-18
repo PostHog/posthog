@@ -3279,34 +3279,25 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             [{"key": "email", "type": "person", "operator": "is_set"}],
         )
 
-    def test_validate_test_account_filters_rejects_json_stringified_array(self):
+    @parameterized.expand(
+        [
+            ("environments_endpoint", lambda self: f"/api/environments/{self.team.id}/"),
+            (
+                "organization_projects_endpoint",
+                lambda self: f"/api/organizations/{self.organization.id}/projects/{self.team.id}/",
+            ),
+        ]
+    )
+    def test_rejects_json_stringified_test_account_filters(self, _name: str, get_url):
         # Past corruption from MCP `project-settings-update`: the LLM stringified the array
         # because the schema exposed the field as untyped. Reject the string at the API
-        # boundary so a stringified value never reaches the JSONField again.
+        # boundary so a stringified value never reaches the JSONField again. Both the
+        # /environments path and the org-scoped /projects path (the MCP route) must reject.
         original_test_account_filters = self.team.test_account_filters
         stringified = json.dumps([{"key": "$current_url", "type": "event", "value": "test"}])
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/",
-            {"test_account_filters": stringified},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "test_account_filters")
-
-        self.team.refresh_from_db()
-        self.assertEqual(self.team.test_account_filters, original_test_account_filters)
-
-    def test_organization_projects_endpoint_rejects_stringified_test_account_filters(self):
-        # The MCP `project-settings-update` tool maps to organizations_projects_partial_update,
-        # which routes through ProjectBackwardCompatSerializer. Regression test ensures the
-        # validator is wired on that path too.
-        original_test_account_filters = self.team.test_account_filters
-        stringified = json.dumps([{"key": "$current_url", "type": "event", "value": "test"}])
-
-        response = self.client.patch(
-            f"/api/organizations/{self.organization.id}/projects/{self.team.id}/",
+            get_url(self),
             {"test_account_filters": stringified},
             format="json",
         )
