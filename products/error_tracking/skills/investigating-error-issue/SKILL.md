@@ -19,13 +19,14 @@ changed, where it happens, and whether a replay shows the cause.
 
 ## Available tools
 
-| Tool                                        | Purpose                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------ |
-| `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates) |
-| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`      |
-| `posthog:execute-sql`                       | Breakdowns and release / flag correlations the typed tools don't cover   |
-| `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)          |
-| `posthog:read-data-schema`                  | Confirm property keys before filtering on them                           |
+| Tool                                        | Purpose                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates)                    |
+| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`                         |
+| `posthog:execute-sql`                       | Breakdowns, release / flag correlations, surrounding events + console logs around the error |
+| `posthog:query-logs`                        | OTEL log entries around the error timestamp for server-side issues                          |
+| `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)                             |
+| `posthog:read-data-schema`                  | Confirm property keys before filtering on them                                              |
 
 ## Workflow
 
@@ -211,7 +212,107 @@ flag in the same window. Disproportionate representation of one variant
 suggests the flag is involved in the cause — not a guarantee, but a strong
 hypothesis.
 
-### Step 5 — Find a representative replay
+### Step 5 — Reconstruct what happened around the error
+
+Use the `$session_id` from the sample event in step 2 to pull the activity
+surrounding the exception. Three sources stack on each other; run the ones
+that make sense for the SDK that captured the error.
+
+#### 5a. Surrounding events (client SDKs by `$session_id`)
+
+Mirrors the ET frontend session timeline. Pulls custom events, page views,
+and other exceptions captured under the same session within a ±1h window:
+
+```sql
+posthog:execute-sql
+SELECT
+    uuid,
+    event,
+    timestamp,
+    properties.$lib AS lib,
+    properties.$current_url AS url
+FROM events
+WHERE $session_id = '<session_id_from_step_2>'
+    AND (event = '$exception' OR event = '$pageview' OR left(event, 1) != '$')
+    AND timestamp >= toDateTime('<error_timestamp>', 'UTC') - INTERVAL 1 HOUR
+    AND timestamp <= toDateTime('<error_timestamp>', 'UTC') + INTERVAL 1 HOUR
+ORDER BY timestamp ASC
+LIMIT 100
+```
+
+The `left(event, 1) != '$'` clause drops PostHog autocapture / system events
+while keeping every custom event. The `OR event = '$pageview'`/`'$exception'`
+exceptions re-add the two system events worth seeing on the timeline. This is
+the same filter the ET UI uses.
+
+Mixed `$lib` values in the output are a feature, not noise. When a server SDK
+propagates `$session_id` from the client request (PostHog's own backend does
+this), the timeline shows server-side activity inline with the browser side —
+"both SDKs when available" for free. Skim the lib column to see how each row
+was produced.
+
+The skill defaults to a ±1h window because that's what the UI uses; widen it
+when an issue's actions are slow (long batch jobs, background workers) or
+tighten it when only the seconds right before the throw matter.
+
+#### 5b. Console logs (web / React Native session replay)
+
+When session replay is enabled, the replay pipeline emits `console.*` calls
+into the `log_entries` table tagged with the same session id. Pull them with
+the matching window:
+
+```sql
+posthog:execute-sql
+SELECT timestamp, level, message
+FROM log_entries
+WHERE log_source = 'session_replay'
+    AND log_source_id = '<session_id_from_step_2>'
+    AND timestamp >= toDateTime('<error_timestamp>', 'UTC') - INTERVAL 1 HOUR
+    AND timestamp <= toDateTime('<error_timestamp>', 'UTC') + INTERVAL 1 HOUR
+ORDER BY timestamp ASC
+LIMIT 200
+```
+
+`log_source = 'session_replay'` is the discriminator — `log_entries` is shared
+with other sources. Empty results are common: either replay isn't enabled, or
+this specific session wasn't recorded. Mention that in the synthesis rather
+than treating it as a failure.
+
+#### 5c. Server logs around the error (OTEL via `query-logs`)
+
+For server-side exceptions, correlate the exception timestamp with OTEL log
+entries the customer ingests. Many projects don't ingest logs at all — if
+`query-logs` returns nothing or errors, say so and move on. Discover available
+services first with `logs-attribute-values-list` when you don't know which
+service produced the error.
+
+```json
+posthog:query-logs
+{
+  "query": {
+    "dateRange": {
+      "date_from": "<error_timestamp minus 5 minutes>",
+      "date_to":   "<error_timestamp plus 5 minutes>"
+    },
+    "severityLevels": ["error", "warn"],
+    "serviceNames": ["<service.name if known>"],
+    "limit": 50,
+    "orderBy": "earliest"
+  }
+}
+```
+
+Caveats worth knowing before relying on this output:
+
+- Logs are ingested separately from events and typically have shorter retention.
+  Old exceptions may return empty even though the issue is still active.
+- `trace_id` / `span_id` come back zero-padded (`"00000000..."`) when not set.
+  Trace-based correlation only works for explicitly instrumented requests, not
+  for every event.
+- `service.name` is a resource attribute. Narrow with `serviceNames` rather
+  than a free-text `searchTerm` when you know the producer.
+
+#### 5d. Find a representative replay
 
 Hand off to `finding-replay-for-issue` when picking the _best_ session matters —
 popular issues link hundreds of recordings, mostly short crash fragments or
