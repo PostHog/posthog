@@ -3427,24 +3427,26 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_named_argument_in_call_not_treated_as_assignment(self):
             # A named argument inside a call stays a NamedArgument; only a statement-level one is promoted.
             call = self._expr("f(x := 1)")
-            self.assertIsInstance(call, ast.Call)
-            self.assertIsInstance(call.args[0], ast.NamedArgument)
+            # `assert isinstance` rather than `assertIsInstance` so mypy narrows the type.
+            assert isinstance(call, ast.Call)
+            assert isinstance(call.args[0], ast.NamedArgument)
             self.assertEqual(call.args[0].name, "x")
             declaration = self._program("f(x := 1);").declarations[0]
-            self.assertIsInstance(declaration, ast.ExprStatement)
+            assert isinstance(declaration, ast.ExprStatement)
 
         def test_parenthesized_named_arg_is_an_expression_statement(self):
             # `(x := 9)` is a parenthesised named-argument expression, not a statement-level
             # assignment; the fold does not unwrap parens, so both backends agree.
             for code in ("(x := 9);", "((y := 2));"):
-                self.assertIsInstance(self._program(code).declarations[0], ast.ExprStatement)
+                assert isinstance(self._program(code).declarations[0], ast.ExprStatement)
 
         def test_promoted_assignment_target_carries_position(self):
             # The Field synthesised for a bare-identifier assignment target carries the
             # identifier's source position, matching a non-folded target.
             assignment = parse_program("xyz := 1", backend=backend).declarations[0]
-            self.assertIsNotNone(assignment.left.start)
-            self.assertIsNotNone(assignment.left.end)
+            assert isinstance(assignment, ast.VariableAssignment)
+            assert assignment.left.start is not None
+            assert assignment.left.end is not None
 
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
