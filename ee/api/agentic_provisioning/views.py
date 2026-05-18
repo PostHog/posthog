@@ -1373,6 +1373,12 @@ def _resolve_provisioning_resource(
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
             return None, scoped_teams, "forbidden"
+        # Re-check ACL even on the short-circuit: the team may have been added
+        # to scope by an earlier `/resources` call when the user had access, but
+        # advanced permissions can revoke that access later. Stale scope must
+        # not grant ongoing access.
+        if not _user_can_access_team(user, team):
+            return None, scoped_teams, "forbidden"
         return team, scoped_teams, None
 
     if not scoped_teams:

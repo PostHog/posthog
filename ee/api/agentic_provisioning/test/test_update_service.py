@@ -263,3 +263,39 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 403
+
+    def test_update_service_rejects_in_scope_team_when_user_access_revoked(self):
+        # Team is already in the bearer token's scoped_teams (from an earlier
+        # call when the user had access), but advanced permissions have since
+        # revoked it. ACL must be re-checked on the short-circuit, otherwise
+        # stale scope grants ongoing access after access controls tighten.
+        from posthog.constants import AvailableFeature
+        from posthog.models.oauth import OAuthAccessToken
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert self.team.id in (access_token.scoped_teams or [])
+
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
+
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 403
