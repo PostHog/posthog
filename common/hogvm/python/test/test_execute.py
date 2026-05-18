@@ -2,6 +2,10 @@ import json
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
+import pytest
+
+from parameterized import parameterized
+
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
 
@@ -381,53 +385,36 @@ class TestBytecodeExecute:
             == 8
         )
 
-    def test_assignment_target_with_expression_base(self):
+    @parameterized.expand(
+        [
+            (
+                "call_result_object",
+                "let store := {};\nfn ref() { return store; }\nref()['k'] := 'v';\nreturn store.k;",
+                "v",
+            ),
+            (
+                "call_result_array",
+                "let m := [[10, 20], [30, 40]];\nfn row(i) { return m[i]; }\nrow(1)[2] := 99;\nreturn m[1][2];",
+                99,
+            ),
+            (
+                "call_result_property",
+                "let cfg := {'items': [1, 2, 3]};\nfn getCfg() { return cfg; }\ngetCfg().items[2] := 88;\nreturn cfg.items[2];",
+                88,
+            ),
+            ("object_literal", "{'a': 1}['a'] := 2; return 1;", 1),
+            ("array_literal", "[1, 2, 3][1] := 99; return 1;", 1),
+        ]
+    )
+    def test_assignment_target_with_expression_base(self, _name, program, expected):
         # The compiler visits a subscript/tuple-access base as a plain value, so a
         # call result or literal base is a valid assignment target.
-        assert (
-            self._run_program(
-                """
-                let store := {};
-                fn ref() { return store; }
-                ref()['k'] := 'v';
-                return store.k;
-                """
-            )
-            == "v"
-        )
-        assert (
-            self._run_program(
-                """
-                let m := [[10, 20], [30, 40]];
-                fn row(i) { return m[i]; }
-                row(1)[2] := 99;
-                return m[1][2];
-                """
-            )
-            == 99
-        )
-        assert (
-            self._run_program(
-                """
-                let cfg := {'items': [1, 2, 3]};
-                fn getCfg() { return cfg; }
-                getCfg().items[2] := 88;
-                return cfg.items[2];
-                """
-            )
-            == 88
-        )
-        assert self._run_program("{'a': 1}['a'] := 2; return 1;") == 1
-        assert self._run_program("[1, 2, 3][1] := 99; return 1;") == 1
+        assert self._run_program(program) == expected
 
     def test_assignment_to_non_lvalue_rejected_at_compile_time(self):
         # A non-assignable target is rejected at compile time, after a successful parse.
-        try:
+        with pytest.raises(Exception, match="Can not assign to this type of expression"):
             self._run_program("fn f() { return 1; }\nf() := 1;\nreturn 1;")
-        except Exception as e:
-            assert "Can not assign to this type of expression" in str(e)
-        else:
-            raise AssertionError("Expected assignment to a call result to be rejected")
 
     def test_assignment_to_parenthesized_target(self):
         # A parenthesised target collapses to the underlying place.

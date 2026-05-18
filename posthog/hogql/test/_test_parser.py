@@ -3413,35 +3413,38 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_program_exprstmt_routes_assignment_vs_expression(self):
             # `:=` present yields a VariableAssignment for any expression target; otherwise an ExprStatement.
             declarations = self._program("a := 1; o.a := 2; arr[1] := 3; (x) := 9; foo();").declarations
-            assert [type(declaration).__name__ for declaration in declarations] == [
-                "VariableAssignment",
-                "VariableAssignment",
-                "VariableAssignment",
-                "VariableAssignment",
-                "ExprStatement",
-            ]
+            self.assertEqual(
+                [type(declaration).__name__ for declaration in declarations],
+                [
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "ExprStatement",
+                ],
+            )
 
         def test_named_argument_in_call_not_treated_as_assignment(self):
             # A named argument inside a call stays a NamedArgument; only a statement-level one is promoted.
             call = self._expr("f(x := 1)")
-            assert isinstance(call, ast.Call)
-            assert isinstance(call.args[0], ast.NamedArgument)
-            assert call.args[0].name == "x"
+            self.assertIsInstance(call, ast.Call)
+            self.assertIsInstance(call.args[0], ast.NamedArgument)
+            self.assertEqual(call.args[0].name, "x")
             declaration = self._program("f(x := 1);").declarations[0]
-            assert type(declaration).__name__ == "ExprStatement"
+            self.assertIsInstance(declaration, ast.ExprStatement)
 
         def test_parenthesized_named_arg_is_an_expression_statement(self):
             # `(x := 9)` is a parenthesised named-argument expression, not a statement-level
             # assignment; the fold does not unwrap parens, so both backends agree.
             for code in ("(x := 9);", "((y := 2));"):
-                assert type(self._program(code).declarations[0]).__name__ == "ExprStatement"
+                self.assertIsInstance(self._program(code).declarations[0], ast.ExprStatement)
 
         def test_promoted_assignment_target_carries_position(self):
             # The Field synthesised for a bare-identifier assignment target carries the
             # identifier's source position, matching a non-folded target.
             assignment = parse_program("xyz := 1", backend=backend).declarations[0]
-            assert assignment.left.start is not None
-            assert assignment.left.end is not None
+            self.assertIsNotNone(assignment.left.start)
+            self.assertIsNotNone(assignment.left.end)
 
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
