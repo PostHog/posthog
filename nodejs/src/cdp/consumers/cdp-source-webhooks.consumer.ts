@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { ModifiedRequest } from '~/api/router'
+import type { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { HogFlow } from '~/schema/hogflow'
 
