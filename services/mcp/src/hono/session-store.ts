@@ -22,8 +22,6 @@ export type Reservation = {
  * Concurrent `reserve()` calls share a pending counter so the per-pod cap
  * holds even when many opens race.
  *
- * SSE has no equivalent — pinning a long-lived TCP stream to a pod was
- * deliberately rejected at the ingress.
  */
 const GC_INTERVAL_MS = 5 * 60 * 1000
 

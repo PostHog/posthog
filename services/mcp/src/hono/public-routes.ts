@@ -3,15 +3,10 @@ import type { Hono } from 'hono'
 
 import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
 
-import {
-    AUTH_REDIRECT_PATHS,
-    getAuthorizationServerUrl,
-    MCP_DOCS_URL,
-    OAUTH_SCOPES_SUPPORTED,
-} from './constants'
-import type { Lifecycle } from './lifecycle'
+import type { Lifecycle } from './app'
+import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED } from './constants'
 import { register } from './metrics'
-import type { HonoCtx, HonoEnv, RedisWithPing } from './types'
+import type { HonoCtx, RedisWithPing } from './types'
 
 const WELL_KNOWN_PREFIX = '/.well-known/oauth-protected-resource'
 const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
@@ -19,8 +14,7 @@ const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
 // short enough that a tarpit doesn't block kubelet probes.
 const READYZ_REDIS_TIMEOUT_MS = 500
 
-const healthHandler = (c: HonoCtx): Response =>
-    c.json({ status: 'ok' }, 200, { 'Cache-Control': 'no-store' })
+const healthHandler = (c: HonoCtx): Response => c.json({ status: 'ok' }, 200, { 'Cache-Control': 'no-store' })
 
 function readyzHandler(redis: RedisWithPing, lifecycle: Lifecycle) {
     return async (c: HonoCtx): Promise<Response> => {
@@ -84,7 +78,7 @@ const authRedirectHandler = (c: HonoCtx): Response => {
  * Routes that don't require authentication: landing, healthchecks, OAuth
  * resource metadata, MCP UI app static assets, and auth-server fallback redirects.
  */
-export function registerPublicRoutes(app: Hono<HonoEnv>, redis: RedisWithPing, lifecycle: Lifecycle): void {
+export function registerPublicRoutes(app: Hono, redis: RedisWithPing, lifecycle: Lifecycle): void {
     // MCP UI app static assets. The CF runtime serves these via the Workers
     // Static Assets binding (`wrangler.jsonc`'s `assets.directory: ./public/`);
     // here we serve them from disk so the same `${MCP_APPS_BASE_URL}/ui-apps/...`

@@ -1,4 +1,3 @@
-import { resolveAuthorizationServerUrl } from '@/lib/oauth-constants'
 import type { Env } from '@/tools/types'
 
 export {
@@ -9,25 +8,14 @@ export {
     POSTHOG_EU_BASE_URL,
     toCloudRegion,
     getBaseUrlForRegion,
+    getCustomApiBaseUrl,
+    getAuthorizationServerUrl,
     MCP_DOCS_URL,
     OAUTH_PROXY_URL,
     OAUTH_SCOPES_SUPPORTED,
-} from '@/lib/oauth-constants'
-
-/**
- * Custom API base URL for self-hosted PostHog instances.
- *
- * WARNING: In PostHog Production, this should NOT be set.
- * The code automatically handles US/EU region routing via getAuthorizationServerUrl().
- * Only set this for self-hosted PostHog deployments.
- */
-export const getCustomApiBaseUrl = (): string | undefined => process.env.POSTHOG_API_BASE_URL || undefined
-
-export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(getCustomApiBaseUrl())
+} from '@/lib/constants'
 
 export function getEnv(): Env {
-    // Tests set `TEST=1` to short-circuit features that need real network (e.g.
-    // context-mill GitHub fetch). Mirrors the Cloudflare miniflare binding.
     const extras: Record<string, string | undefined> = {}
     if (process.env.TEST) {
         extras.TEST = process.env.TEST
@@ -43,16 +31,10 @@ export function getEnv(): Env {
     }
 }
 
-// Per-instance idle session TTL. Stale entries are evicted lazily on access; this
-// caps how long a streamable/SSE session can sit unused in memory before being dropped.
 export const SESSION_TTL_MS = 30 * 60 * 1000
 
-// Hard cap on concurrent in-memory sessions per pod. Acts as a back-pressure signal:
-// once full, we run a compaction sweep before rejecting new connections.
 export const MAX_SESSIONS_PER_INSTANCE = 10_000
 
-// Auth-server fallback paths that MCP clients sometimes hit directly on this server
-// (instead of following the RFC 9728 metadata). These are routed through `matchAuthServerRedirect`.
 export const AUTH_REDIRECT_PATHS = [
     '/.well-known/oauth-authorization-server',
     '/.well-known/jwks.json',

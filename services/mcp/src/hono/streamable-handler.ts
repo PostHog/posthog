@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid'
 
 import type { RequestProperties } from '@/lib/request-properties'
 
+import type { Lifecycle } from './app'
 import type { RedisLike } from './cache/RedisCache'
-import type { Lifecycle } from './lifecycle'
 import { HonoMcpServer } from './mcp-server'
 import { authenticateAndParse, handleCatchError, passThrough } from './request-utils'
 import type { SessionStore } from './session-store'
