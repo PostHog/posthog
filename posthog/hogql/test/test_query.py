@@ -335,6 +335,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(str(error.exception), "Invalid connectionId for this team")
         mock_sync_execute.assert_not_called()
 
+    @patch("posthog.hogql.query.sync_execute")
+    @patch("posthog.hogql.query.prepare_ast_for_printing", return_value=None)
+    def test_execute_hogql_query_raises_when_prepared_ast_is_none(
+        self, mock_prepare_ast_for_printing, mock_sync_execute
+    ):
+        with self.assertRaises(QueryError) as error:
+            execute_hogql_query("select 1", team=self.team)
+
+        self.assertIn("Could not prepare the query AST", str(error.exception))
+        mock_prepare_ast_for_printing.assert_called_once()
+        mock_sync_execute.assert_not_called()
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
         with freeze_time("2020-01-10"):

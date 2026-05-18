@@ -690,15 +690,18 @@ class HogQLQueryExecutor:
 
             with self.timings.measure("print_prepared_ast"):
                 if self.clickhouse_prepared_ast is None:
-                    self.clickhouse_sql = ""
-                else:
-                    self.clickhouse_sql = print_prepared_ast(
-                        node=self.clickhouse_prepared_ast,
-                        context=self.clickhouse_context,
-                        dialect="clickhouse",
-                        settings=settings,
-                        pretty=self.pretty if self.pretty is not None else True,
+                    raise QueryError(
+                        "Could not prepare the query AST for the ClickHouse dialect. "
+                        "This typically means property type resolution did not complete "
+                        "(e.g. the team context was not available)."
                     )
+                self.clickhouse_sql = print_prepared_ast(
+                    node=self.clickhouse_prepared_ast,
+                    context=self.clickhouse_context,
+                    dialect="clickhouse",
+                    settings=settings,
+                    pretty=self.pretty if self.pretty is not None else True,
+                )
         except Exception as e:
             if self.debug:
                 self.clickhouse_sql = ""
@@ -792,7 +795,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
-        assert self.clickhouse_sql
+        assert self.clickhouse_sql is not None, "clickhouse_sql must be generated before execution"
         clickhouse_context = self.clickhouse_context
         assert clickhouse_context is not None
         timings_dict = self.timings.to_dict()
