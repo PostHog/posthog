@@ -1,13 +1,18 @@
 """
 One-shot backfill that writes already-built RemoteConfig.config blobs into the
-HyperCache so the Rust feature-flags service stops falling through to S3 on /flags
-config_response.
+dedicated flags Redis so the Rust feature-flags service stops falling through to
+S3 on /flags config_response.
 
 After the writer wiring fix (RemoteConfig.get_hypercache() now targets the
 dedicated FLAGS_REDIS cache when configured), the dedicated cache is still cold
 for teams that haven't been organically re-synced. This command warms it from the
 persisted RemoteConfig.config column without calling build_config(), avoiding the
 expense and side effects of a full rebuild across tens of thousands of teams.
+
+This command writes to Redis only. S3 already has fresh data via the normal
+sync() path, and the goal here is specifically to populate the Redis tier the
+Rust service reads first. Doing a per-row S3 PUT would turn a fast Redis backfill
+into hours of synchronous boto3 round-trips for tens of thousands of teams.
 
 Usage:
     # Warm all teams (sequential, with batching)
@@ -92,14 +97,17 @@ class Command(BaseCommand):
                 continue
 
             try:
-                hypercache.set_cache_value(team.api_token, remote_config.config)
+                # Redis-only write — see module docstring. set_cache_value() would
+                # also do a synchronous S3 PUT per row, which is unnecessary work
+                # here (S3 is already populated by the normal sync() path) and
+                # would dominate runtime at the scale this command is built for.
+                hypercache._set_cache_value_redis(team.api_token, remote_config.config)
                 warmed += 1
-            except Exception as e:
+            except Exception:
                 failed += 1
                 logger.exception(
                     "warm_remote_configs_cache: write failed",
                     team_id=team.id,
-                    error=str(e),
                 )
 
             if warmed and warmed % 1000 == 0:
