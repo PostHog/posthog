@@ -115,6 +115,55 @@ class TestFunnelValidationRules(BaseTest):
     @parameterized.expand(
         [
             (
+                "partial_from_step",
+                FunnelExclusionEventsNode(event="exclude", funnelFromStep=1, funnelToStep=2),
+            ),
+            (
+                "partial_to_step",
+                FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=1),
+            ),
+        ]
+    )
+    def test_disallows_partial_exclusions_in_unordered_funnels(self, _name, exclusion):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=StepOrderValue.UNORDERED,
+                exclusions=[exclusion],
+            ),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            ValidateFunnelExclusions().validate(self._context(query))
+
+        self.assertIn("Partial Exclusions not allowed in unordered funnels", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
+
+    def test_allows_full_range_exclusion_in_unordered_funnels(self):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=StepOrderValue.UNORDERED,
+                exclusions=[FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=2)],
+            ),
+        )
+
+        ValidateFunnelExclusions().validate(self._context(query))
+
+    def test_allows_partial_exclusions_in_ordered_funnels(self):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=StepOrderValue.ORDERED,
+                exclusions=[FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=1)],
+            ),
+        )
+
+        ValidateFunnelExclusions().validate(self._context(query))
+
+    @parameterized.expand(
+        [
+            (
                 "unsupported_feature_combination",
                 FunnelsQuery(
                     series=[EventsNode(event="step 1"), EventsNode(event="step 2", optionalInFunnel=True)],

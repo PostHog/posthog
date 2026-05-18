@@ -60,11 +60,22 @@ class ValidateFunnelExclusions:
     code = "funnel_exclusions_invalid"
 
     def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
-        exclusions = context.query.funnelsFilter.exclusions if context.query.funnelsFilter is not None else None
+        funnels_filter = context.query.funnelsFilter
+        exclusions = funnels_filter.exclusions if funnels_filter is not None else None
         if exclusions is None:
             return
 
         series = context.query.series
+        max_step_index = len(series) - 1
+
+        if funnels_filter.funnelOrderType == StepOrderValue.UNORDERED:
+            for exclusion in exclusions:
+                if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_step_index:
+                    raise ValidationError(
+                        "Partial Exclusions not allowed in unordered funnels",
+                        code=self.code,
+                    )
+
         for exclusion in exclusions:
             if exclusion.funnelFromStep >= exclusion.funnelToStep:
                 raise ValidationError(
