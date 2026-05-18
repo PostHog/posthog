@@ -9,7 +9,6 @@ vi.mock('cloudflare:workers', () => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
-        MCP_CAT_PROJECT_ID: undefined,
     },
 }))
 

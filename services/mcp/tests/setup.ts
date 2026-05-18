@@ -13,7 +13,6 @@ vi.mock('@posthog/mcp-analytics', () => ({
 // Mock cloudflare:workers module for Node.js test environment
 vi.mock('cloudflare:workers', () => ({
     env: {
-        MCP_CAT_PROJECT_ID: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
