@@ -20014,6 +20014,7 @@ export namespace Schemas {
     * `snooze` - Snooze
     * `unsnooze` - Unsnooze
     * `threshold_change` - Threshold change
+    * `broken_config` - Broken config
      */
     export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
 
@@ -20026,6 +20027,7 @@ export namespace Schemas {
       Snooze: 'snooze',
       Unsnooze: 'unsnooze',
       ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
     } as const;
 
     export interface LogsAlertEvent {
