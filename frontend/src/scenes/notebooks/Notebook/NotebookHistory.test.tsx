@@ -64,19 +64,27 @@ const cachedNotebook: NotebookType = {
 describe('Notebook history revert flow', () => {
     let logic: ReturnType<typeof notebookLogic.build>
     let editorSetContent: jest.Mock
+    let editorContent: JSONContent | null
     let apiCreateSpy: jest.SpyInstance
     let apiUpdateSpy: jest.SpyInstance
 
+    // The stub tracks its own content so getJSON() reflects the result of setContent
+    // calls. Otherwise the collab path's wire payload (which is editor.getJSON()) would
+    // appear correct even when the editor never actually transitioned to the historical doc.
     const stubEditor = (): NotebookEditor =>
         ({
-            setContent: editorSetContent,
-            getJSON: () => HISTORICAL_DOC,
+            setContent: (content: JSONContent) => {
+                editorContent = content
+                editorSetContent(content)
+            },
+            getJSON: () => editorContent,
             getText: () => 'historical',
             getCurrentPosition: () => 0,
             setTextSelection: jest.fn(),
         }) as unknown as NotebookEditor
 
     beforeEach(() => {
+        editorContent = null
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
