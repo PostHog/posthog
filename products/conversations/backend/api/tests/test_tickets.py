@@ -5,6 +5,7 @@ from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
     _create_person,
+    get_index_from_explain,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -16,6 +17,12 @@ from django.utils import timezone
 from parameterized import parameterized, parameterized_class
 from rest_framework import status
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
@@ -23,6 +30,7 @@ from posthog.personhog_client.test_helpers import PersonhogTestMixin
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
+from ee.clickhouse.materialized_columns.columns import get_ngram_lower_index_name
 from ee.models.rbac.role import Role
 
 
@@ -1325,12 +1333,6 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_email_fallback_uses_ngram_skip_index(self, mock_on_commit):
-        from posthog.schema import HogQLQueryModifiers, MaterializationMode
-
-        from products.conversations.backend.api.tickets import _get_persons_by_email
-
-        from ee.clickhouse.materialized_columns.columns import get_ngram_lower_index_name
-
         _create_person(
             team=self.team,
             distinct_ids=["idx-test-id"],
@@ -1340,13 +1342,21 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
         with materialized("person", "email", create_ngram_lower_index=True) as mat_col:
             index_name = get_ngram_lower_index_name(mat_col.name)
-            result = _get_persons_by_email(
-                self.team,
-                ["indexed@example.com"],
-                modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
-                    forceClickhouseDataSkippingIndexes=[index_name],
-                ),
-            )
-            assert len(result) == 1
-            assert "indexed@example.com" in result
+            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO)
+
+            with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
+                response = execute_hogql_query(
+                    """
+                    SELECT id, properties.email
+                    FROM persons
+                    WHERE lower(properties.email) IN {emails}
+                    """,
+                    placeholders={"emails": ast.Constant(value=["indexed@example.com"])},
+                    team=self.team,
+                    modifiers=modifiers,
+                )
+
+            assert response.results and len(response.results) == 1
+            assert response.clickhouse is not None
+            index_info = get_index_from_explain(response.clickhouse, index_name)
+            assert index_info is not None, f"Expected skip index {index_name} to be used"
