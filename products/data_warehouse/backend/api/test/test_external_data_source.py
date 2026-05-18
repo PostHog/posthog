@@ -2626,6 +2626,79 @@ class TestExternalDataSource(APIBaseTest):
         assert new_metadata.get("source_table_name") == "example_table"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_clearing_postgres_schema_pins_legacy_rows_to_old_default_schema(self, mock_get_source):
+        # Repro for "lost data after clearing schema". Source had schema=poblic, legacy unqualified
+        # rows were synced from poblic.<name>. When user clears the schema field, the next refresh
+        # would otherwise reanchor those rows to "public" (the static fallback) and orphan their
+        # existing Delta data. Pin metadata to the OLD schema before saving the cleared config so
+        # the rename helper can match correctly.
+        from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+
+        source_mock = mock_get_source.return_value
+        parsed_config = Mock(spec=PostgresSourceConfig)
+        parsed_config.schema = ""
+        parsed_config.to_dict.return_value = {
+            "host": "db.example.com",
+            "port": 5432,
+            "database": "db",
+            "user": "u",
+            "password": "p",
+            "schema": "",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_config.return_value = (True, [])
+        source_mock.validate_credentials_for_access_method.return_value = (True, None)
+        source_mock.validate_credentials.return_value = (True, None)
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="legacy",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "db",
+                "user": "u",
+                "password": "p",
+                "schema": "poblic",
+            },
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="example_table",
+            should_sync=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "db.example.com",
+                    "port": 5432,
+                    "database": "db",
+                    "user": "u",
+                    "password": "p",
+                    "schema": "",
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="example_table")
+        metadata = legacy.sync_type_config.get("schema_metadata") or {}
+        assert metadata.get("source_schema") == "poblic", (
+            f"legacy row pinned to wrong schema: {metadata.get('source_schema')!r}"
+        )
+        assert metadata.get("source_table_name") == "example_table"
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
         # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
         # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans

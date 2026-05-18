@@ -234,6 +234,33 @@ def get_postgres_source_table_location(
     )
 
 
+def _pin_legacy_postgres_rows_to_default_schema(source: ExternalDataSource, old_schema: str) -> None:
+    """Pin schema_metadata on unqualified Postgres rows to the configured schema BEFORE the source's
+    `job_inputs.schema` is cleared. After clearing, the rename helper can no longer reconstruct the
+    legacy default schema and would re-pin rows to "public" by default — orphaning data syncs from
+    other schemas (e.g. `poblic.example_table`)."""
+    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+    rows = ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, deleted=False)
+    for row in rows:
+        if "." in row.name:
+            continue
+        sync_type_config = row.sync_type_config or {}
+        existing_metadata = sync_type_config.get("schema_metadata")
+        if isinstance(existing_metadata, dict) and existing_metadata.get("source_table_name"):
+            continue
+
+        merged_metadata: dict[str, Any] = dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
+        merged_metadata["source_catalog"] = merged_metadata.get("source_catalog")
+        merged_metadata["source_schema"] = old_schema
+        merged_metadata["source_table_name"] = row.name
+        merged_metadata.setdefault("columns", [])
+        merged_metadata.setdefault("foreign_keys", [])
+
+        row.sync_type_config = {**sync_type_config, "schema_metadata": merged_metadata}
+        row.save(update_fields=["sync_type_config", "updated_at"])
+
+
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
@@ -670,6 +697,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
+
+        # Detect the "clear schema" transition: an existing Postgres source that had a specific
+        # default schema now drops it (or sets it blank). The unqualified row names like
+        # "example_table" were created under the OLD schema, so we pin their schema_metadata to
+        # that schema before the config change lands. Without this, the next refresh's rename
+        # helper sees `default_schema=None`, defaults to "public", and remaps legacy rows to the
+        # wrong source table — orphaning their existing Delta data.
+        schema_field_being_cleared = (
+            instance.source_type == ExternalDataSourceType.POSTGRES
+            and "schema" in incoming_job_inputs
+            and not (isinstance(incoming_job_inputs.get("schema"), str) and incoming_job_inputs["schema"].strip())
+            and isinstance(existing_job_inputs.get("schema"), str)
+            and existing_job_inputs["schema"].strip()
+        )
+        if schema_field_being_cleared:
+            _pin_legacy_postgres_rows_to_default_schema(instance, existing_job_inputs["schema"].strip())
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()

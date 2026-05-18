@@ -626,6 +626,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
             },
+            resumePolling: () => {
+                // After the reducer runs we may have dropped to 0 — but no fresh load has been
+                // scheduled (the prior loadSourceSuccess fired while paused and skipped its
+                // reschedule). Kick a load now so the source page resumes auto-refreshing status.
+                if (values.pollPauseCount === 0) {
+                    actions.loadSource()
+                }
+            },
             refreshSchemas: async () => {
                 try {
                     const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
