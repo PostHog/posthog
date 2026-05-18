@@ -1,11 +1,14 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 from products.marketing_analytics.backend.services.attribution_health import (
     FUZZY_LIKELY_THRESHOLD,
+    HOGQL_GROUP_LIMIT,
     _fuzzy_best_integration,
     _UtmRow,
     get_attribution_health,
@@ -164,3 +167,183 @@ class TestGetAttributionHealth(APIBaseTest):
 
         counts = [s.event_count for s in response.sample_globally_unmatched]
         assert counts == sorted(counts, reverse=True)
+
+
+def _pageview(team: object, distinct_id: str, utm_source: str | None = None) -> None:
+    props: dict = {}
+    if utm_source is not None:
+        props["utm_source"] = utm_source
+    _create_event(
+        distinct_id=distinct_id,
+        event="$pageview",
+        team=team,
+        properties=props,
+        timestamp=timezone.now() - timedelta(hours=1),
+    )
+
+
+class TestAttributionHealthKnownSourcesClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="google")
+        _pageview(self.team, "u2", utm_source="google")
+        _pageview(self.team, "u3", utm_source="facebook")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_known_integration_source_counted_as_matched(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        assert response.total_events_with_utm == 3
+        assert response.total_events_matched_to_any_integration == 3
+        assert response.total_events_unmatched == 0
+
+        google = next((e for e in response.integrations if e.integration_key == "google_ads"), None)
+        meta = next((e for e in response.integrations if e.integration_key == "meta_ads"), None)
+        assert google is not None
+        assert meta is not None
+        assert google.events_matched_last_7d == 2
+        assert meta.events_matched_last_7d == 1
+
+
+class TestAttributionHealthMisspelledSourceClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="fcebook")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_misspelled_source_counted_as_unmatched_not_matched(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        assert response.total_events_with_utm == 1
+        assert response.total_events_matched_to_any_integration == 0
+        assert response.total_events_unmatched == 1
+        assert len(response.sample_globally_unmatched) == 1
+        assert response.sample_globally_unmatched[0].raw_value == "fcebook"
+
+
+class TestAttributionHealthNoUtmClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source=None)
+        _pageview(self.team, "u2", utm_source=None)
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_events_without_utm_source_not_counted(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        assert response.total_events_with_utm == 0
+        assert response.total_distinct_utm_sources == 0
+
+
+class TestAttributionHealthUtmNormalizationClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="  Google  ")
+        _pageview(self.team, "u2", utm_source="GOOGLE")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_hogql_trims_and_lowercases_utm_source(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        assert response.total_events_with_utm == 2
+        assert response.total_events_matched_to_any_integration == 2
+        raw_values = {s.raw_value for s in response.all_utm_source_samples}
+        assert "google" in raw_values
+        assert "  Google  " not in raw_values
+        assert "GOOGLE" not in raw_values
+
+
+class TestAttributionHealthMixedSourcesClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="google")
+        _pageview(self.team, "u2", utm_source="fcebook")
+        _pageview(self.team, "u3", utm_source="organic")
+        _pageview(self.team, "u4", utm_source=None)
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_mixed_sources_total_events_correct(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        assert response.total_events_with_utm == 3
+        assert response.total_distinct_utm_sources == 3
+        assert response.utm_source_catalogue_truncated is False
+
+
+class TestAttributionHealthCatalogueTruncatedClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        for i in range(HOGQL_GROUP_LIMIT):
+            _pageview(self.team, f"u{i}", utm_source=f"unique_source_{i}")
+        _pageview(self.team, "u_extra", utm_source="overflow_source")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_utm_source_catalogue_truncated_flag_when_limit_hit(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        assert response.utm_source_catalogue_truncated is True
+
+
+class TestAttributionHealthSourceTypeFilterClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="google")
+        _pageview(self.team, "u2", utm_source="facebook")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_source_type_filter_limits_integration_output(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30, source_type="GoogleAds")
+
+        assert len(response.integrations) == 1
+        assert response.integrations[0].integration_key == "google_ads"
+        assert response.total_events_with_utm == 2
+        assert response.total_events_matched_to_any_integration == 2

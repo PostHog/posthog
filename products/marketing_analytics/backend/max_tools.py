@@ -6,6 +6,7 @@ templates, access checks) here and the business logic in pure Python services.
 """
 
 from dataclasses import asdict
+from datetime import datetime
 from textwrap import dedent
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -40,9 +41,9 @@ from ee.hogai.tool import MaxTool
 # so the user can't dial it down; we cap it server-side.
 MAX_LOOKBACK_DAYS = 365
 
-# Shared context template used by tools mounted on /marketing. Includes the
-# Web vs Marketing analytics distinction (Fix A) and the multi-touch limitation
-# (Fix B) — the two prompt-level fixes identified from the unresolved CSV.
+# Shared context template used by tools mounted on /marketing. Spells out the
+# Web vs Marketing analytics distinction and how attribution actually works, so
+# the root node doesn't conflate the two products or misstate the model.
 MARKETING_CONTEXT_PROMPT = dedent("""
     User is on /marketing — the Marketing analytics product, NOT Web analytics.
 
@@ -51,7 +52,7 @@ MARKETING_CONTEXT_PROMPT = dedent("""
     - Marketing analytics 'Conversion goals' = PostHog events/actions configured by the team to be matched with UTM-tagged sessions for attribution.
     - Web analytics 'Goals' are a SEPARATE concept from Marketing analytics conversion goals; do not conflate them.
     - Marketing analytics is a built-in feature page at /marketing, not a configurable dashboard. Its tabular view cannot be added as a component to other dashboards.
-    - Marketing analytics currently supports only first-touch and last-touch attribution. Multi-touch / data-driven attribution is NOT available. UTM parameters must be on the conversion event itself; person properties like $initial_utm_* are NOT used.
+    - Marketing analytics supports first-touch, last-touch, and multi-touch attribution (linear, time-decay, position-based). The team's active model is reported as `attribution_mode` by the conversion-goal tools — read it rather than assuming. Multi-touch distributes conversion credit across the UTM touchpoints seen within the team's attribution window before each conversion. ML-based "data-driven" attribution is not available.
 
     Current filters: {current_filters}
     Current date range: {current_date_range}
@@ -186,9 +187,11 @@ class MarketingExplainConversionGoalArgs(BaseModel):
 class MarketingExplainConversionGoalTool(MaxTool):
     name: str = "marketing_explain_conversion_goal"
     description: str = dedent("""
-        Explain WHICH events drove a configured conversion goal's count, broken down by event name, utm_source, and matched integration. Returns a list of recent sample events for inspection.
+        Break down the events that COUNT toward a conversion goal by their own utm_source, utm_campaign, and matched integration. Returns recent sample events for inspection.
 
-        Use this when the user asks "what events are behind my N conversions?" or "where do these conversions come from?".
+        This is a flat per-event breakdown of the conversion events themselves — NOT an analysis of the user's prior journey, and NOT the dashboard's attribution calculation (first-touch / last-touch / multi-touch weighting is applied by the dashboard, not here).
+
+        Use this when the user asks "what utm_sources are behind my N conversions?" or "where do these conversions come from?".
 
         Only EventsNode and ActionsNode goals are explained at the event level. DataWarehouseNode goals are computed against external tables and short-circuit with a note.
     """).strip()
@@ -387,6 +390,27 @@ class MarketingSuggestUtmMappingsTool(MaxTool):
 # hints. The corresponding `artifact` (dict) is for the frontend, not the LLM.
 
 
+def _format_timestamp_for_llm(dt: datetime | None) -> str:
+    """Render a timestamp as an absolute date plus a pre-computed relative age.
+
+    LLMs do date arithmetic unreliably — handing them a bare ISO string and
+    letting them compute "how long ago" produces wrong (sometimes future)
+    dates. We compute the relative age here so the model only has to repeat it.
+    """
+    if dt is None:
+        return "never"
+    delta_days = (timezone.now() - dt).days
+    if delta_days < 0:
+        rel = "in the future — clock skew?"
+    elif delta_days == 0:
+        rel = "today"
+    elif delta_days == 1:
+        rel = "1 day ago"
+    else:
+        rel = f"{delta_days} days ago"
+    return f"{dt:%Y-%m-%d %H:%M} UTC ({rel})"
+
+
 def _format_diagnostic_for_llm(response) -> str:
     lines: list[str] = [
         "# Marketing analytics diagnostic",
@@ -396,6 +420,8 @@ def _format_diagnostic_for_llm(response) -> str:
         "- DO NOT agglomerate integrations into a single sentence (avoid phrasings like 'X integrations have schema issues').",
         "- For every connected integration with an issue, name it explicitly and list its specific missing tables / columns / errors.",
         "- Always include the `settings_url` and `fix_suggestion` so the user can click straight to the fix.",
+        "- `matched_pct` is matched events ÷ ALL team events carrying any utm_source — NOT a share of ad-platform clicks or impressions. Never describe it as 'X% of clicks'.",
+        "- Report sync timestamps exactly as given; the relative age is already computed — do not recompute it.",
         "",
     ]
 
@@ -415,7 +441,7 @@ def _format_diagnostic_for_llm(response) -> str:
                 if ds.fix_suggestion:
                     lines.append(f"- fix_suggestion: {ds.fix_suggestion}")
             if ds is not None and ds.connected:
-                last_sync = ds.last_sync_at.isoformat() if ds.last_sync_at else "never"
+                last_sync = _format_timestamp_for_llm(ds.last_sync_at)
                 lines.append(
                     f"- sync: `{ds.last_sync_status}`, last_sync_at={last_sync}, "
                     f"sync_activity_24h={ds.rows_last_24h} rows processed, "
@@ -442,9 +468,9 @@ def _format_diagnostic_for_llm(response) -> str:
             attr = entry.attribution
             if attr is not None:
                 lines.append(
-                    f"- events: matched_7d={attr.events_matched_last_7d}, "
-                    f"likely_yours_7d={attr.events_unmatched_likely_yours_last_7d}, "
-                    f"matched_pct={attr.matched_pct}%"
+                    f"- events: matched {attr.events_matched_last_7d} of "
+                    f"{attr.events_with_utm_last_7d} team events-with-utm_source ({attr.matched_pct}%), "
+                    f"likely-yours-but-unmatched={attr.events_unmatched_likely_yours_last_7d}"
                 )
                 if attr.sample_unmatched_utm_sources:
                     samples = ", ".join(
@@ -547,7 +573,7 @@ def _format_data_sources_for_llm(response) -> str:
         if not entry.connected:
             lines.append(f"### {entry.display_name} — not connected (settings_url={entry.settings_url})")
             continue
-        last_sync = entry.last_sync_at.isoformat() if entry.last_sync_at else "never"
+        last_sync = _format_timestamp_for_llm(entry.last_sync_at)
         lines.append(f"### {entry.display_name} — status=`{entry.last_sync_status}`")
         if entry.schemas_url:
             lines.append(f"- schemas_url: {entry.schemas_url}")

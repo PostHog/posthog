@@ -1,6 +1,10 @@
+from datetime import timedelta
+
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 from products.marketing_analytics.backend.services.event_suggestions import (
     DEFAULT_EXCLUDED_EVENTS,
@@ -205,3 +209,153 @@ class TestSuggestConversionGoals(APIBaseTest):
         assert "$pageview" in DEFAULT_EXCLUDED_EVENTS
         assert "$autocapture" in DEFAULT_EXCLUDED_EVENTS
         assert "$identify" in DEFAULT_EXCLUDED_EVENTS
+
+
+def _seed_n_events(
+    event_name: str,
+    team: object,
+    count: int,
+    utm_source: str | None = None,
+    utm_campaign: str | None = None,
+) -> None:
+    props: dict = {}
+    if utm_source is not None:
+        props["utm_source"] = utm_source
+    if utm_campaign is not None:
+        props["utm_campaign"] = utm_campaign
+    for i in range(count):
+        _create_event(
+            distinct_id=f"user_{event_name}_{i}",
+            event=event_name,
+            team=team,
+            properties=props,
+            timestamp=timezone.now() - timedelta(hours=1),
+        )
+
+
+class TestSuggestConversionGoalsClickhouseTopkAndCount(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _seed_n_events("signup", self.team, count=100, utm_source="google", utm_campaign="spring")
+        _seed_n_events("purchase", self.team, count=100, utm_source="facebook")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_topk_hogql_runs_and_custom_events_appear_as_candidates(self) -> None:
+        response = await suggest_conversion_goals(self.team, min_count=50, lookback_days=30)
+
+        event_names = [c.event_name for c in response.candidates]
+        assert "signup" in event_names
+        assert "purchase" in event_names
+
+    @pytest.mark.asyncio
+    async def test_top_utm_sources_populated_by_topk(self) -> None:
+        response = await suggest_conversion_goals(self.team, min_count=50, lookback_days=30)
+
+        signup = next((c for c in response.candidates if c.event_name == "signup"), None)
+        assert signup is not None
+        assert len(signup.top_utm_sources) >= 1
+        top_sources = [src for src, _ in signup.top_utm_sources]
+        assert "google" in top_sources
+
+
+class TestSuggestConversionGoalsClickhouseSorting(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _seed_n_events("high_vol_with_utm", self.team, count=200, utm_source="google")
+        _seed_n_events("low_vol_no_utm", self.team, count=60)
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_candidates_sorted_by_score_descending_real_data(self) -> None:
+        response = await suggest_conversion_goals(self.team, min_count=50, lookback_days=30)
+
+        scores = [c.suggestion_score for c in response.candidates]
+        assert scores == sorted(scores, reverse=True)
+        assert response.candidates[0].event_name == "high_vol_with_utm"
+
+
+class TestSuggestConversionGoalsClickhouseFiltering(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _seed_n_events("rare_event", self.team, count=10, utm_source="google")
+        _seed_n_events("common_event", self.team, count=100, utm_source="google")
+        _seed_n_events("$pageview", self.team, count=500, utm_source="google")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_events_below_min_count_excluded(self) -> None:
+        response = await suggest_conversion_goals(self.team, min_count=50, lookback_days=30)
+
+        event_names = [c.event_name for c in response.candidates]
+        assert "rare_event" not in event_names
+        assert "common_event" in event_names
+
+    @pytest.mark.asyncio
+    async def test_system_events_excluded_from_candidates(self) -> None:
+        response = await suggest_conversion_goals(self.team, min_count=50, lookback_days=30)
+
+        event_names = [c.event_name for c in response.candidates]
+        assert "$pageview" not in event_names
+        assert "common_event" in event_names
+
+
+class TestSuggestConversionGoalsClickhouseCountIf(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _seed_n_events("purchase", self.team, count=60, utm_source="google")
+        _seed_n_events("purchase", self.team, count=40)
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_countif_hogql_computes_utm_coverage_correctly(self) -> None:
+        response = await suggest_conversion_goals(self.team, min_count=50, lookback_days=30)
+
+        purchase = next((c for c in response.candidates if c.event_name == "purchase"), None)
+        assert purchase is not None
+        assert purchase.last_30d_count == 100
+        assert purchase.pct_with_utm_source == pytest.approx(60.0, abs=1.0)
+
+
+class TestSuggestConversionGoalsClickhouseTopN(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        for i in range(10):
+            _seed_n_events(f"event_{i}", self.team, count=100, utm_source="google")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_top_n_limits_returned_candidates(self) -> None:
+        response = await suggest_conversion_goals(self.team, top_n=3, min_count=50, lookback_days=30)
+
+        assert len(response.candidates) <= 3

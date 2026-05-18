@@ -199,7 +199,11 @@ async def explain_conversion_goal(
         )
 
     rows = await _query_goal_events(team, goal, resolved_period)
-    notes: list[str] = []
+    notes: list[str] = [
+        "This is a flat breakdown of each conversion event by its own utm_source/utm_campaign. "
+        "It is NOT the dashboard's attribution calculation: first-touch, last-touch and multi-touch "
+        "(linear/time-decay/position-based) models distribute credit across touchpoints differently."
+    ]
     if len(rows) >= EXPLAIN_EVENT_SCAN_LIMIT:
         notes.append(
             f"Only the {EXPLAIN_EVENT_SCAN_LIMIT} most recent events in the period were scanned. "
