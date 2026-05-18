@@ -1,5 +1,7 @@
 """Tests for visual_review admin behavior that isn't covered by Django itself."""
 
+from typing import cast
+
 import pytest
 
 from django.forms.models import inlineformset_factory
@@ -30,14 +32,20 @@ class TestLimitedRunSnapshotFormSet:
         # Distinct branch keeps `(repo, branch, run_type)` unique against `run`.
         return Run.objects.create(repo=repo, team_id=repo.team_id, commit_sha="bbb", branch="feature")
 
-    def _make_formset(self, parent_run):
-        FormSet = inlineformset_factory(
-            Run,
-            RunSnapshot,
-            formset=_LimitedRunSnapshotFormSet,
-            fields=RunSnapshotInline.fields,
-            extra=0,
-            can_delete=False,
+    def _make_formset(self, parent_run: Run) -> _LimitedRunSnapshotFormSet:
+        # `inlineformset_factory` is typed as returning `BaseInlineFormSet`
+        # — its `formset=` kwarg picks the subclass at runtime but mypy
+        # doesn't track that, so cast the result back.
+        FormSet = cast(
+            "type[_LimitedRunSnapshotFormSet]",
+            inlineformset_factory(
+                Run,
+                RunSnapshot,
+                formset=_LimitedRunSnapshotFormSet,
+                fields=RunSnapshotInline.fields,
+                extra=0,
+                can_delete=False,
+            ),
         )
         return FormSet(instance=parent_run)
 
