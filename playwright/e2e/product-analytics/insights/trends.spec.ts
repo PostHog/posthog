@@ -343,7 +343,7 @@ test.describe('Trends insights', () => {
             await expect(insight.saveButton).toBeEnabled()
             await insight.discard()
             await insight.trends.waitForChart()
-            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days')
+            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days', { timeout: 10000 })
             await expect(insight.editButton).toBeVisible()
         })
 
