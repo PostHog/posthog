@@ -23,13 +23,28 @@ describe('ingestion general server', () => {
         }
     })
 
-    it('should not error on startup - ingestion_v2', async () => {
+    it.each(['analytics', 'ai', 'heatmaps', 'clientwarnings'] as const)(
+        'should not error on startup - ingestion_v2 INGESTION_PIPELINE=%s',
+        async (pipeline) => {
+            server = new IngestionGeneralServer({
+                LOG_LEVEL: 'debug',
+                PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+                INGESTION_PIPELINE: pipeline,
+            })
+            await server.start()
+            expect(process.exit).not.toHaveBeenCalledWith(1)
+        }
+    )
+
+    it('should throw on startup when ingestion_v2 has no INGESTION_PIPELINE set', async () => {
         server = new IngestionGeneralServer({
             LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
-        await server.start()
-        expect(process.exit).not.toHaveBeenCalledWith(1)
+        await expect(server.start()).rejects.toThrow(/INGESTION_PIPELINE must be set/)
+        // start() failed so afterEach won't have a server to stop; null it out
+        server = null
+        expect(process.exit).not.toHaveBeenCalledWith(0)
     })
 
     it('should not error on startup - ingestion_v2_combined', async () => {

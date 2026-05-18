@@ -15,6 +15,8 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { AiOutputsConfig, getDefaultAiOutputsConfig, registerAiOutputs } from '../ingestion/ai/config/outputs'
+import { AiServerConfig, AiServerDeps, assembleAiConsumer } from '../ingestion/ai/consumer'
 import { AnalyticsServerConfig, AnalyticsServerDeps, assembleAnalyticsConsumer } from '../ingestion/analytics/consumer'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import {
@@ -86,6 +88,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     KafkaWarpstreamProducerEnvConfig &
     KafkaIngestionProducerEnvConfig &
     IngestionOutputsConfig &
+    AiOutputsConfig &
     HeatmapsOutputsConfig &
     ClientWarningsOutputsConfig &
     DatabaseConnectionConfig &
@@ -126,6 +129,7 @@ export class IngestionGeneralServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...overrideConfigWithEnv(getDefaultAiOutputsConfig()),
             ...overrideConfigWithEnv(getDefaultHeatmapsOutputsConfig()),
             ...overrideConfigWithEnv(getDefaultClientWarningsOutputsConfig()),
             ...config,
@@ -145,6 +149,21 @@ export class IngestionGeneralServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
+        const isCombinedMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_combined
+
+        // Validate INGESTION_PIPELINE before any IO so misconfigured pods fail
+        // fast instead of getting stuck trying to connect to brokers first.
+        if (!isCombinedMode) {
+            const validPipelines = ['analytics', 'ai', 'heatmaps', 'clientwarnings']
+            if (!this.config.INGESTION_PIPELINE || !validPipelines.includes(this.config.INGESTION_PIPELINE)) {
+                throw new Error(
+                    `INGESTION_PIPELINE must be set to one of: ${validPipelines.join(', ')} (got: ${
+                        this.config.INGESTION_PIPELINE ?? '<unset>'
+                    })`
+                )
+            }
+        }
+
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
         // 1. Shared infrastructure
@@ -210,8 +229,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
-        const isCombinedMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_combined
-
         // Build producer registry — producer creation blocks until the broker
         // is reachable (rdkafka retries indefinitely), so the server will hang
         // here if a broker is down and the pod never becomes healthy.
@@ -242,79 +259,145 @@ export class IngestionGeneralServer implements NodeServer {
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
         }
 
-        if (isCombinedMode) {
-            // Local dev / hobby: run multiple consumers for all ingestion topics in one process.
-            // Each topic is dispatched to its purpose-built consumer factory with a per-pipeline
-            // outputs registry — the registries don't share env-var prefixes, so each consumer
-            // can be deployed standalone with only its own keys set.
-            const analyticsConsumerOptions = [
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-            ]
-            for (const consumerOption of analyticsConsumerOptions) {
-                serviceLoaders.push(async () => {
-                    const consumerConfig: AnalyticsServerConfig = {
-                        ...this.config,
-                        INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                        INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                    }
-                    const consumer = assembleAnalyticsConsumer(consumerConfig, ingestionDeps)
-                    await consumer.start()
-                    return consumer.service
-                })
-            }
+        // Per-pipeline consumer launchers. Each builds the right config and deps
+        // and pushes a loader onto `serviceLoaders`. Topic overrides are used in
+        // combined mode where one process runs all pipelines; in single-pipeline
+        // mode the caller leaves the override unset and the deployer-supplied
+        // INGESTION_CONSUMER_CONSUME_TOPIC / _GROUP_ID drive the consumer.
+        const startAnalytics = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig: AnalyticsServerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumer = assembleAnalyticsConsumer(consumerConfig, ingestionDeps)
+                await consumer.start()
+                return consumer.service
+            })
+        }
 
+        const startAi = (override?: { topic: string; groupId: string }) => {
+            const aiOutputs = registerAiOutputs().build(this.ingestionProducerRegistry!, this.config)
+            const aiServerDeps: AiServerDeps = {
+                postgres: this.postgres!,
+                redisPool: this.redisPool!,
+                outputs: aiOutputs,
+                teamManager,
+                groupTypeManager,
+                groupRepository,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(aiOutputs),
+                personRepository,
+                cookielessManager: this.cookielessManager!,
+                hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+            }
+            serviceLoaders.push(async () => {
+                const consumerConfig: AiServerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumer = assembleAiConsumer(consumerConfig, aiServerDeps)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        const startHeatmaps = (override?: { topic: string; groupId: string }) => {
             const heatmapsOutputs = registerHeatmapsOutputs().build(this.ingestionProducerRegistry!, this.config)
             const heatmapsServerDeps: HeatmapsServerDeps = {
-                postgres: this.postgres,
-                redisPool: this.redisPool,
+                postgres: this.postgres!,
+                redisPool: this.redisPool!,
                 outputs: heatmapsOutputs,
                 teamManager,
                 groupTypeManager,
                 groupRepository,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(heatmapsOutputs),
                 personRepository,
-                cookielessManager: this.cookielessManager,
+                cookielessManager: this.cookielessManager!,
                 hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
             }
             serviceLoaders.push(async () => {
-                const consumerConfig: HeatmapsServerConfig = {
-                    ...this.config,
-                    INGESTION_CONSUMER_CONSUME_TOPIC: 'heatmaps_ingestion',
-                    INGESTION_CONSUMER_GROUP_ID: 'heatmaps_ingestion',
-                }
+                const consumerConfig: HeatmapsServerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
                 const consumer = assembleHeatmapsConsumer(consumerConfig, heatmapsServerDeps)
                 await consumer.start()
                 return consumer.service
             })
+        }
 
+        const startClientWarnings = (override?: { topic: string; groupId: string }) => {
             const clientWarningsOutputs = registerClientWarningsOutputs().build(
                 this.ingestionProducerRegistry!,
                 this.config
             )
             serviceLoaders.push(async () => {
-                const consumer = createClientWarningsConsumer(
-                    {
-                        ...this.config,
-                        INGESTION_CONSUMER_CONSUME_TOPIC: 'client_iwarnings_ingestion',
-                        INGESTION_CONSUMER_GROUP_ID: 'client_iwarnings_ingestion',
-                    },
-                    {
-                        outputs: clientWarningsOutputs,
-                        teamManager,
-                    }
-                )
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumer = createClientWarningsConsumer(consumerConfig, {
+                    outputs: clientWarningsOutputs,
+                    teamManager,
+                })
                 await consumer.start()
                 return consumer.service
             })
+        }
+
+        if (isCombinedMode) {
+            // Local dev / hobby: run every pipeline in one process. Each consumer
+            // gets its own per-pipeline outputs registry — the registries don't
+            // share env-var prefixes, so the same consumer can be deployed
+            // standalone with only its own keys set.
+            startAnalytics({ topic: KAFKA_EVENTS_PLUGIN_INGESTION, groupId: 'clickhouse-ingestion' })
+            startAnalytics({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                groupId: 'clickhouse-ingestion-historical',
+            })
+            startAnalytics({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                groupId: 'clickhouse-ingestion-overflow',
+            })
+            startAi({ topic: this.config.AI_INGESTION_CONSUME_TOPIC, groupId: this.config.AI_INGESTION_GROUP_ID })
+            startHeatmaps({ topic: 'heatmaps_ingestion', groupId: 'heatmaps_ingestion' })
+            startClientWarnings({ topic: 'client_iwarnings_ingestion', groupId: 'client_iwarnings_ingestion' })
         } else {
-            // Production ingestion-v2: single consumer using config-provided topic
-            serviceLoaders.push(async () => {
-                const consumer = assembleAnalyticsConsumer(this.config, ingestionDeps)
-                await consumer.start()
-                return consumer.service
-            })
+            // Production ingestion-v2: a single pipeline per pod, selected by
+            // INGESTION_PIPELINE. The deployer-supplied INGESTION_CONSUMER_*
+            // env vars drive the topic and group id.
+            switch (this.config.INGESTION_PIPELINE) {
+                case 'analytics':
+                    startAnalytics()
+                    break
+                case 'ai':
+                    startAi()
+                    break
+                case 'heatmaps':
+                    startHeatmaps()
+                    break
+                case 'clientwarnings':
+                    startClientWarnings()
+                    break
+                default:
+                    throw new Error(
+                        `INGESTION_PIPELINE must be set to one of: analytics, ai, heatmaps, clientwarnings (got: ${
+                            this.config.INGESTION_PIPELINE ?? '<unset>'
+                        })`
+                    )
+            }
         }
 
         // ServerCommands is always created
