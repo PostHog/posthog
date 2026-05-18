@@ -87,6 +87,10 @@ export class DualWriteIngestionOutput implements IngestionOutput {
         await Promise.all([this.primary.checkTopicExists(timeoutMs), this.secondary.checkTopicExists(timeoutMs)])
     }
 
+    async ensureTopicExists(): Promise<void> {
+        await Promise.all([this.primary.ensureTopicExists(), this.secondary.ensureTopicExists()])
+    }
+
     private isCopyMode(): boolean {
         return this.mode === 'copy' || this.mode === 'copy_team_denylist'
     }

@@ -94,6 +94,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'POSTHOG_HOST_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'KAFKA_HEALTHCHECK_SECONDS'
+        | 'KAFKA_PRODUCER_AUTO_CREATE_TOPICS'
     >
 
 export class IngestionGeneralServer implements NodeServer {

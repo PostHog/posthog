@@ -115,6 +115,7 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
+    KAFKA_PRODUCER_AUTO_CREATE_TOPICS: boolean
     /**
      * When true, every Kafka consumer in this service uses KafkaConsumerV2; otherwise the
      * legacy KafkaConsumer (v1) is used. Used by `createKafkaConsumer()` in
@@ -281,6 +282,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        // Dev-only default — broker auto-create only fires on produce, not on metadata reads.
+        KAFKA_PRODUCER_AUTO_CREATE_TOPICS: isDevEnv(),
         CONSUMER_USE_V2: false,
 
         // Kafka

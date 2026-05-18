@@ -7,4 +7,9 @@ export interface IngestionOutput {
     queueMessages(messages: IngestionOutputMessage[]): Promise<void>
     checkHealth(timeoutMs: number): Promise<void>
     checkTopicExists(timeoutMs: number): Promise<void>
+    /**
+     * Idempotently create the underlying topic on the broker. Should only be
+     * called during dev/local startup — see `KafkaProducerWrapper.ensureTopicExists`.
+     */
+    ensureTopicExists(): Promise<void>
 }

@@ -32,7 +32,7 @@ jest.mock('../../../src/kafka/producer', () => {
     } as any
 
     // Rather than calling create we just create a new instance with the underlying node-rdkafka producer mocked.
-    const kafkaProducer = new ActualKafkaProducerWrapper(mockHighLevelProducer)
+    const kafkaProducer = new ActualKafkaProducerWrapper(mockHighLevelProducer, { 'metadata.broker.list': 'mock:9092' })
 
     class MockKafkaProducer {
         static create = jest.fn(() => Promise.resolve(kafkaProducer))

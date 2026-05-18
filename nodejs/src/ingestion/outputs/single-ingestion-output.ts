@@ -60,6 +60,13 @@ export class SingleIngestionOutput implements IngestionOutput {
             throw error
         }
     }
+
+    async ensureTopicExists(): Promise<void> {
+        if (!this.topic) {
+            return
+        }
+        await this.producer.ensureTopicExists(this.topic)
+    }
 }
 
 async function withMetrics<T>(

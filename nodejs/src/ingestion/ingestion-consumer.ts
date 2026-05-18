@@ -53,7 +53,7 @@ import {
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
-import { IngestionOutputs } from './outputs/ingestion-outputs'
+import { IngestionOutputs, ensureAndVerifyOutputTopics } from './outputs/ingestion-outputs'
 import { createOkContext } from './pipelines/helpers'
 import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
@@ -62,7 +62,7 @@ import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redi
 import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
-    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'KAFKA_PRODUCER_AUTO_CREATE_TOPICS'>
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -241,14 +241,7 @@ export class IngestionConsumer {
         this.topHog.start()
 
         const outputs = this.deps.outputs
-
-        // Verify all output topics exist. When auto_create_topics_enabled=true
-        // (hobby/dev), this ensures topics are created before first produce.
-        // When auto-create is off (production), this catches misconfigurations early.
-        const topicFailures = await outputs.checkTopics()
-        if (topicFailures.length > 0) {
-            throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
-        }
+        await ensureAndVerifyOutputTopics(outputs, this.config.KAFKA_PRODUCER_AUTO_CREATE_TOPICS)
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,

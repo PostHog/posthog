@@ -1576,4 +1576,54 @@ describe('IngestionConsumer', () => {
             resetSpy.mockRestore()
         })
     })
+
+    describe('startup topic management', () => {
+        const buildIngester = (configOverrides: Partial<typeof hub>): IngestionConsumer => {
+            const config = { ...hub, ...configOverrides }
+            const outputs = createTestIngestionOutputs(mockProducer)
+            const i = new IngestionConsumer(config as typeof hub, {
+                ...hub,
+                outputs,
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+                }),
+            })
+            i['kafkaConsumer'] = {
+                connect: jest.fn(),
+                disconnect: jest.fn(),
+                isHealthy: jest.fn(),
+            } as any
+            return i
+        }
+
+        it('calls ensureTopicExists during startup when the flag is on (dev path)', async () => {
+            const ensureSpy = jest.spyOn(mockProducer, 'ensureTopicExists').mockResolvedValue(undefined)
+            const i = buildIngester({ KAFKA_PRODUCER_AUTO_CREATE_TOPICS: true } as any)
+            try {
+                await expect(i.start()).resolves.toBeUndefined()
+                expect(ensureSpy).toHaveBeenCalled()
+            } finally {
+                await i.stop()
+                ensureSpy.mockRestore()
+            }
+        })
+
+        it('skips ensureTopicExists and throws on missing topics when the flag is off (prod path)', async () => {
+            const ensureSpy = jest.spyOn(mockProducer, 'ensureTopicExists').mockResolvedValue(undefined)
+            const checkSpy = jest
+                .spyOn(mockProducer, 'checkTopicExists')
+                .mockRejectedValue(new Error('Topic not found'))
+            const i = buildIngester({ KAFKA_PRODUCER_AUTO_CREATE_TOPICS: false } as any)
+            try {
+                await expect(i.start()).rejects.toThrow(/Output topic verification failed/)
+                expect(ensureSpy).not.toHaveBeenCalled()
+            } finally {
+                ensureSpy.mockRestore()
+                checkSpy.mockRestore()
+                // start() threw before kafkaConsumer.connect ran; nothing extra to stop.
+            }
+        })
+    })
 })

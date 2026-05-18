@@ -15,6 +15,7 @@ import { Counter, Histogram, Summary } from 'prom-client'
 import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
+import { ensureTopicExists } from './admin'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 import { ProducerStatsTracker } from './kafka-producer-metrics'
 
@@ -109,14 +110,17 @@ export class KafkaProducerWrapper {
             })
         )
 
-        return new KafkaProducerWrapper(producer, name)
+        return new KafkaProducerWrapper(producer, producerConfig, name)
     }
 
     /** Optional human-readable name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
     public readonly name?: string
 
-    constructor(producer: HighLevelProducer, name?: string) {
+    private readonly connectionConfig: ProducerGlobalConfig
+
+    constructor(producer: HighLevelProducer, connectionConfig: ProducerGlobalConfig, name?: string) {
         this.producer = producer
+        this.connectionConfig = connectionConfig
         this.name = name
 
         if (name) {
@@ -275,6 +279,11 @@ export class KafkaProducerWrapper {
                 }
             })
         )
+    }
+
+    /** Idempotently create a topic on the broker, reusing this producer's connection settings. */
+    public async ensureTopicExists(topic: string): Promise<void> {
+        await ensureTopicExists(this.connectionConfig, topic)
     }
 
     /** Check that a topic exists on the broker. */

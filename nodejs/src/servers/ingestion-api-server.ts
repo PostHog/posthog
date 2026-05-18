@@ -47,6 +47,7 @@ import {
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
+import { ensureAndVerifyOutputTopics } from '../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
@@ -100,6 +101,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'POSTHOG_HOST_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'KAFKA_HEALTHCHECK_SECONDS'
+        | 'KAFKA_PRODUCER_AUTO_CREATE_TOPICS'
     >
 
 const batchesProcessed = new Counter({
@@ -243,10 +245,7 @@ export class IngestionApiServer implements NodeServer {
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
-        const topicFailures = await ingestionOutputs.checkTopics()
-        if (topicFailures.length > 0) {
-            throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
-        }
+        await ensureAndVerifyOutputTopics(ingestionOutputs, this.config.KAFKA_PRODUCER_AUTO_CREATE_TOPICS)
 
         // 5. HogTransformer
         const hogTransformerDeps: HogTransformerServiceDeps = {

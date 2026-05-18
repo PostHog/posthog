@@ -7,6 +7,7 @@ function createMockProducer(): jest.Mocked<KafkaProducerWrapper> {
     return {
         checkConnection: jest.fn().mockResolvedValue(undefined),
         checkTopicExists: jest.fn().mockResolvedValue(undefined),
+        ensureTopicExists: jest.fn().mockResolvedValue(undefined),
         produce: jest.fn().mockResolvedValue(undefined),
         queueMessages: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<KafkaProducerWrapper>
@@ -179,6 +180,71 @@ describe('IngestionOutputs', () => {
             expect(failures).toEqual([])
             expect(primary.checkTopicExists).toHaveBeenCalledWith('events_v1', 10000)
             expect(secondary.checkTopicExists).toHaveBeenCalledWith('events_v2', 10000)
+        })
+    })
+
+    describe('ensureTopics', () => {
+        it('calls ensureTopicExists for each non-empty topic', async () => {
+            const producer = createMockProducer()
+            const outputs = new IngestionOutputs({
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'ai_events', producer, 'test'),
+            })
+
+            const failures = await outputs.ensureTopics()
+
+            expect(failures).toEqual([])
+            expect(producer.ensureTopicExists).toHaveBeenCalledWith('events')
+            expect(producer.ensureTopicExists).toHaveBeenCalledWith('ai_events')
+        })
+
+        it('skips outputs with empty topic names', async () => {
+            const producer = createMockProducer()
+            const outputs = new IngestionOutputs({
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                redirect: new SingleIngestionOutput('redirect', '', producer, 'test'),
+            })
+
+            const failures = await outputs.ensureTopics()
+
+            expect(failures).toEqual([])
+            expect(producer.ensureTopicExists).toHaveBeenCalledTimes(1)
+            expect(producer.ensureTopicExists).toHaveBeenCalledWith('events')
+        })
+
+        it('collects failures per output and keeps going', async () => {
+            const producer = createMockProducer()
+            producer.ensureTopicExists
+                .mockResolvedValueOnce(undefined)
+                .mockRejectedValueOnce(new Error('admin call failed'))
+            const outputs = new IngestionOutputs({
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'ai_events', producer, 'test'),
+            })
+
+            const failures = await outputs.ensureTopics()
+
+            expect(failures).toEqual(['ai_events'])
+            expect(producer.ensureTopicExists).toHaveBeenCalledTimes(2)
+        })
+
+        it('creates both topics in a dual-write output', async () => {
+            const primary = createMockProducer()
+            const secondary = createMockProducer()
+            const outputs = new IngestionOutputs({
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
+            })
+
+            const failures = await outputs.ensureTopics()
+
+            expect(failures).toEqual([])
+            expect(primary.ensureTopicExists).toHaveBeenCalledWith('events_v1')
+            expect(secondary.ensureTopicExists).toHaveBeenCalledWith('events_v2')
         })
     })
 
