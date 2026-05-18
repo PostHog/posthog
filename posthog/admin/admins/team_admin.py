@@ -111,7 +111,6 @@ class TeamAdmin(admin.ModelAdmin):
         "import_individual_replay",
         "delete_recordings",
         "api_token_display",
-        "set_api_token_action",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -147,7 +146,6 @@ class TeamAdmin(admin.ModelAdmin):
                 "classes": ["collapse"],
                 "fields": [
                     "api_token_display",
-                    "set_api_token_action",
                     "timezone",
                     "week_start_day",
                     "base_currency",
@@ -301,15 +299,10 @@ class TeamAdmin(admin.ModelAdmin):
     def api_token_display(self, team: Team):
         if not team.pk:
             return "-"
-        return team.api_token
-
-    @admin.display(description="Set API token")
-    def set_api_token_action(self, team: Team):
-        if not team.pk:
-            return "-"
         set_url = reverse("admin:posthog_team_set_api_token", args=[team.pk])
         return format_html(
-            '<a class="button" href="{}">Set API token</a>',
+            '<span>{}</span> &nbsp; <a class="button" href="{}">Set API token</a>',
+            team.api_token,
             set_url,
         )
 
