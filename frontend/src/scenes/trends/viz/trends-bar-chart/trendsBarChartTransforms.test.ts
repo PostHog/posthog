@@ -111,9 +111,6 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(series.map((s) => s.color)).toEqual(colors)
     })
 
-    // d3.scaleBand collapses duplicate domain entries into one band, so two compare-against-previous
-    // rows sharing the same `label` would overlap. The suffix gives each row its own band; without
-    // a compare_label the label is unchanged.
     it.each([
         {
             name: 'suffixes labels with compare_label so compare-against-previous rows get distinct bands',

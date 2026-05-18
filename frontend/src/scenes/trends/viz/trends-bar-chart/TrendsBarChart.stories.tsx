@@ -225,11 +225,6 @@ export const Compare: Story = {
     render: () => renderTrendsBarChart(COMPARE_BAR_INSIGHT),
 }
 
-// ActionsBarValue (horizontal aggregated) with breakdown + compare-against-previous.
-// Each breakdown emits two result rows that share the same `label` ("Chrome", "Safari", …);
-// without the compare suffix the d3 band scale collapses both into one band and the bars
-// overlap inside the same row. The snapshot pins the post-fix layout: one row per
-// "{breakdown} - {compare period}" with non-overlapping bars.
 const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
     id: 201,
     short_id: 'barValueCompare',
