@@ -27,6 +27,11 @@ export function connectToNotificationsSSE(
         },
         signal,
         onMessage: (event) => {
+            // The livestream backend emits a periodic `heartbeat` named SSE event to keep
+            // the connection alive through intermediary proxies. It carries no payload.
+            if (event.event === 'heartbeat') {
+                return
+            }
             if (!firstMessageSeen) {
                 firstMessageSeen = true
                 hooks.onFirstMessage?.()

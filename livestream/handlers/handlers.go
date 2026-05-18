@@ -90,6 +90,17 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 	}
 }
 
+// sseHeartbeatInterval governs how often each SSE handler emits a heartbeat to
+// keep intermediate proxies from dropping idle connections. It's a `var` rather
+// than a `const` so tests can override it without exposing handler internals.
+var sseHeartbeatInterval = 30 * time.Second
+
+// sseHeartbeatEvent is emitted as a named event (with a tiny JSON payload) so
+// the frontend's `onMessage` handler can observe it for stale-stream detection.
+// Comment-only heartbeats are ignored by fetch-event-source, which makes a
+// genuinely quiet feed indistinguishable from a dropped connection.
+var sseHeartbeatEvent = Event{Event: []byte("heartbeat"), Data: []byte("{}")}
+
 var subID uint64 = 1
 
 func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
@@ -160,6 +171,9 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+
+		heartbeat := time.NewTicker(sseHeartbeatInterval)
+		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 		for {
 			select {
@@ -181,6 +195,11 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 					Data: jsonData,
 				}
 				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			case <-heartbeat.C:
+				if err := sseHeartbeatEvent.WriteTo(w); err != nil {
 					return err
 				}
 				w.Flush()
@@ -246,7 +265,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		heartbeat := time.NewTicker(15 * time.Second)
+		heartbeat := time.NewTicker(sseHeartbeatInterval)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
 
@@ -274,8 +293,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				w.Flush()
 				metrics.NotificationMessagesDeliveredTotal.Inc()
 			case <-heartbeat.C:
-				event := Event{Comment: []byte("heartbeat")}
-				if err := event.WriteTo(w); err != nil {
+				if err := sseHeartbeatEvent.WriteTo(w); err != nil {
 					return err
 				}
 				w.Flush()

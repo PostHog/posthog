@@ -13,6 +13,12 @@ import { deduplicateEvents } from './deduplicateEvents'
 import type { liveEventsLogicType } from './liveEventsLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
+const STALE_TOAST_ID = 'live-stream-stale'
+// The backend emits a heartbeat event every 30s; we surface a "reconnecting"
+// state if nothing (event or heartbeat) arrives within roughly two intervals.
+const STREAM_STALE_TIMEOUT_MS = 65_000
+const HEARTBEAT_EVENT_NAME = 'heartbeat'
+const STREAM_WATCHDOG_KEY = 'streamWatchdog'
 
 export interface LiveEventsLogicProps {
     showLiveStreamErrorToast?: boolean
@@ -33,6 +39,8 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         resumeStream: true,
         setClientSideFilters: (clientSideFilters: Record<string, any>) => ({ clientSideFilters }),
         addEventHost: (eventHost: string) => ({ eventHost }),
+        markStreamHealthy: true,
+        markStreamStale: true,
     })),
     reducers({
         events: [
@@ -59,6 +67,15 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             {
                 pauseStream: () => true,
                 resumeStream: () => false,
+            },
+        ],
+        streamStale: [
+            false,
+            {
+                markStreamHealthy: () => false,
+                markStreamStale: () => true,
+                pauseStream: () => false,
+                setFilters: () => false,
             },
         ],
         lastBatchTimestamp: [
@@ -109,6 +126,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
             }
+            cache.disposables.dispose(STREAM_WATCHDOG_KEY)
 
             if (values.streamPaused) {
                 return
@@ -146,7 +164,22 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 },
                 signal: cache.eventSourceController.signal,
                 onMessage: (event) => {
+                    // Any message — including the periodic heartbeat — proves the SSE pipe is alive.
+                    // Clear the error latch so a future failure can surface a fresh toast, and
+                    // re-arm the watchdog timer with a 65s budget (slightly above the 30s server interval).
+                    cache.hasShownLiveStreamErrorToast = false
                     lemonToast.dismiss(ERROR_TOAST_ID)
+                    actions.markStreamHealthy()
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.markStreamStale()
+                        }, STREAM_STALE_TIMEOUT_MS)
+                        return () => clearTimeout(timerId)
+                    }, STREAM_WATCHDOG_KEY)
+
+                    if (event.event === HEARTBEAT_EVENT_NAME) {
+                        return
+                    }
                     const eventData = JSON.parse(event.data)
                     cache.batch.push(eventData)
                     if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
@@ -167,10 +200,27 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 },
             })
         },
+        markStreamHealthy: () => {
+            lemonToast.dismiss(STALE_TOAST_ID)
+        },
+        markStreamStale: () => {
+            if (props.showLiveStreamErrorToast) {
+                lemonToast.warning('Live event stream went quiet. Reconnecting…', {
+                    icon: <Spinner />,
+                    toastId: STALE_TOAST_ID,
+                    autoClose: false,
+                })
+            }
+            // Tear down the current connection and re-establish so a half-open SSE socket
+            // (proxy dropped the TCP connection without notifying the client) is replaced.
+            actions.updateEventsConnection()
+        },
         pauseStream: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
             }
+            cache.disposables.dispose(STREAM_WATCHDOG_KEY)
+            lemonToast.dismiss(STALE_TOAST_ID)
         },
         resumeStream: () => {
             actions.updateEventsConnection()
@@ -195,6 +245,8 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
             }
+            lemonToast.dismiss(ERROR_TOAST_ID)
+            lemonToast.dismiss(STALE_TOAST_ID)
         },
     })),
 ])

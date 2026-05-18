@@ -73,6 +73,24 @@ describe('connectToNotificationsSSE', () => {
         expect(onNotification).not.toHaveBeenCalled()
     })
 
+    it('ignores heartbeat events and does not flip firstMessageSeen', async () => {
+        const onNotification = jest.fn()
+        const onFirstMessage = jest.fn()
+        const notification = makeNotification()
+
+        mockStream.mockImplementation(async (_url, opts) => {
+            opts.onMessage({ event: 'heartbeat', data: '{}' } as any)
+            opts.onMessage({ data: JSON.stringify(notification) } as any)
+        })
+
+        await connectToNotificationsSSE(url, token, abortController.signal, onNotification, { onFirstMessage })
+
+        expect(onNotification).toHaveBeenCalledTimes(1)
+        expect(onNotification).toHaveBeenCalledWith(notification)
+        // First "real" message — not the heartbeat — should trip the onFirstMessage hook
+        expect(onFirstMessage).toHaveBeenCalledTimes(1)
+    })
+
     it('throws from onError to stop fetchEventSource retries', async () => {
         mockStream.mockImplementation(async (_url, opts) => {
             expect(() => opts.onError(new Error('connection lost'))).toThrow('SSE disconnected')

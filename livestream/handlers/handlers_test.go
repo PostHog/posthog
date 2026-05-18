@@ -147,6 +147,43 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 	}
 }
 
+func TestStreamEventsHandler_EmitsHeartbeat(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-handlers")
+
+	// Speed up the heartbeat so the test doesn't have to wait 30s. Restore on exit.
+	originalInterval := sseHeartbeatInterval
+	sseHeartbeatInterval = 5 * time.Millisecond
+	t.Cleanup(func() {
+		sseHeartbeatInterval = originalInterval
+	})
+
+	logger := echo.New().Logger
+	subChan := make(chan events.Subscription, 10)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
+
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":   7,
+		"api_token": "valid-token",
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	// Long enough to let multiple heartbeats fire, short enough to keep the test fast.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, handler(c))
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "event: heartbeat", "expected heartbeat SSE event in response body")
+	assert.Contains(t, body, "data: {}", "expected heartbeat data payload in response body")
+}
+
 func createJWTToken(audience string, claims jwt.MapClaims) string {
 	newClaims := jwt.MapClaims{
 		"aud": audience,

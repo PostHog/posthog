@@ -36,7 +36,7 @@ export const scene: SceneExport = {
 }
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, streamPaused, filters } = useValues(liveEventsLogic)
+    const { events, streamPaused, streamStale, filters } = useValues(liveEventsLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -111,6 +111,11 @@ export function LiveEventsTable(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {streamStale && !streamPaused && (
+                <LemonBanner type="warning" className="mb-2">
+                    The live event stream went quiet. Reconnecting…
+                </LemonBanner>
+            )}
             <LiveBotPanel events={events} className="mb-2" />
             <LiveEventsFeed events={events} streamPaused={streamPaused} />
         </SceneContent>
