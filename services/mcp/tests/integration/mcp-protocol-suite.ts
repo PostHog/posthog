@@ -19,6 +19,9 @@ export type ProtocolTestHarness = {
     /** Optional second bearer token for the concurrent-sessions isolation test.
      * When omitted the isolation test is skipped. */
     token2?: string | undefined
+    /** Whether the runtime is stateless (no session store). Stateless runtimes
+     * ignore unknown Mcp-Session-Id headers instead of rejecting them. */
+    stateless?: boolean | undefined
 }
 
 function buildStreamableClient(
@@ -329,18 +332,33 @@ export function defineResilienceTests(
             expect(target.searchParams.get('_deprecated')).toBe('sse')
         })
 
-        // When the server doesn't recognize the `Mcp-Session-Id`, the request
-        // must fail with a 4xx so the client re-runs `initialize` and retries.
-        // This is the contract that lets us force-close transports during graceful
-        // shutdown without breaking active clients.
-        //
-        // The MCP spec says 404 specifically; the current SDK transport returns
-        // 400 in practice (it rejects the JSON-RPC body before our session-store
-        // check sees it). What matters for client recovery is that the response
-        // is a clear 4xx — both runtimes deliver that. If the SDK is fixed to be
-        // spec-compliant, this test still passes.
+        // Stateful runtimes (CF Durable Objects) reject unknown session IDs with
+        // a 4xx so the client re-runs `initialize`. Stateless runtimes (Hono) ignore
+        // the header and process the request normally — there are no sessions to validate.
         it('rejects requests with an unknown Mcp-Session-Id so the client re-inits', async () => {
             const harness = await getHarness()
+            if (harness.stateless) {
+                const mcpUrl = new URL('/mcp', harness.baseUrl)
+                const response = await harness.fetch(mcpUrl, {
+                    method: 'POST',
+                    redirect: 'manual',
+                    headers: {
+                        Authorization: `Bearer ${harness.token}`,
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'Mcp-Session-Id': 'session-that-does-not-exist',
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 'recovery-probe',
+                        method: 'tools/list',
+                        params: {},
+                    }),
+                })
+                expect(response.status).toBeLessThan(500)
+                return
+            }
+
             const mcpUrl = new URL('/mcp', harness.baseUrl)
             const response = await harness.fetch(mcpUrl, {
                 method: 'POST',

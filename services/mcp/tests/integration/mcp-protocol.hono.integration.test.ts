@@ -30,11 +30,13 @@ const harnessFor = (): {
     fetch: typeof fetch
     token: string
     token2: string | undefined
+    stateless: boolean
 } => ({
     baseUrl: harness.baseUrl,
     fetch: globalThis.fetch,
     token: env.apiToken,
     token2: env.apiToken2,
+    stateless: true,
 })
 
 defineMcpProtocolTests('Hono (real stack)', harnessFor)
