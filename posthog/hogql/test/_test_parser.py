@@ -3411,9 +3411,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(program, expected)
 
         def test_program_exprstmt_routes_assignment_vs_expression(self):
-            # The merged `exprStmt` rule yields a VariableAssignment when a
-            # `:=` is present (for any expression target, including a
-            # subscript or property access) and an ExprStatement otherwise.
+            # `:=` present yields a VariableAssignment for any expression target; otherwise an ExprStatement.
             declarations = self._program("a := 1; o.a := 2; arr[1] := 3; (x) := 9; foo();").declarations
             assert [type(declaration).__name__ for declaration in declarations] == [
                 "VariableAssignment",
@@ -3424,9 +3422,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             ]
 
         def test_named_argument_in_call_not_treated_as_assignment(self):
-            # `name := value` inside a call is a named argument. The exprStmt
-            # assignment fold must not reach into call arguments: only a
-            # statement-level named argument is promoted to a VariableAssignment.
+            # A named argument inside a call stays a NamedArgument; only a statement-level one is promoted.
             call = self._expr("f(x := 1)")
             assert isinstance(call, ast.Call)
             assert isinstance(call.args[0], ast.NamedArgument)

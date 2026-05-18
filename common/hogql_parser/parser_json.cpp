@@ -377,10 +377,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       json["right"] = visitAsJSON(ctx->expression(1));
       return json;
     }
-    // `columnExpr` matches `name := value` as a named-argument expression, so
-    // an assignment with a bare-identifier target is folded into a named arg
-    // before the optional `:= expression` suffix can apply. At statement level
-    // that is a variable assignment, not a named argument.
+    // `columnExpr` matches `name := value` as a NamedArgument, so a bare-identifier
+    // assignment arrives pre-folded; at statement level it is a variable assignment.
     auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
     if (named_arg) {
       json["node"] = "VariableAssignment";

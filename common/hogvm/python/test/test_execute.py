@@ -382,10 +382,8 @@ class TestBytecodeExecute:
         )
 
     def test_assignment_target_with_expression_base(self):
-        # Assignment to a subscript or property whose base is an arbitrary
-        # expression (a call result, a literal) compiles and runs: the
-        # bytecode compiler visits the base as a plain value. The grammar
-        # accepts any expression on the left of `:=`.
+        # The compiler visits a subscript/tuple-access base as a plain value, so a
+        # call result or literal base is a valid assignment target.
         assert (
             self._run_program(
                 """
@@ -423,8 +421,7 @@ class TestBytecodeExecute:
         assert self._run_program("[1, 2, 3][1] := 99; return 1;") == 1
 
     def test_assignment_to_non_lvalue_rejected_at_compile_time(self):
-        # A non-assignable target is still rejected, but at compile time
-        # (after a successful parse), not at parse time.
+        # A non-assignable target is rejected at compile time, after a successful parse.
         try:
             self._run_program("fn f() { return 1; }\nf() := 1;\nreturn 1;")
         except Exception as e:
@@ -433,8 +430,7 @@ class TestBytecodeExecute:
             raise AssertionError("Expected assignment to a call result to be rejected")
 
     def test_assignment_to_parenthesized_target(self):
-        # A parenthesised target collapses to the underlying place: `(x)`
-        # assigns the variable, `(o.a)` / `(o).a` the property.
+        # A parenthesised target collapses to the underlying place.
         assert self._run_program("let x := 1; (x) := 5; return x;") == 5
         assert self._run_program("let x := 1; ((x)) := 7; return x;") == 7
         assert self._run_program("let o := {}; (o.a) := 3; return o.a;") == 3
