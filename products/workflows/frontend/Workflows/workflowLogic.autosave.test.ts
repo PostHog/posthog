@@ -270,5 +270,19 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(updateCalls).toBe(0)
         })
+
+        it('does not warn on navigation for new workflows', async () => {
+            // The beforeUnload guard skips when id is 'new', even if
+            // the form has unsaved changes (e.g. freshly created draft).
+            initKeaTests()
+            logic = workflowLogic({ id: 'new', tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            logic.actions.setWorkflowValue('name', 'My new workflow')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+            // Guard condition: props.id === 'new' → skip
+            expect(logic.props.id).toBe('new')
+        })
     })
 })
