@@ -530,8 +530,14 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Bootstrap scaffold product
+              run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
+
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+
+            - name: Check version specifiers
+              run: python .github/scripts/check-version-specifiers.py
 
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
@@ -877,7 +883,13 @@ jobs:
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
-              if: always() && github.event_name == 'pull_request'
+              #
+              # Skipped on PRs from forks: GITHUB_TOKEN is read-only for fork
+              # PRs regardless of the workflow's `permissions:` block, so the
+              # check-runs POST 403s. The analyzer itself still runs in earlier
+              # steps and fails the job on Blocked migrations; reviewers can
+              # read the verdict in the uploaded migration-analysis artifact.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}

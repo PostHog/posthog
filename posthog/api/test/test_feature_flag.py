@@ -5862,6 +5862,89 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Should succeed since it's an update, not creation
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            # name, bucketing_identifier, ensure_experience_continuity, expected_status
+            ("device_with_persist_blocked", "device_id", True, status.HTTP_400_BAD_REQUEST),
+            ("device_without_persist_allowed", "device_id", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_validation_device_bucketing_create(
+        self, _name: str, bucketing_identifier: str, ensure_experience_continuity: bool, expected_status: int
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": f"Device bucketing {_name}",
+                "key": f"device-{_name.replace('_', '-')}-flag",
+                "bucketing_identifier": bucketing_identifier,
+                "ensure_experience_continuity": ensure_experience_continuity,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            # name, initial_persist, patch_payload, expected_status
+            (
+                "grandfathered_combination_can_save",
+                True,
+                {"name": "Updated grandfathered flag"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "enabling_persist_on_device_flag_blocked",
+                False,
+                {"ensure_experience_continuity": True},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_validation_device_bucketing_update(
+        self, _name: str, initial_persist: bool, patch_payload: dict, expected_status: int
+    ):
+        flag = FeatureFlag.objects.create(
+            name=f"Existing flag {_name}",
+            key=f"existing-{_name.replace('_', '-')}",
+            team=self.team,
+            created_by=self.user,
+            bucketing_identifier="device_id",
+            ensure_experience_continuity=initial_persist,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            patch_payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
+    def test_validation_device_bucketing_blocked_for_surveys_creation_context(self):
+        # Locks in the validation reorder: device_id + persist must be rejected even for the
+        # surveys creation_context, which has its own early return in validate(). Without the
+        # hoist, this combination would slip through for survey-created flags.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Survey-created device persist flag",
+                "key": "survey-device-persist-flag",
+                "creation_context": "surveys",
+                "bucketing_identifier": "device_id",
+                "ensure_experience_continuity": True,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
     def _create_flag_with_properties(
         self,
         name: str,
@@ -8506,6 +8589,76 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
+        # Regression: a flag with a team-wide "none" default plus a single explicit
+        # editor grant becomes invisible to everyone once the grantee is removed
+        # from the org (their AccessControl row cascade-deletes). Org admins should
+        # still be able to find such orphaned flags in the list endpoint.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee = self._create_user("grantee@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee_membership = grantee.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="orphaned flag",
+            key="orphaned-flag",
+        )
+        # Team-wide "no access" default for this flag
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+        # Single explicit editor grant for the grantee
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=grantee_membership,
+            access_level="editor",
+        )
+
+        # self.user is the org admin via APIBaseTest setup
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Remove the grantee from the org -> cascade deletes their explicit grant
+        grantee_membership.delete()
+
+        # Org admin must still see the flag in the list (it's an orphaned flag now)
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        keys = [f["key"] for f in list_response.json()["results"]]
+        self.assertIn("orphaned-flag", keys)
+
+    def test_member_still_blocked_from_listing_default_none_flag(self) -> None:
+        # Counterpart to the test above: non-admin members without an explicit
+        # grant must still be filtered out by the per-object "none" default.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="blocked flag",
+            key="blocked-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(other)
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        keys = [f["key"] for f in list_response.json()["results"]]
+        self.assertNotIn("blocked-flag", keys)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

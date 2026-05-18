@@ -1,5 +1,13 @@
-import type { ChartTheme } from 'lib/charts/types'
-export type { ChartTheme }
+/** Visual theme colours consumed by chart rendering. */
+export interface ChartTheme {
+    colors: string[]
+    backgroundColor?: string
+    axisColor?: string
+    gridColor?: string
+    crosshairColor?: string
+    tooltipBackground?: string
+    tooltipColor?: string
+}
 
 /** Default axis id used when a series doesn't specify one. */
 export const DEFAULT_Y_AXIS_ID = 'left'

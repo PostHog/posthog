@@ -1,1 +1,1 @@
-0251_usage_report_events_preagg
+0253_drop_dead_msk_kafka_tables

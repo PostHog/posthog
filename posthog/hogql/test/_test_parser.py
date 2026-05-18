@@ -79,6 +79,39 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr("1e-18"), ast.Constant(value=1e-18))
             self.assertEqual(self._expr("2.34e+20"), ast.Constant(value=2.34e20))
 
+        @parameterized.expand(
+            [
+                # Hex: HEXADECIMAL_LITERAL tokens were being parsed via base-10 stoll/int,
+                # which stops at the 'x' and silently yielded 0.
+                ("hex_positive", "0x1F", 31),
+                ("hex_zero", "0x0", 0),
+                ("hex_ff", "0xff", 255),
+                ("hex_negative", "-0x1F", -31),
+                ("hex_positive_sign", "+0x1F", 31),
+                # Hex digits include 'e' — must be dispatched before the float guard,
+                # or "0xfe" routes through float()/stod and either raises (Python)
+                # or silently returns a double (C++) instead of an int64.
+                ("hex_with_e_digit", "0xfe", 254),
+                ("hex_negative_with_e_digit", "-0xae", -174),
+                # Catches the C++ structural bug specifically: stod handles hex floats,
+                # so "0xfe" → 254.0 compares equal to 254 by coincidence. Near 2^60 the
+                # double mantissa is 8 bits short, so this value rounds to 0x1000000000000000
+                # as a double — different from the exact int64 by 14, and Python int/float
+                # equality is exact (no implicit conversion) so the test catches it.
+                ("hex_breaks_double_precision", "0x100000000000000e", 0x100000000000000E),
+                # Octal: OCTAL_LITERAL tokens were being parsed as base-10 integers,
+                # e.g. "017" → 17 instead of 15.
+                ("octal_positive", "017", 15),
+                ("octal_negative", "-017", -15),
+                ("octal_positive_sign", "+017", 15),
+                # +inf: grammar admits `(PLUS | DASH)? INF`, but visitor only matched
+                # "inf" and "-inf", so "+inf" fell through to NaN.
+                ("positive_inf", "+inf", float("inf")),
+            ]
+        )
+        def test_signed_radix_number_literals(self, _name: str, expr: str, expected: int | float):
+            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+
         def test_booleans(self):
             self.assertEqual(self._expr("true"), ast.Constant(value=True))
             self.assertEqual(self._expr("TRUE"), ast.Constant(value=True))

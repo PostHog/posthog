@@ -56,8 +56,11 @@ pub struct Batch {
 pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_skew_adjustment: Option<bool>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "disable_skew_adjustment"
+    )]
+    pub disable_skew_correction: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,10 +108,10 @@ impl SinkEvent for WrappedEvent {
         self.uuid
     }
 
-    // Helps the Sink implementations filter events that were marked
-    // as ineligible for publishing in the request preprocessing step.
+    // Publish Ok and Limited events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        self.result == EventResult::Ok && self.destination != Destination::Drop
+        (self.result == EventResult::Ok || self.result == EventResult::Limited)
+            && self.destination != Destination::Drop
     }
 
     // Resolve the storage-agnostic Destination scope for this event.
@@ -278,7 +281,7 @@ impl WrappedEvent {
         if let Some(cm) = self.event.options.cookieless_mode {
             inject!(buf, first, "$cookieless_mode", &cm);
         }
-        if let Some(dsa) = self.event.options.disable_skew_adjustment {
+        if let Some(dsa) = self.event.options.disable_skew_correction {
             inject!(buf, first, "$ignore_sent_at", &dsa);
         }
         if let Some(ref pti) = self.event.options.product_tour_id {
@@ -633,7 +636,7 @@ mod tests {
                 "window_id": "win-xyz",
                 "options": {
                     "cookieless_mode": true,
-                    "disable_skew_adjustment": true,
+                    "disable_skew_correction": true,
                     "product_tour_id": "tour-123",
                     "process_person_profile": false
                 }
@@ -644,7 +647,7 @@ mod tests {
         assert_eq!(event.session_id.as_deref(), Some("sess-abc"));
         assert_eq!(event.window_id.as_deref(), Some("win-xyz"));
         assert_eq!(event.options.cookieless_mode, Some(true));
-        assert_eq!(event.options.disable_skew_adjustment, Some(true));
+        assert_eq!(event.options.disable_skew_correction, Some(true));
         assert_eq!(event.options.product_tour_id.as_deref(), Some("tour-123"));
         assert_eq!(event.options.process_person_profile, Some(false));
     }
@@ -680,7 +683,7 @@ mod tests {
         assert_eq!(event.session_id, None);
         assert_eq!(event.window_id, None);
         assert_eq!(event.options.cookieless_mode, None);
-        assert_eq!(event.options.disable_skew_adjustment, None);
+        assert_eq!(event.options.disable_skew_correction, None);
         assert_eq!(event.options.product_tour_id, None);
         assert_eq!(event.options.process_person_profile, None);
     }
@@ -702,30 +705,31 @@ mod tests {
         test_utils::wrapped_event(event_name, distinct_id)
     }
 
-    #[test]
-    fn should_publish_ok_and_non_drop() {
-        let ev = ok_wrapped("$pageview", "user-1");
+    #[rstest::rstest]
+    #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
+    #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
+    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::limited_main(EventResult::Limited, Destination::AnalyticsMain)]
+    #[case::limited_historical(EventResult::Limited, Destination::AnalyticsHistorical)]
+    #[case::limited_overflow(EventResult::Limited, Destination::Overflow)]
+    fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = result;
+        ev.destination = dest;
         assert!(ev.should_publish());
     }
 
-    #[test]
-    fn should_publish_false_when_dropped() {
+    #[rstest::rstest]
+    #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
+    #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
+    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
+    #[case::limited_dest_drop(EventResult::Limited, Destination::Drop)]
+    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
+    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
+    fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_false_when_destination_drop() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Drop;
-        assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn should_publish_false_when_limited() {
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.result = EventResult::Limited;
+        ev.result = result;
+        ev.destination = dest;
         assert!(!ev.should_publish());
     }
 
@@ -1055,7 +1059,7 @@ mod tests {
                 window_id: Some("win-xyz789".to_string()),
                 options: Options {
                     cookieless_mode: Some(false),
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: Some(true),
                 },
@@ -1146,7 +1150,7 @@ mod tests {
                 window_id: Some("win-xyz789".to_string()),
                 options: Options {
                     cookieless_mode: Some(true),
-                    disable_skew_adjustment: Some(true),
+                    disable_skew_correction: Some(true),
                     product_tour_id: Some("tour-onboarding-v2".to_string()),
                     process_person_profile: Some(false),
                 },
@@ -1186,7 +1190,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: Some(false),
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1225,7 +1229,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1257,7 +1261,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: Some(true),
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1292,7 +1296,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1411,7 +1415,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1452,7 +1456,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: Some(true),
                 },
@@ -1491,7 +1495,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1527,7 +1531,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },

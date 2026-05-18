@@ -57,6 +57,9 @@ DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
 
 
 class _VerificationCursor(typing.Protocol):
+    @property
+    def description(self) -> typing.Sequence[object] | None: ...
+
     def fetchone(self) -> tuple[object, ...] | None: ...
 
     def fetchall(self) -> list[tuple[object, ...]]: ...
@@ -202,17 +205,14 @@ async def prepare_data_imports_ducklake_metadata_activity(
         normalized_name = schema.normalized_name
         source_type = schema.source.source_type
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
+        staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
+            source_table_uri, team_id=inputs.team_id
+        )
 
         # Get partition column from Delta metadata (source of truth)
         partition_column = await database_sync_to_async(_detect_data_imports_partition_column)(
             source_table_uri, team_id=inputs.team_id
         )
-
-        staging_uri: str | None = None
-        if not is_dev_mode():
-            catalog = await database_sync_to_async(get_ducklake_catalog_by_team_org)(inputs.team_id)
-            if catalog:
-                staging_uri = compute_staging_uri(source_table_uri, catalog.bucket)
 
         model_list.append(
             DuckLakeCopyDataImportsMetadata(
@@ -245,32 +245,35 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        dev_mode = is_dev_mode()
-
-        if dev_mode:
-            alias = "ducklake"
-            with duckdb.connect() as conn:
-                config = get_config()
-                configure_connection(conn)
-                ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
-                _attach_ducklake_catalog(conn, config, alias=alias)
-
-                qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
-                qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
-
-                logger.info(
-                    "Creating DuckLake table from Delta snapshot",
-                    ducklake_table=qualified_table,
-                    source_table=inputs.model.source_table_uri,
-                )
-                conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
-                conn.execute(
-                    f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
-                    [inputs.model.source_table_uri],
-                )
-                logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
+        if is_dev_mode():
+            _copy_data_imports_via_duckdb(inputs, logger)
         else:
             _copy_data_imports_via_duckgres(inputs, logger)
+
+
+def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
+    """Create the DuckLake table directly from Delta using the local DuckDB client."""
+    alias = "ducklake"
+    with duckdb.connect() as conn:
+        config = get_config()
+        configure_connection(conn)
+        ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
+        _attach_ducklake_catalog(conn, config, alias=alias)
+
+        qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
+        qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
+
+        logger.info(
+            "Creating DuckLake table from Delta snapshot",
+            ducklake_table=qualified_table,
+            source_table=inputs.model.source_table_uri,
+        )
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
+        conn.execute(
+            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+            [inputs.model.source_table_uri],
+        )
+        logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
 
 
 def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
@@ -295,6 +298,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
         catalog_bucket=catalog.bucket,
         role_arn=catalog.cross_account_role_arn,
         external_id=catalog.cross_account_external_id,
+        organization_id=org_id,
     )
 
     schema = inputs.model.ducklake_schema_name
@@ -333,6 +337,18 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
         role_arn=catalog.cross_account_role_arn,
         external_id=catalog.cross_account_external_id,
     )
+
+
+def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str | None:
+    """Return the staged Delta URI required by prod duckgres, or None for local dev."""
+    if is_dev_mode():
+        return None
+
+    catalog = get_ducklake_catalog_by_team_org(team_id)
+    if catalog is None:
+        raise ApplicationError(f"No DuckLakeCatalog configured for team {team_id}", non_retryable=True)
+
+    return compute_staging_uri(source_uri, catalog.bucket)
 
 
 def _detect_data_imports_partition_column(table_uri: str, *, team_id: int) -> str | None:
@@ -753,11 +769,11 @@ def _fetch_delta_schema(
     conn: _VerificationConnection, source_uri: str, *, parameter_placeholder: str = "?"
 ) -> list[tuple[str, str]]:
     """Fetch schema from a Delta table."""
-    rows = conn.execute(
-        f"DESCRIBE SELECT * FROM delta_scan({parameter_placeholder}) LIMIT 0",
+    cursor = conn.execute(
+        f"SELECT * FROM delta_scan({parameter_placeholder}) LIMIT 0",
         [source_uri],
-    ).fetchall()
-    return [(str(row[0]), str(row[1])) for row in rows]
+    )
+    return _schema_from_cursor_description(cursor)
 
 
 def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
@@ -771,8 +787,24 @@ def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str
 
 def _fetch_schema(conn: _VerificationConnection, table_name: str) -> list[tuple[str, str]]:
     """Fetch schema from a DuckLake table."""
-    rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
-    return [(str(row[1]), str(row[2])) for row in rows]
+    cursor = conn.execute(f"SELECT * FROM {table_name} LIMIT 0")
+    return _schema_from_cursor_description(cursor)
+
+
+def _schema_from_cursor_description(cursor: _VerificationCursor) -> list[tuple[str, str]]:
+    description = cursor.description
+    if not description:
+        raise ValueError("Schema query did not return column metadata")
+
+    schema: list[tuple[str, str]] = []
+    for column in description:
+        name = getattr(column, "name", None)
+        type_code = getattr(column, "type_code", None)
+        if name is None and isinstance(column, tuple):
+            name = column[0] if len(column) > 0 else None
+            type_code = column[1] if len(column) > 1 else None
+        schema.append((str(name or ""), str(type_code or "")))
+    return schema
 
 
 def _diff_schema(source_schema: list[tuple[str, str]], ducklake_schema: list[tuple[str, str]]) -> list[str]:

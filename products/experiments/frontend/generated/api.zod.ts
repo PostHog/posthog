@@ -83,7 +83,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
@@ -94,14 +94,14 @@ change request details.
  */
 export const ExperimentsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
  */
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
@@ -125,7 +125,7 @@ change request details.
  */
 export const ExperimentsCreateExposureCohortForExperimentCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
@@ -136,7 +136,7 @@ change request details.
  */
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * End a running experiment without shipping a variant.
@@ -168,13 +168,13 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                 .describe(
-                    '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
-            'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
     conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
 })
@@ -188,7 +188,7 @@ change request details.
  */
 export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Ship a variant to 100% of users and (optionally) end the experiment.
@@ -215,13 +215,13 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                 .describe(
-                    '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
-            'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
     conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship to 100% of users.'),

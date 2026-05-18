@@ -327,24 +327,30 @@ impl Event {
             }
 
             if !will_fit_in_postgres_column(key) {
+                let skipped = if parent_type == PropertyParentType::Event {
+                    2 // EventProperty + PropertyDefinition
+                } else {
+                    1 // PropertyDefinition only
+                };
                 metrics::counter!(
                     UPDATES_SKIPPED,
                     &[("reason", "property_name_wont_fit_in_postgres")]
                 )
-                .increment(2); // We're skipping one EventProperty, and one PropertyDefinition
+                .increment(skipped);
                 continue;
             }
 
-            // Property keys flow into posthog_eventproperty.property and
-            // posthog_propertydefinition.name — both text columns. Postgres rejects null bytes
-            // in text, so any payload with an embedded \u{0000} burns the full 3-retry cycle and
-            // is then dropped. Mirror the existing sanitize on event names (line 222 above).
-            updates.push(Update::EventProperty(EventProperty {
-                team_id: self.team_id,
-                project_id: self.project_id,
-                event: sanitize_string(&self.event),
-                property: sanitize_string(key),
-            }));
+            // posthog_eventproperty only tracks which properties appear on which events —
+            // person, group, and session properties have no meaningful event association
+            // and no read path consumes those rows.
+            if parent_type == PropertyParentType::Event {
+                updates.push(Update::EventProperty(EventProperty {
+                    team_id: self.team_id,
+                    project_id: self.project_id,
+                    event: sanitize_string(&self.event),
+                    property: sanitize_string(key),
+                }));
+            }
 
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));

@@ -1,5 +1,3 @@
-import math
-import hashlib
 import dataclasses
 from datetime import timedelta
 from itertools import batched
@@ -16,29 +14,12 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common.health.observability import push_health_check_metrics
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.rollout import filter_ids_for_rollout
 from posthog.temporal.health_checks.models import BatchResult, HealthCheckWorkflowInputs
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import ensure_registry_loaded, get_detect_fn, get_product
 
 logger = structlog.get_logger(__name__)
-
-
-def _team_rollout_rank(team_id: int) -> int:
-    digest = hashlib.sha256(str(team_id).encode()).digest()
-    return int.from_bytes(digest[:8], byteorder="big")
-
-
-def _filter_team_ids_for_rollout(team_ids: list[int], rollout_percentage: float) -> list[int]:
-    if rollout_percentage <= 0 or rollout_percentage > 1:
-        raise ValueError(f"rollout_percentage must be in (0, 1], got {rollout_percentage}")
-    if not team_ids:
-        return []
-    if rollout_percentage >= 1.0:
-        return team_ids
-
-    target_count = max(1, math.ceil(len(team_ids) * rollout_percentage))
-    ranked_team_ids = sorted(team_ids, key=lambda team_id: (_team_rollout_rank(team_id), team_id))
-    return ranked_team_ids[:target_count]
 
 
 @database_sync_to_async
@@ -83,7 +64,7 @@ def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[in
         )
 
     if inputs.rollout_percentage < 1.0:
-        team_ids = _filter_team_ids_for_rollout(team_ids, inputs.rollout_percentage)
+        team_ids = filter_ids_for_rollout(team_ids, inputs.rollout_percentage)
         logger.info("after rollout filtering", rollout_pct=inputs.rollout_percentage, count=len(team_ids))
 
     batches = [list(b) for b in batched(team_ids, inputs.batch_size)]

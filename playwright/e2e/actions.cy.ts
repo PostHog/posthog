@@ -30,8 +30,7 @@ test.describe('Action Events', () => {
         await createAction(page, actionName)
 
         // Test the action is immediately available
-        await page.click('[data-attr=nav-menu-insight]')
-        await page.click('[data-attr="menu-item-insight"]')
+        await page.goto('/insights/new')
 
         await page.click('text=Add graph series')
         await page.click('[data-attr=trend-element-subject-1]')

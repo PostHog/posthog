@@ -39,6 +39,8 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     GetGroupsBatchRequest,
     GetGroupsBatchResponse,
     GetGroupsRequest,
+    ListGroupsRequest,
+    ListGroupsResponse,
     GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest,

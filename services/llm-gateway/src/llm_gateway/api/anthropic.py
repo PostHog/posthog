@@ -92,18 +92,21 @@ async def _send_bedrock_messages(
     bedrock_region_name = ensure_bedrock_configured(settings)
 
     data = dict(request_data)
-    data["model"] = map_to_bedrock_model(data["model"], region_name=bedrock_region_name)
+    bedrock_model = map_to_bedrock_model(data["model"], region_name=bedrock_region_name)
+    # litellm can't infer the bedrock provider from regional inference profile
+    # ids like "us.anthropic.claude-opus-4-7-v1", so prefix explicitly.
+    data["model"] = f"bedrock/{bedrock_model}"
 
     anthropic_beta = request.headers.get("anthropic-beta")
     if anthropic_beta:
         data["anthropic_beta"] = [h.strip() for h in anthropic_beta.split(",") if h.strip()]
 
-    strip_server_side_tools(data, model=data["model"], product=product)
+    strip_server_side_tools(data, model=bedrock_model, product=product)
 
     return await handle_llm_request(
         request_data=data,
         user=user,
-        model=data["model"],
+        model=bedrock_model,
         is_streaming=is_streaming,
         provider_config=BEDROCK_CONFIG,
         llm_call=litellm.anthropic_messages,

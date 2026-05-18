@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -7,6 +8,16 @@ from uuid import UUID
 # `compute_shard_offset_seconds` — schedule fires every N seconds, so a
 # cadence of M seconds has `M // N` shard slots available.
 SCHEDULE_INTERVAL_SECONDS = 60
+
+# Per-query CH read cap (bytes). Cohort chunking (`MAX_ALERT_COHORT_SIZE`) keeps reads
+# bounded at the source; this is the safety net if a chunk surprises us. Tunable via env
+# so we can bump for customers whose filters genuinely need more headroom without
+# redeploying. Aligns to CH's GiB-based reporting (1024^3) so the value here matches
+# the "max bytes: N GiB" in CH error messages. Default 5 GiB (5,368,709,120).
+# Lives here, not in `temporal/constants.py`, because `alert_check_query.py` (the
+# consumer) is outside the temporal package — importing it from temporal would create
+# a circular import via `temporal/__init__.py` → activities → alert_check_query.
+MAX_BYTES_TO_READ = int(os.environ.get("LOGS_ALERTING_MAX_BYTES_TO_READ", "5368709120"))
 
 
 def compute_shard_offset_seconds(alert_id: UUID, check_interval_minutes: int) -> int:
