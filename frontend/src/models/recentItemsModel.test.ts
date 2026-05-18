@@ -61,12 +61,10 @@ describe('recentItemsModel', () => {
         logic = recentItemsModel()
         logic.mount()
 
-        await expectLogic(logic)
-            .toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess'])
-            .toMatchValues({
-                recents: [],
-                sceneLogViewsByRef: {},
-            })
+        await expectLogic(logic).toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess']).toMatchValues({
+            recents: [],
+            sceneLogViewsByRef: {},
+        })
         expect(listRecents).toHaveBeenCalledTimes(1)
         expect(listSceneLogViews).toHaveBeenCalledTimes(1)
     })
