@@ -128,6 +128,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.VercelConnect]: () => import('./authentication/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/VercelLinkError'),
+    [Scene.AgenticAccountMismatch]: () => import('./authentication/AgenticAccountMismatch'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsHealth]: () => import('./web-analytics/WebAnalyticsScene'),

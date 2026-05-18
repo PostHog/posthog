@@ -165,6 +165,7 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
+    agenticAccountMismatch: (): string => '/agentic/account-mismatch',
     inviteSignup: (id: string): string => `/signup/${id}`,
     onboarding: ({
         campaign,

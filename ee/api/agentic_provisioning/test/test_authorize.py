@@ -1,5 +1,6 @@
 import json
 import time
+from urllib.parse import quote
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -45,11 +46,14 @@ class TestAgenticAuthorize(APIBaseTest):
         assert res.status_code == 302
         assert "error=missing_state" in res["Location"]
 
-    def test_email_mismatch_redirects_with_error(self):
+    def test_email_mismatch_redirects_to_mismatch_page(self):
         self._set_pending_auth("state_mismatch", "other@example.com")
         res = self.client.get("/api/agentic/authorize?state=state_mismatch")
         assert res.status_code == 302
-        assert "error=email_mismatch" in res["Location"]
+        assert "/agentic/account-mismatch" in res["Location"]
+        assert "expected_email=other%40example.com" in res["Location"]
+        assert f"current_email={quote(self.user.email)}" in res["Location"]
+        assert "state=state_mismatch" in res["Location"]
 
     def test_redirects_to_callback_with_code(self):
         self._set_pending_auth("state_ok", self.user.email)
