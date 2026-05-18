@@ -23,6 +23,13 @@ export type NotebookKernelInfo = {
 
 export type NotebookKernelInfoLogicProps = {
     shortId: string
+    /**
+     * When set to anything other than `'notebook'` (e.g. `'canvas'` for the
+     * synthetic notebooks rendered inside person/group profiles), the kernel
+     * status poll is disabled — those notebooks are not persisted, so the
+     * `/kernel/status/` endpoint always 404s.
+     */
+    mode?: 'notebook' | 'canvas'
 }
 
 export const cpuCoreOptions = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
@@ -349,7 +356,10 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             actions.executeKernelSuccess(null)
         },
     })),
-    afterMount(({ actions, cache, values }) => {
+    afterMount(({ actions, cache, props, values }) => {
+        if (props.mode && props.mode !== 'notebook') {
+            return
+        }
         const scheduleRefresh = (): void => {
             const delayMs = values.isStarting ? 2000 : 10000
             cache.kernelInfoRefresh = window.setTimeout(() => {
