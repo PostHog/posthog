@@ -70,6 +70,18 @@ export interface HogInvocationsLogicProps {
     functionKind: HogInvocationsFunctionKind
 }
 
+export interface SparklineSeries {
+    name: RunStatus
+    color: string
+    values: number[]
+}
+
+export interface SparklineData {
+    /** ISO timestamps for each bucket. */
+    dates: string[]
+    series: SparklineSeries[]
+}
+
 export interface BulkReplayParams {
     date_from: string
     date_to?: string
@@ -155,6 +167,89 @@ const scheduleAutoRefresh = (
         const timeoutId = setTimeout(() => actions.loadRuns(null), AUTO_REFRESH_INTERVAL_MS)
         return () => clearTimeout(timeoutId)
     }, 'autoRefresh')
+}
+
+/**
+ * Bucket-by helper for the sparkline. Picks an aggregation interval based on
+ * the date filter so a 1h window doesn't render as a single bar and a 30d
+ * window doesn't render 30 * 24 hourly bars. Returns the HogQL function name
+ * to call on `first_scheduled_at`.
+ */
+const pickSparklineBucketFn = (
+    filters: HogInvocationsFilters
+): 'toStartOfMinute' | 'toStartOfHour' | 'toStartOfDay' => {
+    const from = dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')
+    const to = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
+    const hours = to.diff(from, 'hour')
+    if (hours <= 6) {
+        return 'toStartOfMinute'
+    }
+    if (hours <= 7 * 24) {
+        return 'toStartOfHour'
+    }
+    return 'toStartOfDay'
+}
+
+const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
+    running: 'warning',
+    succeeded: 'success',
+    failed: 'danger',
+}
+
+async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
+    const replayWrapperKind = replayWrapperKindFor(props.functionKind)
+    const bucketFn = pickSparklineBucketFn(filters)
+    const query = hogql`
+        SELECT
+            ${hogql.raw(bucketFn)}(first_scheduled_at) AS bucket,
+            status,
+            count() AS n
+        FROM (
+            SELECT
+                invocation_id,
+                argMax(status, version)     AS status,
+                min(scheduled_at)           AS first_scheduled_at
+            FROM posthog.hog_invocation_results
+            WHERE function_kind IN (${props.functionKind}, ${replayWrapperKind})
+              AND function_id = ${props.id}
+            GROUP BY invocation_id, function_kind
+            HAVING argMax(is_deleted, version) = 0
+        )
+        GROUP BY bucket, status
+        ORDER BY bucket
+    `
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
+        {
+            refresh: 'force_blocking',
+            filtersOverride: { date_from: filters.date_from, date_to: filters.date_to },
+        }
+    )
+
+    // Pivot: HogQL returns one row per (bucket, status). The chart wants one
+    // series per status, with `values` aligned to a sorted bucket list. We
+    // pick up the buckets in the order CH returned them (ORDER BY bucket) and
+    // backfill zeros for series-bucket pairs that didn't appear.
+    const bucketSet = new Set<string>()
+    const cells: Record<string, Record<RunStatus, number>> = {}
+    for (const row of response.results ?? []) {
+        const [bucket, status, n] = row as unknown as [string, RunStatus, number]
+        if (!bucket) {
+            continue
+        }
+        bucketSet.add(bucket)
+        cells[bucket] = cells[bucket] ?? { running: 0, succeeded: 0, failed: 0 }
+        cells[bucket][status] = Number(n ?? 0)
+    }
+    const dates = Array.from(bucketSet).sort()
+    const buildValues = (status: RunStatus): number[] => dates.map((d) => cells[d]?.[status] ?? 0)
+    const series: SparklineSeries[] = (['failed', 'running', 'succeeded'] as RunStatus[]).map((status) => ({
+        name: status,
+        color: SPARKLINE_STATUS_COLORS[status],
+        values: buildValues(status),
+    }))
+    return { dates, series }
 }
 
 async function fetchRunsPage(
@@ -395,6 +490,17 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 },
             },
         ],
+        sparkline: [
+            null as SparklineData | null,
+            {
+                loadSparkline: async (_, breakpoint) => {
+                    await breakpoint(100)
+                    const data = await fetchSparkline(props, values.filters)
+                    breakpoint()
+                    return data
+                },
+            },
+        ],
         personPropertiesById: [
             {} as Record<string, { properties: Record<string, any>; distinct_ids?: string[] }>,
             {
@@ -489,9 +595,11 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     listeners(({ props, actions, values, cache }) => ({
         setFilters: () => {
             actions.loadRuns(null)
+            actions.loadSparkline(null)
         },
         resetFilters: () => {
             actions.loadRuns(null)
+            actions.loadSparkline(null)
         },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)

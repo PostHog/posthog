@@ -40,6 +40,7 @@ import {
     hogInvocationsLogic,
     isReplayWrapperKind,
 } from './hogInvocationsLogic'
+import { InvocationsSparkline } from './InvocationsSparkline'
 import { InvocationsBetaBanner } from './InvocationsTabBanners'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
@@ -169,10 +170,13 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
         selectableIds,
         selectAllState,
         personPropertiesById,
+        sparkline,
+        sparklineLoading,
     } = useValues(logic)
     const {
         loadRuns,
         loadMore,
+        loadSparkline,
         setFilters,
         toggleSelected,
         clearSelected,
@@ -185,7 +189,8 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
 
     useEffect(() => {
         loadRuns(null)
-    }, [loadRuns])
+        loadSparkline(null)
+    }, [loadRuns, loadSparkline])
 
     if (!id) {
         return null
@@ -374,6 +379,11 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
     return (
         <div className="flex-1 deprecated-space-y-2 flex flex-col">
             <InvocationsBetaBanner />
+            <InvocationsSparkline
+                data={sparkline}
+                loading={sparklineLoading}
+                onDateRangeChange={(date_from, date_to) => setFilters({ date_from, date_to })}
+            />
             <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
