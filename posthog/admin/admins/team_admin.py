@@ -72,6 +72,7 @@ class TeamAdminForm(ModelForm):
         return value
 
 
+@admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     form = TeamAdminForm
 

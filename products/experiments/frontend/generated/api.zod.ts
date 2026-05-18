@@ -45,9 +45,20 @@ export const experimentSavedMetricsCreateBodyDescriptionMax = 400
 
 export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(experimentSavedMetricsCreateBodyNameMax),
-        description: zod.string().max(experimentSavedMetricsCreateBodyDescriptionMax).nullish(),
-        query: zod.unknown(),
+        name: zod
+            .string()
+            .max(experimentSavedMetricsCreateBodyNameMax)
+            .describe('Name of the shared metric. Must be unique within the project (case-insensitive).'),
+        description: zod
+            .string()
+            .max(experimentSavedMetricsCreateBodyDescriptionMax)
+            .nullish()
+            .describe('Short description of what the metric measures.'),
+        query: zod
+            .unknown()
+            .describe(
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+            ),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -58,9 +69,20 @@ export const experimentSavedMetricsUpdateBodyDescriptionMax = 400
 
 export const ExperimentSavedMetricsUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(experimentSavedMetricsUpdateBodyNameMax),
-        description: zod.string().max(experimentSavedMetricsUpdateBodyDescriptionMax).nullish(),
-        query: zod.unknown(),
+        name: zod
+            .string()
+            .max(experimentSavedMetricsUpdateBodyNameMax)
+            .describe('Name of the shared metric. Must be unique within the project (case-insensitive).'),
+        description: zod
+            .string()
+            .max(experimentSavedMetricsUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Short description of what the metric measures.'),
+        query: zod
+            .unknown()
+            .describe(
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+            ),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -71,9 +93,22 @@ export const experimentSavedMetricsPartialUpdateBodyDescriptionMax = 400
 
 export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(experimentSavedMetricsPartialUpdateBodyNameMax).optional(),
-        description: zod.string().max(experimentSavedMetricsPartialUpdateBodyDescriptionMax).nullish(),
-        query: zod.unknown().optional(),
+        name: zod
+            .string()
+            .max(experimentSavedMetricsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Name of the shared metric. Must be unique within the project (case-insensitive).'),
+        description: zod
+            .string()
+            .max(experimentSavedMetricsPartialUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Short description of what the metric measures.'),
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+            ),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Mixin for serializers to add user access control fields')

@@ -329,8 +329,18 @@ def vapi_webhook(request: Request) -> Response:
     message: dict[str, Any] = payload.get("message", {})
     message_type = message.get("type")
     call: dict[str, Any] = message.get("call", {}) or {}
-    metadata: dict[str, Any] = call.get("metadata", {}) or {}
-    access_token = metadata.get("sharing_access_token") or metadata.get("access_token")
+    # Vapi can surface our `assistant_overrides.metadata` (set in `start_call`) in two
+    # places on the Call object: `call.metadata` for some message types, and nested under
+    # `call.assistantOverrides.metadata` on others. Empirically end-of-call-report comes
+    # through with the nested form, so try both.
+    overrides_metadata: dict[str, Any] = (call.get("assistantOverrides") or {}).get("metadata") or {}
+    top_metadata: dict[str, Any] = call.get("metadata") or {}
+    access_token = (
+        top_metadata.get("sharing_access_token")
+        or top_metadata.get("access_token")
+        or overrides_metadata.get("sharing_access_token")
+        or overrides_metadata.get("access_token")
+    )
     call_id = call.get("id")
 
     if message_type == "status-update":
