@@ -243,6 +243,53 @@ class TestUserTeamsAccessControl(BaseTest):
         self.assertIn(self.team, user_teams)
         self.assertNotIn(other_team, user_teams)
 
+    def test_user_teams_feature_gates_scoped_per_organization(self):
+        """Feature entitlements must be evaluated per-org. A user who has ROLE_BASED_ACCESS in
+        Org A must not get role-backed access to a private team in Org B that has only
+        ACCESS_CONTROL — Org B's own entitlement decides Org B's enforcement."""
+        from posthog.models.user import User
+
+        # Org A keeps the setUp defaults: ACCESS_CONTROL + ROLE_BASED_ACCESS.
+        # Org B gets ACCESS_CONTROL only.
+        org_b = Organization.objects.create(name="Org B")
+        org_b.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        org_b.save()
+
+        self.user.join(organization=org_b, level=OrganizationMembership.Level.MEMBER)
+        membership_in_b = OrganizationMembership.objects.get(user=self.user, organization=org_b)
+
+        # Org B has a private team, role-backed access for a role this user belongs to.
+        private_team_in_b = Team.objects.create(organization=org_b, name="B Private")
+        AccessControl.objects.create(
+            team=private_team_in_b,
+            resource="project",
+            resource_id=str(private_team_in_b.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+        role_in_b = Role.objects.create(name="B Engineers", organization=org_b)
+        RoleMembership.objects.create(role=role_in_b, user=self.user, organization_member=membership_in_b)
+        AccessControl.objects.create(
+            team=private_team_in_b,
+            resource="project",
+            resource_id=str(private_team_in_b.id),
+            access_level="admin",
+            organization_member=None,
+            role=role_in_b,
+        )
+
+        # Bust cached_property so the queries actually run.
+        self.user = User.objects.get(pk=self.user.pk)
+
+        # Org A team is visible (no private restriction). Org B's private team must NOT be
+        # visible — even though Org A has ROLE_BASED_ACCESS, Org B does not.
+        team_ids = set(self.user.teams.values_list("id", flat=True))
+        self.assertIn(self.team.id, team_ids)
+        self.assertNotIn(private_team_in_b.id, team_ids)
+
     def test_user_teams_complex_scenario(self):
         """Test a complex scenario with multiple teams, roles, and access controls."""
         # Create multiple teams
