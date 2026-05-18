@@ -1650,21 +1650,21 @@ class ExperimentService:
             new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
             existing_saved_metric_ids = set(existing_links.keys())
 
-            # Delete links no longer in the list
+            # Delete links no longer in the list (one by one to trigger activity logging)
             to_delete = existing_saved_metric_ids - new_saved_metric_ids
-            if to_delete:
-                experiment.experimenttosavedmetric_set.filter(saved_metric_id__in=to_delete).delete()
+            for saved_metric_id in to_delete:
+                existing_links[saved_metric_id].delete()
 
             # Update or create links
             for saved_metric_data in saved_metrics_data:
                 saved_metric_id = saved_metric_data["id"]
-                new_metadata = saved_metric_data.get("metadata")
+                new_metadata = saved_metric_data.get("metadata") or {}
 
                 if saved_metric_id in existing_links:
                     existing_link = existing_links[saved_metric_id]
-                    if existing_link.metadata != new_metadata:
+                    if (existing_link.metadata or {}) != new_metadata:
                         existing_link.metadata = new_metadata
-                        existing_link.save()
+                        existing_link.save(update_fields=["metadata", "updated_at"])
                 else:
                     saved_metric_serializer = ExperimentToSavedMetricSerializer(
                         data={
