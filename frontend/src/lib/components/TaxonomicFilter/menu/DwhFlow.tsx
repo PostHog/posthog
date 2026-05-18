@@ -184,14 +184,17 @@ export function MenuFilterDwhConfig({
     }, [activeFieldKey, columns])
 
     const activeFieldValue = values[activeFieldKey] ?? ''
-    // HogQL mode — true whenever the active value isn't a real column on the
-    // table (including `''`, the sentinel for "user picked SQL expression
-    // but hasn't typed anything yet"). Keeping the truthy guard off this
-    // check is what surfaces the Monaco editor as soon as the user selects
-    // `SQL expression` from the dropdown.
+    // HogQL mode — true whenever the active value isn't one of the field's
+    // *selectable* options (including `''`, the sentinel for "user picked
+    // SQL expression but hasn't typed anything yet"). Checked against
+    // `activeFieldOptions` — the same type-filtered set `ColumnSelect` uses
+    // — so the editor and the dropdown agree: when the dropdown shows "SQL
+    // expression", the editor renders. A value that's a real column but of
+    // a disallowed type for this field counts as HogQL, matching the
+    // dropdown.
     const activeFieldIsHogQL = useMemo(
-        () => !!activeField?.allowHogQL && !columns.some((c) => c.name === activeFieldValue),
-        [activeField, activeFieldValue, columns]
+        () => !!activeField?.allowHogQL && !activeFieldOptions.some((c) => c.name === activeFieldValue),
+        [activeField, activeFieldValue, activeFieldOptions]
     )
 
     // ---- preview -------------------------------------------------------
