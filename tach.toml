@@ -122,6 +122,7 @@ path = "products.batch_exports"
 depends_on = [
     "ee",
     "posthog",
+    "products.notifications",
 ]
 layer = "modules"
 
