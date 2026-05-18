@@ -136,7 +136,11 @@ switching to `BaseModel` loses `is_dataclass()`-based tooling.
 
 DTO validation is **best-effort, not HTTP validation**.
 DRF serializers (or Pydantic schemas at the HTTP boundary) own the contract for untrusted input.
-Pydantic dataclass validation catches construction-site mistakes inside the backend — wrong types from mappers, malformed data from internal callers — close to the bug rather than at the wire.
+Pydantic dataclass validation catches construction-site mistakes inside the backend — structural mismatches from mappers, malformed data from internal callers — close to the bug rather than at the wire.
+
+Note that Pydantic v2 dataclasses coerce inputs where the conversion is unambiguous (string → UUID/datetime, int → str) rather than reject them.
+Structural mistakes (None for a required int, dict where a list is expected, unparseable UUID) still raise `ValidationError`.
+If a contract genuinely needs strict typing — e.g., to catch a string sneaking into a UUID field — opt in per-contract via `@dataclass(frozen=True, config=ConfigDict(strict=True))`.
 
 ### Example
 

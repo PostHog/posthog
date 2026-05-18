@@ -34,6 +34,11 @@ def not_found():
     return Response({"detail": "Not found"}, status=404)
 
 
+def not_found_data_kwarg():
+    # ok: api-response-must-match-schema
+    return Response(data={"detail": "Not found"}, status=404)
+
+
 def bad_request():
     # ok: api-response-must-match-schema
     return Response({"error": "bad input"}, status=400)
