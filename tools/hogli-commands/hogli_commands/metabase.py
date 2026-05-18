@@ -6,11 +6,11 @@ application cookies (`metabase.SESSION`, `metabase.DEVICE`). API keys alone
 won't pass the ALB.
 
 Workflow:
-    hogli metabase:login --region us|eu         # opens browser, captures cookies
-    hogli metabase:databases --region us|eu     # list databases with current IDs
-    hogli metabase:query --region us|eu \\      # run SQL against /api/dataset
+    hogli metabase:login --region us|eu|dev     # opens browser, captures cookies
+    hogli metabase:databases --region us|eu|dev # list databases with current IDs
+    hogli metabase:query --region us|eu|dev \\  # run SQL against /api/dataset
         --database-id <id> < query.sql
-    hogli metabase:cookie --region us|eu        # print cached cookie header (humans)
+    hogli metabase:cookie --region us|eu|dev    # print cached cookie header (humans)
 
 Cookies are cached at ~/.config/posthog/metabase/cookie-{region} with mode 0600.
 The `query` command reads the cookie internally so callers never see it —
@@ -28,14 +28,9 @@ from pathlib import Path
 from typing import Any
 
 import click
-from hogli.cli import cli
 
 LOGIN_TIMEOUT_SECONDS: float = 180.0
 LOGIN_POLL_INTERVAL_SECONDS: float = 1.0
-# Chrome buffers cookies in memory and flushes to SQLite roughly every 30s.
-# After this many seconds without progress we hint at closing the tab to
-# force a flush.
-FLUSH_HINT_AFTER_SECONDS: float = 8.0
 
 # Per-browser profile-cookie locations. Each entry is (loader_name, base_directory).
 # We glob `<base>/*/Cookies` to discover every profile (Default, Profile 1, ...).
@@ -49,6 +44,7 @@ _CHROMIUM_PROFILE_ROOTS: dict[str, list[Path]] = {
 REGIONS: dict[str, str] = {
     "us": "metabase.prod-us.posthog.dev",
     "eu": "metabase.prod-eu.posthog.dev",
+    "dev": "metabase.dev.posthog.dev",
 }
 REQUIRED_COOKIES: tuple[str, ...] = (
     "metabase.SESSION",
@@ -187,17 +183,10 @@ def _wait_for_valid_cookie(
 
     Returns the cookie header on success. Raises `click.ClickException` after
     `timeout` seconds without finding a valid session.
-
-    Chrome flushes cookies to its on-disk SQLite store roughly every 30s, so a
-    freshly-set `metabase.SESSION` can be invisible to us for a while. After
-    `FLUSH_HINT_AFTER_SECONDS` we surface a hint suggesting the user close the
-    Metabase tab — closing a tab forces an immediate flush.
     """
-    start = time.monotonic()
-    deadline = start + timeout
+    deadline = time.monotonic() + timeout
     last_status = ""
     last_header: str | None = None
-    flush_hint_shown = False
     while True:
         cookies = _load_cookies_from_browser(domain, browser)
         missing = [name for name in REQUIRED_COOKIES if name not in cookies]
@@ -216,13 +205,6 @@ def _wait_for_valid_cookie(
         if status != last_status:
             click.echo(status)
             last_status = status
-
-        if not flush_hint_shown and time.monotonic() - start >= FLUSH_HINT_AFTER_SECONDS:
-            click.echo(
-                "  hint: if you've already signed in, close the Metabase tab — "
-                "Chrome only flushes cookies to disk every ~30s, but closing a tab forces it.",
-            )
-            flush_hint_shown = True
 
         if time.monotonic() >= deadline:
             raise click.ClickException(
@@ -255,12 +237,12 @@ def _login_region(region: str, browser: str | None, no_open: bool, timeout: floa
     click.echo(f"[{region}] saved cookie to {path}")
 
 
-@cli.command(name="metabase:login", help="Log in to Metabase via SSO and cache the session cookie")
+@click.command(name="metabase:login", help="Log in to Metabase via SSO and cache the session cookie")
 @click.option(
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region to authenticate (one at a time, e.g. --region us or --region eu)",
+    help="Region to authenticate (one at a time, e.g. --region us, --region eu, --region dev)",
 )
 @click.option(
     "--browser",
@@ -285,12 +267,12 @@ def metabase_login(region: str, browser: str | None, no_open: bool, timeout: flo
     _login_region(region, browser, no_open, timeout)
 
 
-@cli.command(name="metabase:cookie", help="Print the cached Metabase cookie header")
+@click.command(name="metabase:cookie", help="Print the cached Metabase cookie header")
 @click.option(
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region whose cached cookie to print (us or eu)",
+    help="Region whose cached cookie to print (us, eu, dev)",
 )
 @click.option("--check/--no-check", default=False, help="Validate the cookie before printing")
 def metabase_cookie(region: str, check: bool) -> None:
@@ -405,7 +387,7 @@ def _render_rows_tsv(body: dict[str, Any]) -> str:
     return "\n".join(out) + "\n"
 
 
-@cli.command(
+@click.command(
     name="metabase:databases",
     help="List Metabase databases (id, name, engine) for a region",
 )
@@ -413,7 +395,7 @@ def _render_rows_tsv(body: dict[str, Any]) -> str:
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region to inspect (us or eu)",
+    help="Region to inspect (us, eu, dev)",
 )
 @click.option(
     "--format",
@@ -439,7 +421,7 @@ def metabase_databases(region: str, output_format: str) -> None:
         click.echo(f"{e['id']:>4}  {e['name']:<40}  {e['engine']}")
 
 
-@cli.command(
+@click.command(
     name="metabase:query",
     help="Run a SQL query against Metabase /api/dataset; results to stdout",
 )
@@ -447,7 +429,7 @@ def metabase_databases(region: str, output_format: str) -> None:
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region to query (us or eu)",
+    help="Region to query (us, eu, dev)",
 )
 @click.option(
     "--database-id",

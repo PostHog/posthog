@@ -43,7 +43,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai portkey-ai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                                    pip install openai portkey-ai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {

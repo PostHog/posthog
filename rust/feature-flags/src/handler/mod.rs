@@ -7,6 +7,7 @@ pub mod decoding;
 pub mod error_tracking;
 pub mod evaluation;
 pub mod flags;
+pub mod phases;
 pub mod properties;
 pub mod session_recording;
 pub mod types;
@@ -19,6 +20,7 @@ pub use types::*;
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::{flag_matching::EvaluationType, flag_service::FlagService},
+    handler::phases::{Phase, PhaseGuard},
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
 use std::collections::HashMap;
@@ -123,12 +125,20 @@ async fn process_request_inner(
             context.state.database_pools.non_persons_reader.clone(),
             context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
+            context.state.flag_definitions_cache.clone(),
             context.state.team_negative_cache.clone(),
             *context.state.config.skip_pg_team_fallback,
         );
 
-        let (original_distinct_id, team, request) =
-            authentication::parse_and_authenticate(&context, &flag_service).await?;
+        let (original_distinct_id, team, request) = {
+            // Phase boundary: covers token decoding, team verification
+            // (HyperCache → Redis → S3 → PG fallback), and distinct-id
+            // extraction. Drop records elapsed time into the canonical
+            // log; histogram emission is deferred to `emit_phase_metrics`
+            // so the metric carries a `team_id` label.
+            let _phase = PhaseGuard::enter(Phase::Auth);
+            authentication::parse_and_authenticate(&context, &flag_service).await?
+        };
 
         let distinct_id_for_logging = original_distinct_id
             .clone()
@@ -168,70 +178,111 @@ async fn process_request_inner(
         let flags_response = if request.is_flags_disabled() {
             with_canonical_log(|log| log.flags_disabled = true);
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
-        } else if let Some(quota_limited_response) =
-            billing::check_limits(&context, &team.api_token).await?
-        {
-            warn!("Request quota limited");
-            with_canonical_log(|log| log.quota_limited = true);
-            quota_limited_response
         } else {
-            let distinct_id = cookieless::handle_distinct_id(
-                &context,
-                &request,
-                &team,
-                original_distinct_id
-                    .expect("distinct_id should be present when flags are not disabled"),
-            )
-            .await?;
+            // Lift the billing-limits await out of the `else if let`
+            // chain so the phase guard scope is exactly that one await,
+            // matching the rest of the phases in this function.
+            let billing_limited = {
+                let _phase = PhaseGuard::enter(Phase::BillingCheck);
+                billing::check_limits(&context, &team.api_token).await?
+            };
 
-            tracing::debug!("Distinct ID resolved: {}", distinct_id);
+            if let Some(quota_limited_response) = billing_limited {
+                warn!("Request quota limited");
+                with_canonical_log(|log| log.quota_limited = true);
+                quota_limited_response
+            } else {
+                let distinct_id = {
+                    let _phase = PhaseGuard::enter(Phase::Cookieless);
+                    cookieless::handle_distinct_id(
+                        &context,
+                        &request,
+                        &team,
+                        original_distinct_id
+                            .expect("distinct_id should be present when flags are not disabled"),
+                    )
+                    .await?
+                };
 
-            let filtered_flags = flags::fetch_and_filter(
-                &flag_service,
-                team.id,
-                &context.meta,
-                &context.headers,
-                request.evaluation_runtime,
-                request.evaluation_contexts.as_ref(),
-            )
-            .await?;
+                tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
+                // Compute auth status once to avoid repeated header parsing and allocation.
+                let is_internal = authentication::is_internal_request(&context);
 
-            let property_overrides = properties::prepare_overrides(&context, &request)?;
+                let override_defs = if is_internal {
+                    request.override_flags_definitions.as_ref()
+                } else {
+                    None
+                };
 
-            // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let response = flags::evaluate_for_request(
-                &context.state,
-                team.id,
-                distinct_id.clone(),
-                device_id.clone(),
-                filtered_flags.clone(),
-                property_overrides.person_properties,
-                property_overrides.group_properties,
-                property_overrides.groups,
-                property_overrides.hash_key,
-                context.request_id,
-                request.is_flags_disabled(),
-                request.flag_keys.clone(),
-            )
-            .await?;
+                let filtered_flags = {
+                    let _phase = PhaseGuard::enter(Phase::FetchAndFilter);
+                    flags::fetch_and_filter(
+                        &flag_service,
+                        team.id,
+                        &context.meta,
+                        &context.headers,
+                        request.evaluation_runtime,
+                        request.evaluation_contexts.as_ref(),
+                        override_defs,
+                    )
+                    .await?
+                };
 
-            // Only record billing if flags are not disabled
-            if !request.is_flags_disabled() {
-                billing::record_usage(&context, &filtered_flags, team.id, metrics_data.library)
+                tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
+
+                let property_overrides = properties::prepare_overrides(&context, &request)?;
+
+                // Evaluate flags (this will return empty if is_flags_disabled is true)
+                let response = {
+                    let _phase = PhaseGuard::enter(Phase::Evaluate);
+                    flags::evaluate_for_request(
+                        &context.state,
+                        team.id,
+                        distinct_id.clone(),
+                        device_id.clone(),
+                        filtered_flags.clone(),
+                        property_overrides.person_properties,
+                        property_overrides.group_properties,
+                        property_overrides.groups,
+                        property_overrides.hash_key,
+                        context.request_id,
+                        request.is_flags_disabled(),
+                        request.flag_keys.clone(),
+                        Some(is_internal && context.meta.detailed_analysis.unwrap_or(false)),
+                        if is_internal {
+                            context.meta.only_use_override_person_properties
+                        } else {
+                            None
+                        },
+                    )
+                    .await?
+                };
+
+                {
+                    let _phase = PhaseGuard::enter(Phase::RecordBilling);
+                    billing::record_usage(
+                        &context,
+                        &filtered_flags,
+                        team.id,
+                        metrics_data.library,
+                        is_internal,
+                    )
                     .await;
-            }
+                }
 
-            response
+                response
+            }
         };
 
         // Build the rest of the FlagsResponse with config from HyperCache.
         // When config=true, reads pre-computed config from Python's RemoteConfig.
         // On cache miss, returns fallback config.
-        let response =
+        let response = {
+            let _phase = PhaseGuard::enter(Phase::ConfigResponse);
             config_response_builder::build_response_from_cache(flags_response, &context, &team)
-                .await?;
+                .await?
+        };
 
         // Populate canonical log with flag evaluation results and read back evaluation_type.
         // If an earlier step errored (? above), we skip this and evaluation_type stays

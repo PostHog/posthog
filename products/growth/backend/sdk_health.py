@@ -5,12 +5,16 @@ Ports the outdatedness detection logic from frontend/src/scenes/onboarding/sdks/
 so the backend can return a pre-digested health report for MCP / agent consumption.
 
 Keep constants and thresholds in sync with the frontend's DEVICE_CONTEXT_CONFIG,
-SIGNIFICANT_TRAFFIC_THRESHOLD_*, GRACE_PERIOD_DAYS, and SINGLE_VERSION_GRACE_PERIOD_DAYS.
+SIGNIFICANT_TRAFFIC_THRESHOLD_*, GRACE_PERIOD_DAYS, SINGLE_VERSION_GRACE_PERIOD_DAYS,
+and SDK_FRESHNESS_GRACE_PERIOD_DAYS.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from json import dumps as json_dumps
+from datetime import UTC, datetime, timedelta
+from json import (
+    dumps as json_dumps,
+    loads as json_loads,
+)
 from math import ceil
 from re import (
     Pattern,
@@ -20,6 +24,12 @@ from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 import humanize
+from redis.exceptions import RedisError
+
+from posthog.cache_utils import cache_for
+from posthog.redis import get_client
+
+from products.growth.backend.constants import SDK_TYPES, github_sdk_versions_key
 
 # --- SDK classification ----------------------------------------------------
 
@@ -246,6 +256,48 @@ def _calculate_version_age_days(release_date_iso: str, now: Optional[datetime] =
         current = current.replace(tzinfo=UTC)
     seconds = (current - release).total_seconds()
     return int(seconds // 86400)
+
+
+def _decode_redis_json(raw: bytes | str) -> dict:
+    return json_loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+
+
+def _load_github_sdk_data() -> dict[str, dict]:
+    """Load latest SDK versions from Redis for all known SDK types."""
+    redis_client = get_client()
+    keys = [github_sdk_versions_key(sdk_type) for sdk_type in SDK_TYPES]
+    values = redis_client.mget(keys)
+
+    data: dict[str, dict] = {}
+    for sdk_type, raw in zip(SDK_TYPES, values):
+        if not raw:
+            continue
+        parsed = _decode_redis_json(raw)
+        if "latestVersion" in parsed:
+            data[sdk_type] = parsed
+    return data
+
+
+SDK_FRESHNESS_GRACE_PERIOD_DAYS = 7
+
+
+@cache_for(timedelta(seconds=60))
+def sdks_within_freshness_grace_period() -> set[str]:
+    """Return SDK names whose latest published version is younger than the grace period."""
+    try:
+        github_data = _load_github_sdk_data()
+    except (RedisError, ValueError, TypeError):
+        return set()
+
+    fresh: set[str] = set()
+    for sdk_type, data in github_data.items():
+        try:
+            release_date = (data.get("releaseDates") or {}).get(data["latestVersion"])
+            if release_date and _calculate_version_age_days(release_date) < SDK_FRESHNESS_GRACE_PERIOD_DAYS:
+                fresh.add(sdk_type)
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return fresh
 
 
 def _device_context(sdk_type: str) -> Literal["mobile", "desktop", "mixed"]:

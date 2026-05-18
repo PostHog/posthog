@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -519,7 +517,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             const latestPendingUpdate = schemaUpdateCache.pendingSchemaUpdates[updatedSchema.id]
                             const inFlightUpdate = pendingSchemaUpdates[updatedSchema.id]
 
-                            return !latestPendingUpdate || latestPendingUpdate.revision <= inFlightUpdate.revision
+                            return (
+                                !latestPendingUpdate ||
+                                !inFlightUpdate ||
+                                latestPendingUpdate.revision <= inFlightUpdate.revision
+                            )
                         })
 
                         if (schemasToApply.length > 0) {
@@ -582,10 +584,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
-                const isDirectQueryEnabled =
-                    !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
                 const breadcrumbName =
-                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+                    values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 

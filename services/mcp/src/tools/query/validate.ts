@@ -28,11 +28,11 @@ export const queryValidateHandler: ToolBase<typeof schema, ValidateResult>['hand
     context: Context,
     params: Params
 ) => {
-    const { query, language } = params
+    const { query, language, connectionId } = params
 
     const projectId = await context.stateManager.getProjectId()
 
-    const result = await context.api.insights({ projectId }).validate({ query, language })
+    const result = await context.api.insights({ projectId }).validate({ query, language, connectionId })
 
     if (!result.success) {
         throw new Error(`Failed to validate query: ${result.error.message}`)

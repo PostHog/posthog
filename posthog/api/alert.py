@@ -32,6 +32,7 @@ from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
@@ -311,6 +312,14 @@ class AlertSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+        team = self.context["get_team"]()
+        current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_ALERTS_PER_TEAM,
+            current_count=current_count,
+            user=self.context["request"].user,
+        )
         subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
 

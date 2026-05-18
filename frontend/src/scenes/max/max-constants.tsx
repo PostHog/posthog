@@ -988,6 +988,14 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
         },
     },
+    diagnose_proxy: {
+        name: 'Diagnose reverse proxy',
+        description: 'Diagnose reverse proxy stuck or erroring states',
+        icon: <IconCloud />,
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed reverse proxy' : 'Diagnosing reverse proxy...'
+        },
+    },
     finalize_plan: {
         name: 'Finalize plan',
         description: 'Finalize plan',

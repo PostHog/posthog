@@ -2,10 +2,21 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache as django_cache
+
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.slack.slack import SlackResumeConfig, _channel_messages_generator
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS
+from posthog.temporal.data_imports.sources.slack.slack import (
+    SlackResumeConfig,
+    _channel_messages_generator,
+    _fetch_all_channels,
+    _fetch_all_channels_cached,
+    _fetch_channels_by_type,
+    slack_source,
+)
 
 
 def _make_response(payload: dict[str, Any]) -> MagicMock:
@@ -155,3 +166,279 @@ class TestChannelMessagesGeneratorResumable:
         call_kwargs = mock_get.call_args.kwargs
         assert "cursor" not in call_kwargs["params"]
         assert call_kwargs["params"]["oldest"] == "original_oldest"
+
+
+def _make_channel_page(channels: list[dict[str, Any]], next_cursor: str = "") -> dict[str, Any]:
+    return {
+        "ok": True,
+        "channels": channels,
+        "response_metadata": {"next_cursor": next_cursor},
+    }
+
+
+class TestFetchChannelsByType:
+    @parameterized.expand(
+        [
+            (
+                "public_with_authed_user_ignores_user_scoping",
+                "public_channel",
+                "U_INSTALLER",
+                "https://slack.com/api/conversations.list",
+                False,
+            ),
+            (
+                "private_with_authed_user_scopes_to_installer",
+                "private_channel",
+                "U_INSTALLER",
+                "https://slack.com/api/users.conversations",
+                True,
+            ),
+            (
+                "private_without_authed_user_omits_user_param",
+                "private_channel",
+                None,
+                "https://slack.com/api/users.conversations",
+                False,
+            ),
+        ]
+    )
+    def test_routes_to_expected_endpoint(
+        self,
+        _name: str,
+        channel_type: str,
+        authed_user: str | None,
+        expected_url: str,
+        expects_user_param: bool,
+    ) -> None:
+        responses = [_make_response(_make_channel_page([{"id": "X1", "name": "x"}]))]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", channel_type, authed_user=authed_user)
+
+        assert channels == [{"id": "X1", "name": "x"}]
+        assert mock_get.call_args.args[0] == expected_url
+        params = mock_get.call_args.kwargs["params"]
+        assert params["types"] == channel_type
+        if expects_user_param:
+            assert params["user"] == authed_user
+        else:
+            assert "user" not in params
+
+    def test_paginates_until_cursor_empty(self) -> None:
+        pages = [
+            _make_channel_page([{"id": "C1", "name": "a"}], next_cursor="page2"),
+            _make_channel_page([{"id": "C2", "name": "b"}], next_cursor=""),
+        ]
+        responses = [_make_response(p) for p in pages]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", "public_channel")
+
+        assert [c["id"] for c in channels] == ["C1", "C2"]
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[1].kwargs["params"]["cursor"] == "page2"
+
+
+class TestFetchAllChannels:
+    def test_combines_public_and_private(self) -> None:
+        pages = [
+            _make_channel_page([{"id": "C1", "name": "general"}], next_cursor=""),
+            _make_channel_page([{"id": "G1", "name": "secret"}], next_cursor=""),
+        ]
+        responses = [_make_response(p) for p in pages]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_all_channels("token", authed_user="U_INSTALLER")
+
+        assert [c["id"] for c in channels] == ["C1", "G1"]
+        assert mock_get.call_count == 2
+        first_url, second_url = mock_get.call_args_list[0].args[0], mock_get.call_args_list[1].args[0]
+        assert first_url == "https://slack.com/api/conversations.list"
+        assert second_url == "https://slack.com/api/users.conversations"
+        # public call must not carry user= scoping; private call must
+        assert "user" not in mock_get.call_args_list[0].kwargs["params"]
+        assert mock_get.call_args_list[1].kwargs["params"]["user"] == "U_INSTALLER"
+
+
+class TestFetchAllChannelsCached:
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
+    def test_second_call_uses_cache(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[{"id": "C1", "name": "general"}],
+        ) as mock_fetch:
+            first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+
+        assert first == second == [{"id": "C1", "name": "general"}]
+        assert mock_fetch.call_count == 1
+
+    def test_different_integrations_get_independent_cache_entries(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=[[{"id": "A1", "name": "a"}], [{"id": "B1", "name": "b"}]],
+        ) as mock_fetch:
+            a = _fetch_all_channels_cached(integration_id=1, access_token="token", authed_user="U1")
+            b = _fetch_all_channels_cached(integration_id=2, access_token="token", authed_user="U1")
+
+        assert a == [{"id": "A1", "name": "a"}]
+        assert b == [{"id": "B1", "name": "b"}]
+        assert mock_fetch.call_count == 2
+
+    def test_force_refresh_refetches_and_overwrites_cache(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
+        ) as mock_fetch:
+            first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached(
+                integration_id=42, access_token="token", authed_user="U_INSTALLER", force_refresh=True
+            )
+            third = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+
+        assert first == [{"id": "C1", "name": "general"}]
+        assert second == [{"id": "C2", "name": "renamed"}]
+        # Third call hits the cache populated by the force_refresh write.
+        assert third == [{"id": "C2", "name": "renamed"}]
+        assert mock_fetch.call_count == 2
+
+    def test_force_refresh_does_not_evict_on_failure(self) -> None:
+        # If the upstream fetch raises, the previous cached value must remain so
+        # concurrent readers continue to see stale-but-valid data.
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[{"id": "C1", "name": "general"}],
+        ):
+            _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=RuntimeError("rate limited"),
+        ):
+            try:
+                _fetch_all_channels_cached(
+                    integration_id=42, access_token="token", authed_user="U_INSTALLER", force_refresh=True
+                )
+            except RuntimeError:
+                pass
+
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[{"id": "WRONG", "name": "should_not_be_called"}],
+        ) as mock_fetch:
+            after = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+
+        assert after == [{"id": "C1", "name": "general"}]
+        assert mock_fetch.call_count == 0
+
+
+class TestSlackSourceGetSchemasForceRefresh:
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
+    def _build_mocks(self) -> tuple[Any, Any]:
+        config = MagicMock()
+        config.slack_integration_id = 42
+
+        integration = MagicMock()
+        integration.id = 42
+        integration.access_token = "token"
+        integration.config = {"authed_user": {"id": "U_INSTALLER"}}
+
+        return config, integration
+
+    def test_force_refresh_bypasses_channels_cache(self) -> None:
+        from posthog.temporal.data_imports.sources.slack.source import SlackSource
+
+        config, integration = self._build_mocks()
+        source = SlackSource()
+
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch(
+                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+                side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
+            ) as mock_fetch,
+            patch(
+                "posthog.temporal.data_imports.sources.slack.source.is_webhook_feature_flag_enabled",
+                return_value=False,
+            ),
+        ):
+            first = source.get_schemas(config, team_id=1)
+            cached = source.get_schemas(config, team_id=1)
+            forced = source.get_schemas(config, team_id=1, force_refresh=True)
+
+        # Two upstream fetches total: the first cold call and the force_refresh call.
+        # The middle call must be a cache hit.
+        assert mock_fetch.call_count == 2
+
+        def channel_names(schemas: Any) -> set[str]:
+            return {s.name for s in schemas if s.name not in ENDPOINTS}
+
+        assert channel_names(first) == {"C1"}
+        assert channel_names(cached) == {"C1"}
+        assert channel_names(forced) == {"C2"}
+
+
+class TestSlackSourceChannelsEndpoint:
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
+    def _build_source(self, authed_user: str | None) -> Any:
+        return slack_source(
+            access_token="token",
+            integration_id=42,
+            endpoint="$channels",
+            team_id=1,
+            job_id="job-1",
+            webhook_source_manager=MagicMock(spec=WebhookSourceManager),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+            authed_user=authed_user,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "with_authed_user",
+                "U_INSTALLER",
+                [{"id": "C1", "name": "general"}, {"id": "G1", "name": "secret"}],
+            ),
+            (
+                "without_authed_user",
+                None,
+                [],
+            ),
+        ]
+    )
+    def test_uses_fetch_all_channels_and_threads_authed_user(
+        self,
+        _name: str,
+        authed_user: str | None,
+        sample: list[dict[str, Any]],
+    ) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=sample,
+        ) as mock_fetch:
+            response = self._build_source(authed_user=authed_user)
+            items = list(response.items())
+
+        assert items == sample
+        mock_fetch.assert_called_once_with("token", authed_user)

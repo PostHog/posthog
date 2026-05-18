@@ -386,6 +386,7 @@ function VisualizationActions({
                     size="small"
                     onClick={onToggleChartSettingsPanel}
                     tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
                 />
             </div>
         </div>
@@ -399,7 +400,7 @@ interface ResultsActionsProps {
     exportContext: ExportContext | undefined
     hasQueryInput: boolean
     isEmbeddedMode: boolean
-    onShareTab: () => void
+    onShareTab?: () => void
 }
 
 function ResultsActions({
@@ -457,7 +458,7 @@ function ResultsActions({
                     />
                 </Tooltip>
             )}
-            {!isEmbeddedMode && (
+            {!isEmbeddedMode && onShareTab && (
                 <Tooltip title="Share your current query">
                     <LemonButton
                         id="sql-editor-share"
@@ -482,7 +483,7 @@ interface OutputActionsProps {
     hasQueryInput: boolean
     isEmbeddedMode: boolean
     settingsOpen: boolean
-    onShareTab: () => void
+    onShareTab?: () => void
     onToggleChartSettingsPanel: () => void
 }
 
@@ -527,14 +528,16 @@ function OutputActions({
 
 interface OutputPaneProps {
     tabId: string
+    showToolbar?: boolean
+    onShareTab?: () => void
 }
 
-export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
     const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
-    const { setSourceQuery, shareTab } = useActions(sqlEditorLogic)
+    const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -739,7 +742,8 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         pollResponse,
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
-        showVisualizationSettings: isChartSettingsPanelOpen,
+        showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        isEmbeddedMode,
     }
     const sharedActionsProps = {
         response,
@@ -749,7 +753,7 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         hasQueryInput,
         isEmbeddedMode,
         settingsOpen: isChartSettingsPanelOpen,
-        onShareTab: shareTab,
+        onShareTab,
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
     }
 
@@ -761,29 +765,33 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
             >
-                <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
-                    <div className="flex min-h-[41px] gap-2 ml-4">
-                        {splitToggle}
-                        <OutputTabLabel tab={outputTabs[0]} active />
+                {showToolbar ? (
+                    <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
+                        <div className="flex min-h-[41px] gap-2 ml-4">
+                            {splitToggle}
+                            <OutputTabLabel tab={outputTabs[0]} active />
+                        </div>
+                        <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                            <OutputActions activeTab={OutputTab.Results} {...sharedActionsProps} />
+                        </div>
                     </div>
-                    <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                        <OutputActions activeTab={OutputTab.Results} {...sharedActionsProps} />
-                    </div>
-                </div>
+                ) : null}
                 <div className="flex flex-1 min-h-0 relative bg-dark border-r">
                     <Content activeTab={OutputTab.Results} {...sharedContentProps} />
                 </div>
                 <Resizer {...splitResizerProps} />
             </div>
             <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
-                <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                    <div className="flex min-h-[41px] gap-2 ml-4">
-                        <OutputTabLabel tab={outputTabs[1]} active />
+                {showToolbar ? (
+                    <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
+                        <div className="flex min-h-[41px] gap-2 ml-4">
+                            <OutputTabLabel tab={outputTabs[1]} active />
+                        </div>
+                        <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                            <OutputActions activeTab={OutputTab.Visualization} {...sharedActionsProps} />
+                        </div>
                     </div>
-                    <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                        <OutputActions activeTab={OutputTab.Visualization} {...sharedActionsProps} />
-                    </div>
-                </div>
+                ) : null}
                 <div className="flex flex-1 min-h-0 relative bg-dark">
                     <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
                 </div>
@@ -791,22 +799,24 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         </div>
     ) : (
         <>
-            <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                <div className="flex min-h-[41px] gap-2 ml-4">
-                    {splitToggle}
-                    {outputTabs.map((tab) => (
-                        <OutputTabLabel
-                            key={tab.key}
-                            tab={tab}
-                            active={tab.key === activeTab}
-                            onClick={() => setActiveTab(tab.key)}
-                        />
-                    ))}
+            {showToolbar ? (
+                <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
+                    <div className="flex min-h-[41px] gap-2 ml-4">
+                        {splitToggle}
+                        {outputTabs.map((tab) => (
+                            <OutputTabLabel
+                                key={tab.key}
+                                tab={tab}
+                                active={tab.key === activeTab}
+                                onClick={() => setActiveTab(tab.key)}
+                            />
+                        ))}
+                    </div>
+                    <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                        <OutputActions activeTab={activeTab} {...sharedActionsProps} />
+                    </div>
                 </div>
-                <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                    <OutputActions activeTab={activeTab} {...sharedActionsProps} />
-                </div>
-            </div>
+            ) : null}
             <div className="flex flex-1 min-h-0 relative bg-dark">
                 <Content activeTab={activeTab} {...sharedContentProps} />
             </div>
@@ -912,6 +922,10 @@ function InternalDataTableVisualization(
         component = <HogQLBoldNumber />
     }
 
+    if (props.embedded && !props.showSettingsPanel) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
+    }
+
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
@@ -974,6 +988,7 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    isEmbeddedMode,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1041,6 +1056,7 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     editMode
+                    embedded={isEmbeddedMode}
                     showSettingsPanel={showVisualizationSettings}
                 />
             </div>

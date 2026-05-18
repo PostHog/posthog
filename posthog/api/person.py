@@ -4,9 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
-from django.conf import settings
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -40,7 +38,7 @@ from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
+from posthog.api.utils import action, format_paginated_url, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
@@ -331,18 +329,6 @@ class PersonPropertiesAtTimeMetadataSerializer(serializers.Serializer):
     distinct_ids_count = serializers.IntegerField(help_text="Number of distinct_ids associated with this person")
 
 
-class PersonPropertiesAtTimeDebugSerializer(serializers.Serializer):
-    """Serializer for the debug information (only available to staff users)."""
-
-    query = serializers.CharField(help_text="The ClickHouse query that was executed")
-    params = serializers.DictField(help_text="The parameters passed to the query")
-    events_found = serializers.IntegerField(help_text="Number of events found")
-    events = serializers.ListField(
-        child=serializers.DictField(), help_text="Raw events that were used to build the properties"
-    )
-    error = serializers.CharField(required=False, help_text="Error message if debug query failed")
-
-
 class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     """Serializer for the point-in-time person properties response."""
 
@@ -363,9 +349,6 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     # Additional fields for point-in-time response
     point_in_time_metadata = PersonPropertiesAtTimeMetadataSerializer(
         help_text="Metadata about the point-in-time query"
-    )
-    debug = PersonPropertiesAtTimeDebugSerializer(
-        required=False, help_text="Debug information (only available when debug=true and DEBUG=True)"
     )
 
 
@@ -422,7 +405,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
     parser_classes = [JSONParser]
-    queryset = Person.objects.all()
+    queryset = Person.objects.all()  # nosemgrep: no-direct-persons-db-orm
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     lifecycle_class = Lifecycle
@@ -446,7 +429,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.filter(
+                    team_id=self.team_id
+                ).order_by(  # nosemgrep: no-direct-persons-db-orm
+                    "id"
+                ),  # nosemgrep: no-direct-persons-db-orm
                 to_attr="distinct_ids_cache",
             )
         )
@@ -457,12 +445,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person_id = self.kwargs[self.lookup_field]
 
         try:
-            queryset = get_pk_or_uuid(queryset, person_id)
+            uuid.UUID(str(person_id))
         except ValueError:
-            raise ValidationError(
-                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
-            )
-        return get_object_or_404(queryset)
+            try:
+                int(person_id)
+            except (ValueError, TypeError):
+                raise ValidationError(
+                    f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+                )
+
+        return get_person_by_pk_or_uuid(self.team_id, str(person_id))
 
     @extend_schema(
         parameters=[
@@ -946,8 +938,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
+        person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"])
+        if person is None:
+            raise NotFound()
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
@@ -1263,7 +1257,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team, uuids)
+        persons = get_persons_by_uuids(self.team_id, uuids)
 
         results: dict[str, Any] = {}
         for person in persons:
@@ -1301,13 +1295,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="Whether to handle $set_once operations (default: false)",
                 required=False,
             ),
-            OpenApiParameter(
-                name="debug",
-                type=bool,
-                location=OpenApiParameter.QUERY,
-                description="Whether to include debug information with raw events (only works when DEBUG=True, default: false)",
-                required=False,
-            ),
         ],
         responses={
             200: PersonPropertiesAtTimeResponseSerializer,
@@ -1329,7 +1316,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         - distinct_id: The distinct_id of the person
         - timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
         - include_set_once: Whether to handle $set_once operations (default: false)
-        - debug: Whether to include debug information with raw events (default: false)
         """
         from posthog.models.person.point_in_time_properties import (
             build_person_properties_at_time,
@@ -1340,7 +1326,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person_id = request.GET.get("person_id")
         timestamp_str = request.GET.get("timestamp")
         include_set_once = request.GET.get("include_set_once", "false").lower() == "true"
-        debug = request.GET.get("debug", "false").lower() == "true"
 
         # Validate parameters
         if distinct_id and person_id:
@@ -1396,33 +1381,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             # Build point-in-time properties using the pre-fetched distinct_ids
-            # If debug mode is enabled, get raw events to avoid duplicate query
-            debug_rows: list[Any] = []
-            debug_query: str = ""
-            debug_params: dict[str, Any] = {}
-            point_in_time_properties: dict[str, Any]
-            if debug and settings.DEBUG:
-                result = build_person_properties_at_time(
-                    team_id=self.team_id,
-                    timestamp=timestamp,
-                    distinct_ids=distinct_ids_queried,
-                    include_set_once=include_set_once,
-                    return_debug_info=True,
-                )
-                # Type cast to help mypy understand the tuple unpacking
-                point_in_time_properties, debug_rows, debug_query, debug_params = cast(
-                    tuple[dict[str, Any], list[Any], str, dict[str, Any]], result
-                )
-            else:
-                point_in_time_properties = cast(
-                    dict[str, Any],
-                    build_person_properties_at_time(
-                        team_id=self.team_id,
-                        timestamp=timestamp,
-                        distinct_ids=distinct_ids_queried,
-                        include_set_once=include_set_once,
-                    ),
-                )
+            tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY, team_id=self.team_id)
+            point_in_time_properties = build_person_properties_at_time(
+                team_id=self.team_id,
+                timestamp=timestamp,
+                distinct_ids=distinct_ids_queried,
+                include_set_once=include_set_once,
+            )
 
             # Serialize the person object
             person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
@@ -1440,18 +1405,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "distinct_ids_queried": distinct_ids_queried,
                 "distinct_ids_count": len(distinct_ids_queried),
             }
-
-            # Add debug information if requested and in debug mode
-            if debug and settings.DEBUG:
-                # Use the raw events, query, and params that were already fetched to avoid duplicate query
-                person_data["debug"] = {
-                    "query": debug_query,
-                    "params": debug_params,
-                    "events_found": len(debug_rows),
-                    "events": [
-                        {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
-                    ],
-                }
 
             return response.Response(person_data)
 

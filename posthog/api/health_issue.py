@@ -1,16 +1,21 @@
 from django.db.models import Case, Count, QuerySet, When
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.status import HTTP_400_BAD_REQUEST
+from rest_framework.status import HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
+from posthog.rate_limit import HealthIssueRefreshThrottle
+
+from products.growth.backend.sdk_health import sdks_within_freshness_grace_period
 
 
 class HealthIssueSerializer(serializers.ModelSerializer):
@@ -72,6 +77,9 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             .order_by("severity_order", "-created_at")
         )
 
+        if fresh_sdks := sdks_within_freshness_grace_period():
+            queryset = queryset.exclude(kind="sdk_outdated", payload__sdk_name__in=fresh_sdks)
+
         if status_filter := self.request.query_params.get("status"):
             if status_filter not in VALID_STATUSES:
                 raise serializers.ValidationError({"status": f"Invalid status: {status_filter}"})
@@ -119,4 +127,44 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
                 "by_severity": by_severity,
                 "by_kind": by_kind,
             }
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: OpenApiResponse(description="Health check refresh jobs scheduled for the team."),
+            429: OpenApiResponse(description="Refresh was triggered recently; try again later."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="refresh",
+        throttle_classes=[HealthIssueRefreshThrottle],
+        required_scopes=["health_issue:write"],
+    )
+    def refresh(self, request: Request, **kwargs) -> Response:
+        from posthog.tasks.health_checks import evaluate_health_check_for_team
+        from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
+
+        ensure_registry_loaded()
+        kinds = list(HEALTH_CHECKS.keys())
+
+        scheduled: list[str] = []
+        failed: list[str] = []
+        for kind in kinds:
+            try:
+                evaluate_health_check_for_team.delay(kind=kind, team_id=self.team_id)
+                scheduled.append(kind)
+            except Exception as exc:
+                capture_exception(exc)
+                failed.append(kind)
+
+        return Response(
+            {
+                "scheduled_kinds": scheduled,
+                "kinds_failed": failed,
+                "team_id": self.team_id,
+            },
+            status=HTTP_202_ACCEPTED,
         )

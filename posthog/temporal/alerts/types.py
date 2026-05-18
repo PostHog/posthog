@@ -66,6 +66,15 @@ class EvaluateAlertResult:
     # Human-readable breach descriptions the FIRING email uses as match_descriptions.
     # Not persisted on AlertCheck, so the workflow must pipe them from evaluate to notify.
     breaches: list[str] | None = None
+    # Investigation agent is opted in and this fire claimed the cooldown slot. Workflow
+    # should start the AnomalyInvestigationWorkflow as a child.
+    should_start_investigation: bool = False
+    # Hold the synchronous notification — the investigation workflow will dispatch it
+    # itself after the verdict, or the safety-net schedule will force-fire on stall.
+    should_gate_notification: bool = False
+    # Persisted alert.created_by — the investigation workflow uses this to attribute
+    # the resulting Notebook. Optional because legacy alerts may not have it.
+    investigation_user_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)

@@ -1677,6 +1677,37 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         role_data = self._find_role(res.json()["results"], self.role.id)
         assert role_data["project"]["access_level"] == "member"
 
+    def test_resource_role_overrides_ignored_when_role_based_access_not_available(self):
+        """Without ROLE_BASED_ACCESS, role-based resource overrides are inert at runtime,
+        so the per-role preview must show the resource default as the effective level.
+        Project-level role overrides remain effective (runtime still honors them via
+        UserTeamPermissions when ADVANCED_PERMISSIONS is enabled)."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        # Project default 'member', role-based project override 'admin'
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Dashboard default 'viewer', role-based override 'manager'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+
+        res = self.client.get("/api/projects/@current/access_control_roles")
+        role_data = self._find_role(res.json()["results"], self.role.id)
+
+        # Resource-level role override must be ignored
+        dashboard = role_data["resources"]["dashboard"]
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
+        # Project-level role override is still effective (mirrors runtime)
+        project = role_data["project"]
+        assert project["access_level"] == "admin"
+        assert project["effective_access_level"] == "admin"
+
 
 class TestAccessControlMembersEndpoint(BaseAccessControlTest):
     def setUp(self):
@@ -1815,6 +1846,51 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert ff["access_level"] is None
         assert ff["effective_access_level"] is None
         assert ff["inherited_access_level"] is None
+
+    def test_resource_role_overrides_ignored_when_role_based_access_not_available(self):
+        """When the organization does not have the ROLE_BASED_ACCESS feature, role-based
+        *resource* overrides must not influence a member's effective resource access level.
+        The member should fall back to the resource default.
+
+        Project-level role overrides are deliberately NOT gated by this feature, because
+        UserTeamPermissions.effective_membership_level_for_parent_membership honors
+        role-backed project AccessControl rows whenever ADVANCED_PERMISSIONS is enabled
+        (no ROLE_BASED_ACCESS check). The preview must match that runtime behaviour.
+        """
+        # Remove the ROLE_BASED_ACCESS feature, keep ADVANCED_PERMISSIONS
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        # Make user2 a regular member so org-admin highest-access doesn't mask the bug
+        self.user2_membership.level = OrganizationMembership.Level.MEMBER
+        self.user2_membership.save()
+
+        # Project default 'member', role-based project override 'admin'
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Default dashboard access for the project is 'viewer'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # A role-based resource override grants 'manager' on dashboards
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+        # user2 is in that role
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+
+        res = self.client.get("/api/projects/@current/access_control_members")
+        member_data = self._find_member(res.json()["results"], self.user2_membership.id)
+
+        # Resource-level: role override must be ignored, fall back to project default
+        dashboard = member_data["resources"]["dashboard"]
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
+        # Project-level: role override IS still honored at runtime, so the preview must reflect it
+        project = member_data["project"]
+        assert project["effective_access_level"] == "admin"
+        assert project["inherited_access_level"] == "admin"
+        assert project["inherited_access_level_reason"] == "role_override"
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""

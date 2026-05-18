@@ -6,6 +6,7 @@ class Channel(models.TextChoices):
     EMAIL = "email", "Email"
     SLACK = "slack", "Slack"
     TEAMS = "teams", "Microsoft Teams"
+    GITHUB = "github", "GitHub"
 
 
 class ChannelDetail(models.TextChoices):
@@ -19,6 +20,8 @@ class ChannelDetail(models.TextChoices):
     # Widget sub-types
     WIDGET_EMBEDDED = "widget_embedded", "Widget"
     WIDGET_API = "widget_api", "API"
+    # GitHub sub-types
+    GITHUB_ISSUE = "github_issue", "GitHub issue"
 
 
 class Status(models.TextChoices):

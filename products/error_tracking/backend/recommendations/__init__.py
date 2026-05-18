@@ -1,10 +1,10 @@
 from .alerts import AlertsRecommendation
 from .base import Recommendation
-from .cross_sell import CrossSellRecommendation
+from .long_running_issues import LongRunningIssuesRecommendation
 
 RECOMMENDATIONS: list[Recommendation] = [
-    CrossSellRecommendation(),
     AlertsRecommendation(),
+    LongRunningIssuesRecommendation(),
 ]
 
 RECOMMENDATIONS_BY_TYPE: dict[str, Recommendation] = {r.type: r for r in RECOMMENDATIONS}

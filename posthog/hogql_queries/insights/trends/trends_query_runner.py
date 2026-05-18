@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
 
+import posthoganalytics
 from natsort import natsorted, ns
 
 from posthog.schema import (
@@ -843,6 +844,34 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
+
+        self.modifiers.sessionPropertyPreAggregation = (
+            self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
+        )
+
+    def _has_session_breakdown(self) -> bool:
+        filter = self.query.breakdownFilter
+        if filter is None:
+            return False
+        if filter.breakdown_type == "session":
+            return True
+        return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
+
+    def _team_flag_session_property_pre_aggregation(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "trends-session-property-pre-aggregation",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
 
     def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [

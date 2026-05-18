@@ -49,10 +49,6 @@ export const StatusReasonEnumApi = {
     ProviderKeyDeleted: 'provider_key_deleted',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
@@ -139,7 +135,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -159,7 +155,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -201,17 +197,17 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-* `llm_judge` - LLM as a judge
-* `hog` - Hog */
+  * `llm_judge` - LLM as a judge
+  * `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
-* `boolean` - Boolean (Pass/Fail) */
+  * `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
@@ -273,17 +269,17 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason?: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-* `llm_judge` - LLM as a judge
-* `hog` - Hog */
+  * `llm_judge` - LLM as a judge
+  * `hog` - Hog */
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
-* `boolean` - Boolean (Pass/Fail) */
+  * `boolean` - Boolean (Pass/Fail) */
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
@@ -467,14 +463,14 @@ export interface ClusteringRunRequestApi {
     max_samples?: number
     /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
 
-* `none` - none
-* `l2` - l2 */
+  * `none` - none
+  * `l2` - l2 */
     embedding_normalization?: EmbeddingNormalizationEnumApi
     /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
 
-* `none` - none
-* `umap` - umap
-* `pca` - pca */
+  * `none` - none
+  * `umap` - umap
+  * `pca` - pca */
     dimensionality_reduction_method?: DimensionalityReductionMethodEnumApi
     /**
      * Target dimensions for dimensionality reduction (ignored if method is 'none')
@@ -484,8 +480,8 @@ export interface ClusteringRunRequestApi {
     dimensionality_reduction_ndims?: number
     /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
 
-* `hdbscan` - hdbscan
-* `kmeans` - kmeans */
+  * `hdbscan` - hdbscan
+  * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
      * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
@@ -518,9 +514,9 @@ export interface ClusteringRunRequestApi {
     run_label?: string
     /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
 
-* `umap` - umap
-* `pca` - pca
-* `tsne` - tsne */
+  * `umap` - umap
+  * `pca` - pca
+  * `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
@@ -529,6 +525,75 @@ export interface ClusteringRunRequestApi {
      * @nullable
      */
     clustering_job_id?: string | null
+}
+
+/**
+ * * `unknown` - Unknown
+ * `ok` - Ok
+ * `invalid` - Invalid
+ * `error` - Error
+ */
+export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
+
+export const LLMProviderKeyStateEnumApi = {
+    Unknown: 'unknown',
+    Ok: 'ok',
+    Invalid: 'invalid',
+    Error: 'error',
+} as const
+
+export interface LLMProviderKeyApi {
+    readonly id: string
+    provider: LLMProviderEnumApi
+    /** @maxLength 255 */
+    name: string
+    readonly state: LLMProviderKeyStateEnumApi
+    /** @nullable */
+    readonly error_message: string | null
+    api_key?: string
+    readonly api_key_masked: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display: string | null
+    set_as_active?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly last_used_at: string | null
+}
+
+export interface EvaluationConfigApi {
+    /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+    readonly trial_eval_limit: number
+    /** Number of llm_judge runs already consumed against the trial credit pool. */
+    readonly trial_evals_used: number
+    /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+    readonly trial_evals_remaining: number
+    /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+    readonly active_provider_key: LLMProviderKeyApi | null
+    /** Timestamp when the evaluation config row was created. */
+    readonly created_at: string
+    /** Timestamp when the evaluation config row was last modified. */
+    readonly updated_at: string
+}
+
+export interface EvaluationConfigSetActiveKeyRequestApi {
+    /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
+    key_id: string
 }
 
 /**
@@ -549,8 +614,8 @@ export interface EvaluationReportApi {
     evaluation: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-* `scheduled` - Scheduled
-* `every_n` - Every N */
+  * `scheduled` - Scheduled
+  * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -621,8 +686,8 @@ export interface PatchedEvaluationReportApi {
     evaluation?: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-* `scheduled` - Scheduled
-* `every_n` - Every N */
+  * `scheduled` - Scheduled
+  * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -708,10 +773,10 @@ export interface EvaluationReportRunApi {
     readonly period_end: string
     /** 'pending', 'delivered', or 'failed'.
 
-* `pending` - Pending
-* `delivered` - Delivered
-* `partial_failure` - Partial Failure
-* `failed` - Failed */
+  * `pending` - Pending
+  * `delivered` - Delivered
+  * `partial_failure` - Partial Failure
+  * `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
     /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
@@ -750,10 +815,10 @@ export interface EvaluationSummaryRequestApi {
     evaluation_id: string
     /** Filter type to apply ('all', 'pass', 'fail', or 'na')
 
-* `all` - all
-* `pass` - pass
-* `fail` - fail
-* `na` - na */
+  * `all` - all
+  * `pass` - pass
+  * `fail` - fail
+  * `na` - na */
     filter?: FilterEnumApi
     /**
      * Optional: specific generation IDs to include in summary (max 250)
@@ -787,53 +852,36 @@ export interface EvaluationSummaryResponseApi {
     statistics: EvaluationSummaryStatisticsApi
 }
 
-/**
- * * `unknown` - Unknown
- * `ok` - Ok
- * `invalid` - Invalid
- * `error` - Error
- */
-export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
+export interface LLMModelInfoApi {
+    /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
+    id: string
+    /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+    posthog_available: boolean
+}
 
-export const LLMProviderKeyStateEnumApi = {
-    Unknown: 'unknown',
-    Ok: 'ok',
-    Invalid: 'invalid',
-    Error: 'error',
-} as const
+export interface LLMModelsListResponseApi {
+    /** Models supported for the requested provider. */
+    models: LLMModelInfoApi[]
+}
 
-export interface LLMProviderKeyApi {
-    readonly id: string
-    provider: LLMProviderEnumApi
-    /** @maxLength 255 */
-    name: string
-    readonly state: LLMProviderKeyStateEnumApi
-    /** @nullable */
-    readonly error_message: string | null
-    api_key?: string
-    readonly api_key_masked: string
-    /** Azure OpenAI endpoint URL */
-    azure_endpoint?: string
+export interface OfflineExperimentItemsRequestApi {
+    /** `$ai_experiment_id` whose offline-evaluation items to return. */
+    experiment_id: string
     /**
-     * Azure OpenAI API version
-     * @maxLength 20
-     */
-    api_version?: string
-    /**
-     * Azure endpoint (read-only, for display)
+     * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
      * @nullable
      */
-    readonly azure_endpoint_display: string | null
+    date_from?: string | null
     /**
-     * Azure API version (read-only, for display)
+     * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
      * @nullable
      */
-    readonly api_version_display: string | null
-    set_as_active?: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly last_used_at: string | null
+    date_to?: string | null
+}
+
+export interface OfflineExperimentItemsResponseApi {
+    /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
+    results: unknown[][]
 }
 
 export interface PaginatedLLMProviderKeyListApi {
@@ -1000,8 +1048,8 @@ export interface CategoricalScoreDefinitionConfigApi {
     options: CategoricalScoreOptionApi[]
     /** Whether reviewers can select one option or multiple options. Defaults to `single`.
 
-* `single` - single
-* `multiple` - multiple */
+  * `single` - single
+  * `multiple` - multiple */
     selection_mode?: SelectionModeEnumApi
     /**
      * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
@@ -1055,6 +1103,11 @@ export interface ScoreDefinitionApi {
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
+    /**
+     * UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.
+     * @nullable
+     */
+    readonly current_version_id: string | null
     /** Current immutable scorer configuration. */
     readonly config: ScoreDefinitionConfigApi
     /** User who created the scorer. */
@@ -1087,9 +1140,9 @@ export interface ScoreDefinitionCreateApi {
     description?: string | null
     /** Scorer kind. This cannot be changed after creation.
 
-* `categorical` - categorical
-* `numeric` - numeric
-* `boolean` - boolean */
+  * `categorical` - categorical
+  * `numeric` - numeric
+  * `boolean` - boolean */
     kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
@@ -1115,6 +1168,11 @@ export interface PatchedScoreDefinitionMetadataApi {
 export interface ScoreDefinitionNewVersionApi {
     /** Next immutable scorer configuration. */
     config: ScoreDefinitionConfigApi
+    /**
+     * Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 /**
@@ -1131,15 +1189,15 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
-     * Trace IDs or generation IDs to classify, depending on analysis_level.
+     * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
     /** Whether the IDs are 'trace' IDs or 'generation' IDs.
 
-* `trace` - trace
-* `generation` - generation */
+  * `trace` - trace
+  * `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
     /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
@@ -1182,6 +1240,21 @@ export interface SentimentBatchResponseApi {
 }
 
 /**
+ * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+path used (dateRange, filterTestAccounts, properties), so the migration is
+behaviour-preserving for callers that pass a request unchanged.
+ */
+export interface SentimentGenerationsRequestApi {
+    filters?: unknown
+}
+
+export interface SentimentGenerationsResponseApi {
+    results: unknown[][]
+}
+
+/**
  * * `trace` - trace
  * `event` - event
  */
@@ -1206,13 +1279,13 @@ export const DetailModeValueEnumApi = {
 export interface SummarizeRequestApi {
     /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
-* `trace` - trace
-* `event` - event */
+  * `trace` - trace
+  * `event` - event */
     summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
-* `minimal` - minimal
-* `detailed` - detailed */
+  * `minimal` - minimal
+  * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
@@ -1277,8 +1350,8 @@ export interface BatchCheckRequestApi {
     trace_ids: string[]
     /** Summary detail level to check for
 
-* `minimal` - minimal
-* `detailed` - detailed */
+  * `minimal` - minimal
+  * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
@@ -1338,10 +1411,10 @@ export interface TextReprOptionsApi {
 export interface TextReprRequestApi {
     /** Type of LLM event to stringify
 
-* `$ai_generation` - $ai_generation
-* `$ai_span` - $ai_span
-* `$ai_embedding` - $ai_embedding
-* `$ai_trace` - $ai_trace */
+  * `$ai_generation` - $ai_generation
+  * `$ai_span` - $ai_span
+  * `$ai_embedding` - $ai_embedding
+  * `$ai_trace` - $ai_trace */
     event_type: EventTypeEnumApi
     /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
     data: unknown
@@ -1403,6 +1476,8 @@ export interface TraceReviewApi {
     readonly id: string
     /** Trace ID for the review. */
     readonly trace_id: string
+    /** Absolute URL to the trace this review is attached to. */
+    readonly trace_url: string
     /**
      * Optional comment or reasoning for the review.
      * @nullable
@@ -1942,12 +2017,237 @@ export interface LLMSkillResolveResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `llm` - LLM
+ * `hog` - Hog
+ */
+export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
+
+export const TaggerTypeEnumApi = {
+    Llm: 'llm',
+    Hog: 'hog',
+} as const
+
+export interface TagDefinitionApi {
+    /**
+     * Tag identifier
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Description to help the LLM classify
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface LLMTaggerConfigApi {
+    /**
+     * Prompt instructing the LLM how to tag generations
+     * @minLength 1
+     */
+    prompt: string
+    /** Available tags the LLM can assign */
+    tags: TagDefinitionApi[]
+    /**
+     * Minimum number of tags to apply
+     * @minimum 0
+     */
+    min_tags?: number
+    /**
+     * Maximum number of tags to apply (null = no limit)
+     * @minimum 1
+     * @nullable
+     */
+    max_tags?: number | null
+}
+
+export interface HogTaggerConfigApi {
+    /**
+     * Hog source code to classify a generation into tags.
+     * @minLength 1
+     */
+    source: string
+    /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
+    tags?: TagDefinitionApi[]
+}
+
+export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
+
+export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
+
+export interface TaggerConditionApi {
+    /**
+     * Stable identifier for this condition
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage of matching events to apply this condition to
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters that scope when this condition fires */
+    properties?: TaggerConditionApiPropertiesItem[]
+}
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface TaggerModelConfigurationApi {
+    /** LLM provider to use for this tagger.
+
+  * `openai` - Openai
+  * `anthropic` - Anthropic
+  * `gemini` - Gemini
+  * `openrouter` - Openrouter
+  * `fireworks` - Fireworks
+  * `azure_openai` - Azure OpenAI
+  * `together_ai` - Together AI */
+    provider: LLMProviderEnumApi
+    /**
+     * Provider model identifier to use for this tagger.
+     * @maxLength 100
+     */
+    model: string
+    /**
+     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * @nullable
+     */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
+export interface TaggerApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config: TaggerConfigApi
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationApi | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+}
+
+export interface PaginatedTaggerListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaggerApi[]
+}
+
+export interface TaggerModelConfigurationWriteApi {
+    /** LLM provider to use for this tagger.
+
+  * `openai` - Openai
+  * `anthropic` - Anthropic
+  * `gemini` - Gemini
+  * `openrouter` - Openrouter
+  * `fireworks` - Fireworks
+  * `azure_openai` - Azure OpenAI
+  * `together_ai` - Together AI */
+    provider: LLMProviderEnumApi
+    /**
+     * Provider model identifier to use for this tagger.
+     * @maxLength 100
+     */
+    model: string
+    /**
+     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * @nullable
+     */
+    provider_key_id?: string | null
+}
+
+export interface TaggerCreateApi {
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config: TaggerConfigApi
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationWriteApi | null
+}
+
+export interface TestHogTaggerTagApi {
+    /**
+     * Tag identifier to allow in Hog test results.
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Optional description for the tag.
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface TestHogTaggerRequestApi {
+    /**
+     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
+     * @minLength 1
+     */
+    source: string
+    /**
+     * Number of recent $ai_generation events to test against (1-10, default 5).
+     * @minimum 1
+     * @maximum 10
+     */
+    sample_count?: number
+    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
+    tags?: TestHogTaggerTagApi[]
+}
+
+export interface TestHogTaggerResultItemApi {
+    /** UUID of the sampled $ai_generation event. */
+    event_uuid: string
+    /**
+     * Trace ID if available.
+     * @nullable
+     */
+    trace_id?: string | null
+    /** First 200 characters of the generation input. */
+    input_preview: string
+    /** First 200 characters of the generation output. */
+    output_preview: string
+    /** Tag names returned by the Hog code. */
+    tags: string[]
+    /** Text written to stdout by the Hog code. */
+    reasoning: string
+    /**
+     * Error message if the Hog code failed.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface TestHogTaggerResponseApi {
+    /** Per-event Hog tagger test results. */
+    results: TestHogTaggerResultItemApi[]
+    /** Optional message, for example when no recent AI events were found. */
+    message?: string
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
      * @maxLength 255
      * @nullable
@@ -1981,9 +2281,9 @@ export interface PaginatedDatasetItemListApi {
 export interface PatchedDatasetItemApi {
     readonly id?: string
     dataset?: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
      * @maxLength 255
      * @nullable
@@ -2011,7 +2311,7 @@ export interface DatasetApi {
     name: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown | null
+    metadata?: unknown
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -2036,7 +2336,7 @@ export interface PatchedDatasetApi {
     name?: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown | null
+    metadata?: unknown
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -2097,10 +2397,6 @@ export type LlmAnalyticsClusteringJobsListParams = {
     offset?: number
 }
 
-export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown }
-
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**
      * Number of results to return per page.
@@ -2131,7 +2427,33 @@ export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
-export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown }
+export type LlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: LlmAnalyticsModelsRetrieveProvider
+}
+
+export type LlmAnalyticsModelsRetrieveProvider =
+    (typeof LlmAnalyticsModelsRetrieveProvider)[keyof typeof LlmAnalyticsModelsRetrieveProvider]
+
+export const LlmAnalyticsModelsRetrieveProvider = {
+    Anthropic: 'anthropic',
+    AzureOpenai: 'azure_openai',
+    Fireworks: 'fireworks',
+    Gemini: 'gemini',
+    Openai: 'openai',
+    Openrouter: 'openrouter',
+    TogetherAi: 'together_ai',
+} as const
+
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
@@ -2227,6 +2549,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
@@ -2440,6 +2766,40 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
+}
+
+export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+* `name` - Name
+* `-name` - Name (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name or description
+     */
+    search?: string
 }
 
 export type DatasetItemsListParams = {

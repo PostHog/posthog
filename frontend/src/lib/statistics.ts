@@ -1,5 +1,7 @@
 import { linearRegression, probit, standardDeviation } from 'simple-statistics'
 
+export { linearRegression }
+
 /**
  * Calculates the confidence interval ranges for a given set of values.
  *

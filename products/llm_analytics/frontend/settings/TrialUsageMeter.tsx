@@ -6,22 +6,32 @@ import { urls } from 'scenes/urls'
 
 import { EvaluationConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
 
-export function TrialUsageMeter({ showSettingsLink = false }: { showSettingsLink?: boolean }): JSX.Element | null {
+export function TrialUsageMeter({
+    showSettingsLink = false,
+    noun = 'evaluations',
+}: {
+    showSettingsLink?: boolean
+    noun?: string
+}): JSX.Element | null {
     const { evaluationConfig } = useValues(llmProviderKeysLogic)
 
     if (!evaluationConfig || evaluationConfig.active_provider_key) {
         return null
     }
 
-    return <TrialUsageMeterDisplay evaluationConfig={evaluationConfig} showSettingsLink={showSettingsLink} />
+    return (
+        <TrialUsageMeterDisplay evaluationConfig={evaluationConfig} showSettingsLink={showSettingsLink} noun={noun} />
+    )
 }
 
 export function TrialUsageMeterDisplay({
     evaluationConfig,
     showSettingsLink = false,
+    noun = 'evaluations',
 }: {
     evaluationConfig: EvaluationConfig
     showSettingsLink?: boolean
+    noun?: string
 }): JSX.Element {
     const { trial_eval_limit, trial_evals_remaining } = evaluationConfig
     const percentUsed = Math.min(((trial_eval_limit - trial_evals_remaining) / trial_eval_limit) * 100, 100)
@@ -30,7 +40,7 @@ export function TrialUsageMeterDisplay({
     return (
         <div className="rounded-lg p-4 space-y-3 border">
             <div className="flex justify-between items-center">
-                <span className="font-medium">Trial evaluations</span>
+                <span className="font-medium">Trial {noun}</span>
                 <span className={`text-sm ${isExhausted ? 'font-medium' : 'text-muted'}`}>
                     {trial_evals_remaining} of {trial_eval_limit} remaining
                 </span>
@@ -44,7 +54,7 @@ export function TrialUsageMeterDisplay({
             </div>
             {isExhausted ? (
                 <p className="text-sm">
-                    Trial evaluations exhausted.{' '}
+                    Trial {noun} exhausted.{' '}
                     {showSettingsLink ? (
                         <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
                             Add your API key
@@ -52,11 +62,11 @@ export function TrialUsageMeterDisplay({
                     ) : (
                         'Add your API key'
                     )}{' '}
-                    to continue running evaluations.
+                    to continue.
                 </p>
             ) : (
                 <p className="text-sm text-muted">
-                    You have {trial_evals_remaining} evaluations to try things out before{' '}
+                    You have {trial_evals_remaining} {noun} to try things out before{' '}
                     {showSettingsLink ? (
                         <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
                             adding your own key

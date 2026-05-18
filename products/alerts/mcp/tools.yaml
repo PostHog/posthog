@@ -26,6 +26,10 @@ tools:
             iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold
             (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
             logic. Requires an insight ID and at least one subscribed user.
+
+            Note: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe
+            on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
+            (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.
         exclude_params:
             - state
             - last_notified_at
@@ -94,6 +98,11 @@ tools:
             users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly
             detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a
             relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
+
+            Note: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create
+            for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list
+            (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then
+            use cdp-functions-partial-update or cdp-functions-delete.
         exclude_params:
             - state
             - last_notified_at

@@ -44,6 +44,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-sonnet-4-5",
                 "claude-sonnet-4-6",
                 "claude-haiku-4-5",
+                "gpt-5.5",
                 "gpt-5.4",
                 "gpt-5.3-codex",
                 "gpt-5.2",
@@ -124,6 +125,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "signals": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
         allow_api_keys=False,
+    ),
+    "subscriptions": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-4.1-mini"}),
+        allow_api_keys=True,
     ),
 }
 

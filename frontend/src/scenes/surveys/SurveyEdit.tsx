@@ -278,6 +278,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasTranslationValidationErrors,
         translationErrorsByQuestion,
         translationErrorsForField,
+        aiGeneratedTranslationFields,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -287,9 +288,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         setEditingLanguage,
         setFlagPropertyErrors,
         deleteBranchingLogic,
+        moveQuestion,
         setSurveyManualErrors,
         editingSurvey,
         loadSurvey,
+        clearAiGeneratedTranslationField,
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -335,16 +338,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     }
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
-        function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
-            const clone = [...arr]
-            // Remove the element from the array
-            const [element] = clone.splice(from, 1)
-            // Insert the element at the new position
-            clone.splice(to, 0, element)
-            return clone.map((child) => ({ ...child }))
-        }
-
-        setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
+        moveQuestion(oldIndex, newIndex)
         setSelectedPageIndex(newIndex)
     }
 
@@ -363,8 +357,28 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     const getFieldErrorClass = (fieldKey: string): string => {
         const fieldError = getFieldError(fieldKey)
-        return fieldError ? 'border border-warning hover:border-primary' : ''
+        const aiGenerated = isAiGeneratedField(fieldKey)
+        return [
+            fieldError ? 'border border-warning hover:border-primary' : '',
+            aiGenerated ? 'border border-dashed border-accent bg-accent-highlight-secondary' : '',
+        ]
+            .filter(Boolean)
+            .join(' ')
     }
+
+    const isAiGeneratedField = (fieldKey: string): boolean =>
+        !!activeEditingLanguage &&
+        aiGeneratedTranslationFields.includes(`translations.${activeEditingLanguage}.${fieldKey}`)
+
+    const getFieldLabel = (label: string, fieldKey: string): JSX.Element | string =>
+        isAiGeneratedField(fieldKey) ? (
+            <span className="flex items-center gap-1">
+                <span>{label}</span>
+                <LemonTag type="highlight">AI draft</LemonTag>
+            </span>
+        ) : (
+            label
+        )
 
     const getConfirmationMessageErrors = (): number => {
         let count = 0
@@ -398,6 +412,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     canEdit
                     onNameChange={(name) => {
                         if (activeEditingLanguage) {
+                            clearAiGeneratedTranslationField(`translations.${activeEditingLanguage}.name`)
                             setSurveyValue('translations', {
                                 ...surveyTranslations,
                                 [activeEditingLanguage]: {
@@ -421,7 +436,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     data-attr="switch-to-wizard"
                                     type="tertiary"
                                     size="small"
-                                    to={`${urls.surveyWizard(id)}#preserveLocalChanges=true`}
+                                    to={urls.surveyWizard(id)}
                                     onClick={() => setPreferredEditor('guided')}
                                 >
                                     Guided editor
@@ -707,40 +722,18 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     header: 'Steps',
                                     content: (
                                         <>
+                                            {surveyTranslationsEnabled ? (
+                                                <div className="mb-4">
+                                                    <SurveyTranslations />
+                                                </div>
+                                            ) : null}
                                             <DndContext
                                                 onDragEnd={({ active, over }) => {
                                                     if (over && active.id !== over.id) {
-                                                        const finishDrag = (): void =>
-                                                            onSortEnd({
-                                                                oldIndex: sortedItemIds.indexOf(active.id.toString()),
-                                                                newIndex: sortedItemIds.indexOf(over.id.toString()),
-                                                            })
-
-                                                        if (hasBranchingLogic) {
-                                                            LemonDialog.open({
-                                                                title: 'Your survey has active branching logic',
-                                                                description: (
-                                                                    <p className="py-2">
-                                                                        Rearranging questions will remove your branching
-                                                                        logic. Are you sure you want to continue?
-                                                                    </p>
-                                                                ),
-
-                                                                primaryButton: {
-                                                                    children: 'Continue',
-                                                                    status: 'danger',
-                                                                    onClick: () => {
-                                                                        deleteBranchingLogic()
-                                                                        finishDrag()
-                                                                    },
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        } else {
-                                                            finishDrag()
-                                                        }
+                                                        onSortEnd({
+                                                            oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                                            newIndex: sortedItemIds.indexOf(over.id.toString()),
+                                                        })
                                                     }
                                                 }}
                                             >
@@ -772,7 +765,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                             index={index}
                                                                             survey={survey}
                                                                             setSelectedPageIndex={setSelectedPageIndex}
-                                                                            setSurveyValue={setSurveyValue}
                                                                             translationValidationErrors={
                                                                                 activeTranslationValidationErrors
                                                                             }
@@ -884,7 +876,12 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           ),
                                                                           content: (
                                                                               <>
-                                                                                  <LemonField.Pure label="Thank you header">
+                                                                                  <LemonField.Pure
+                                                                                      label={getFieldLabel(
+                                                                                          'Thank you header',
+                                                                                          'thankYouMessageHeader'
+                                                                                      )}
+                                                                                  >
                                                                                       {(() => {
                                                                                           const fieldError =
                                                                                               getFieldError(
@@ -918,6 +915,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           if (
                                                                                                               activeEditingLanguage
                                                                                                           ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.thankYouMessageHeader`
+                                                                                                              )
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
@@ -960,7 +960,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       })()}
                                                                                   </LemonField.Pure>
                                                                                   <LemonField.Pure
-                                                                                      label="Thank you description"
+                                                                                      label={getFieldLabel(
+                                                                                          'Thank you description',
+                                                                                          'thankYouMessageDescription'
+                                                                                      )}
                                                                                       className="mt-3"
                                                                                   >
                                                                                       {(() => {
@@ -996,6 +999,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           if (
                                                                                                               activeEditingLanguage
                                                                                                           ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.thankYouMessageDescription`
+                                                                                                              )
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
@@ -1069,7 +1075,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                   </LemonField.Pure>
                                                                                   <LemonField.Pure
                                                                                       className="mt-2"
-                                                                                      label="Button text"
+                                                                                      label={getFieldLabel(
+                                                                                          'Button text',
+                                                                                          'thankYouMessageCloseButtonText'
+                                                                                      )}
                                                                                   >
                                                                                       {(() => {
                                                                                           const fieldError =
@@ -1104,6 +1113,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           if (
                                                                                                               activeEditingLanguage
                                                                                                           ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.thankYouMessageCloseButtonText`
+                                                                                                              )
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
@@ -1259,15 +1271,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </>
                                     ),
                                 },
-                                ...(surveyTranslationsEnabled
-                                    ? [
-                                          {
-                                              key: SurveyEditSection.Translations,
-                                              header: 'Translations',
-                                              content: <SurveyTranslations />,
-                                          },
-                                      ]
-                                    : []),
                                 ...(survey.type !== SurveyType.API
                                     ? [
                                           {

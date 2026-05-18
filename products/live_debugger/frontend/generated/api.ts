@@ -35,9 +35,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Create, Read, Update and Delete breakpoints for live debugging.
- */
 export const getLiveDebuggerBreakpointsListUrl = (projectId: string, params?: LiveDebuggerBreakpointsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -54,6 +51,9 @@ export const getLiveDebuggerBreakpointsListUrl = (projectId: string, params?: Li
         : `/api/projects/${projectId}/live_debugger_breakpoints/`
 }
 
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
 export const liveDebuggerBreakpointsList = async (
     projectId: string,
     params?: LiveDebuggerBreakpointsListParams,
@@ -65,13 +65,13 @@ export const liveDebuggerBreakpointsList = async (
     })
 }
 
-/**
- * Create, Read, Update and Delete breakpoints for live debugging.
- */
 export const getLiveDebuggerBreakpointsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/live_debugger_breakpoints/`
 }
 
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
 export const liveDebuggerBreakpointsCreate = async (
     projectId: string,
     liveDebuggerBreakpointApi: NonReadonly<LiveDebuggerBreakpointApi>,
@@ -85,12 +85,6 @@ export const liveDebuggerBreakpointsCreate = async (
     })
 }
 
-/**
- * External API endpoint for client applications to fetch active breakpoints using Project API key. This endpoint allows external client applications (like Python scripts, Node.js apps, etc.) to fetch the list of active breakpoints so they can instrument their code accordingly. 
-
-Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
- * @summary Get active breakpoints (External API)
- */
 export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
     projectId: string,
     params?: LiveDebuggerBreakpointsActiveRetrieveParams
@@ -110,6 +104,12 @@ export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
         : `/api/projects/${projectId}/live_debugger_breakpoints/active/`
 }
 
+/**
+ * External API endpoint for client applications to fetch active breakpoints using Project API key. This endpoint allows external client applications (like Python scripts, Node.js apps, etc.) to fetch the list of active breakpoints so they can instrument their code accordingly.
+
+Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
+ * @summary Get active breakpoints (External API)
+ */
 export const liveDebuggerBreakpointsActiveRetrieve = async (
     projectId: string,
     params?: LiveDebuggerBreakpointsActiveRetrieveParams,
@@ -121,12 +121,6 @@ export const liveDebuggerBreakpointsActiveRetrieve = async (
     })
 }
 
-/**
- * Retrieve breakpoint hit events from ClickHouse with optional filtering and pagination. Returns hit events containing stack traces, local variables, and execution context from your application's runtime. 
-
-Security: Breakpoint IDs are filtered to only include those belonging to the current team.
- * @summary Get breakpoint hits
- */
 export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
     projectId: string,
     params?: LiveDebuggerBreakpointsBreakpointHitsRetrieveParams
@@ -146,6 +140,12 @@ export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
         : `/api/projects/${projectId}/live_debugger_breakpoints/breakpoint_hits/`
 }
 
+/**
+ * Retrieve breakpoint hit events from ClickHouse with optional filtering and pagination. Returns hit events containing stack traces, local variables, and execution context from your application's runtime.
+
+Security: Breakpoint IDs are filtered to only include those belonging to the current team.
+ * @summary Get breakpoint hits
+ */
 export const liveDebuggerBreakpointsBreakpointHitsRetrieve = async (
     projectId: string,
     params?: LiveDebuggerBreakpointsBreakpointHitsRetrieveParams,

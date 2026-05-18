@@ -1,15 +1,15 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,6 +44,7 @@ import {
     groupDirectQueryTablesBySchema,
     splitDirectQueryTableName,
 } from '../../shared/components/forms/directQuerySchemaUtils'
+import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -210,6 +211,20 @@ export function mergeRestoredSourceFormValues(
     }
 }
 
+export function shouldHydrateSourceFromUrl(
+    currentStep: number,
+    selectedConnector: SourceConfig | null,
+    source: SourceConfig,
+    currentAccessMethod: 'warehouse' | 'direct',
+    urlAccessMethod: 'warehouse' | 'direct'
+): boolean {
+    return !(selectedConnector?.name === source.name && currentAccessMethod === urlAccessMethod && currentStep > 1)
+}
+
+function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
+    return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -276,6 +291,7 @@ function syncExpandedDirectQuerySchemaKeys(
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
+    tabId?: string
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
 }
@@ -283,6 +299,7 @@ export interface SourceWizardLogicProps {
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
+    key((props) => props.tabId ?? 'default'),
     actions({
         selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
             connector,
@@ -336,8 +353,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
-        toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        toggleAllTables: (selectAll: boolean, tableNames?: string[]) => ({ selectAll, tableNames }),
         toggleDirectQuerySchemaGroup: (schemaName: string, shouldSync: boolean) => ({ schemaName, shouldSync }),
+        setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
         setExpandedDirectQuerySchemaKeys: (expandedSchemaKeys: string[]) => ({ expandedSchemaKeys }),
         syncExpandedDirectQuerySchemaKeys: (groupedSchemaKeys: string[], fingerprint: string) => ({
             groupedSchemaKeys,
@@ -345,7 +363,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         saveFormStateBeforeRedirect: true,
         createWebhook: true,
-        setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
+        setWebhookResult: (result: WebhookCreateResult | null) => ({
             result,
         }),
         submitWebhookFields: true,
@@ -421,10 +439,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
-                toggleAllTables: (state, { selectAll }) => {
+                toggleAllTables: (state, { selectAll, tableNames }) => {
+                    if (!tableNames) {
+                        return state.map((schema) => ({
+                            ...schema,
+                            should_sync: selectAll,
+                        }))
+                    }
+                    const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
-                        should_sync: selectAll,
+                        should_sync: targetSet.has(schema.table) ? selectAll : schema.should_sync,
                     }))
                 },
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
@@ -467,6 +492,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             '',
             {
                 syncExpandedDirectQuerySchemaKeys: (_, { fingerprint }) => fingerprint,
+                onClear: () => '',
+                clearSource: () => '',
+            },
+        ],
+        schemaNameFilter: [
+            '',
+            {
+                setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
                 onClear: () => '',
                 clearSource: () => '',
             },
@@ -549,7 +582,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         webhookResult: [
-            null as { success: boolean; webhook_url: string; error?: string } | null,
+            null as WebhookCreateResult | null,
             {
                 setWebhookResult: (_, { result }) => result,
                 onClear: () => null,
@@ -696,8 +729,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         webhookStepComplete: [
             (s) => [s.webhookResult, s.selectedConnector],
-            (webhookResult: { success: boolean } | null, selectedConnector: SourceConfig | null): boolean => {
-                if (webhookResult?.success) {
+            (webhookResult: WebhookCreateResult | null, selectedConnector: SourceConfig | null): boolean => {
+                if (webhookResultHasNoPendingInputs(webhookResult)) {
                     return true
                 }
                 if (!webhookResult) {
@@ -711,11 +744,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         isDirectQueryMode: [
-            (s) => [s.source, s.selectedConnector, s.featureFlags],
-            (source, selectedConnector, featureFlags): boolean =>
-                source.access_method === 'direct' &&
-                selectedConnector?.name === 'Postgres' &&
-                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
+            (s) => [s.source, s.selectedConnector],
+            (source, selectedConnector): boolean =>
+                source.access_method === 'direct' && selectedConnector?.name === 'Postgres',
         ],
         canGoBack: [
             (s) => [s.currentStep],
@@ -846,11 +877,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.manualLinkingProvider],
             (manualLinkingProvider: ManualLinkSourceType | null): boolean => manualLinkingProvider !== null,
         ],
+        filteredDatabaseSchema: [
+            (s) => [s.databaseSchema, s.schemaNameFilter],
+            (
+                databaseSchema: ExternalDataSourceSyncSchema[],
+                schemaNameFilter: string
+            ): ExternalDataSourceSyncSchema[] => {
+                if (!schemaNameFilter) {
+                    return databaseSchema
+                }
+                const filter = schemaNameFilter.toLowerCase()
+                return databaseSchema.filter((schema) => (schema.label ?? schema.table).toLowerCase().includes(filter))
+            },
+        ],
         tablesAllToggledOn: [
-            (s) => [s.databaseSchema],
-            (databaseSchema: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' => {
-                const enabledCount = databaseSchema.filter((schema) => schema.should_sync).length
-                const totalCount = databaseSchema.length
+            (s) => [s.filteredDatabaseSchema],
+            (filteredDatabaseSchema: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' => {
+                if (filteredDatabaseSchema.length === 0) {
+                    return false
+                }
+                const enabledCount = filteredDatabaseSchema.filter((schema) => schema.should_sync).length
+                const totalCount = filteredDatabaseSchema.length
                 return enabledCount === totalCount ? true : enabledCount > 0 ? 'indeterminate' : false
             },
         ],
@@ -859,9 +906,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (source): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
         ],
         groupedDirectQueryDatabaseSchema: [
-            (s) => [s.databaseSchema, s.directQueryDefaultSchema],
-            (databaseSchema, directQueryDefaultSchema) =>
-                groupDirectQueryTablesBySchema(databaseSchema, directQueryDefaultSchema),
+            (s) => [s.filteredDatabaseSchema, s.directQueryDefaultSchema],
+            (filteredDatabaseSchema, directQueryDefaultSchema) =>
+                groupDirectQueryTablesBySchema(filteredDatabaseSchema, directQueryDefaultSchema),
         ],
         groupedDirectQuerySchemaKeys: [
             (s) => [s.groupedDirectQueryDatabaseSchema],
@@ -1159,10 +1206,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                if (values.webhookResult?.success) {
+                if (webhookResultHasNoPendingInputs(values.webhookResult)) {
                     actions.onNext()
                 } else {
-                    // Manual mode - submit webhook form (validates, then triggers submitWebhookFields)
+                    // Manual mode (or auto-create with pending inputs) — submit webhook form
+                    // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
             }
@@ -1199,6 +1247,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
                     source_type: values.selectedConnector.name,
+                    created_via: 'web',
                 })
 
                 actions.setSourceId(id)
@@ -1410,16 +1459,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        toggleAllTables: ({ selectAll }) => {
-            actions.setDatabaseSchemas(
-                values.databaseSchema.map((schema) => ({
-                    ...schema,
-                    should_sync: selectAll,
-                }))
-            )
+        toggleAllTables: () => {
+            // databaseSchema reducer already applied the toggle; re-emit so the
+            // setDatabaseSchemas listener (syncExpandedDirectQuerySchemaKeys) fires.
+            actions.setDatabaseSchemas(values.databaseSchema)
         },
     })),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
@@ -1436,17 +1482,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
             if (manualSource) {
+                if (values.manualLinkingProvider === manualSource.type && values.currentStep > 1) {
+                    return
+                }
                 actions.toggleManualLinkFormVisible(true)
                 actions.setManualLinkingProvider(manualSource.type)
                 return
             }
 
             if (source) {
+                if (
+                    !shouldHydrateSourceFromUrl(
+                        values.currentStep,
+                        values.selectedConnector,
+                        source,
+                        values.source.access_method,
+                        accessMethod
+                    )
+                ) {
+                    return
+                }
+
                 // selectConnector forwards accessMethod to `resetSourceForm`, which seeds the
                 // connector's defaults and restores any OAuth-saved form state — saved
                 // access_method wins over the URL one (the OAuth callback URL doesn't carry it).
                 actions.selectConnector(source, accessMethod)
-                actions.updateSource({ access_method: accessMethod })
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
                 return
@@ -1490,9 +1550,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
-                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                        values.selectedConnector.name === 'Postgres' &&
-                        sourceValues.access_method === 'direct'
+                        values.selectedConnector.name === 'Postgres' && sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',

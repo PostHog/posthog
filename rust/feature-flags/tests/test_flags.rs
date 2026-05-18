@@ -5624,9 +5624,8 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
     #[case] skip_writes: bool,
 ) -> Result<()> {
     use feature_flags::config::FlexBool;
-    use feature_flags::flags::flag_analytics::get_team_request_key;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.skip_writes = FlexBool(skip_writes);
@@ -5672,19 +5671,17 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         "distinct_id": distinct_id,
     });
 
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Compute the same time bucket used by increment_request_count
-    let time_bucket = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / 120; // CACHE_BUCKET_SIZE = 60 * 2
-
-    let counter = client.hget(billing_key, time_bucket.to_string()).await;
+    // Synchronous path writes inline before the response returns, so we can
+    // read back without polling.
+    let counter = client.hget(billing_key, bucket_field).await;
 
     if skip_writes {
         assert!(
@@ -5698,6 +5695,216 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
             "billing counter should be incremented when skip_writes=false"
         );
     }
+
+    Ok(())
+}
+
+/// Verifies that an SDK request lands counts in BOTH the team-level and the
+/// library-level Redis hashes via the synchronous billing path, AND — when
+/// the aggregator is enabled — that the same counts also reach the shadow
+/// keyspace via the aggregator's flush path. This is the cross-path
+/// reconciliation invariant that the dual-write design depends on.
+#[tokio::test]
+async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{
+        current_bucket, get_team_request_key, get_team_request_library_key,
+        get_team_request_library_shadow_key, get_team_request_shadow_key,
+    };
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::handler::types::Library;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(false);
+    // Enable the shadow path so we can assert both keyspaces in one go.
+    config.billing_aggregator_enabled = FlexBool(true);
+    // Tight flush interval so the aggregator lands its shadow write before
+    // the assertion polling window expires.
+    config.billing_flush_interval_ms = 100;
+
+    let distinct_id = format!("billing_lib_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [],
+                "rollout_percentage": 100
+            }],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let team_key = get_team_request_key(team.id, FlagRequestType::Decide);
+    let library_key =
+        get_team_request_library_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
+    let team_shadow_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
+    let library_shadow_key =
+        get_team_request_library_shadow_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
+    client.del(team_key.clone()).await.unwrap();
+    client.del(library_key.clone()).await.unwrap();
+    client.del(team_shadow_key.clone()).await.unwrap();
+    client.del(library_shadow_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
+    // Direct reqwest call so we can set the SDK user-agent that drives
+    // Library::from_headers → Library::PosthogNode.
+    let http = reqwest::Client::new();
+    let res = http
+        .post(format!("http://{}/flags?v=2", server.addr))
+        .header("content-type", "application/json")
+        .header("user-agent", "posthog-node/3.1.0")
+        .body(payload.to_string())
+        .send()
+        .await?;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Production keyspace — written synchronously by `record_usage`.
+    let team_counter = client.hget(team_key, bucket_field.clone()).await.unwrap();
+    assert_eq!(team_counter, "1", "team key should reflect one request");
+
+    let library_counter = client
+        .hget(library_key, bucket_field.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        library_counter, "1",
+        "library key should reflect one request"
+    );
+
+    // Shadow keyspace — written by the aggregator's background flush. Poll
+    // because we don't know exactly when the flusher tick lands.
+    let team_shadow_counter =
+        poll_for_billing_counter(&client, &team_shadow_key, &bucket_field).await;
+    assert_eq!(
+        team_shadow_counter, "1",
+        "shadow team key should reflect one request from the aggregator"
+    );
+
+    let library_shadow_counter =
+        poll_for_billing_counter(&client, &library_shadow_key, &bucket_field).await;
+    assert_eq!(
+        library_shadow_counter, "1",
+        "shadow library key should reflect one request from the aggregator"
+    );
+
+    Ok(())
+}
+
+/// End-to-end shutdown-flush path *for the shadow aggregator*. Sets a flush
+/// interval much longer than the test's runtime so the periodic flusher
+/// cannot fire — the only way the **shadow** counter can land in Redis is via
+/// `BillingAggregator::shutdown()` after axum's graceful drain. Catches a
+/// regression that drops the `billing_aggregator.shutdown().await` call in
+/// `serve()`, swaps in `for_tests()`, or wires up the lifecycle ordering
+/// wrong (flushing before axum drains). The synchronous production-keyspace
+/// write is unaffected by the aggregator's lifecycle and is verified by
+/// `test_skip_writes_suppresses_billing_redis_counter`.
+#[tokio::test]
+async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_shadow_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(false);
+    // The aggregator must be on for this test to mean anything — the gate is
+    // off by default, so explicitly enable it.
+    config.billing_aggregator_enabled = FlexBool(true);
+    // Long enough that no periodic flush can fire during the test. If the
+    // counter shows up in Redis, the shutdown path is what put it there.
+    config.billing_flush_interval_ms = 60_000;
+
+    let distinct_id = format!("billing_shutdown_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{ "properties": [], "rollout_percentage": 100 }],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let billing_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
+    let bucket_field = current_bucket().to_string();
+    client.del(billing_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({ "token": token, "distinct_id": distinct_id });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Confirm the periodic flusher has NOT yet landed the SHADOW write —
+    // sanity check that we're really exercising the shutdown path. With a
+    // 60s flush interval and immediate-after-request lookup, the shadow
+    // counter should still be missing. (The synchronous production-keyspace
+    // write *has* already happened by now, but that's a different key.)
+    let pre_shutdown = client.hget(billing_key.clone(), bucket_field.clone()).await;
+    assert!(
+        pre_shutdown.is_err(),
+        "shadow billing counter should NOT be in Redis before shutdown — \
+         the aggregator's periodic flusher is set to 60s and the test is \
+         faster than that. Got {pre_shutdown:?}, which means the flush \
+         window collapsed and this test no longer proves what it claims."
+    );
+
+    // Trigger graceful shutdown. axum drains in-flight requests, then
+    // `serve()` calls `billing_aggregator.shutdown().await` which performs
+    // the final flush to the shadow keyspace.
+    server.shutdown_now();
+
+    // Poll for the counter to land. The helper polls for ~1s
+    // (40 × 25ms) — the graceful-drain window plus a single shutdown
+    // flush against a healthy local Redis is well under that.
+    let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+    assert_eq!(
+        counter, "1",
+        "shadow billing counter must reach Redis via the shutdown flush path"
+    );
 
     Ok(())
 }
