@@ -13,9 +13,10 @@ from posthog.temporal.ai.pulse.types import CandidateMetric, Finding, run_trends
 logger = structlog.get_logger(__name__)
 
 
-DETECTION_DATE_FROM = "-42d"  # 6 weeks: 1 current + 5 baseline
+DETECTION_DATE_FROM = "-42d"  # 6 weeks fetched: in-progress + 1 current + up to 4 baseline
 DETECTION_CONCURRENCY = 8
 MIN_BASELINE_WEEKS = 3
+MAX_BASELINE_WEEKS = 4
 MIN_BASELINE_VALUE = 5.0  # Skip near-zero-volume metrics that produce noisy z-scores
 
 
@@ -63,7 +64,7 @@ def _evaluate_candidate(
     # Drop the in-progress current week (last bucket) since trend buckets are partial.
     completed = weekly_values[:-1]
     current = completed[-1]
-    baseline = completed[:-1][-4:]
+    baseline = completed[:-1][-MAX_BASELINE_WEEKS:]
     if len(baseline) < MIN_BASELINE_WEEKS:
         return None
 

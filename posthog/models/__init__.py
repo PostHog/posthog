@@ -65,9 +65,8 @@ from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
 from products.event_definitions.backend.models import PropertyDefinition
-
-from .pulse import PulseDigest, PulseFinding, PulseSubscription
 from .proxy_record import ProxyRecord
+from .pulse import PulseDigest, PulseFinding, PulseSubscription
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
@@ -180,10 +179,10 @@ __all__ = [
     "Project",
     "Property",
     "PropertyDefinition",
+    "ProxyRecord",
     "PulseDigest",
     "PulseFinding",
     "PulseSubscription",
-    "ProxyRecord",
     "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",

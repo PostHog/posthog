@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from django.db import IntegrityError
 from django.db.models import Count, QuerySet
 
 from rest_framework import mixins, serializers, viewsets
@@ -211,9 +212,15 @@ class PulseSubscriptionViewSet(
         return queryset.filter(team_id=self.team_id)
 
     def perform_create(self, serializer: serializers.ModelSerializer) -> None:
+        # OneToOneField on team enforces singleton at DB level; the explicit pre-check
+        # gives a friendly 400 in the common path but we catch IntegrityError for the
+        # concurrent-POST race.
         if PulseSubscription.objects.filter(team_id=self.team_id).exists():
             raise ValidationError("This team already has a Pulse subscription. Use PATCH to update it.")
-        serializer.save(team_id=self.team_id, created_by=self.request.user)
+        try:
+            serializer.save(team_id=self.team_id, created_by=self.request.user)
+        except IntegrityError as exc:
+            raise ValidationError("This team already has a Pulse subscription. Use PATCH to update it.") from exc
 
     @action(detail=False, methods=["get"], url_path="current")
     def current(self, request: Request, *args, **kwargs) -> Response:
