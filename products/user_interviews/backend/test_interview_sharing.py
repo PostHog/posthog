@@ -662,7 +662,12 @@ class TestVapiWebhook(APIBaseTest):
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
         self.assertEqual(kwargs["event"], "user_interview_conversation_started")
-        self.assertEqual(kwargs["distinct_id"], "alex@example.com")
+        # distinct_id is intentionally an opaque interviewee_context UUID — not the
+        # email — so these feature-usage events don't create person profiles for the
+        # third-party interviewees.
+        assert share.interviewee_context is not None
+        self.assertEqual(kwargs["distinct_id"], f"user_interview:{share.interviewee_context.id}")
+        self.assertNotIn("alex@example.com", kwargs["distinct_id"])
         self.assertEqual(kwargs["properties"]["call_id"], "call_xyz")
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -716,7 +721,9 @@ class TestVapiWebhook(APIBaseTest):
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
         self.assertEqual(kwargs["event"], "user_interview_conversation_ended")
-        self.assertEqual(kwargs["distinct_id"], "alex@example.com")
+        assert share.interviewee_context is not None
+        self.assertEqual(kwargs["distinct_id"], f"user_interview:{share.interviewee_context.id}")
+        self.assertNotIn("alex@example.com", kwargs["distinct_id"])
         self.assertTrue(kwargs["properties"]["had_transcript"])
         self.assertTrue(kwargs["properties"]["had_summary"])
 

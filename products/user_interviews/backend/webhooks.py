@@ -452,7 +452,12 @@ def _capture_user_interview_event(
     Vapi emits `status-update` per state transition and may re-fire `in-progress` after
     transient drops or warm-transfer flows, and end-of-call-report can be retried by Vapi
     until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
-    delivery at ingest — funnels see one start and one end per call."""
+    delivery at ingest — funnels see one start and one end per call.
+
+    The `distinct_id` is intentionally an opaque per-interviewee-context UUID — *not* the
+    interviewee's email/distinct_id — so these feature-usage events never create person
+    profiles for the third-party interviewees themselves. The events report on the
+    user_interviews feature, not the people being interviewed."""
     interviewee_context = sharing_config.interviewee_context
     if interviewee_context is None:
         return
@@ -467,7 +472,7 @@ def _capture_user_interview_event(
         properties.update(extra_properties)
     try:
         posthoganalytics.capture(
-            distinct_id=interviewee_context.interviewee_identifier,
+            distinct_id=f"user_interview:{interviewee_context.id}",
             event=event,
             properties=properties,
             groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
