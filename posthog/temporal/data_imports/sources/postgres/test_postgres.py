@@ -137,6 +137,132 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
 
+
+class TestPostgresSourceForPipelineSchemaResolution:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    def _make_inputs(self, schema_name: str):
+        return mock.MagicMock(
+            schema_id="00000000-0000-0000-0000-000000000000",
+            schema_name=schema_name,
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            team_id=1,
+            logger=mock.MagicMock(),
+        )
+
+    def _make_config(self, schema: str | None = None):
+        return mock.MagicMock(
+            user="u",
+            password="p",
+            database="db",
+            schema=schema,
+        )
+
+    def _make_schema_model(self, name: str, schema_metadata: dict | None = None, source_model=None):
+        schema = mock.MagicMock()
+        schema.name = name
+        schema.id = "00000000-0000-0000-0000-000000000000"
+        schema.is_cdc = False
+        schema.cdc_mode = None
+        schema.initial_sync_complete = True
+        schema.enabled_columns = None
+        schema.chunk_size_override = None
+        schema.schema_metadata = schema_metadata
+        schema.source = source_model or mock.MagicMock()
+        return schema
+
+    def test_dotted_schema_name_without_metadata_routes_to_correct_source_schema(self, source):
+        # Repro: row created before this PR has name="poblic.example_table" and no schema_metadata.
+        # source_for_pipeline must not fall through to config.schema or "public" — that produces
+        # `SELECT FROM "public"."poblic.example_table"`, an undefined relation.
+        schema_model = self._make_schema_model("poblic.example_table", schema_metadata=None)
+        inputs = self._make_inputs("poblic.example_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False
+            ),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+
+            assert postgres_source_mock.called, "postgres_source was not invoked"
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "poblic", f"expected schema='poblic', got {kwargs['schema']!r}"
+            assert kwargs["table_names"] == ["example_table"], (
+                f"expected table_names=['example_table'], got {kwargs['table_names']!r}"
+            )
+
+    def test_schema_metadata_wins_over_dotted_name_inference(self, source):
+        # Metadata is the source of truth — explicit pin always beats name-splitting.
+        schema_model = self._make_schema_model(
+            "weird.name",
+            schema_metadata={"source_schema": "real_schema", "source_table_name": "real_table"},
+        )
+        inputs = self._make_inputs("weird.name")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False
+            ),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "real_schema"
+            assert kwargs["table_names"] == ["real_table"]
+
+    def test_unqualified_name_falls_back_to_config_schema(self, source):
+        # Legacy row "example_table" with no metadata + config.schema="public" → ("public", "example_table").
+        schema_model = self._make_schema_model("example_table", schema_metadata=None)
+        inputs = self._make_inputs("example_table")
+        config = self._make_config(schema="public")
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False
+            ),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "public"
+            assert kwargs["table_names"] == ["example_table"]
+
     def test_validate_credentials_for_access_method_allows_blank_schema_for_warehouse_imports(self, source):
         # Multi-schema parity: warehouse mode now accepts blank `schema` (browse-all) just like
         # direct mode. Each `ExternalDataSchema` row pins its own `(schema, table)` in metadata.

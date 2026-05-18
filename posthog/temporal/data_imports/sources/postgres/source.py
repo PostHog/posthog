@@ -490,6 +490,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else None
         )
 
+        # Self-heal when a qualified row (e.g. "poblic.example_table") has no schema_metadata yet —
+        # split the dotted name so the source SELECT goes to ("poblic", "example_table") rather than
+        # falling through to (config.schema or "public") + the literal dotted table name (which
+        # blows up with `relation "public.poblic.example_table" does not exist`). Reconcile keeps
+        # this up to date on every refresh, but rows enabled before the next refresh land here.
+        if (not source_schema or not source_table_name) and "." in inputs.schema_name:
+            inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
+            source_schema = source_schema or inferred_schema
+            source_table_name = source_table_name or inferred_table
+
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":
             raise CDCHandledExternally(
