@@ -978,6 +978,7 @@ class SignalUserAutonomyConfigView(APIView):
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def post(self, request, user_id, **kwargs):
         from posthog.models.integration import Integration
+        from posthog.user_permissions import UserPermissions
 
         from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
 
@@ -1004,9 +1005,7 @@ class SignalUserAutonomyConfigView(APIView):
                 # caller's reachable set. Separate fetch + per-team-id check
                 # is what the semgrep IDOR rule wants — a blanket
                 # `team_id__in=` filter would be flagged.
-                accessible_team_ids = set(
-                    user.organization_memberships.values_list("organization__teams__id", flat=True)
-                )
+                accessible_team_ids = set(UserPermissions(user).team_ids_visible_for_user)
                 candidate = Integration.objects.filter(pk=integration_id, kind="slack").first()
                 if candidate is None or candidate.team_id not in accessible_team_ids:
                     raise serializers.ValidationError(
