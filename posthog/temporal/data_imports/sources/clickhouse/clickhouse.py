@@ -1104,7 +1104,7 @@ def clickhouse_source(
                     if last_value is None and incremental_field_type is not None:
                         last_value = incremental_type_to_initial_value(incremental_field_type)
                     parameters["last_value"] = last_value
-                if sync_from_field is not None:
+                if sync_from_field is not None and sync_from_value is not None:
                     parameters["sync_from"] = sync_from_value
 
                 logger.info(f"ClickHouse query: {query}")
