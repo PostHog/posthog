@@ -27925,6 +27925,8 @@ export namespace Schemas {
       updated_at?: string;
     };
 
+    export type TestAccountFilter = StringPropertyFilter | NumericPropertyFilter | ArrayPropertyFilter | DatePropertyFilter | ExistencePropertyFilter;
+
     /**
      * * `30d` - 30 Days
     * `90d` - 90 Days
@@ -27989,7 +27991,7 @@ export namespace Schemas {
       completed_snippet_onboarding?: boolean;
       readonly ingested_event?: boolean;
       /** Filter groups that identify internal/test traffic to be excluded from insights. */
-      test_account_filters?: unknown;
+      test_account_filters?: TestAccountFilter[];
       /**
          * When true, new insights default to excluding internal/test users.
          * @nullable
@@ -30150,7 +30152,8 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
-      test_account_filters?: unknown;
+      /** Filter groups that identify internal/test traffic to be excluded from insights. */
+      test_account_filters?: TestAccountFilter[];
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
       path_cleaning_filters?: unknown;
@@ -30831,7 +30834,7 @@ export namespace Schemas {
       completed_snippet_onboarding?: boolean;
       readonly ingested_event: boolean;
       /** Filter groups that identify internal/test traffic to be excluded from insights. */
-      test_account_filters?: unknown;
+      test_account_filters?: TestAccountFilter[];
       /**
          * When true, new insights default to excluding internal/test users.
          * @nullable
@@ -35220,7 +35223,8 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
-      test_account_filters?: unknown;
+      /** Filter groups that identify internal/test traffic to be excluded from insights. */
+      test_account_filters?: TestAccountFilter[];
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
       path_cleaning_filters?: unknown;

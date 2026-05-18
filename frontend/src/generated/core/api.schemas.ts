@@ -392,6 +392,387 @@ export const EffectiveMembershipLevelEnumApi = {
 } as const
 
 /**
+ * * `event` - event
+ * `event_metadata` - event_metadata
+ * `feature` - feature
+ * `person` - person
+ * `cohort` - cohort
+ * `element` - element
+ * `static-cohort` - static-cohort
+ * `dynamic-cohort` - dynamic-cohort
+ * `precalculated-cohort` - precalculated-cohort
+ * `group` - group
+ * `recording` - recording
+ * `log_entry` - log_entry
+ * `behavioral` - behavioral
+ * `session` - session
+ * `hogql` - hogql
+ * `data_warehouse` - data_warehouse
+ * `data_warehouse_person_property` - data_warehouse_person_property
+ * `error_tracking_issue` - error_tracking_issue
+ * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
+ * `revenue_analytics` - revenue_analytics
+ * `flag` - flag
+ * `workflow_variable` - workflow_variable
+ */
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
+
+export const PropertyFilterTypeEnumApi = {
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ */
+export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
+
+export const StringMatchOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+/**
+ * Matches string values with text-oriented operators.
+ */
+export interface StringPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
+    /** String value to match against. */
+    value: string
+    /** String comparison operator.
+
+  * `exact` - exact
+  * `is_not` - is_not
+  * `icontains` - icontains
+  * `not_icontains` - not_icontains
+  * `regex` - regex
+  * `not_regex` - not_regex */
+    operator?: StringMatchOperatorEnumApi
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ */
+export type NumericPropertyFilterOperatorEnumApi =
+    (typeof NumericPropertyFilterOperatorEnumApi)[keyof typeof NumericPropertyFilterOperatorEnumApi]
+
+export const NumericPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+/**
+ * Matches numeric values with comparison operators.
+ */
+export interface NumericPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
+    /** Numeric value to compare against. */
+    value: number
+    /** Numeric comparison operator.
+
+  * `exact` - exact
+  * `is_not` - is_not
+  * `gt` - gt
+  * `lt` - lt
+  * `gte` - gte
+  * `lte` - lte */
+    operator?: NumericPropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type ArrayPropertyFilterOperatorEnumApi =
+    (typeof ArrayPropertyFilterOperatorEnumApi)[keyof typeof ArrayPropertyFilterOperatorEnumApi]
+
+export const ArrayPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+/**
+ * Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).
+ */
+export interface ArrayPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
+    /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
+    value: string[]
+    /** Array comparison operator.
+
+  * `exact` - exact
+  * `is_not` - is_not
+  * `in` - in
+  * `not_in` - not_in */
+    operator?: ArrayPropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
+ */
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
+
+export const DateOperatorEnumApi = {
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+/**
+ * Matches date/datetime values with date-specific operators.
+ */
+export interface DatePropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
+    /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
+    value: string
+    /** Date comparison operator.
+
+  * `is_date_exact` - is_date_exact
+  * `is_date_before` - is_date_before
+  * `is_date_after` - is_date_after */
+    operator?: DateOperatorEnumApi
+}
+
+/**
+ * * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ */
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
+
+export const ExistenceOperatorEnumApi = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+/**
+ * Checks whether a property is set or not, without comparing values.
+ */
+export interface ExistencePropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
+    /** Existence check operator.
+
+  * `is_set` - is_set
+  * `is_not_set` - is_not_set */
+    operator: ExistenceOperatorEnumApi
+}
+
+export type TestAccountFilterApi =
+    | StringPropertyFilterApi
+    | NumericPropertyFilterApi
+    | ArrayPropertyFilterApi
+    | DatePropertyFilterApi
+    | ExistencePropertyFilterApi
+
+/**
  * * `30d` - 30 Days
  * `90d` - 90 Days
  * `1y` - 1 Year
@@ -605,7 +986,7 @@ export interface ProjectBackwardCompatApi {
     completed_snippet_onboarding?: boolean
     readonly ingested_event: boolean
     /** Filter groups that identify internal/test traffic to be excluded from insights. */
-    test_account_filters?: unknown
+    test_account_filters?: TestAccountFilterApi[]
     /**
      * When true, new insights default to excluding internal/test users.
      * @nullable
@@ -1401,7 +1782,7 @@ export interface PatchedProjectBackwardCompatApi {
     completed_snippet_onboarding?: boolean
     readonly ingested_event?: boolean
     /** Filter groups that identify internal/test traffic to be excluded from insights. */
-    test_account_filters?: unknown
+    test_account_filters?: TestAccountFilterApi[]
     /**
      * When true, new insights default to excluding internal/test users.
      * @nullable

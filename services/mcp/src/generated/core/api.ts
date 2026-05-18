@@ -87,6 +87,15 @@ export const organizationsProjectsPartialUpdateBodyProductDescriptionMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyAppUrlsItemMax = 200
 
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemOneTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemOneOperatorDefault = `exact`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemTwoTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemTwoOperatorDefault = `exact`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemThreeTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemThreeOperatorDefault = `exact`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemFourTypeDefault = `event`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemFourOperatorDefault = `is_date_exact`
+export const organizationsProjectsPartialUpdateBodyTestAccountFiltersItemFiveTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
@@ -123,7 +132,298 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When true, PostHog drops the IP address from every ingested event.'),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod
-            .unknown()
+            .array(
+                zod.union([
+                    zod
+                        .object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                ),
+                            type: zod
+                                .enum([
+                                    'event',
+                                    'event_metadata',
+                                    'feature',
+                                    'person',
+                                    'cohort',
+                                    'element',
+                                    'static-cohort',
+                                    'dynamic-cohort',
+                                    'precalculated-cohort',
+                                    'group',
+                                    'recording',
+                                    'log_entry',
+                                    'behavioral',
+                                    'session',
+                                    'hogql',
+                                    'data_warehouse',
+                                    'data_warehouse_person_property',
+                                    'error_tracking_issue',
+                                    'log',
+                                    'log_attribute',
+                                    'log_resource_attribute',
+                                    'span',
+                                    'span_attribute',
+                                    'span_resource_attribute',
+                                    'revenue_analytics',
+                                    'flag',
+                                    'workflow_variable',
+                                ])
+                                .describe(
+                                    '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemOneTypeDefault)
+                                .describe(
+                                    'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                ),
+                            value: zod.string().describe('String value to match against.'),
+                            operator: zod
+                                .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                                .describe(
+                                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemOneOperatorDefault)
+                                .describe(
+                                    'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                ),
+                        })
+                        .describe('Matches string values with text-oriented operators.'),
+                    zod
+                        .object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                ),
+                            type: zod
+                                .enum([
+                                    'event',
+                                    'event_metadata',
+                                    'feature',
+                                    'person',
+                                    'cohort',
+                                    'element',
+                                    'static-cohort',
+                                    'dynamic-cohort',
+                                    'precalculated-cohort',
+                                    'group',
+                                    'recording',
+                                    'log_entry',
+                                    'behavioral',
+                                    'session',
+                                    'hogql',
+                                    'data_warehouse',
+                                    'data_warehouse_person_property',
+                                    'error_tracking_issue',
+                                    'log',
+                                    'log_attribute',
+                                    'log_resource_attribute',
+                                    'span',
+                                    'span_attribute',
+                                    'span_resource_attribute',
+                                    'revenue_analytics',
+                                    'flag',
+                                    'workflow_variable',
+                                ])
+                                .describe(
+                                    '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemTwoTypeDefault)
+                                .describe(
+                                    'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                ),
+                            value: zod.number().describe('Numeric value to compare against.'),
+                            operator: zod
+                                .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                .describe(
+                                    '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemTwoOperatorDefault)
+                                .describe(
+                                    'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                ),
+                        })
+                        .describe('Matches numeric values with comparison operators.'),
+                    zod
+                        .object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                ),
+                            type: zod
+                                .enum([
+                                    'event',
+                                    'event_metadata',
+                                    'feature',
+                                    'person',
+                                    'cohort',
+                                    'element',
+                                    'static-cohort',
+                                    'dynamic-cohort',
+                                    'precalculated-cohort',
+                                    'group',
+                                    'recording',
+                                    'log_entry',
+                                    'behavioral',
+                                    'session',
+                                    'hogql',
+                                    'data_warehouse',
+                                    'data_warehouse_person_property',
+                                    'error_tracking_issue',
+                                    'log',
+                                    'log_attribute',
+                                    'log_resource_attribute',
+                                    'span',
+                                    'span_attribute',
+                                    'span_resource_attribute',
+                                    'revenue_analytics',
+                                    'flag',
+                                    'workflow_variable',
+                                ])
+                                .describe(
+                                    '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemThreeTypeDefault)
+                                .describe(
+                                    'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                ),
+                            value: zod
+                                .array(zod.string())
+                                .describe(
+                                    'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                ),
+                            operator: zod
+                                .enum(['exact', 'is_not', 'in', 'not_in'])
+                                .describe('* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in')
+                                .default(
+                                    organizationsProjectsPartialUpdateBodyTestAccountFiltersItemThreeOperatorDefault
+                                )
+                                .describe(
+                                    'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                ),
+                        })
+                        .describe(
+                            'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                        ),
+                    zod
+                        .object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                ),
+                            type: zod
+                                .enum([
+                                    'event',
+                                    'event_metadata',
+                                    'feature',
+                                    'person',
+                                    'cohort',
+                                    'element',
+                                    'static-cohort',
+                                    'dynamic-cohort',
+                                    'precalculated-cohort',
+                                    'group',
+                                    'recording',
+                                    'log_entry',
+                                    'behavioral',
+                                    'session',
+                                    'hogql',
+                                    'data_warehouse',
+                                    'data_warehouse_person_property',
+                                    'error_tracking_issue',
+                                    'log',
+                                    'log_attribute',
+                                    'log_resource_attribute',
+                                    'span',
+                                    'span_attribute',
+                                    'span_resource_attribute',
+                                    'revenue_analytics',
+                                    'flag',
+                                    'workflow_variable',
+                                ])
+                                .describe(
+                                    '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemFourTypeDefault)
+                                .describe(
+                                    'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                ),
+                            value: zod
+                                .string()
+                                .describe(
+                                    "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                ),
+                            operator: zod
+                                .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                .describe(
+                                    '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                )
+                                .default(
+                                    organizationsProjectsPartialUpdateBodyTestAccountFiltersItemFourOperatorDefault
+                                )
+                                .describe(
+                                    'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                ),
+                        })
+                        .describe('Matches date/datetime values with date-specific operators.'),
+                    zod
+                        .object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                ),
+                            type: zod
+                                .enum([
+                                    'event',
+                                    'event_metadata',
+                                    'feature',
+                                    'person',
+                                    'cohort',
+                                    'element',
+                                    'static-cohort',
+                                    'dynamic-cohort',
+                                    'precalculated-cohort',
+                                    'group',
+                                    'recording',
+                                    'log_entry',
+                                    'behavioral',
+                                    'session',
+                                    'hogql',
+                                    'data_warehouse',
+                                    'data_warehouse_person_property',
+                                    'error_tracking_issue',
+                                    'log',
+                                    'log_attribute',
+                                    'log_resource_attribute',
+                                    'span',
+                                    'span_attribute',
+                                    'span_resource_attribute',
+                                    'revenue_analytics',
+                                    'flag',
+                                    'workflow_variable',
+                                ])
+                                .describe(
+                                    '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                )
+                                .default(organizationsProjectsPartialUpdateBodyTestAccountFiltersItemFiveTypeDefault)
+                                .describe(
+                                    'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                ),
+                            operator: zod
+                                .enum(['is_set', 'is_not_set'])
+                                .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                .describe(
+                                    'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                ),
+                        })
+                        .describe('Checks whether a property is set or not, without comparing values.'),
+                ])
+            )
             .optional()
             .describe('Filter groups that identify internal/test traffic to be excluded from insights.'),
         test_account_filters_default_checked: zod
