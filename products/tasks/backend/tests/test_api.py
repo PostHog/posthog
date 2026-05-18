@@ -2680,6 +2680,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(call_args[0][1], "cancelled")
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
+    def test_update_run_status_to_cancelled_triggers_push(self, mock_notify, _mock_signal):
+        """Cancellation only flows through the API PATCH path — mark_completed / mark_failed
+        cover the other terminal transitions. A regression that removes this hook would go
+        undetected without an integration test here."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "cancelled"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notify.assert_called_once()
+        self.assertEqual(str(mock_notify.call_args.args[0].id), str(run.id))
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
+    def test_update_run_status_to_non_cancelled_terminal_does_not_trigger_cancel_push(self, mock_notify, _mock_signal):
+        """Sanity check: a PATCH to completed/failed must NOT fire the cancelled push."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "completed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notify.assert_not_called()
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_non_terminal_status_does_not_signal(self, mock_signal):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)

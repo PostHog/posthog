@@ -247,116 +247,163 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
         },
         startSSE: () => {
-            // Drop any pending focus-reconnect from a previous give-up; we're reconnecting now.
+            // The SSE connection is managed by a disposable named 'sseConnection' so the
+            // kea-disposables plugin auto-aborts it when the tab is hidden and reopens it
+            // on visibilitychange. This keeps an idle background tab from holding a
+            // long-lived streaming Response — that was accumulating in Blink's
+            // partition_alloc/buffer + blink_gc/<unspecified> on production tabs.
+            // Reconnect from focus-on-give-up still uses a separate 'sseFocusReconnect'
+            // disposable so users who stay on a foreground tab past max-attempts retry on
+            // window refocus.
+            //
+            // Lifecycle telemetry now fires on every visibility cycle (the disposable's
+            // setup/teardown run on resume/pause), so we tag each capture with a `reason`
+            // so existing dashboards can still distinguish initial connects, team-driven
+            // reloads, focus-reconnects, and pure visibility transitions.
+            // `cache.nextStartReason` / `cache.nextStopReason` carry the caller's intent
+            // into the factory + teardown; the disposable plugin's pause/resume cycle
+            // doesn't go through this action so the cache values default to
+            // 'visibility_resume' / 'visibility_pause'.
+            const startReason = cache.nextStartReason ?? 'initial'
+            cache.nextStartReason = null
+            cache.nextStopReason = 'replaced'
             cache.disposables.dispose('sseFocusReconnect')
+            cache.disposables.dispose('sseConnection')
+            cache.nextStopReason = null
+            cache.nextStartReason = startReason
 
-            // TEMPORARY: lifecycle tracking for /notifications SSE connection.
-            // Remove together with livestream_401_debug once root cause is known.
-            posthog.capture('livestream_sse_startsse_called', {
-                flag_enabled: values.realTimeNotificationsEnabled,
-                has_token: !!values.currentTeam?.live_events_token,
-                has_host: !!liveEventsHostOrigin(),
-                had_prior_connection: !!cache.sseConnection,
-            })
+            cache.disposables.add(
+                () => {
+                    const reason = cache.nextStartReason ?? 'visibility_resume'
+                    cache.nextStartReason = null
+                    // TEMPORARY: lifecycle tracking for /notifications SSE connection.
+                    // Remove together with livestream_401_debug once root cause is known.
+                    posthog.capture('livestream_sse_startsse_called', {
+                        reason,
+                        flag_enabled: values.realTimeNotificationsEnabled,
+                        has_token: !!values.currentTeam?.live_events_token,
+                        has_host: !!liveEventsHostOrigin(),
+                        had_prior_connection: !!cache.sseConnection,
+                    })
 
-            if (!values.realTimeNotificationsEnabled) {
-                posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
-                return
-            }
+                    if (!values.realTimeNotificationsEnabled) {
+                        posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
+                        return () => {}
+                    }
 
-            const token = values.currentTeam?.live_events_token
-            if (!token) {
-                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
-                return
-            }
+                    const token = values.currentTeam?.live_events_token
+                    if (!token) {
+                        posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
+                        return () => {}
+                    }
 
-            const host = liveEventsHostOrigin()
-            if (!host) {
-                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
-                return
-            }
+                    const host = liveEventsHostOrigin()
+                    if (!host) {
+                        posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
+                        return () => {}
+                    }
 
-            const url = `${host}/notifications`
+                    const url = `${host}/notifications`
 
-            cache.sseConnection?.abort()
-            const abortController = new AbortController()
-            cache.sseConnection = abortController
-            cache.firstMessageLogged = false
+                    const abortController = new AbortController()
+                    cache.sseConnection = abortController
+                    cache.firstMessageLogged = false
 
-            posthog.capture('livestream_sse_connecting', { url })
+                    posthog.capture('livestream_sse_connecting', { url, reason })
 
-            void retryWithBackoff(
-                () =>
-                    connectToNotificationsSSE(
-                        url,
-                        token,
-                        abortController.signal,
-                        (notification) => {
-                            if (!values.isInitialLoadComplete) {
-                                return
-                            }
-                            actions.notificationReceived(notification)
-                            if (notification.priority === 'critical') {
-                                showCriticalNotificationToast(notification)
-                            }
-                        },
-                        {
-                            // TEMPORARY: livestream SSE lifecycle tracking.
-                            onFirstMessage: () => {
-                                if (!cache.firstMessageLogged) {
-                                    cache.firstMessageLogged = true
-                                    posthog.capture('livestream_sse_first_message', { url })
+                    void retryWithBackoff(
+                        () =>
+                            connectToNotificationsSSE(
+                                url,
+                                token,
+                                abortController.signal,
+                                (notification) => {
+                                    if (!values.isInitialLoadComplete) {
+                                        return
+                                    }
+                                    actions.notificationReceived(notification)
+                                    if (notification.priority === 'critical') {
+                                        showCriticalNotificationToast(notification)
+                                    }
+                                },
+                                {
+                                    // TEMPORARY: livestream SSE lifecycle tracking.
+                                    onFirstMessage: () => {
+                                        if (!cache.firstMessageLogged) {
+                                            cache.firstMessageLogged = true
+                                            posthog.capture('livestream_sse_first_message', { url })
+                                        }
+                                    },
+                                    onError: (error) => {
+                                        posthog.capture('livestream_sse_error', {
+                                            url,
+                                            error_name: (error as Error | undefined)?.name,
+                                            error_message: (error as Error | undefined)?.message,
+                                        })
+                                    },
                                 }
-                            },
-                            onError: (error) => {
-                                posthog.capture('livestream_sse_error', {
-                                    url,
-                                    error_name: (error as Error | undefined)?.name,
-                                    error_message: (error as Error | undefined)?.message,
-                                })
-                            },
+                            ),
+                        {
+                            maxAttempts: SSE_RETRY_ATTEMPTS,
+                            initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
+                            backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
+                            signal: abortController.signal,
                         }
-                    ),
-                {
-                    maxAttempts: SSE_RETRY_ATTEMPTS,
-                    initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
-                    backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
-                    signal: abortController.signal,
-                }
-            ).catch((error) => {
-                // retryWithBackoff rejects with AbortError on clean shutdown; only re-arm when it actually gave up.
-                if (error instanceof DOMException && error.name === 'AbortError') {
-                    return
-                }
-                // TEMPORARY: livestream SSE lifecycle tracking.
-                posthog.capture('livestream_sse_max_errors', {
-                    url,
-                    max_attempts: SSE_RETRY_ATTEMPTS,
-                })
-                // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
-                // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
-                cache.disposables.add(
-                    () => {
-                        const onFocus = (): void => {
-                            posthog.capture('livestream_sse_refocus_reconnect', { url })
-                            actions.startSSE()
+                    ).catch((error) => {
+                        // retryWithBackoff rejects with AbortError on clean shutdown
+                        // (including when the disposable is paused for visibilitychange);
+                        // only re-arm when it actually gave up.
+                        if (error instanceof DOMException && error.name === 'AbortError') {
+                            return
                         }
-                        window.addEventListener('focus', onFocus, { once: true })
-                        return () => window.removeEventListener('focus', onFocus)
-                    },
-                    'sseFocusReconnect',
-                    { pauseOnPageHidden: false }
-                )
-            })
+                        // TEMPORARY: livestream SSE lifecycle tracking.
+                        posthog.capture('livestream_sse_max_errors', {
+                            url,
+                            max_attempts: SSE_RETRY_ATTEMPTS,
+                        })
+                        // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
+                        // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
+                        cache.disposables.add(
+                            () => {
+                                const onFocus = (): void => {
+                                    posthog.capture('livestream_sse_refocus_reconnect', { url })
+                                    cache.nextStartReason = 'focus_reconnect'
+                                    actions.startSSE()
+                                }
+                                window.addEventListener('focus', onFocus, { once: true })
+                                return () => window.removeEventListener('focus', onFocus)
+                            },
+                            'sseFocusReconnect',
+                            { pauseOnPageHidden: false }
+                        )
+                    })
+
+                    return () => {
+                        // TEMPORARY: livestream SSE lifecycle tracking. `reason` tags
+                        // whether this teardown was an explicit stop, a replacement by
+                        // a later startSSE call, or the disposable pausing for a
+                        // hidden tab so dashboards can still distinguish them.
+                        const stopReason = cache.nextStopReason ?? 'visibility_pause'
+                        cache.nextStopReason = null
+                        posthog.capture('livestream_sse_stopped', {
+                            reason: stopReason,
+                            had_connection: !!cache.sseConnection,
+                        })
+                        abortController.abort()
+                        if (cache.sseConnection === abortController) {
+                            cache.sseConnection = null
+                        }
+                    }
+                },
+                'sseConnection',
+                { pauseOnPageHidden: true }
+            )
         },
         stopSSE: () => {
-            // TEMPORARY: livestream SSE lifecycle tracking.
-            posthog.capture('livestream_sse_stopped', {
-                had_connection: !!cache.sseConnection,
-            })
+            cache.nextStopReason = 'explicit_stop'
             cache.disposables.dispose('sseFocusReconnect')
-            cache.sseConnection?.abort()
-            cache.sseConnection = null
+            cache.disposables.dispose('sseConnection')
+            cache.nextStopReason = null
         },
         navigateToNotification: ({ notification }) => {
             const path = values.sourcePathForNotification(notification)
@@ -411,6 +458,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         },
         loadCurrentTeamSuccess: () => {
             if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
+                cache.nextStartReason = 'team_reload'
                 actions.startSSE()
             }
         },

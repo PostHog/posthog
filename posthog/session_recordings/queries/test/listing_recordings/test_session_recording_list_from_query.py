@@ -4120,6 +4120,59 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # Test filtering
         self._assert_query_matches_session_ids(query={"distinct_ids": distinct_ids}, expected=expected)
 
+    @snapshot_clickhouse_queries
+    def test_person_profile_finds_anonymous_distinct_id_sessions(self):
+        """
+        Regression test: the person profile replay tab sends both distinct_ids
+        (from person.distinct_ids) and person_uuid. Before the fix, distinct_ids
+        took priority and sessions recorded under an anonymous distinct_id that
+        wasn't in person.distinct_ids were missed. With the OR fix, both paths
+        are used so the anonymous session is found via the POE person_id lookup.
+        """
+        identified_id = "identified-user"
+        anonymous_id = "anon-uuid-123"
+
+        person = Person.objects.create(team=self.team, distinct_ids=[identified_id, anonymous_id])
+
+        identified_session = f"identified-session-{uuid4()}"
+        anonymous_session = f"anonymous-session-{uuid4()}"
+
+        # session recorded under the identified distinct_id
+        produce_replay_summary(
+            distinct_id=identified_id,
+            session_id=identified_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # session recorded under the anonymous distinct_id
+        produce_replay_summary(
+            distinct_id=anonymous_id,
+            session_id=anonymous_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # an event linking the anonymous distinct_id to the person (for POE)
+        create_event(
+            distinct_id=anonymous_id,
+            timestamp=self.an_hour_ago,
+            team=self.team,
+            event_name="$pageview",
+            properties={"$session_id": anonymous_session, "$window_id": "1"},
+        )
+
+        # simulate the person profile replay tab: sends only the identified
+        # distinct_id (as if the anonymous one isn't in person.distinct_ids)
+        # plus the person_uuid
+        self._assert_query_matches_session_ids(
+            query={
+                "distinct_ids": [identified_id],
+                "person_uuid": str(person.uuid),
+            },
+            expected=[identified_session, anonymous_session],
+        )
+
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries

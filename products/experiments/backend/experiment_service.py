@@ -165,24 +165,123 @@ class ExperimentService:
                     "'key' to 'control'."
                 )
 
-    @staticmethod
-    def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
-        """Validate experiment exposure criteria payloads."""
-        if not exposure_criteria:
+    EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
+
+    EXPOSURE_CONFIG_HINT = (
+        "Expected either an event-based config like "
+        "{'kind': 'ExperimentEventExposureConfig', 'event': '<event_name>', 'properties': []} "
+        "or an action-based config like {'kind': 'ActionsNode', 'id': <action_id>}."
+    )
+
+    # Cap user-supplied values reflected into validation error messages so a large
+    # or sensitive payload cannot bloat responses, logs, or error tracking. repr()
+    # already escapes control characters, so the only remaining concern is length.
+    _ERROR_VALUE_MAX_LEN = 80
+
+    @classmethod
+    def _safe_repr(cls, value: object) -> str:
+        rendered = repr(value)
+        if len(rendered) > cls._ERROR_VALUE_MAX_LEN:
+            return rendered[: cls._ERROR_VALUE_MAX_LEN] + "...(truncated)"
+        return rendered
+
+    @classmethod
+    def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
+        """Validate experiment exposure criteria payloads.
+
+        Accepts `object` because the input arrives from a DRF `JSONField`, which
+        can deserialize to any JSON shape. The validator narrows defensively.
+        """
+        if exposure_criteria is None:
             return
 
-        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
-            raise ValidationError("filterTestAccounts must be a boolean")
+        if not isinstance(exposure_criteria, dict):
+            raise ValidationError(
+                f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
+                "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
+            )
+
+        if "filterTestAccounts" in exposure_criteria:
+            filter_test_accounts = exposure_criteria["filterTestAccounts"]
+            if not isinstance(filter_test_accounts, bool):
+                raise ValidationError(
+                    f"exposure_criteria.filterTestAccounts must be a boolean, got "
+                    f"{type(filter_test_accounts).__name__}: {cls._safe_repr(filter_test_accounts)}."
+                )
 
         if "exposure_config" in exposure_criteria:
             exposure_config = exposure_criteria["exposure_config"]
+
+            if not isinstance(exposure_config, dict):
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config must be an object, got "
+                    f"{type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
+            # to mirror the pydantic Literal default on that model.
+            kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+            if kind not in cls.EXPOSURE_CONFIG_KINDS:
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config.kind must be one of "
+                    f"{list(cls.EXPOSURE_CONFIG_KINDS)}, got {cls._safe_repr(kind)}. "
+                    f"{cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
             try:
-                if exposure_config.get("kind") == "ActionsNode":
-                    ActionsNode.model_validate(exposure_config)
-                else:
-                    ExperimentEventExposureConfig.model_validate(exposure_config)
-            except Exception:
-                raise ValidationError("Invalid exposure criteria")
+                model_cls.model_validate(exposure_config)
+            except pydantic.ValidationError as e:
+                # Surface only the field locations and error types from pydantic — not the
+                # echoed `input` and `url` fields, which would reflect arbitrary user data
+                # back into the response.
+                safe_errors = [
+                    {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+                ]
+                raise ValidationError(
+                    f"Invalid exposure_criteria.exposure_config (kind={cls._safe_repr(kind)}): "
+                    f"{safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+    # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
+    # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant
+    # the caller picked. A drift test asserts this stays in sync with the ExperimentMetric union.
+    _METRIC_TYPE_TO_CLASS = {
+        "mean": "ExperimentMeanMetric",
+        "funnel": "ExperimentFunnelMetric",
+        "ratio": "ExperimentRatioMetric",
+        "retention": "ExperimentRetentionMetric",
+    }
+
+    # Cap reported pydantic errors so a funnel with many steps (each producing union-variant
+    # errors) cannot blow up the response size. The first N errors are the most actionable.
+    _MAX_REPORTED_METRIC_ERRORS = 15
+
+    _EVENTS_NODE_ID_HINT = (
+        "EventsNode does not accept an 'id' field. "
+        "To reference an event, use {'kind': 'EventsNode', 'event': '<event_name>'} (omit 'id'). "
+        "To reference an action, switch to {'kind': 'ActionsNode', 'id': <integer_action_id>} (omit 'event')."
+    )
+
+    @staticmethod
+    def _is_events_node_actions_node_confusion(err: dict) -> bool:
+        """An `id` field was passed on an EventsNode (probably meant ActionsNode)."""
+        loc = tuple(err.get("loc") or ())
+        if len(loc) < 2 or err.get("type") != "extra_forbidden":
+            return False
+        return loc[-1] == "id" and "EventsNode" in loc
+
+    @classmethod
+    def _build_metric_validation_hint(cls, safe_errors: list[dict]) -> str:
+        """Return a targeted hint for an observed pydantic error pattern, or '' if none applies.
+
+        The structural shape of valid metrics is conveyed by `safe_errors` itself (loc, type,
+        msg) — adding prose duplicates the pydantic models and rots silently. Only hints
+        whose facts are independent of metric shape belong here."""
+        for err in safe_errors:
+            if cls._is_events_node_actions_node_confusion(err):
+                return cls._EVENTS_NODE_ID_HINT
+        return ""
 
     @classmethod
     def validate_experiment_metrics(cls, metrics: list | None) -> None:
@@ -226,7 +325,28 @@ class ExperimentService:
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
 
                 except pydantic.ValidationError as e:
-                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
+                    # Surface only the field locations and error types from pydantic — not the
+                    # echoed `input`, `ctx`, and `url` fields, which would reflect arbitrary
+                    # user data back into the response (potentially unbounded in size).
+                    safe_errors = [
+                        {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+                    ]
+                    # ExperimentMetric is a union of four variants; pydantic reports errors against
+                    # every variant by default. If the caller picked a metric_type, narrow to that
+                    # variant's errors so the message stays actionable instead of dumping 25+ errors.
+                    metric_type = metric.get("metric_type")
+                    variant_class = cls._METRIC_TYPE_TO_CLASS.get(metric_type) if isinstance(metric_type, str) else None
+                    if variant_class is not None:
+                        filtered = [err for err in safe_errors if err["loc"] and err["loc"][0] == variant_class]
+                        if filtered:
+                            safe_errors = filtered
+                    hint = cls._build_metric_validation_hint(safe_errors)
+                    if len(safe_errors) > cls._MAX_REPORTED_METRIC_ERRORS:
+                        truncated = safe_errors[: cls._MAX_REPORTED_METRIC_ERRORS]
+                        truncated.append({"truncated": f"...{len(safe_errors) - cls._MAX_REPORTED_METRIC_ERRORS} more"})
+                        safe_errors = truncated
+                    suffix = f" {hint}" if hint else ""
+                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 

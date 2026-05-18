@@ -282,6 +282,25 @@ export interface PatchedReplayLensApi {
     readonly updated_at?: string
 }
 
+/**
+ * Body of POST /vision/lenses/{id}/observe/.
+ */
+export interface ObserveRequestApi {
+    /**
+     * ID of the session recording to apply the lens to.
+     * @maxLength 128
+     */
+    session_id: string
+}
+
+/**
+ * Async-accepted response for POST /vision/lenses/{id}/observe/.
+ */
+export interface ObserveResponseApi {
+    /** Temporal workflow id for this lens application. Look up the resulting ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>. */
+    workflow_id: string
+}
+
 export type VisionLensesListParams = {
     /**
      * Filter to lenses that emit Signals.
