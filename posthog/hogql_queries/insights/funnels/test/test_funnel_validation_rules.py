@@ -139,24 +139,28 @@ class TestFunnelValidationRules(BaseTest):
         self.assertIn("Partial Exclusions not allowed in unordered funnels", str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
 
-    def test_allows_full_range_exclusion_in_unordered_funnels(self):
+    @parameterized.expand(
+        [
+            (
+                "full_range_in_unordered_funnel",
+                FunnelsFilter(
+                    funnelOrderType=StepOrderValue.UNORDERED,
+                    exclusions=[FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=2)],
+                ),
+            ),
+            (
+                "partial_range_in_ordered_funnel",
+                FunnelsFilter(
+                    funnelOrderType=StepOrderValue.ORDERED,
+                    exclusions=[FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=1)],
+                ),
+            ),
+        ]
+    )
+    def test_allows_valid_exclusion(self, _name, funnels_filter):
         query = FunnelsQuery(
             series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
-            funnelsFilter=FunnelsFilter(
-                funnelOrderType=StepOrderValue.UNORDERED,
-                exclusions=[FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=2)],
-            ),
-        )
-
-        ValidateFunnelExclusions().validate(self._context(query))
-
-    def test_allows_partial_exclusions_in_ordered_funnels(self):
-        query = FunnelsQuery(
-            series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
-            funnelsFilter=FunnelsFilter(
-                funnelOrderType=StepOrderValue.ORDERED,
-                exclusions=[FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=1)],
-            ),
+            funnelsFilter=funnels_filter,
         )
 
         ValidateFunnelExclusions().validate(self._context(query))
