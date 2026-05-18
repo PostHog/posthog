@@ -111,6 +111,27 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(series.map((s) => s.color)).toEqual(colors)
     })
 
+    it('suffixes labels with compare_label so compare-against-previous rows get distinct bands', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'Microsoft Edge', compare_label: 'current', aggregated_value: 100 }),
+            mkResult({ id: 'b', label: 'Microsoft Edge', compare_label: 'previous', aggregated_value: 80 }),
+            mkResult({ id: 'c', label: 'Safari', compare_label: 'current', aggregated_value: 60 }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(labels).toEqual(['Microsoft Edge - current', 'Microsoft Edge - previous', 'Safari - current'])
+        // No duplicates — every band gets a unique d3 domain key.
+        expect(new Set(labels).size).toBe(labels.length)
+    })
+
+    it('leaves labels unchanged when compare_label is absent', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'Chrome', aggregated_value: 1 }),
+            mkResult({ id: 'b', label: 'Safari', aggregated_value: 2 }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(labels).toEqual(['Chrome', 'Safari'])
+    })
+
     it('drops hidden results so visible bars are densely packed', () => {
         const results = [
             mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),

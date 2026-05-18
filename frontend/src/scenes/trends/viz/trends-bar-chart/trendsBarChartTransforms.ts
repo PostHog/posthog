@@ -99,7 +99,13 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     // Hidden results are dropped entirely — keeping them as `excluded` series would leave
     // a phantom band on the category axis with no bar.
     const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
-    const labels = visible.map((r) => r.label ?? '')
+    // Labels become the d3 band-scale domain; duplicates collapse into a single band and
+    // bars overlap. Compare-against-previous emits two rows per breakdown sharing the same
+    // `label` — suffix with the compare period so each row gets its own band.
+    const labels = visible.map((r) => {
+        const base = r.label ?? ''
+        return r.compare_label ? `${base} - ${r.compare_label}` : base
+    })
     const n = visible.length
     const series = visible.map((r, index) => {
         const data = new Array<number>(n).fill(0)
