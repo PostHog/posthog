@@ -2,12 +2,17 @@ import { notebookEditorLogicKey, shouldUseNotebookCollab } from './collabUtils'
 
 describe('collabUtils', () => {
     describe('shouldUseNotebookCollab', () => {
-        it('enables collaboration only for loaded live notebooks', () => {
-            expect(shouldUseNotebookCollab(true, true, false)).toBe(true)
-            expect(shouldUseNotebookCollab(false, true, false)).toBe(false)
-            expect(shouldUseNotebookCollab(true, false, false)).toBe(false)
-            expect(shouldUseNotebookCollab(true, true, true)).toBe(false)
-        })
+        it.each([
+            { collabEnabled: true, hasNotebook: true, hasPreviewContent: false, expected: true },
+            { collabEnabled: false, hasNotebook: true, hasPreviewContent: false, expected: false },
+            { collabEnabled: true, hasNotebook: false, hasPreviewContent: false, expected: false },
+            { collabEnabled: true, hasNotebook: true, hasPreviewContent: true, expected: false },
+        ])(
+            'returns $expected for collabEnabled=$collabEnabled, hasNotebook=$hasNotebook, hasPreviewContent=$hasPreviewContent',
+            ({ collabEnabled, hasNotebook, hasPreviewContent, expected }) => {
+                expect(shouldUseNotebookCollab(collabEnabled, hasNotebook, hasPreviewContent)).toBe(expected)
+            }
+        )
     })
 
     describe('notebookEditorLogicKey', () => {

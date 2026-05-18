@@ -197,7 +197,7 @@ export function Editor(): JSX.Element {
 
     return (
         <RichContentEditor
-            // Collab suffix forces editor to re-initialize so the collab plugin is only present when active.
+            // TipTap keeps its initial extension set, so preview/live mode needs a keyed editor remount.
             key={editorLogicKey}
             logicKey={editorLogicKey}
             extensions={extensions}
