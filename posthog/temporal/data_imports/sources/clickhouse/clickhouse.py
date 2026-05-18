@@ -923,8 +923,10 @@ def _build_query(
             raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
         where_parts.append(f"{_quote_identifier(incremental_field)} > %(last_value)s")
 
-    if sync_from_field is not None:
+
+    if sync_from_field is not None and sync_from_value is not None:
         where_parts.append(f"{_quote_identifier(sync_from_field)} >= %(sync_from)s")
+
 
     sql = f"SELECT {select_list} FROM {qualified}"
     if where_parts:
