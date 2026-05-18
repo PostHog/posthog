@@ -1,5 +1,6 @@
 import os
 import json
+
 from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
