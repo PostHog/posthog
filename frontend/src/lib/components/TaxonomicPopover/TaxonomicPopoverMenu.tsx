@@ -135,7 +135,9 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     // the resolved table schema so re-opening lands on a populated config
     // form (column dropdowns, preview) rather than an empty one.
     const selected = useMemo<MenuFilterEntry | null>(() => {
-        if (value == null || value === '') {
+        // Only a primitive scalar can become a synthetic entry — a stray
+        // array/object value would stringify to junk ("[object Object]").
+        if (value == null || value === '' || (typeof value !== 'string' && typeof value !== 'number')) {
             return null
         }
         const isDataWarehouse = selectedGroupType === TaxonomicFilterGroupType.DataWarehouse
@@ -181,7 +183,15 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
             allowNonCapturedEvents={allowNonCapturedEvents}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts={enableKeywordShortcuts}
-            onChange={(group, changedValue, item) => onChange(changedValue as ValueType, group.type, item, group)}
+            onChange={(group, changedValue, item) => {
+                // Defensive — the orchestrator always resolves a real group
+                // on commit, but a missing one would crash consumers that
+                // dereference `group.type`.
+                if (!group) {
+                    return
+                }
+                onChange(changedValue as ValueType, group.type, item, group)
+            }}
         >
             <TaxonomicFilterMenu
                 selected={selected}

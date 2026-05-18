@@ -209,7 +209,18 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     // so it's rendered with no extra DOM around it — the trigger inherits
     // the call site's layout exactly. The legacy path needs a thin
     // positioned wrapper to host the floating toggle.
-    if (useNewMenu) {
+    //
+    // The rebuilt menu doesn't model these legacy capabilities yet, so a
+    // call site that needs any of them stays on the classic filter (still
+    // with the toggle) — no behaviour is silently lost:
+    //   - `allowClear`            — the clear (X) affordance
+    //   - `selectingKeyOnly`      — key-only selection semantics
+    //   - `definitionPopoverRenderer` — custom definition popover
+    //   - `closeOnChange={false}` — keep-open-after-select
+    //   - a forwarded `ref`       — the rebuilt trigger can't receive it
+    const newMenuSupportsCallSite =
+        !allowClear && !selectingKeyOnly && !definitionPopoverRenderer && closeOnChange && ref == null
+    if (useNewMenu && newMenuSupportsCallSite) {
         return (
             <TaxonomicPopoverMenu<ValueType>
                 groupType={groupType}
