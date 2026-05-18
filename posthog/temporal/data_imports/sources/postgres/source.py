@@ -129,9 +129,18 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         required=False,
                         placeholder="public",
                         caption=(
-                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
-                            "to browse tables across all non-system schemas."
+                            "Required for warehouse imports unless 'Include all schemas' or 'Specific schemas' is enabled. "
+                            "Leave blank only for direct Postgres queries to browse tables across all non-system schemas."
                         ),
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="schemas",
+                        label="Specific schemas",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="schema1,schema2,schema3",
+                        caption="Comma-separated list of schemas to include. Use instead of 'Include all schemas'.",
                         secret=False,
                     ),
                     SourceFieldSwitchConfig(
@@ -221,7 +230,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     ) -> list[SourceSchema]:
         schemas = []
 
-        effective_schema = None if config.include_all_schemas else config.schema
+        if config.include_all_schemas:
+            effective_schema = None
+        elif config.schemas:
+            effective_schema = config.schemas
+        else:
+            effective_schema = config.schema
 
         with self.with_ssh_tunnel(config) as (host, port):
             db_schemas = get_postgres_schemas(
@@ -423,8 +437,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     ) -> tuple[bool, str | None]:
         if access_method != "direct":
             schema = config.schema.strip() if isinstance(config.schema, str) else ""
-            if not schema and not schema_name and not config.include_all_schemas:
-                return False, "Schema is required for warehouse imports unless 'Include all schemas' is enabled."
+            schemas = config.schemas.strip() if isinstance(config.schemas, str) else ""
+            if not schema and not schemas and not schema_name and not config.include_all_schemas:
+                return False, "Schema is required for warehouse imports unless 'Include all schemas' or 'Specific schemas' is enabled."
 
         return self.validate_credentials(config, team_id, schema_name=schema_name)
 

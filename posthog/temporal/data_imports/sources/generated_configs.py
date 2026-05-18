@@ -628,6 +628,7 @@ class PostgresSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     schema: str | None = None
+    schemas: str | None = None
     include_all_schemas: bool = config.value(converter=config.str_to_bool, default=False)
     ssh_tunnel: SSHTunnelConfig | None = None
 

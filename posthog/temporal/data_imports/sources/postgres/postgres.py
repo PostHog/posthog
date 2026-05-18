@@ -299,6 +299,14 @@ def _normalize_selected_schema(schema: str | None) -> str | None:
     return normalized or None
 
 
+def _parse_schemas(schema_input: str | None) -> list[str] | None:
+    if not isinstance(schema_input, str) or not schema_input.strip():
+        return None
+
+    schemas = [s.strip() for s in schema_input.split(",") if s.strip()]
+    return schemas if schemas else None
+
+
 def _get_display_table_name(schema_name: str, table_name: str, *, qualify_with_schema: bool) -> str:
     return f"{schema_name}.{table_name}" if qualify_with_schema else table_name
 
@@ -365,17 +373,46 @@ def _get_discovered_tables(
     else:
         # pg_class covers all syncable relkinds: r/p (tables), v/m (views), f (foreign).
         if selected_schema is not None:
-            cursor.execute(
-                """
-                SELECT n.nspname AS schema_name, c.relname AS table_name
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
-                  AND n.nspname = %(schema)s
-                ORDER BY n.nspname, c.relname
-                """,
-                {"schema": selected_schema},
-            )
+            # Check if it's comma-separated multiple schemas
+            if "," in selected_schema:
+                schema_list = [s.strip() for s in selected_schema.split(",") if s.strip()]
+                if schema_list:
+                    schema_placeholders, schema_params = _build_named_value_placeholders("schema", schema_list)
+                    cursor.execute(
+                        f"""
+                        SELECT n.nspname AS schema_name, c.relname AS table_name
+                        FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                          AND n.nspname IN ({schema_placeholders})
+                        ORDER BY n.nspname, c.relname
+                        """,
+                        schema_params,
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT n.nspname AS schema_name, c.relname AS table_name
+                        FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                          AND n.nspname = %(schema)s
+                        ORDER BY n.nspname, c.relname
+                        """,
+                        {"schema": selected_schema},
+                    )
+            else:
+                cursor.execute(
+                    """
+                    SELECT n.nspname AS schema_name, c.relname AS table_name
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                      AND n.nspname = %(schema)s
+                    ORDER BY n.nspname, c.relname
+                    """,
+                    {"schema": selected_schema},
+                )
         else:
             system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
                 "system_schema", SYSTEM_POSTGRES_SCHEMAS
