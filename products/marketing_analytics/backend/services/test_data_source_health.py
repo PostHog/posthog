@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.marketing_analytics.backend.services.data_source_health import (
     STALE_THRESHOLD,
     DataSourceHealthEntry,
@@ -17,33 +19,21 @@ from products.marketing_analytics.backend.services.data_source_health import (
 
 
 class TestResolveSyncStatus:
-    def test_never_synced_returns_never(self):
-        assert _resolve_sync_status(last_completed_at=None, last_error_text=None, required_tables=[]) == "never"
-
-    def test_recent_completed_returns_ok(self):
+    @parameterized.expand(
+        [
+            ("never_synced_returns_never", None, None, "never"),
+            ("recent_completed_returns_ok", timedelta(minutes=10), None, "ok"),
+            ("old_completed_returns_stale", STALE_THRESHOLD + timedelta(minutes=1), None, "stale"),
+            ("error_text_takes_priority_over_completed", timedelta(minutes=10), "boom", "error"),
+        ]
+    )
+    def test_resolve_sync_status(self, _name, age, last_error_text, expected):
+        last_completed_at = None if age is None else timezone.now() - age
         assert (
             _resolve_sync_status(
-                last_completed_at=timezone.now() - timedelta(minutes=10), last_error_text=None, required_tables=[]
+                last_completed_at=last_completed_at, last_error_text=last_error_text, required_tables=[]
             )
-            == "ok"
-        )
-
-    def test_old_completed_returns_stale(self):
-        assert (
-            _resolve_sync_status(
-                last_completed_at=timezone.now() - STALE_THRESHOLD - timedelta(minutes=1),
-                last_error_text=None,
-                required_tables=[],
-            )
-            == "stale"
-        )
-
-    def test_error_text_takes_priority_over_completed(self):
-        assert (
-            _resolve_sync_status(
-                last_completed_at=timezone.now() - timedelta(minutes=10), last_error_text="boom", required_tables=[]
-            )
-            == "error"
+            == expected
         )
 
 
@@ -71,26 +61,33 @@ def _entry(**kwargs) -> DataSourceHealthEntry:
     return DataSourceHealthEntry(**defaults)
 
 
+def _entries_for_status_test(case_name):
+    if case_name == "no_connected":
+        return [_entry(connected=False, last_sync_status="not_connected")]
+    if case_name == "all_ok":
+        return [_entry(), _entry(source_type="MetaAds", display_name="Meta Ads")]
+    if case_name == "all_errored":
+        return [_entry(last_sync_status="error", last_error="x")]
+    if case_name == "mixed":
+        return [_entry(), _entry(source_type="MetaAds", last_sync_status="error")]
+    if case_name == "required_missing":
+        return [_entry(schema_columns_required_missing=["campaign"])]
+    raise ValueError(f"unknown case: {case_name}")
+
+
 class TestComputeOverallStatus:
-    def test_no_connected_sources_is_no_sources(self):
-        entries = [_entry(connected=False, last_sync_status="not_connected")]
-        assert _compute_overall_status(entries) == "no_sources"
-
-    def test_all_connected_and_ok_is_healthy(self):
-        entries = [_entry(), _entry(source_type="MetaAds", display_name="Meta Ads")]
-        assert _compute_overall_status(entries) == "healthy"
-
-    def test_all_errored_is_broken(self):
-        entries = [_entry(last_sync_status="error", last_error="x")]
-        assert _compute_overall_status(entries) == "broken"
-
-    def test_mixed_is_degraded(self):
-        entries = [_entry(), _entry(source_type="MetaAds", last_sync_status="error")]
-        assert _compute_overall_status(entries) == "degraded"
-
-    def test_required_missing_is_degraded(self):
-        entries = [_entry(schema_columns_required_missing=["campaign"])]
-        assert _compute_overall_status(entries) == "degraded"
+    @parameterized.expand(
+        [
+            ("no_connected_sources_is_no_sources", "no_connected", "no_sources"),
+            ("all_connected_and_ok_is_healthy", "all_ok", "healthy"),
+            ("all_errored_is_broken", "all_errored", "broken"),
+            ("mixed_is_degraded", "mixed", "degraded"),
+            ("required_missing_is_degraded", "required_missing", "degraded"),
+        ]
+    )
+    def test_compute_overall_status(self, _name, case_name, expected):
+        entries = _entries_for_status_test(case_name)
+        assert _compute_overall_status(entries) == expected
 
 
 class TestBuildIssuesSummary:

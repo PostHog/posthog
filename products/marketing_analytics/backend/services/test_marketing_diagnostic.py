@@ -106,39 +106,33 @@ class TestDiagnoseOne:
         assert any(a.target_tool == expected_target_tool for a in result.recommended_actions)
 
 
+def _make_diag(status: str):
+    from products.marketing_analytics.backend.services.marketing_diagnostic import IntegrationDiagnostic
+
+    return IntegrationDiagnostic(
+        integration_key="google_ads",
+        source_type="GoogleAds",
+        display_name="Google Ads",
+        overall_status=status,
+        diagnosis="",
+        data_source=None,
+        attribution=None,
+    )
+
+
 class TestComputeOverallStatus:
-    def _diag(self, status):
-        from products.marketing_analytics.backend.services.marketing_diagnostic import IntegrationDiagnostic
-
-        return IntegrationDiagnostic(
-            integration_key="google_ads",
-            source_type="GoogleAds",
-            display_name="Google Ads",
-            overall_status=status,
-            diagnosis="",
-            data_source=None,
-            attribution=None,
-        )
-
-    def test_only_not_connected_is_no_sources(self):
-        diags = [self._diag("not_connected"), self._diag("not_connected")]
-        assert _compute_overall_status(diags) == "no_sources"
-
-    def test_all_healthy_is_healthy(self):
-        diags = [self._diag("healthy"), self._diag("healthy")]
-        assert _compute_overall_status(diags) == "healthy"
-
-    def test_mixed_healthy_and_problems_is_degraded(self):
-        diags = [self._diag("healthy"), self._diag("events_unmatched")]
-        assert _compute_overall_status(diags) == "degraded"
-
-    def test_only_sync_broken_is_broken(self):
-        diags = [self._diag("sync_broken"), self._diag("schema_misconfigured")]
-        assert _compute_overall_status(diags) == "broken"
-
-    def test_events_unmatched_alone_is_degraded_not_broken(self):
-        diags = [self._diag("events_unmatched")]
-        assert _compute_overall_status(diags) == "degraded"
+    @parameterized.expand(
+        [
+            ("only_not_connected_is_no_sources", ["not_connected", "not_connected"], "no_sources"),
+            ("all_healthy_is_healthy", ["healthy", "healthy"], "healthy"),
+            ("mixed_healthy_and_problems_is_degraded", ["healthy", "events_unmatched"], "degraded"),
+            ("only_sync_broken_is_broken", ["sync_broken", "schema_misconfigured"], "broken"),
+            ("events_unmatched_alone_is_degraded_not_broken", ["events_unmatched"], "degraded"),
+        ]
+    )
+    def test_compute_overall_status(self, _name, statuses, expected):
+        diags = [_make_diag(s) for s in statuses]
+        assert _compute_overall_status(diags) == expected
 
 
 class TestGetMarketingDiagnostic(APIBaseTest):

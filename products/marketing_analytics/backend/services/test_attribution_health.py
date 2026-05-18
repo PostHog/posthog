@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.marketing_analytics.backend.services.attribution_health import (
     FUZZY_LIKELY_THRESHOLD,
     HOGQL_GROUP_LIMIT,
@@ -16,20 +18,21 @@ from products.marketing_analytics.backend.services.attribution_health import (
 
 
 class TestFuzzyBestIntegration:
-    def test_close_match_meta_returns_meta_with_high_ratio(self):
+    @parameterized.expand(
+        [
+            ("no_candidates", "anything", []),
+            ("empty_string", "", ["meta_ads"]),
+        ]
+    )
+    def test_returns_none_and_zero_ratio(self, _name, raw, candidates):
+        target, ratio = _fuzzy_best_integration(raw, candidates=candidates)
+        assert target is None
+        assert ratio == 0.0
+
+    def test_close_match_returns_target_with_high_ratio(self):
         target, ratio = _fuzzy_best_integration("fcebook", candidates=["meta_ads", "google_ads"])
         assert target == "meta_ads"
         assert ratio >= FUZZY_LIKELY_THRESHOLD
-
-    def test_no_candidates_returns_none(self):
-        target, ratio = _fuzzy_best_integration("anything", candidates=[])
-        assert target is None
-        assert ratio == 0.0
-
-    def test_empty_string_returns_none(self):
-        target, ratio = _fuzzy_best_integration("", candidates=["meta_ads"])
-        assert target is None
-        assert ratio == 0.0
 
     def test_unrelated_value_returns_low_ratio(self):
         _, ratio = _fuzzy_best_integration("zzzzzz", candidates=["meta_ads", "google_ads"])
