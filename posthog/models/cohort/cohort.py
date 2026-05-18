@@ -127,7 +127,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     filters = models.JSONField(
         null=True,
         blank=True,
-        help_text="""Filters for the cohort. Examples:
+        help_text="""Filters for the cohort. The `negation` field shown below is specific to
+        cohort definitions (the inner sub-filters that build a cohort). Property filters used
+        *outside* cohort definitions — e.g. on `team.test_account_filters`, insight filters, or
+        feature flag conditions — must use `operator: "in"`/`"not_in"` for cohort exclusion and
+        do NOT accept `negation`.
+
+        Examples:
 
         # Behavioral filter (performed event)
         {
@@ -165,7 +171,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             }
         }
 
-        # Cohort filter
+        # Cohort filter (inner — within a cohort definition)
         {
             "properties": {
                 "type": "OR",

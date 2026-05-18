@@ -5337,13 +5337,15 @@ class AssistantCohortPropertyFilter(BaseModel):
         extra="forbid",
     )
     key: Literal["id"] = "id"
-    operator: Literal["in"] = "in"
+    operator: Literal["in", "not_in"] = "in"
     type: Literal["cohort"] = Field(
         default="cohort",
         description=(
             "Filter events by cohort membership. Use this to narrow down results to"
-            ' persons belonging to a specific cohort. Example: `{ type: "cohort", key:'
-            ' "id", value: 42, operator: "in" }`'
+            ' persons belonging to a specific cohort. Use `operator: "in"` to include'
+            ' cohort members, or `operator: "not_in"` to exclude them. Examples: -'
+            ' Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` -'
+            ' Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
         ),
     )
     value: int = Field(..., description="The cohort ID to filter by.")
