@@ -2461,6 +2461,79 @@ class TestExternalDataSource(APIBaseTest):
         assert column_names == ["id", "new_column"]
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_writes_metadata_for_new_other_schema_table_after_schema_cleared(self, mock_get_source):
+        # Scenario reported by users:
+        #   1. Source created on master with `job_inputs={schema: "public"}` — limits sync to the
+        #      `public` namespace. Legacy `example_table` row has no schema_metadata.
+        #   2. After upgrading to this PR the user clears `job_inputs.schema`, expecting to enable
+        #      tables from other Postgres schemas (e.g. `poblic`).
+        #   3. Refresh runs, discovery returns both `public.example_table` and `poblic.example_table`.
+        #
+        # The new `poblic.example_table` row MUST carry schema_metadata pointing at `poblic`/
+        # `example_table`, otherwise source_for_pipeline falls back to `config.schema or "public"`
+        # and emits `FROM "public"."poblic.example_table"` — a non-existent relation.
+        mock_get_source.return_value.parse_config.return_value = None
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="legacy",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": ""},  # cleared
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="example_table",
+            should_sync=True,
+        )
+
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.example_table",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="example_table",
+            ),
+            SourceSchema(
+                name="poblic.example_table",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="poblic",
+                source_table_name="example_table",
+            ),
+        ]
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        # Legacy row stays under its unqualified name but gets pinned to (public, example_table).
+        legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="example_table")
+        legacy_metadata = legacy.sync_type_config.get("schema_metadata") or {}
+        assert legacy_metadata.get("source_schema") == "public"
+        assert legacy_metadata.get("source_table_name") == "example_table"
+
+        # The newly-discovered `poblic.example_table` is a brand-new row pointing at the right place.
+        new_row = ExternalDataSchema.objects.get(
+            team_id=self.team.pk, source_id=source.pk, name="poblic.example_table"
+        )
+        new_metadata = new_row.sync_type_config.get("schema_metadata") or {}
+        assert new_metadata.get("source_schema") == "poblic", (
+            f"source_for_pipeline would emit SELECT FROM public.poblic.example_table "
+            f"(found source_schema={new_metadata.get('source_schema')!r})"
+        )
+        assert new_metadata.get("source_table_name") == "example_table"
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
         # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
         # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans
