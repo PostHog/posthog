@@ -5531,6 +5531,7 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EVALUATION = 'Evaluation',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
