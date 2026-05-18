@@ -362,7 +362,9 @@ class TestRedisStream(BaseTest):
 
             serializer = ConversationStreamSerializer()
             last_payload = mock_client.xadd.call_args_list[-1][0][1]
-            decoded = serializer.deserialize(last_payload)
+            # write_to_stream passes a str-keyed dict to xadd; the deserializer expects
+            # bytes keys (as Redis returns them in production).
+            decoded = serializer.deserialize({k.encode(): v for k, v in last_payload.items()})
             self.assertIsInstance(decoded.event, StreamStatusEvent)
             self.assertEqual(cast(StatusPayload, decoded.event.payload).status, "complete")
 
