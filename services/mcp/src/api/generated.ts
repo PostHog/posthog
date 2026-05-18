@@ -6341,6 +6341,10 @@ export namespace Schemas {
     } as const;
 
     export interface BulkNotificationIdsRequest {
+      /**
+         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
+         * @maxItems 500
+         */
       notification_ids: string[];
     }
 
@@ -39778,9 +39782,21 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
     resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
     resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
     target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
     target_type?: string;
     };
 
