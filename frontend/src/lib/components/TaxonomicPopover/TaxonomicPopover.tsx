@@ -205,7 +205,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     // lets the user swap back to the classic filter and forward again.
     // Gated by `taxonomic-filter-menu-rebuild`.
     return (
-        <span className="inline-flex items-center gap-1 min-w-0">
+        <span className="relative inline-flex min-w-0">
             {useNewMenu ? (
                 <TaxonomicPopoverMenu<ValueType>
                     groupType={groupType}
