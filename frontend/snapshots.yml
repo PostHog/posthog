@@ -5830,6 +5830,30 @@ snapshots:
         hash: v1.k794b7964.5fd9cfd154dfac9e92c492b11d72f4b26f8f6c91b073d7b8c728ecbcb8f699e4.Y7xIgQfsOCcp9HiLZaExdWRFGE7WFst8c13z8uM8tME
     scenes-app-surveys-surveyresponsekeysreference--webhook--light:
         hash: v1.k794b7964.9b5c484a3a1bd7a09c266a1f164e3ed9eef3ffabbcd12253f0843b3f0b69a808.cc6Rai2vShlFJA_KypMbVcc1IIaVX0nTcZ29RPEEZjo
+    scenes-app-user-interviews-search-results--detached-only--dark:
+        hash: v1.k794b7964.c182f59044087aa438a236fca1546f3251a896c8ab356044d562da1bffe856da.zpiSVwEP9LYYP5PiQoFB3GvYwujHz-svSjso_KvSp6Y
+    scenes-app-user-interviews-search-results--detached-only--light:
+        hash: v1.k794b7964.e2f0b951a70c160ddba19ca29224a632c5046d5c3cb27f64e0e05b7421fd0686.4CteCxln42COj972IMuGDE44IyFiFDNEqY00JwD_6l8
+    scenes-app-user-interviews-search-results--loading-first-search--dark:
+        hash: v1.k794b7964.14ac46de18e0063eca3173c9157f66135b08dadc10286e35cd6633c532e394a0.ezJQIDRzwZr3ItwNnMgDjhRD9b1KIBpAKfyA5rvPORA
+    scenes-app-user-interviews-search-results--loading-first-search--light:
+        hash: v1.k794b7964.f67b7d4952e88a3e4bcf8323f40e4d72799fb8d0763530677acd49eed5a6fcc4.PmF4sKQTkIUCVaKSlFDqWf0ZDNCtlKomFYP04nds0VQ
+    scenes-app-user-interviews-search-results--loading-with-stale-results--dark:
+        hash: v1.k794b7964.7036a2691bbc019cfcf3af300e38ede2df920ca229185a848c7fc3ba58f016f1.kyhUOXXSCw0zVFQ2_UyNDZgsjGzSmxhvJsc0G2FXQ7o
+    scenes-app-user-interviews-search-results--loading-with-stale-results--light:
+        hash: v1.k794b7964.b9d0c204eaabfa8b44b84ece557214633b6fbd019bad723b49dad4675bf6b776.BSwpitn4_ybFYc0mFT0jDBrVRqN4qAz2bG5RVKyJruc
+    scenes-app-user-interviews-search-results--no-matches--dark:
+        hash: v1.k794b7964.058737ceb3548b3eb9ce37ec561608cfe8a61f6dca0cae1bd178f506f2af4e95.-L-8-4zMiMeIK5wYeBLemU65IjYngZbAojVXMAs7wS4
+    scenes-app-user-interviews-search-results--no-matches--light:
+        hash: v1.k794b7964.69afd04740a981da0741eb40bb644405f48b6965ecb2568416c043cb67f6bdce.sjqwv7hvnrV7e7gJiCmTLbwcywq7dQ6YcBfKWYoQUtE
+    scenes-app-user-interviews-search-results--single-result--dark:
+        hash: v1.k794b7964.3908739e1fe4b5ec02b4408bfa281117eb8f6d846b6aaad2ec327727ef5f761e.NSc_rBQUM-uRvFc8oPvotCLeJKt-cQmZO0jbLJBzYBs
+    scenes-app-user-interviews-search-results--single-result--light:
+        hash: v1.k794b7964.586b79eadbfd71ab027862e84dc5dea2c3b7071d6adce61af6802bafb1e5cab7.CrQbZyiA9HQneV9ffM_VNJxAOwFDOVRjKJSf756wiys
+    scenes-app-user-interviews-search-results--with-results--dark:
+        hash: v1.k794b7964.262d80eda89ee97bbacb856ede20fea215124f5dc2255098bf29783d75625734.2cAW_-BB_yDhW_TMuWcL41ZZXBf1atKhGeMwtqz9u0Q
+    scenes-app-user-interviews-search-results--with-results--light:
+        hash: v1.k794b7964.13e7e7bffcddc95835361f2097b9238fb004060c2a74b97b3ab0b659396eddee.PoVNCsuIRxTHcFVZmIIKIdpPLUTVfh9xlYSXuARzwOE
     scenes-app-web-analytics--web-analytics-dashboard--dark:
         hash: v1.k794b7964.d493d0022b694b7596a58ee1fd25c7658dc1de6454c588b275980213e90939e6.lMoXkY33jv_2eDy6QZpYKh_mUt95j8VJHjj6m5zmZG8
     scenes-app-web-analytics--web-analytics-dashboard--light:
