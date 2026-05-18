@@ -1426,7 +1426,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source_type = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type)
             config = source.parse_config(instance.job_inputs)
-            schemas = source.get_schemas(config, self.team_id)
+            # Explicit user action — bypass any cached schema discovery so newly added
+            # upstream resources (e.g. Slack channels) appear immediately.
+            schemas = source.get_schemas(config, self.team_id, force_refresh=True)
             connection_metadata = (
                 get_direct_postgres_connection_metadata(
                     source_impl=source,
