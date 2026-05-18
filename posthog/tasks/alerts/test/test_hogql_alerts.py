@@ -279,9 +279,7 @@ class TestAlertCreationGate(APIBaseTest, ClickhouseDestroyTablesMixin):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     def _create_hogql_insight(self, sql: str = "SELECT 1") -> dict[str, Any]:
-        return self.dashboard_api.create_insight(
-            data={"name": "hogql", "query": HogQLQuery(query=sql).model_dump()}
-        )[1]
+        return self.dashboard_api.create_insight(data={"name": "hogql", "query": HogQLQuery(query=sql).model_dump()})[1]
 
     def _post_alert(self, insight_id: int) -> Any:
         return self.client.post(

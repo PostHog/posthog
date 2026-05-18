@@ -113,10 +113,7 @@ def _validate_absolute_threshold_compatibility(
         threshold = InsightThreshold.model_validate(threshold_config)
     except Exception:
         raise ValueError(f"Alert has invalid threshold configuration: {threshold_config}")
-    if (
-        parsed_condition.type == AlertConditionType.ABSOLUTE_VALUE
-        and threshold.type != InsightThresholdType.ABSOLUTE
-    ):
+    if parsed_condition.type == AlertConditionType.ABSOLUTE_VALUE and threshold.type != InsightThresholdType.ABSOLUTE:
         raise ValueError(
             "Absolute value alerts require an absolute threshold, but a percentage threshold was configured"
         )
@@ -158,9 +155,14 @@ def _validate_trends_alert_config(
 
     threshold = _validate_absolute_threshold_compatibility(parsed_condition, threshold_config)
 
-    if threshold and parsed_config.check_ongoing_interval and parsed_condition.type in (
-        AlertConditionType.ABSOLUTE_VALUE,
-        AlertConditionType.RELATIVE_INCREASE,
+    if (
+        threshold
+        and parsed_config.check_ongoing_interval
+        and parsed_condition.type
+        in (
+            AlertConditionType.ABSOLUTE_VALUE,
+            AlertConditionType.RELATIVE_INCREASE,
+        )
     ):
         if not threshold.bounds or threshold.bounds.upper is None:
             raise ValueError(
