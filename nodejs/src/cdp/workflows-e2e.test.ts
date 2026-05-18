@@ -429,6 +429,52 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     })
 
+    describe('wait_until_condition: condition matches immediately', () => {
+        beforeEach(async () => {
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            condition: {
+                                // Matches $pageview with "posthog" in $current_url
+                                filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                            },
+                            max_wait_duration: '10s',
+                        },
+                    },
+                    function_matched: fetchAction('https://example.com/condition-matched'),
+                    function_timeout: fetchAction('https://example.com/condition-timed-out'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_timeout', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                    { from: 'function_timeout', to: 'exit', type: 'continue' },
+                ],
+            })
+            // Event matches the condition: $pageview with posthog in URL
+            globals = createGlobals({
+                event: '$pageview',
+                properties: { $current_url: 'https://posthog.com' },
+            })
+        })
+
+        it('should take the matched branch without rescheduling', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            // Should hit the matched branch, not the timeout branch
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+    })
+
     describe('wait_until_condition: condition never matches, times out', () => {
         beforeEach(async () => {
             await createWorkflow({
