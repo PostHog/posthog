@@ -44011,6 +44011,10 @@ export namespace Schemas {
      */
     exclude_hidden?: boolean;
     /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean;
+    /**
      * JSON-encoded list of excluded properties
      * @minLength 1
      */
