@@ -33,7 +33,8 @@ postHogCapture({
             secret: false,
             hidden: false,
             default: '{event.distinct_id}',
-            description: 'The distinct ID associated with the Person.',
+            description:
+                'The distinct ID or persisted person UUID to target. Use `{event.distinct_id}` for event-triggered workflows, or `{person.id}` for batch workflows (where no event distinct ID is resolved).',
         },
         {
             type: 'dictionary',
