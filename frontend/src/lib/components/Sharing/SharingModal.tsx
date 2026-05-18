@@ -123,7 +123,7 @@ export function SharingModalContent({
     }
     const {
         whitelabelAvailable,
-        advancedPermissionsAvailable,
+        accessControlAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -261,7 +261,7 @@ export function SharingModalContent({
                                                 label={
                                                     <div className="flex items-center">
                                                         Password protect
-                                                        {!advancedPermissionsAvailable && (
+                                                        {!accessControlAvailable && (
                                                             <Tooltip title="This is a premium feature, click to learn more.">
                                                                 <IconLock className="ml-1.5 text-muted text-lg" />
                                                             </Tooltip>
@@ -270,9 +270,8 @@ export function SharingModalContent({
                                                 }
                                                 onChange={(passwordRequired: boolean) => {
                                                     if (passwordRequired) {
-                                                        guardAvailableFeature(
-                                                            AvailableFeature.ADVANCED_PERMISSIONS,
-                                                            () => setPasswordRequired(passwordRequired)
+                                                        guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () =>
+                                                            setPasswordRequired(passwordRequired)
                                                         )
                                                     } else {
                                                         setPasswordRequired(passwordRequired)

@@ -10,6 +10,7 @@ import {
     IconCloud,
     IconCode,
     IconEndpoints,
+    IconEye,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -132,6 +133,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     session_replay: {
         icon: <IconRewindPlay />,
+        iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
+    },
+    replay_vision: {
+        icon: <IconEye />,
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
     },
     survey: {

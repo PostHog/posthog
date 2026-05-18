@@ -1446,6 +1446,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
     }
 
+    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingDags(teamId).addPathComponent(id)
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -5332,6 +5336,15 @@ const api = {
         async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
             return await new ApiRequest().dataModelingDags().create({ data })
         },
+        async update(
+            dagId: DataModelingDAG['id'],
+            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
+        ): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDag(dagId).update({ data })
+        },
+        async delete(dagId: DataModelingDAG['id']): Promise<void> {
+            await new ApiRequest().dataModelingDag(dagId).delete()
+        },
     },
 
     dataModelingNodes: {
@@ -6563,6 +6576,7 @@ const api = {
             message: string
             recipient_email: string
             email_config_id: string
+            recipient_distinct_id?: string
             email_subject?: string
             rich_content?: Record<string, unknown> | null
         }): Promise<{ id: string; ticket_number: number }> {
