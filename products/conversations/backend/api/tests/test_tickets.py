@@ -1351,3 +1351,138 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             raw_query = f"SELECT id FROM person WHERE lower({mat_col.name}) IN ('indexed@example.com')"
             index_info = get_index_from_explain(raw_query, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used"
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestComposeTicketAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        from products.conversations.backend.models import EmailChannel
+
+        self.email_config = EmailChannel.objects.create(
+            team=self.team,
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            inbound_token="test-token-compose",
+        )
+
+    def _compose(self, data):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/compose/",
+            data,
+            format="json",
+        )
+
+    def test_compose_with_distinct_id_matching_email(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["user-abc"],
+            properties={"email": "customer@test.com"},
+            immediate=True,
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "customer@test.com",
+                "recipient_distinct_id": "user-abc",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(id=response.json()["id"])
+        assert ticket.distinct_id == "user-abc"
+
+    def test_compose_with_distinct_id_mismatched_email_rejected(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["user-abc"],
+            properties={"email": "real@test.com"},
+            immediate=True,
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "fake@other.com",
+                "recipient_distinct_id": "user-abc",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not match" in response.json()["detail"]
+
+    def test_compose_with_distinct_id_person_has_no_email_allows_any(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["user-no-email"],
+            properties={"name": "No Email User"},
+            immediate=True,
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "anything@test.com",
+                "recipient_distinct_id": "user-no-email",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_compose_with_distinct_id_person_not_found_allows_any(self, mock_on_commit):
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "recipient_distinct_id": "nonexistent-user",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_compose_without_distinct_id_no_validation(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@test.com"],
+            properties={"email": "someone@test.com"},
+            immediate=True,
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_compose_email_comparison_is_case_insensitive(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["user-case"],
+            properties={"email": "Customer@Test.COM"},
+            immediate=True,
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "customer@test.com",
+                "recipient_distinct_id": "user-case",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
