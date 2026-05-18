@@ -172,28 +172,32 @@ function SurveyEventSelector({
                                         {
                                             key: panelKey,
                                             header: (
-                                                <div className="flex items-center gap-2 flex-1">
-                                                    <span className="font-semibold text-sm">{event.name}</span>
-                                                    <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
-                                                        {hasPropertyFilters
-                                                            ? `${propertyFilterCount} filter${propertyFilterCount !== 1 ? 's' : ''}`
-                                                            : 'No filters'}
-                                                    </span>
+                                                <div className="flex items-center gap-2 flex-1 justify-between">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className="font-semibold text-sm truncate">
+                                                            {event.name}
+                                                        </span>
+                                                        <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded shrink-0">
+                                                            {hasPropertyFilters
+                                                                ? `${propertyFilterCount} filter${propertyFilterCount !== 1 ? 's' : ''}`
+                                                                : 'No filters'}
+                                                        </span>
+                                                    </div>
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        icon={<IconX />}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            removeEventAtIndex(index)
+                                                        }}
+                                                        type="tertiary"
+                                                        status="alt"
+                                                        tooltip="Remove event"
+                                                    />
                                                 </div>
                                             ),
                                             content: (
                                                 <div className="space-y-2">
-                                                    <div className="flex justify-end">
-                                                        <LemonButton
-                                                            size="xsmall"
-                                                            icon={<IconX />}
-                                                            onClick={() => removeEventAtIndex(index)}
-                                                            type="tertiary"
-                                                            status="alt"
-                                                        >
-                                                            Remove
-                                                        </LemonButton>
-                                                    </div>
                                                     <PropertyFilters
                                                         propertyFilters={convertPropertyFiltersToArray(
                                                             event.propertyFilters
