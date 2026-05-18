@@ -179,6 +179,7 @@ export const workflowLogic = kea<workflowLogicType>([
         autoSaveWorkflow: true,
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
         setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
+        clearAutoSavePending: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -354,6 +355,7 @@ export const workflowLogic = kea<workflowLogicType>([
             false as boolean,
             {
                 autoSaveWorkflow: () => true,
+                clearAutoSavePending: () => false,
                 saveWorkflowSuccess: () => false,
                 saveWorkflowFailure: () => false,
                 resetWorkflow: () => false,
@@ -778,22 +780,17 @@ export const workflowLogic = kea<workflowLogicType>([
         autoSaveWorkflow: async (_, breakpoint) => {
             await breakpoint(3000)
 
-            if (!values.autoSaveEnabled) {
-                return
-            }
-            if (!props.id || props.id === 'new') {
-                return
-            }
-            if (props.editTemplateId) {
-                return
-            }
-            if (values.workflow.status === 'active') {
-                return
-            }
-            if (!values.workflowChanged) {
-                return
-            }
-            if (values.workflowHasErrors) {
+            const shouldSkip =
+                !values.autoSaveEnabled ||
+                !props.id ||
+                props.id === 'new' ||
+                !!props.editTemplateId ||
+                values.workflow.status === 'active' ||
+                !values.workflowChanged ||
+                values.workflowHasErrors
+
+            if (shouldSkip) {
+                actions.clearAutoSavePending()
                 return
             }
 

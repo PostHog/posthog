@@ -159,6 +159,50 @@ describe('workflowLogic auto-save', () => {
 
             expect(updateCalls).toBe(0)
         })
+
+        it('clears isAutoSavePending when auto-save is skipped', async () => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+
+            // Dispatch auto-save without actual changes — guard will skip
+            logic.actions.autoSaveWorkflow()
+            expect(logic.values.isAutoSavePending).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(logic.values.isAutoSavePending).toBe(false)
+            expect(updateCalls).toBe(0)
+        })
+
+        it('does not auto-save workflow loaded as active', async () => {
+            const activeWorkflow = makeWorkflow({ status: 'active' })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': activeWorkflow,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return [200, activeWorkflow]
+                    },
+                },
+            })
+
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('name', 'Edited active')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+        })
     })
 
     describe('auto-save toggle', () => {

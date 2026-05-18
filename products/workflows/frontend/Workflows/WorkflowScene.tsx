@@ -8,7 +8,7 @@ import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -39,13 +39,12 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
     return debounced
 }
 
-function RelativeTime({ timestamp }: { timestamp: string }): JSX.Element {
-    const [, setTick] = useState(0)
-    useEffect(() => {
-        const interval = setInterval(() => setTick((t) => t + 1), 30000)
-        return () => clearInterval(interval)
-    }, [])
-    return <>{dayjs(timestamp).fromNow()}</>
+function LastSavedIndicator({ timestamp }: { timestamp: string }): JSX.Element {
+    return (
+        <span className="text-xs text-tertiary">
+            Last saved <TZLabel time={timestamp} />
+        </span>
+    )
 }
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
@@ -143,9 +142,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                             <Spinner textColored /> Saving…
                                         </span>
                                     ) : lastSavedAt ? (
-                                        <span className="text-xs text-tertiary">
-                                            Last saved <RelativeTime timestamp={lastSavedAt} />
-                                        </span>
+                                        <LastSavedIndicator timestamp={lastSavedAt} />
                                     ) : null}
                                     <span className="flex items-center gap-1">
                                         <LemonSwitch
@@ -163,9 +160,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                     </span>
                                 </span>
                             ) : lastSavedAt ? (
-                                <span className="text-xs text-tertiary">
-                                    Last saved <RelativeTime timestamp={lastSavedAt} />
-                                </span>
+                                <LastSavedIndicator timestamp={lastSavedAt} />
                             ) : null
                         }
                         className={clsx({
