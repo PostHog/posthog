@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Mapping
 from datetime import datetime
@@ -15,6 +14,7 @@ from posthog.test.base import (
     cleanup_materialized_columns,
     flush_persons_and_events,
     get_index_from_explain,
+    get_inner_person_subquery_clickhouse_sql,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -3988,21 +3988,6 @@ class TestPrinter(BaseTest):
         self.assertNotIn("$session_id_uuid", result)
 
 
-def _extract_balanced_subquery(sql: str, start_pattern: str) -> str:
-    """Extract a parenthesised subquery from `sql`, starting at the first regex match of `start_pattern`."""
-    match = re.search(start_pattern, sql)
-    assert match is not None, f"could not locate subquery /{start_pattern}/ in:\n{sql}"
-    depth = 0
-    for i in range(match.start(), len(sql)):
-        if sql[i] == "(":
-            depth += 1
-        elif sql[i] == ")":
-            depth -= 1
-            if depth == 0:
-                return sql[match.start() + 1 : i]
-    raise AssertionError(f"unbalanced parentheses in:\n{sql}")
-
-
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
@@ -4616,19 +4601,13 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             # Index usage: extract the person-scanning filter subquery from the real generated SQL and
             # EXPLAIN it, proving the printer's output for the full query hits the bloom_filter_lower index.
-            executor = HogQLQueryExecutor(
-                query_type="HogQLQuery",
-                query=parse_select(query),
-                team=self.team,
+            subquery, placeholder_values = get_inner_person_subquery_clickhouse_sql(
+                query,
+                self.team,
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
-            clickhouse_sql, _ = executor.generate_clickhouse_sql()
-            assert executor.clickhouse_context is not None
-            subquery = _extract_balanced_subquery(clickhouse_sql, r"\(\s*SELECT\s+where_optimization")
             index_name = get_bloom_filter_lower_index_name(mat_col.name)
-            index_info = get_index_from_explain(
-                subquery, index_name, placeholder_values=executor.clickhouse_context.values
-            )
+            index_info = get_index_from_explain(subquery, index_name, placeholder_values=placeholder_values)
             assert index_info is not None, (
                 f"Expected skip index {index_name} to be used in the persons filter subquery:\n{subquery}"
             )
