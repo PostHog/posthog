@@ -19,6 +19,7 @@ import {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
+    SignalReportPriority,
     SignalReportStatus,
 } from './types'
 
@@ -40,6 +41,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setSelectedReportId: (id: string | null) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
         setStatusFilters: (statuses: SignalReportStatus[]) => ({ statuses }),
+        setPriorityFilters: (priorities: SignalReportPriority[]) => ({ priorities }),
         setActiveDetailTab: (tab: DetailTab) => ({ tab }),
         deleteReport: (reportId: string) => ({ reportId }),
         reingestReport: (reportId: string) => ({ reportId }),
@@ -57,6 +59,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         limit: REPORTS_PAGE_SIZE,
                         offset: 0,
                         status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
+                        priority: values.priorityFilters.length > 0 ? values.priorityFilters.join(',') : undefined,
                         search: values.searchQuery.trim() || undefined,
                         ordering: '-is_suggested_reviewer,-signal_count',
                     })
@@ -67,6 +70,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         limit: REPORTS_PAGE_SIZE,
                         offset: currentResults.length,
                         status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
+                        priority: values.priorityFilters.length > 0 ? values.priorityFilters.join(',') : undefined,
                         search: values.searchQuery.trim() || undefined,
                         ordering: '-is_suggested_reviewer,-signal_count',
                     })
@@ -120,6 +124,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             [SignalReportStatus.READY] as SignalReportStatus[],
             {
                 setStatusFilters: (_, { statuses }) => statuses,
+            },
+        ],
+        priorityFilters: [
+            [] as SignalReportPriority[],
+            {
+                setPriorityFilters: (_, { priorities }) => priorities,
             },
         ],
         activeDetailTab: [
@@ -213,6 +223,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             actions.loadReports()
         },
         setStatusFilters: () => {
+            actions.loadReports()
+        },
+        setPriorityFilters: () => {
             actions.loadReports()
         },
         setSelectedReportId: ({ id }) => {

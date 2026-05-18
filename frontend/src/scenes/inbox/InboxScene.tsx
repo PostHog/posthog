@@ -57,7 +57,7 @@ import { SignalCard } from './SignalCard'
 import { SignalGraphTab } from './SignalGraphTab'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
-import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
+import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportPriority, SignalReportStatus } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -161,6 +161,8 @@ const STATUS_LABELS: Record<SignalReportStatus, string> = {
     [SignalReportStatus.FAILED]: 'Failed',
 }
 
+const PRIORITY_OPTIONS = Object.values(SignalReportPriority)
+
 function StatusFilter(): JSX.Element {
     const { statusFilters } = useValues(inboxSceneLogic)
     const { setStatusFilters } = useActions(inboxSceneLogic)
@@ -240,6 +242,84 @@ function StatusFilter(): JSX.Element {
     )
 }
 
+function PriorityFilter(): JSX.Element {
+    const { priorityFilters } = useValues(inboxSceneLogic)
+    const { setPriorityFilters } = useActions(inboxSceneLogic)
+    const [showPopover, setShowPopover] = useState(false)
+
+    const isAllSelected = priorityFilters.length === PRIORITY_OPTIONS.length
+    const isSomeSelected = priorityFilters.length > 0 && priorityFilters.length < PRIORITY_OPTIONS.length
+
+    const handleToggleAll = (): void => {
+        if (isAllSelected || isSomeSelected) {
+            setPriorityFilters([])
+        } else {
+            setPriorityFilters([...PRIORITY_OPTIONS])
+        }
+    }
+
+    const handleTogglePriority = (priority: SignalReportPriority): void => {
+        const next = priorityFilters.includes(priority)
+            ? priorityFilters.filter((p) => p !== priority)
+            : [...priorityFilters, priority]
+        setPriorityFilters(next)
+    }
+
+    const displayValue = (): string => {
+        if (priorityFilters.length === 0 || isAllSelected) {
+            return 'All priorities'
+        }
+        if (priorityFilters.length === 1) {
+            return priorityFilters[0]
+        }
+        return `${priorityFilters.length} priorities`
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            visible={showPopover}
+            matchWidth={false}
+            actionable
+            onVisibilityChange={setShowPopover}
+            overlay={
+                <div className="max-w-60 space-y-px p-1">
+                    <LemonButton fullWidth size="small" onClick={handleToggleAll} className="justify-start">
+                        <span className="flex items-center gap-2">
+                            <LemonCheckbox checked={isAllSelected} className="pointer-events-none" />
+                            <span className="font-semibold">
+                                {isAllSelected || isSomeSelected ? 'Clear all' : 'Select all'}
+                            </span>
+                        </span>
+                    </LemonButton>
+                    <div className="border-t border-border my-1" />
+                    {PRIORITY_OPTIONS.map((priority) => (
+                        <LemonButton
+                            key={priority}
+                            fullWidth
+                            size="small"
+                            onClick={() => handleTogglePriority(priority)}
+                            className="justify-start"
+                        >
+                            <span className="flex items-center gap-2">
+                                <LemonCheckbox
+                                    checked={priorityFilters.includes(priority)}
+                                    className="pointer-events-none"
+                                />
+                                <span>{priority}</span>
+                            </span>
+                        </LemonButton>
+                    ))}
+                </div>
+            }
+        >
+            <LemonButton type="secondary" size="small" icon={<IconFilter />} className="bg-surface-primary">
+                {displayValue()}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
 function ReportListPane(): JSX.Element {
     const {
         filteredReports,
@@ -249,6 +329,7 @@ function ReportListPane(): JSX.Element {
         selectedReportId,
         shouldShowEnablingCtaOnMobile,
         statusFilters,
+        priorityFilters,
         reportsHasMore,
     } = useValues(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
@@ -298,6 +379,7 @@ function ReportListPane(): JSX.Element {
                         }
                     />
                     <StatusFilter />
+                    <PriorityFilter />
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -331,7 +413,7 @@ function ReportListPane(): JSX.Element {
                             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                                 <p className="text-sm text-secondary font-medium m-0 cursor-default">
-                                    {searchQuery || statusFilters.length > 0
+                                    {searchQuery || statusFilters.length > 0 || priorityFilters.length > 0
                                         ? 'No reports matching filters.'
                                         : 'No reports yet.'}
                                 </p>

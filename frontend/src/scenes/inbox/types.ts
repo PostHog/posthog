@@ -34,6 +34,14 @@ export enum SignalReportStatus {
     FAILED = 'failed',
 }
 
+export enum SignalReportPriority {
+    P0 = 'P0',
+    P1 = 'P1',
+    P2 = 'P2',
+    P3 = 'P3',
+    P4 = 'P4',
+}
+
 export interface SignalReportArtefact {
     id: string
     type: string

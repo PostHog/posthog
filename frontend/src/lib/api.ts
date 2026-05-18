@@ -4923,6 +4923,7 @@ const api = {
             limit?: number
             offset?: number
             status?: string
+            priority?: string
             search?: string
             ordering?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
