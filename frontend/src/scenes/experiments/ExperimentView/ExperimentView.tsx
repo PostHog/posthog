@@ -26,7 +26,6 @@ import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
-import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment } from '../utils'
 import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -275,8 +274,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             updateExposureCriteria()
                         }}
                     />
-                    <RunningTimeCalculatorModal />
-
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
