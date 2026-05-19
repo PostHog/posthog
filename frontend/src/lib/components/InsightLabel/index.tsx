@@ -188,16 +188,17 @@ export function InsightLabel({
                         </>
                     )}
 
-                    {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <div className="flex flex-nowrap items-center gap-x-1">
-                            <MathTag
-                                math={action?.math}
-                                mathProperty={action?.math_property}
-                                mathHogQL={action?.math_hogql}
-                                mathGroupTypeIndex={action?.math_group_type_index}
-                            />
-                        </div>
-                    )}
+                    {((action?.math && action.math !== 'total') || showCountedByTag) &&
+                        !(showSingleName && action?.custom_name) && (
+                            <div className="flex flex-nowrap items-center gap-x-1">
+                                <MathTag
+                                    math={action?.math}
+                                    mathProperty={action?.math_property}
+                                    mathHogQL={action?.math_hogql}
+                                    mathGroupTypeIndex={action?.math_group_type_index}
+                                />
+                            </div>
+                        )}
 
                     {pillValues.length > 0 && (
                         <div className="flex flex-wrap gap-1">
