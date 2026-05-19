@@ -5,14 +5,19 @@ from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.session_recording_api import (
     LISTING_RATES,
     REPLAY_TIER_CACHE_TTL_SECONDS,
     SNAPSHOT_DEFAULT_TIER,
     SNAPSHOT_RATES,
     ListingBurstRateThrottle,
+    SessionRecordingViewSet,
+    SharingTokenReplayThrottle,
     SnapshotsBurstRateThrottle,
     SnapshotsSustainedRateThrottle,
     get_cached_org_tier,
@@ -295,3 +300,105 @@ class TestSnapshotAndListingThrottlesUseIndependentRates(BaseTest):
         assert listing_throttle._get_rates() == listing_rates()
         assert snapshot_throttle._get_rates() == snapshot_rates()
         assert listing_throttle._get_rates() == listing_rates()
+
+
+def _fake_sharing_token_request(token: str):
+    auth = SharingAccessTokenAuthentication()
+    auth.sharing_configuration = SharingConfiguration(access_token=token, enabled=True)
+    return type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": auth})()
+
+
+class TestSharingTokenReplayThrottle(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        cache.clear()
+
+    def test_cache_key_uses_token_not_ip(self) -> None:
+        throttle = SharingTokenReplayThrottle()
+
+        key = throttle.get_cache_key(_fake_sharing_token_request("token-abc"), view=None)
+
+        assert key is not None
+        assert "token-abc" in key
+        assert throttle.scope in key
+
+    def test_different_tokens_have_different_cache_keys(self) -> None:
+        throttle = SharingTokenReplayThrottle()
+
+        key_a = throttle.get_cache_key(_fake_sharing_token_request("token-a"), view=None)
+        key_b = throttle.get_cache_key(_fake_sharing_token_request("token-b"), view=None)
+
+        assert key_a != key_b
+
+    def test_same_token_from_different_requests_shares_one_bucket(self) -> None:
+        throttle = SharingTokenReplayThrottle()
+
+        key_first = throttle.get_cache_key(_fake_sharing_token_request("token-shared"), view=None)
+        key_second = throttle.get_cache_key(_fake_sharing_token_request("token-shared"), view=None)
+
+        assert key_first == key_second
+
+    def test_returns_none_cache_key_when_no_sharing_configuration(self) -> None:
+        # Defensive guard — the viewset only routes sharing-token requests here, but if
+        # something else slips through we should not throttle on a NoneType token.
+        throttle = SharingTokenReplayThrottle()
+        request = type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": None})()
+
+        assert throttle.get_cache_key(request, view=None) is None
+
+    def test_rate_reads_from_settings_default(self) -> None:
+        throttle = SharingTokenReplayThrottle()
+
+        # The default exposed through django settings; this guards against silently
+        # changing the default in a way that drops the cap.
+        assert throttle.rate == "600/minute"
+
+    @override_settings(REPLAY_SHARING_TOKEN_RATE="42/minute")
+    def test_rate_is_configurable_via_settings(self) -> None:
+        throttle = SharingTokenReplayThrottle()
+
+        assert throttle.rate == "42/minute"
+
+
+class TestSessionRecordingViewSetThrottleSelection(BaseTest):
+    def _viewset(self, action: str, authenticator) -> SessionRecordingViewSet:
+        viewset = SessionRecordingViewSet()
+        viewset.action = action
+        request = Request(APIRequestFactory().get("/"))
+        request._authenticator = authenticator  # read-only @property in DRF
+        viewset.request = request  # ty: ignore[invalid-assignment]
+        return viewset
+
+    def test_sharing_token_requests_only_use_per_token_throttle(self) -> None:
+        auth = SharingAccessTokenAuthentication()
+        auth.sharing_configuration = SharingConfiguration(access_token="tok", enabled=True)
+        viewset = self._viewset(action="snapshots", authenticator=auth)
+
+        throttles = viewset.get_throttles()
+
+        assert len(throttles) == 1
+        assert isinstance(throttles[0], SharingTokenReplayThrottle)
+
+    def test_sharing_token_on_list_does_not_include_listing_throttles(self) -> None:
+        # `list` is not in sharing_enabled_actions but defence-in-depth: even if a
+        # sharing-token request reaches here, the per-IP listing throttles shouldn't
+        # apply — the sharing-token throttle is the single source of truth.
+        auth = SharingAccessTokenAuthentication()
+        auth.sharing_configuration = SharingConfiguration(access_token="tok", enabled=True)
+        viewset = self._viewset(action="list", authenticator=auth)
+
+        throttles = viewset.get_throttles()
+
+        assert all(not isinstance(t, ListingBurstRateThrottle) for t in throttles)
+        assert any(isinstance(t, SharingTokenReplayThrottle) for t in throttles)
+
+    def test_non_sharing_requests_keep_default_throttles(self) -> None:
+        viewset = self._viewset(action="retrieve", authenticator=PersonalAPIKeyAuthentication())
+
+        throttles = viewset.get_throttles()
+
+        assert not any(isinstance(t, SharingTokenReplayThrottle) for t in throttles)

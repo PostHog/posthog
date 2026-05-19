@@ -39,6 +39,7 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
 from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
@@ -685,6 +686,32 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
         return listing_rates()
 
 
+class SharingTokenReplayThrottle(SimpleRateThrottle):
+    """Per-sharing-token throttle for replay endpoints accessed via SharingAccessToken.
+
+    Replaces the per-IP / per-team throttles for sharing-token requests: those punish
+    legitimate corporate-NAT viewers and embed users while doing little to bound a leaked
+    token (which can be replayed from arbitrary IPs anyway). Capping per token instead
+    isolates abuse to the specific shared resource, and the owning team can revoke a
+    misused token via SharingConfiguration.rotate_access_token().
+    """
+
+    scope = "replay_sharing_token"
+
+    def __init__(self) -> None:
+        # Read at instantiation so override_settings in tests (and runtime env changes
+        # after import) take effect — class-attribute capture would freeze the default.
+        self.rate = settings.REPLAY_SHARING_TOKEN_RATE
+        super().__init__()
+
+    def get_cache_key(self, request, view) -> str | None:
+        auth = request.successful_authenticator
+        token = getattr(getattr(auth, "sharing_configuration", None), "access_token", None)
+        if not token:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": token}
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -747,6 +774,13 @@ class SessionRecordingViewSet(
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
     def get_throttles(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            # Sharing-token requests are per-resource authorizations. The default
+            # tier-aware / per-IP throttles don't fit: tier rates only apply to
+            # personal API key requests (so a paid/enterprise team's embed gets free
+            # rates), and the per-IP key collides corporate-NAT viewers. Replace with
+            # a per-token cap — see SharingTokenReplayThrottle.
+            return [SharingTokenReplayThrottle()]
         if self.action == "list":
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
