@@ -21,10 +21,7 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
-from posthog.api.hog_invocation_replay import (
-    HogInvocationReplayRequestSerializer,
-    HogInvocationReplayResponseSerializer,
-)
+from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -48,7 +45,7 @@ from posthog.plugins.plugin_server_api import (
     bulk_replay_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
-    replay_hog_invocations,
+    rerun_hog_invocations,
 )
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -446,7 +443,7 @@ class HogFlowFilterSet(FilterSet):
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "replay"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "rerun"]
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -476,30 +473,30 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return super().safely_get_object(queryset)
 
     @extend_schema(
-        request=HogInvocationReplayRequestSerializer,
-        responses={200: HogInvocationReplayResponseSerializer, 400: HogInvocationReplayResponseSerializer},
+        request=HogInvocationRerunRequestSerializer,
+        responses={200: HogInvocationRerunResponseSerializer, 400: HogInvocationRerunResponseSerializer},
     )
     @action(detail=True, methods=["POST"])
-    def replay(self, request: Request, *args, **kwargs) -> Response:
+    def rerun(self, request: Request, *args, **kwargs) -> Response:
         """
-        Replay past invocations of this hog flow from their stored payloads.
+        Rerun past invocations of this hog flow from their stored payloads.
 
-        Same shape and semantics as the hog function replay endpoint —
+        Same shape and semantics as the hog function rerun endpoint —
         proxies through to the CDP worker, which reads matching rows from
         ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
         onto cyclotron with `is_retry=1`.
         """
         hog_flow = self.get_object()
 
-        serializer = HogInvocationReplayRequestSerializer(data=request.data)
+        serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         # `serializer.data` runs `to_representation`, which converts the
         # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
         # ISO-8601 strings — `requests.post(json=...)` can't serialize raw
         # `datetime` objects, so passing `validated_data` would 500 every
-        # filter-mode replay before the request even left Django.
-        res = replay_hog_invocations(
+        # filter-mode rerun before the request even left Django.
+        res = rerun_hog_invocations(
             team_id=self.team_id,
             function_kind="hog_flow",
             function_id=str(hog_flow.id),

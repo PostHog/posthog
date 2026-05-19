@@ -35,8 +35,8 @@ import { renderHogFunctionMessage } from '../logs/HogFunctionLogs'
 import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
 import {
-    BulkReplayParams,
-    HOG_INVOCATIONS_REPLAY_MAX_COUNT,
+    BulkRerunParams,
+    HOG_INVOCATIONS_RERUN_MAX_COUNT,
     HogInvocationRow,
     HogInvocationsFilters,
     HogInvocationsFunctionKind,
@@ -44,7 +44,7 @@ import {
     RunStatus,
     dateClauseFor,
     hogInvocationsLogic,
-    isReplayWrapperKind,
+    isRerunWrapperKind,
 } from './hogInvocationsLogic'
 import { InvocationsSparkline } from './InvocationsSparkline'
 import { InvocationsBetaBanner } from './InvocationsTabBanners'
@@ -145,7 +145,7 @@ const shortPersonDisplay = (row: { person_id: string; distinct_id: string }): st
 }
 
 const rowRibbonColorFor = (row: HogInvocationRow): string | null => {
-    if (isReplayWrapperKind(row.function_kind)) {
+    if (isRerunWrapperKind(row.function_kind)) {
         return 'var(--info)'
     }
     if (row.status === 'failed') {
@@ -167,7 +167,7 @@ const rowRibbonColorFor = (row: HogInvocationRow): string | null => {
  */
 async function countRerunMatches(
     props: { id: string; functionKind: HogInvocationsFunctionKind },
-    params: BulkReplayParams
+    params: BulkRerunParams
 ): Promise<number> {
     const statusClause = params.status?.length
         ? hogql.raw(`AND status IN (${params.status.map((s) => `'${s}'`).join(',')})`)
@@ -210,7 +210,7 @@ async function countRerunMatches(
 }
 
 /**
- * Replay is async — posting to `/replay` enqueues a cyclotron wrapper job; new
+ * Rerun is async — posting to `/rerun` enqueues a cyclotron wrapper job; new
  * lifecycle rows show up here once the worker drains it.
  */
 export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): JSX.Element | null {
@@ -222,7 +222,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
         selectedIds,
         selectedCount,
         expandedIds,
-        replayableSelectedIds,
+        rerunableSelectedIds,
         hasMore,
         hasLoadedOnce,
         selectableIds,
@@ -239,8 +239,8 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
         clearSelected,
         setSelectedIds,
         setExpanded,
-        replayInvocations,
-        bulkReplay,
+        rerunInvocations,
+        bulkRerun,
     } = useActions(logic)
     const [rerunModalOpen, setRerunModalOpen] = useState(false)
 
@@ -274,10 +274,10 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                     checked={Boolean(selectedIds[row.invocation_id])}
                     onChange={() => toggleSelected(row.invocation_id)}
                     disabledReason={
-                        isReplayWrapperKind(row.function_kind)
+                        isRerunWrapperKind(row.function_kind)
                             ? "Can't re-run a re-run"
                             : row.status === 'running'
-                              ? "Can't replay a run that's still in flight"
+                              ? "Can't rerun a run that's still in flight"
                               : undefined
                     }
                 />
@@ -322,8 +322,8 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             key: 'event_uuid',
             dataIndex: 'event_uuid',
             render: (_, row) => {
-                if (isReplayWrapperKind(row.function_kind)) {
-                    return <LemonTag type="primary">REPLAY</LemonTag>
+                if (isRerunWrapperKind(row.function_kind)) {
+                    return <LemonTag type="primary">RERUN</LemonTag>
                 }
                 return row.event_uuid ? (
                     <Link
@@ -400,7 +400,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
             key: 'actions',
             width: 0,
             render: (_, row) => {
-                if (isReplayWrapperKind(row.function_kind)) {
+                if (isRerunWrapperKind(row.function_kind)) {
                     return null
                 }
                 return (
@@ -408,24 +408,24 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                         size="xsmall"
                         type="secondary"
                         disabledReason={
-                            row.status === 'running' ? "Can't replay a run that's still in flight" : undefined
+                            row.status === 'running' ? "Can't rerun a run that's still in flight" : undefined
                         }
                         onClick={() => {
                             LemonDialog.open({
-                                title: 'Replay this invocation?',
+                                title: 'Rerun this invocation?',
                                 content:
-                                    "We'll queue a replay job for this run from its stored payload. " +
+                                    "We'll queue a rerun job for this run from its stored payload. " +
                                     'Inputs are re-resolved from the current function config, so any secret ' +
                                     'rotations will be picked up.',
                                 primaryButton: {
-                                    children: 'Replay',
-                                    onClick: () => replayInvocations([row.invocation_id]),
+                                    children: 'Rerun',
+                                    onClick: () => rerunInvocations([row.invocation_id]),
                                 },
                                 secondaryButton: { children: 'Cancel' },
                             })
                         }}
                     >
-                        Replay
+                        Rerun
                     </LemonButton>
                 )
             },
@@ -461,18 +461,18 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                             })
                         }
                     />
-                    <LemonSelect<'all' | 'invocations' | 'replay_jobs'>
+                    <LemonSelect<'all' | 'invocations' | 'rerun_jobs'>
                         size="small"
                         value={filters.kind ?? 'all'}
                         onChange={(v) =>
                             setFilters({
-                                kind: v === 'invocations' || v === 'replay_jobs' ? v : undefined,
+                                kind: v === 'invocations' || v === 'rerun_jobs' ? v : undefined,
                             })
                         }
                         options={[
                             { value: 'all', label: 'All rows' },
                             { value: 'invocations', label: 'Invocations only' },
-                            { value: 'replay_jobs', label: 'Replay jobs only' },
+                            { value: 'rerun_jobs', label: 'Rerun jobs only' },
                         ]}
                     />
                     <DateFilter
@@ -518,7 +518,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 initialDateTo={filters.date_to}
                 countMatches={(params) => countRerunMatches({ id, functionKind }, params)}
                 onSubmit={(params) => {
-                    bulkReplay(params)
+                    bulkRerun(params)
                     setRerunModalOpen(false)
                 }}
             />
@@ -527,9 +527,9 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 <div className="flex items-center justify-between border rounded p-2 bg-bg-light">
                     <div className="text-sm">
                         {selectedCount} selected
-                        {selectedCount > HOG_INVOCATIONS_REPLAY_MAX_COUNT ? (
+                        {selectedCount > HOG_INVOCATIONS_RERUN_MAX_COUNT ? (
                             <span className="text-danger ml-2">
-                                Maximum is {HOG_INVOCATIONS_REPLAY_MAX_COUNT} per request.
+                                Maximum is {HOG_INVOCATIONS_RERUN_MAX_COUNT} per request.
                             </span>
                         ) : null}
                     </div>
@@ -541,28 +541,28 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                             size="small"
                             type="primary"
                             disabledReason={
-                                replayableSelectedIds.length === 0
+                                rerunableSelectedIds.length === 0
                                     ? 'Selected runs are all still in flight'
-                                    : selectedCount > HOG_INVOCATIONS_REPLAY_MAX_COUNT
-                                      ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_REPLAY_MAX_COUNT}`
+                                    : selectedCount > HOG_INVOCATIONS_RERUN_MAX_COUNT
+                                      ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_RERUN_MAX_COUNT}`
                                       : undefined
                             }
                             onClick={() => {
                                 LemonDialog.open({
-                                    title: `Replay ${replayableSelectedIds.length} invocations?`,
+                                    title: `Rerun ${rerunableSelectedIds.length} invocations?`,
                                     content:
-                                        "We'll queue a single replay job that drains these in the background. " +
+                                        "We'll queue a single rerun job that drains these in the background. " +
                                         'Inputs (secrets, integration tokens) are re-resolved per run at execution ' +
                                         'time using the current function config.',
                                     primaryButton: {
-                                        children: `Replay ${replayableSelectedIds.length}`,
-                                        onClick: () => replayInvocations(replayableSelectedIds),
+                                        children: `Rerun ${rerunableSelectedIds.length}`,
+                                        onClick: () => rerunInvocations(rerunableSelectedIds),
                                     },
                                     secondaryButton: { children: 'Cancel' },
                                 })
                             }}
                         >
-                            Replay selected
+                            Rerun selected
                         </LemonButton>
                     </div>
                 </div>
@@ -637,7 +637,7 @@ function RunDetail({
     functionKind: HogInvocationsLogicProps['functionKind']
     hogFunctionId: string
 }): JSX.Element {
-    const isReplayWrapper = isReplayWrapperKind(record.function_kind)
+    const isRerunWrapper = isRerunWrapperKind(record.function_kind)
     const logsLogicProps: LogsViewerLogicProps = {
         sourceType: functionKind,
         sourceId: hogFunctionId,
@@ -649,7 +649,7 @@ function RunDetail({
     return (
         <div className="p-3 deprecated-space-y-2 bg-surface-secondary">
             <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
-                <DetailField label={isReplayWrapper ? 'Re-run job ID' : 'Invocation ID'} mono>
+                <DetailField label={isRerunWrapper ? 'Re-run job ID' : 'Invocation ID'} mono>
                     <CopyToClipboardInline explicitValue={record.invocation_id} selectable>
                         {record.invocation_id}
                     </CopyToClipboardInline>
@@ -657,10 +657,10 @@ function RunDetail({
                 {record.started_at ? <DetailField label="Started" mono value={record.started_at} /> : null}
                 {record.finished_at ? <DetailField label="Finished" mono value={record.finished_at} /> : null}
                 {record.parent_run_id ? <DetailField label="Parent run" mono value={record.parent_run_id} /> : null}
-                {isReplayWrapper ? null : record.distinct_id ? (
+                {isRerunWrapper ? null : record.distinct_id ? (
                     <DetailField label="Distinct ID" mono value={record.distinct_id} />
                 ) : null}
-                {isReplayWrapper ? null : record.person_id ? (
+                {isRerunWrapper ? null : record.person_id ? (
                     <DetailField label="Person ID" mono value={record.person_id} />
                 ) : null}
             </div>
@@ -717,8 +717,8 @@ function RerunModal({
     onClose: () => void
     initialDateFrom: string
     initialDateTo: string | undefined
-    countMatches: (params: BulkReplayParams) => Promise<number>
-    onSubmit: (params: BulkReplayParams) => void
+    countMatches: (params: BulkRerunParams) => Promise<number>
+    onSubmit: (params: BulkRerunParams) => void
 }): JSX.Element {
     const [status, setStatus] = useState<RunStatus[]>(['failed'])
     const [errorKinds, setErrorKinds] = useState<string[]>([])
@@ -738,7 +738,7 @@ function RerunModal({
             setPreviewCount(null)
             return
         }
-        const params: BulkReplayParams = {
+        const params: BulkRerunParams = {
             date_from: dateFrom,
             date_to: dateTo,
             status,
@@ -847,11 +847,11 @@ function RerunModal({
                         placeholder="Leave empty for all"
                     />
                 </Row>
-                <Row label="Max invocations to re-run" help={`Server caps at ${HOG_INVOCATIONS_REPLAY_MAX_COUNT}.`}>
+                <Row label="Max invocations to re-run" help={`Server caps at ${HOG_INVOCATIONS_RERUN_MAX_COUNT}.`}>
                     <LemonInput
                         type="number"
                         min={1}
-                        max={HOG_INVOCATIONS_REPLAY_MAX_COUNT}
+                        max={HOG_INVOCATIONS_RERUN_MAX_COUNT}
                         value={maxCount}
                         onChange={(v) => setMaxCount(typeof v === 'number' ? v : undefined)}
                         placeholder="Unlimited (up to server cap)"

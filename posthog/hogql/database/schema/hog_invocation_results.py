@@ -7,20 +7,20 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-# One row per CDP invocation lifecycle event (start + finish, plus a row per replay).
+# One row per CDP invocation lifecycle event (start + finish, plus a row per rerun).
 # The underlying ClickHouse table is a sharded ReplacingMergeTree keyed by
 # (team_id, function_kind, function_id, invocation_id) with `version` as the
 # tie-breaker — when querying, group by invocation_id and use argMax(field, version)
 # to get the latest state, the same way persons are read.
 #
 # `invocation_globals` is intentionally NOT exposed here. The column carries the
-# full replay payload — for hog functions whose trigger is a source webhook, that
+# full rerun payload — for hog functions whose trigger is a source webhook, that
 # includes `request.headers` (authorization, x-api-key, etc.) which the function
-# templates into outbound calls. We can't redact those headers because the replay
+# templates into outbound calls. We can't redact those headers because the rerun
 # path needs them verbatim to rehydrate the invocation, and we don't want a
-# tenant to be able to SELECT them via /api/projects/:id/query. The replay path
+# tenant to be able to SELECT them via /api/projects/:id/query. The rerun path
 # reads `invocation_globals` via the internal ClickHouse client (not HogQL), so
-# leaving it off the HogQL schema costs nothing for replay. If the runs UI ever
+# leaving it off the HogQL schema costs nothing for rerun. If the runs UI ever
 # wants a "view payload" affordance, that should land as a server-side endpoint
 # that gates on the function's write permission, not as a HogQL query.
 HOG_INVOCATION_RESULTS_FIELDS: dict[str, FieldOrTable] = {

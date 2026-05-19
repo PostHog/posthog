@@ -1392,21 +1392,21 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replay past invocations of this hog function from their stored payloads.
+ * Rerun past invocations of this hog function from their stored payloads.
 
 The CDP worker reads matching rows from the `hog_invocation_results`
 ClickHouse table, rehydrates the invocation from the stored
-`invocation_globals`, and re-enqueues onto cyclotron. Each replayed
+`invocation_globals`, and re-enqueues onto cyclotron. Each rerun
 run reuses the original `invocation_id` with `is_retry=1` set on the
-new lifecycle row so the UI can surface that it was a replay.
+new lifecycle row so the UI can surface that it was a rerun.
  */
-export const hogFunctionsReplayCreateBodyFilterOneMaxAttemptsMax = 255
+export const hogFunctionsRerunCreateBodyFilterOneMaxAttemptsMax = 255
 
-export const hogFunctionsReplayCreateBodyFilterOneMaxCountMax = 10000
+export const hogFunctionsRerunCreateBodyFilterOneMaxCountMax = 10000
 
-export const hogFunctionsReplayCreateBodyFilterOneInvocationIdsMax = 10000
+export const hogFunctionsRerunCreateBodyFilterOneInvocationIdsMax = 10000
 
-export const HogFunctionsReplayCreateBody = /* @__PURE__ */ zod
+export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
     .object({
         filter: zod
             .object({
@@ -1433,29 +1433,29 @@ export const HogFunctionsReplayCreateBody = /* @__PURE__ */ zod
                 max_attempts: zod
                     .number()
                     .min(1)
-                    .max(hogFunctionsReplayCreateBodyFilterOneMaxAttemptsMax)
+                    .max(hogFunctionsRerunCreateBodyFilterOneMaxAttemptsMax)
                     .optional()
                     .describe('Skip invocations that have already been attempted this many times or more.'),
                 max_count: zod
                     .number()
                     .min(1)
-                    .max(hogFunctionsReplayCreateBodyFilterOneMaxCountMax)
+                    .max(hogFunctionsRerunCreateBodyFilterOneMaxCountMax)
                     .optional()
-                    .describe('Maximum number of invocations to replay in this request. Server-side cap is 10000.'),
+                    .describe('Maximum number of invocations to rerun in this request. Server-side cap is 10000.'),
                 invocation_ids: zod
                     .array(zod.string())
-                    .max(hogFunctionsReplayCreateBodyFilterOneInvocationIdsMax)
+                    .max(hogFunctionsRerunCreateBodyFilterOneInvocationIdsMax)
                     .optional()
                     .describe(
                         'Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`\/`window_end` so the ClickHouse query can be partition-pruned.'
                     ),
             })
-            .describe('Filter shape for the replay endpoint. `window_start`\/`window_end` are required.')
+            .describe('Filter shape for the rerun endpoint. `window_start`\/`window_end` are required.')
             .describe(
                 'Required. `window_start` \/ `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window.'
             ),
     })
-    .describe('Replay invocations of a hog function or hog flow from their stored payloads.')
+    .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
 /**
  * Update the execution order of multiple HogFunctions.

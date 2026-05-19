@@ -10,29 +10,29 @@ import { dateStringToDayJs } from 'lib/utils'
 
 import { hogql } from '~/queries/utils'
 
-import { hogFunctionsReplayCreate } from 'products/cdp/frontend/generated/api'
-import type { HogInvocationReplayFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
-import { hogFlowsReplayCreate } from 'products/workflows/frontend/generated/api'
+import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
+import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
+import { hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
 
 import type { hogInvocationsLogicType } from './hogInvocationsLogicType'
 
 export const HOG_INVOCATIONS_PAGE_SIZE = 200
 
 /** Display-side mirror of the backend cap. Backend enforces the actual limit via the
- * `HOG_INVOCATION_REPLAY_MAX_COUNT` env var (Django serializer + Node CDP config). */
-export const HOG_INVOCATIONS_REPLAY_MAX_COUNT = 10000
+ * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
+export const HOG_INVOCATIONS_RERUN_MAX_COUNT = 10000
 
 export type RunStatus = 'running' | 'succeeded' | 'failed'
 
 export type HogInvocationsFunctionKind = 'hog_function' | 'hog_flow'
 
-export type RunRowKind = 'hog_function' | 'hog_flow' | 'hog_function_replay' | 'hog_flow_replay'
+export type RunRowKind = 'hog_function' | 'hog_flow' | 'hog_function_rerun' | 'hog_flow_rerun'
 
-export const isReplayWrapperKind = (kind: RunRowKind): boolean =>
-    kind === 'hog_function_replay' || kind === 'hog_flow_replay'
+export const isRerunWrapperKind = (kind: RunRowKind): boolean =>
+    kind === 'hog_function_rerun' || kind === 'hog_flow_rerun'
 
-const replayWrapperKindFor = (kind: HogInvocationsFunctionKind): RunRowKind =>
-    kind === 'hog_flow' ? 'hog_flow_replay' : 'hog_function_replay'
+const rerunWrapperKindFor = (kind: HogInvocationsFunctionKind): RunRowKind =>
+    kind === 'hog_flow' ? 'hog_flow_rerun' : 'hog_function_rerun'
 
 export interface HogInvocationRow {
     invocation_id: string
@@ -62,9 +62,9 @@ export interface HogInvocationsFilters {
     error_kind?: string[]
     /**
      * Row-kind filter: scope the list to real invocations (`hog_function` /
-     * `hog_flow`), to replay wrapper jobs (`*_replay`), or show both.
+     * `hog_flow`), to rerun wrapper jobs (`*_rerun`), or show both.
      */
-    kind?: 'invocations' | 'replay_jobs'
+    kind?: 'invocations' | 'rerun_jobs'
     search?: string
     order_by?: RunsOrderBy
 }
@@ -87,7 +87,7 @@ export interface SparklineData {
     series: SparklineSeries[]
 }
 
-export interface BulkReplayParams {
+export interface BulkRerunParams {
     date_from: string
     date_to?: string
     status?: RunStatus[]
@@ -135,7 +135,7 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
         next.error_kind = errorKind.split(',').filter(Boolean)
     }
     const kind = searchParams[URL_PARAMS.kind]
-    if (kind === 'invocations' || kind === 'replay_jobs') {
+    if (kind === 'invocations' || kind === 'rerun_jobs') {
         next.kind = kind
     }
     if (searchParams[URL_PARAMS.search]) {
@@ -238,18 +238,18 @@ export const dateClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof
 
 /**
  * `function_kind` predicate driven by the kind filter — `invocations` returns
- * only real rows, `replay_jobs` returns only the wrapper rows, and the default
+ * only real rows, `rerun_jobs` returns only the wrapper rows, and the default
  * (undefined) returns both kinds for this function id.
  */
 export const kindClauseFor = (
     props: HogInvocationsLogicProps,
     filters: HogInvocationsFilters
 ): ReturnType<typeof hogql.raw> => {
-    const wrapperKind = replayWrapperKindFor(props.functionKind)
+    const wrapperKind = rerunWrapperKindFor(props.functionKind)
     if (filters.kind === 'invocations') {
         return hogql.raw(`function_kind = '${props.functionKind}'`)
     }
-    if (filters.kind === 'replay_jobs') {
+    if (filters.kind === 'rerun_jobs') {
         return hogql.raw(`function_kind = '${wrapperKind}'`)
     }
     return hogql.raw(`function_kind IN ('${props.functionKind}', '${wrapperKind}')`)
@@ -531,7 +531,7 @@ async function fetchRunsPage(
 }
 
 /**
- * Replay is async — the `/replay` endpoint enqueues a cyclotron wrapper job;
+ * Rerun is async — the `/rerun` endpoint enqueues a cyclotron wrapper job;
  * new lifecycle rows show up here once the worker drains it.
  */
 export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
@@ -548,8 +548,8 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         setSelectedIds: (ids: string[]) => ({ ids }),
         hydratePeople: (personIds: string[]) => ({ personIds }),
         setExpanded: (invocationId: string, expanded: boolean) => ({ invocationId, expanded }),
-        replayInvocations: (invocationIds: string[]) => ({ invocationIds }),
-        bulkReplay: (params: BulkReplayParams) => ({ params }),
+        rerunInvocations: (invocationIds: string[]) => ({ invocationIds }),
+        bulkRerun: (params: BulkRerunParams) => ({ params }),
         setHasMore: (hasMore: boolean) => ({ hasMore }),
     }),
 
@@ -688,11 +688,11 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             },
         ],
         selectedCount: [(s) => [s.selectedIds], (selectedIds) => Object.keys(selectedIds).length],
-        canBulkReplay: [
+        canBulkRerun: [
             (s) => [s.selectedCount],
-            (selectedCount) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_REPLAY_MAX_COUNT,
+            (selectedCount) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_RERUN_MAX_COUNT,
         ],
-        replayableSelectedIds: [
+        rerunableSelectedIds: [
             (s) => [s.selectedIds, s.runs],
             (selectedIds, runs): string[] => {
                 const ids = Object.keys(selectedIds)
@@ -702,8 +702,8 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 const byId = new Map(runs.map((r) => [r.invocation_id, r]))
                 return ids.filter((id) => {
                     const row = byId.get(id)
-                    // Allow replay if row not loaded — the worker enforces its own checks.
-                    return !row || (row.status !== 'running' && !isReplayWrapperKind(row.function_kind))
+                    // Allow rerun if row not loaded — the worker enforces its own checks.
+                    return !row || (row.status !== 'running' && !isRerunWrapperKind(row.function_kind))
                 })
             },
         ],
@@ -712,7 +712,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             (s) => [s.runs],
             (runs): string[] =>
                 runs
-                    .filter((r) => !isReplayWrapperKind(r.function_kind) && r.status !== 'running')
+                    .filter((r) => !isRerunWrapperKind(r.function_kind) && r.status !== 'running')
                     .map((r) => r.invocation_id),
         ],
         selectAllState: [
@@ -755,13 +755,13 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 actions.hydratePeople(personIds)
             }
         },
-        replayInvocations: async ({ invocationIds }) => {
+        rerunInvocations: async ({ invocationIds }) => {
             if (invocationIds.length === 0) {
-                lemonToast.warning('Nothing to replay')
+                lemonToast.warning('Nothing to rerun')
                 return
             }
-            if (invocationIds.length > HOG_INVOCATIONS_REPLAY_MAX_COUNT) {
-                lemonToast.error(`Replay request capped at ${HOG_INVOCATIONS_REPLAY_MAX_COUNT} invocations per request`)
+            if (invocationIds.length > HOG_INVOCATIONS_RERUN_MAX_COUNT) {
+                lemonToast.error(`Rerun request capped at ${HOG_INVOCATIONS_RERUN_MAX_COUNT} invocations per request`)
                 return
             }
 
@@ -775,24 +775,24 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     window_start: windowStart,
                     window_end: windowEnd,
                     invocation_ids: invocationIds,
-                    status: filters.status as HogInvocationReplayFilterStatusEnumApi[] | undefined,
+                    status: filters.status as HogInvocationRerunFilterStatusEnumApi[] | undefined,
                 },
             }
 
             try {
                 const response =
                     props.functionKind === 'hog_function'
-                        ? await hogFunctionsReplayCreate(String(teamId), props.id, requestBody)
-                        : await hogFlowsReplayCreate(String(teamId), props.id, requestBody)
+                        ? await hogFunctionsRerunCreate(String(teamId), props.id, requestBody)
+                        : await hogFlowsRerunCreate(String(teamId), props.id, requestBody)
                 lemonToast.success(
-                    `Replay job ${response.replay_job_id.slice(0, 8)}… queued. Updated rows will appear here as the worker drains the job.`
+                    `Rerun job ${response.rerun_job_id.slice(0, 8)}… queued. Updated rows will appear here as the worker drains the job.`
                 )
                 actions.clearSelected()
             } catch (e: any) {
-                lemonToast.error(`Failed to enqueue replay: ${e?.detail ?? e?.message ?? String(e)}`)
+                lemonToast.error(`Failed to enqueue rerun: ${e?.detail ?? e?.message ?? String(e)}`)
             }
         },
-        bulkReplay: async ({ params }) => {
+        bulkRerun: async ({ params }) => {
             const teamId = ApiConfig.getCurrentTeamId()
             const windowStart = (dateStringToDayJs(params.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
             const windowEnd = ((params.date_to ? dateStringToDayJs(params.date_to) : null) ?? dayjs()).toISOString()
@@ -802,7 +802,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     window_start: windowStart,
                     window_end: windowEnd,
                     status: params.status?.length
-                        ? (params.status as HogInvocationReplayFilterStatusEnumApi[])
+                        ? (params.status as HogInvocationRerunFilterStatusEnumApi[])
                         : undefined,
                     error_kind: params.error_kind?.length ? params.error_kind : undefined,
                     max_count: params.max_count,
@@ -813,10 +813,10 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             try {
                 const response =
                     props.functionKind === 'hog_function'
-                        ? await hogFunctionsReplayCreate(String(teamId), props.id, requestBody)
-                        : await hogFlowsReplayCreate(String(teamId), props.id, requestBody)
+                        ? await hogFunctionsRerunCreate(String(teamId), props.id, requestBody)
+                        : await hogFlowsRerunCreate(String(teamId), props.id, requestBody)
                 lemonToast.success(
-                    `Re-run job ${response.replay_job_id.slice(0, 8)}… queued. Matching invocations will be re-run in the background.`
+                    `Re-run job ${response.rerun_job_id.slice(0, 8)}… queued. Matching invocations will be re-run in the background.`
                 )
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue re-run: ${e?.detail ?? e?.message ?? String(e)}`)

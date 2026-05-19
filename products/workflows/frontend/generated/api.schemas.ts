@@ -396,25 +396,25 @@ export interface AppMetricsTotalsResponseApi {
  * `succeeded` - succeeded
  * `failed` - failed
  */
-export type HogInvocationReplayFilterStatusEnumApi =
-    (typeof HogInvocationReplayFilterStatusEnumApi)[keyof typeof HogInvocationReplayFilterStatusEnumApi]
+export type HogInvocationRerunFilterStatusEnumApi =
+    (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
 
-export const HogInvocationReplayFilterStatusEnumApi = {
+export const HogInvocationRerunFilterStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
 } as const
 
 /**
- * Filter shape for the replay endpoint. `window_start`/`window_end` are required.
+ * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
  */
-export interface HogInvocationReplayFilterApi {
+export interface HogInvocationRerunFilterApi {
     /** Inclusive lower bound on `scheduled_at` (UTC). */
     window_start: string
     /** Exclusive upper bound on `scheduled_at` (UTC). */
     window_end: string
     /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
-    status?: HogInvocationReplayFilterStatusEnumApi[]
+    status?: HogInvocationRerunFilterStatusEnumApi[]
     /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
     error_kind?: string[]
     /**
@@ -424,7 +424,7 @@ export interface HogInvocationReplayFilterApi {
      */
     max_attempts?: number
     /**
-     * Maximum number of invocations to replay in this request. Server-side cap is 10000.
+     * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
      * @minimum 1
      * @maximum 10000
      */
@@ -437,25 +437,25 @@ export interface HogInvocationReplayFilterApi {
 }
 
 /**
- * Replay invocations of a hog function or hog flow from their stored payloads.
+ * Rerun invocations of a hog function or hog flow from their stored payloads.
  */
-export interface HogInvocationReplayRequestApi {
+export interface HogInvocationRerunRequestApi {
     /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
-    filter: HogInvocationReplayFilterApi
+    filter: HogInvocationRerunFilterApi
 }
 
 /**
- * Response from the replay endpoint. The endpoint only enqueues a wrapper
-job onto the cyclotron `replay` queue — the actual ClickHouse paging and
-re-enqueue work happens asynchronously in the `cdp-replay-worker` service.
-Use `replay_job_id` to look up progress on the wrapper job later.
+ * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+Use `rerun_job_id` to look up progress on the wrapper job later.
  */
-export interface HogInvocationReplayResponseApi {
-    /** ID of the cyclotron wrapper job that will run the replay. Use this to poll status. */
-    replay_job_id: string
-    /** Always 0 — replay runs asynchronously. Kept for response shape stability. */
+export interface HogInvocationRerunResponseApi {
+    /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+    rerun_job_id: string
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
     queued_count: number
-    /** Always 0 — replay runs asynchronously. Kept for response shape stability. */
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
     skipped_count: number
 }
 

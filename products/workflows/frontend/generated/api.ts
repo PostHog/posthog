@@ -23,8 +23,8 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsSchedulesCreateParams,
     HogFlowsSchedulesListParams,
-    HogInvocationReplayRequestApi,
-    HogInvocationReplayResponseApi,
+    HogInvocationRerunRequestApi,
+    HogInvocationRerunResponseApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowScheduleListApi,
     PaginatedHogFlowTemplateListApi,
@@ -457,32 +457,6 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
-export const getHogFlowsReplayCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/replay/`
-}
-
-/**
- * Replay past invocations of this hog flow from their stored payloads.
-
-Same shape and semantics as the hog function replay endpoint —
-proxies through to the CDP worker, which reads matching rows from
-ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
-onto cyclotron with `is_retry=1`.
- */
-export const hogFlowsReplayCreate = async (
-    projectId: string,
-    id: string,
-    hogInvocationReplayRequestApi: HogInvocationReplayRequestApi,
-    options?: RequestInit
-): Promise<HogInvocationReplayResponseApi> => {
-    return apiMutator<HogInvocationReplayResponseApi>(getHogFlowsReplayCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogInvocationReplayRequestApi),
-    })
-}
-
 export const getHogFlowsReplayAllBlockedRunsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/replay_all_blocked_runs/`
 }
@@ -522,6 +496,32 @@ export const hogFlowsReplayBlockedRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/rerun/`
+}
+
+/**
+ * Rerun past invocations of this hog flow from their stored payloads.
+
+Same shape and semantics as the hog function rerun endpoint —
+proxies through to the CDP worker, which reads matching rows from
+ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+onto cyclotron with `is_retry=1`.
+ */
+export const hogFlowsRerunCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationRerunRequestApi: HogInvocationRerunRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationRerunResponseApi> => {
+    return apiMutator<HogInvocationRerunResponseApi>(getHogFlowsRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationRerunRequestApi),
     })
 }
 
