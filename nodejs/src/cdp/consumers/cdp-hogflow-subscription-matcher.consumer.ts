@@ -238,7 +238,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND team_id = ANY($1::int[])
-               AND person_id = ANY($3::uuid[])`,
+               AND person_id = ANY($3::text[])`,
             [teamIds, distinctIds, personIds]
         )
 
