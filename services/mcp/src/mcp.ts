@@ -56,11 +56,11 @@ export type RequestProperties = {
     // own correlation key, available for direct MCP clients (Claude Code,
     // Cursor, …) that never set the wrapper-app `?sessionId=` hint.
     mcpSessionId?: string
-    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14
-    // (`enableConversationId: true`). Plumbed alongside `mcpSessionId`
-    // through every identity-provider + emitter path so the consumer side
-    // is ready to read it; the producer-side source lands when that SDK
-    // PR ships and a header read is wired into `index.ts`.
+    // Agent-echoed conversation id from `@posthog/mcp-analytics`'s
+    // `enableConversationId: true`. Sourced today from the inbound
+    // `mcp-conversation-id` HTTP header (see `index.ts`). Persists across
+    // transport reconnects because the agent is asked to echo the value back
+    // on every subsequent tool call.
     mcpConversationId?: string
     features?: string[]
     tools?: string[]
@@ -248,6 +248,8 @@ export class MCP extends McpAgent<Env> {
                 mcpClientVersion: this.mcpClientVersion,
                 mcpProtocolVersion: this.mcpProtocolVersion,
                 mcpConsumer: this.requestProperties.mcpConsumer,
+                mcpSessionId: this.requestProperties.mcpSessionId,
+                mcpConversationId: this.requestProperties.mcpConversationId,
             })
         }
 
@@ -262,7 +264,11 @@ export class MCP extends McpAgent<Env> {
      * just the cached token here — leave `this.props` and storage alone.
      */
     async setName(name: string, props?: RequestProperties): Promise<void> {
-        this.rotateCachedApiToken(props?.apiToken)
+        this.rotateCachedApiTokenAndTraces({
+            apiToken: props?.apiToken,
+            mcpSessionId: props?.mcpSessionId,
+            mcpConversationId: props?.mcpConversationId,
+        })
         await super.setName(name, props)
     }
 
@@ -275,21 +281,56 @@ export class MCP extends McpAgent<Env> {
      */
     async updateProps(props?: RequestProperties): Promise<void> {
         this.props = props as RequestProperties
-        this.rotateCachedApiToken(props?.apiToken)
+        this.rotateCachedApiTokenAndTraces({
+            apiToken: props?.apiToken,
+            mcpSessionId: props?.mcpSessionId,
+            mcpConversationId: props?.mcpConversationId,
+        })
         await super.updateProps(props)
     }
 
     /**
-     * Rotate the cached ApiClient's auth token in place. Tool handlers read
-     * the token off `context.api.config.apiToken` — the captured ApiClient
-     * from init() — so replacing the instance would leave those references
-     * stale. Mutating in place keeps them pointing at the latest token.
-     * No-op when there's no cached client, no incoming token, or the token
-     * already matches.
+     * Refresh the cached ApiClient's per-request config in place. Tool handlers
+     * read these fields off `context.api.config` — the captured ApiClient from
+     * init() — so replacing the instance would leave those references stale.
+     * Mutating in place keeps them pointing at the latest values.
+     *
+     * Name is intentionally awkward to signal that this method has grown
+     * beyond just rotating the apiToken; rename more crisply when a natural
+     * grouping emerges.
+     *
+     * Three fields rotate per inbound request:
+     *   - `apiToken` — short-lived OAuth tokens get refreshed across the same
+     *     transport session.
+     *   - `mcpSessionId` — the `Mcp-Session-Id` HTTP header is *absent* on the
+     *     initialize call (where `_api` is first constructed) and present on
+     *     every subsequent request. Without this refresh, `_api` would be
+     *     pinned to `undefined` for the lifetime of a warm DO and the
+     *     `x-posthog-mcp-session-id` header would never be sent.
+     *   - `mcpConversationId` — same shape as `mcpSessionId`; sourced from
+     *     the inbound `mcp-conversation-id` header (today supplied by wrapper
+     *     apps; the `@posthog/mcp-analytics` SDK injects it via tool args, but
+     *     that path doesn't land on `requestProperties` yet).
+     *
+     * No-op when there's no cached client, or when an incoming field is empty
+     * (don't overwrite a real value with `undefined`).
      */
-    private rotateCachedApiToken(apiToken: string | undefined): void {
-        if (this._api && apiToken && this._api.config.apiToken !== apiToken) {
-            this._api.config.apiToken = apiToken
+    private rotateCachedApiTokenAndTraces(updates: {
+        apiToken: string | undefined
+        mcpSessionId: string | undefined
+        mcpConversationId: string | undefined
+    }): void {
+        if (!this._api) {
+            return
+        }
+        if (updates.apiToken && this._api.config.apiToken !== updates.apiToken) {
+            this._api.config.apiToken = updates.apiToken
+        }
+        if (updates.mcpSessionId && this._api.config.mcpSessionId !== updates.mcpSessionId) {
+            this._api.config.mcpSessionId = updates.mcpSessionId
+        }
+        if (updates.mcpConversationId && this._api.config.mcpConversationId !== updates.mcpConversationId) {
+            this._api.config.mcpConversationId = updates.mcpConversationId
         }
     }
 

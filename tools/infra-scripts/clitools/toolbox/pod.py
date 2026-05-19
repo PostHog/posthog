@@ -33,6 +33,7 @@ def get_toolbox_pod(
     claimed_label_key: str,
     namespace: str,
     context: str | None = None,
+    extra_selector: str | None = None,
 ) -> tuple[str, bool, str]:
     """Get an available toolbox pod name and the resourceVersion observed.
 
@@ -43,12 +44,21 @@ def get_toolbox_pod(
         claimed_label_key: Label key the wrapper sets on a claimed pod.
         namespace: Kubernetes namespace the pool lives in.
         context: Optional kubernetes context to scope the kubectl call to.
+        extra_selector: Optional additional label selector ANDed onto
+            ``app.kubernetes.io/name=<app_label>``. Used when other resources
+            in the namespace share the same name label (e.g. the golden chart
+            puts the toolbox's own pgbouncer pods under the same name) so we
+            need a second key like ``app.kubernetes.io/component=app`` to
+            pick out only the main pool.
 
     Returns:
         Tuple of (pod_name, is_already_claimed, resource_version). The
         resource_version reflects the pod state at observation time and is
         used by ``claim_pod`` for optimistic concurrency control.
     """
+    label_selector = f"app.kubernetes.io/name={app_label}"
+    if extra_selector:
+        label_selector = f"{label_selector},{extra_selector}"
     wait_start = datetime.now()
     max_wait = timedelta(minutes=5)
     update_interval = timedelta(seconds=30)
@@ -63,7 +73,7 @@ def get_toolbox_pod(
                     "-n",
                     namespace,
                     "-l",
-                    f"app.kubernetes.io/name={app_label}",
+                    label_selector,
                     "-o",
                     "json",
                     context=context,

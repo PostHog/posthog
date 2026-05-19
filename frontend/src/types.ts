@@ -428,6 +428,9 @@ export interface InAppNotification {
     read: boolean
     read_at: string | null
     resource_type: string | null
+    resource_id: string
+    target_type: string
+    target_id: string
     source_url: string
     source_type: string | null
     source_id: string | null
@@ -4901,8 +4904,8 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number | null
-    value_type: 'bool' | 'str' | 'int'
+    value: boolean | string | number | number[] | null
+    value_type: 'bool' | 'str' | 'int' | 'list[int]'
     description?: string
     editable: boolean
     is_secret: boolean
@@ -5292,6 +5295,7 @@ export interface RoleMemberType {
 export type APIScopeObject =
     | 'action'
     | 'access_control'
+    | 'account'
     | 'activity_log'
     | 'alert'
     | 'annotation'

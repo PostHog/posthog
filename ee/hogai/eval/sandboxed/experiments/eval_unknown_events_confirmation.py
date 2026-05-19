@@ -37,8 +37,6 @@ To run:
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import AskedForConfirmation
@@ -50,7 +48,6 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredTo
 UNKNOWN_EVENT_NAME = "totally_made_up_event_qzx"
 
 
-@pytest.mark.django_db
 async def eval_unknown_events_confirmation(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases: list[SandboxedEvalCase] = [
         # The agent is asked to wire up a metric on an event the project
