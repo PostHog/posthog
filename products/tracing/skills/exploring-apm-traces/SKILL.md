@@ -168,7 +168,7 @@ posthog:apm-trace-get
 - **Durations are nanoseconds.** 1 second = `1_000_000_000`. Filter values in `query-apm-spans` for `duration` are also nanoseconds.
 - **`status_code == 2` is Error.** `0` is Unset, `1` is OK. Use `OK` to match `{0, 1}` in the UI filter.
 - **`kind`** is an integer 0–5: 0 Unspecified, 1 Internal, 2 Server, 3 Client, 4 Producer, 5 Consumer.
-- **`parent_span_id` of a root span** is `"00000000000000000000000000000000"` (zero-padded), not null.
+- **`parent_span_id` of a root span** is `"0000000000000000"` (16 zero hex chars, matching the 8-byte span ID width — _not_ the 16-byte trace ID width), not null.
 
 ## Parsing large trace results
 
