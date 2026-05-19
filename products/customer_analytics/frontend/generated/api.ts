@@ -9,12 +9,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AccountApi,
+    AccountsListParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
     CustomerProfileConfigsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
@@ -37,6 +40,50 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAccountsListUrl = (projectId: string, params?: AccountsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/accounts/?${stringifiedParams}`
+        : `/api/environments/${projectId}/accounts/`
+}
+
+export const accountsList = async (
+    projectId: string,
+    params?: AccountsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountListApi> => {
+    return apiMutator<PaginatedAccountListApi>(getAccountsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/accounts/`
+}
+
+export const accountsCreate = async (
+    projectId: string,
+    accountApi: NonReadonly<AccountApi>,
+    options?: RequestInit
+): Promise<AccountApi> => {
+    return apiMutator<AccountApi>(getAccountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountApi),
+    })
+}
 
 export const getCustomerJourneysListUrl = (projectId: string, params?: CustomerJourneysListParams) => {
     const normalizedParams = new URLSearchParams()

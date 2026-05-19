@@ -9,6 +9,12 @@ feature: customer_analytics
 url_prefix: /customer-analytics
 ui_apps: {}
 tools:
+    accounts-create:
+        operation: accounts_create
+        enabled: false
+    accounts-list:
+        operation: accounts_list
+        enabled: false
     customer-journeys-create:
         operation: customer_journeys_create
         enabled: false
