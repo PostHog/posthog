@@ -1024,7 +1024,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
-                        props.editor?.setModel(model)
+                        const modelToAttach = model
+                        // Defer setModel out of any synchronous flushSync window (e.g. a
+                        // Radix menu select wrapping handlers in ReactDOM.flushSync).
+                        // Inside flushSync, Monaco contributions like wordHighlighter
+                        // dispose pending Delayers synchronously and the resulting
+                        // CancellationError ("Canceled") escapes React's commit phase
+                        // as an unhandled exception.
+                        queueMicrotask(() => {
+                            try {
+                                props.editor?.setModel(modelToAttach)
+                            } catch (error) {
+                                if ((error as Error)?.name !== 'Canceled') {
+                                    throw error
+                                }
+                            }
+                        })
                         initModel(
                             model,
                             codeEditorLogic({

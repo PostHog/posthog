@@ -547,6 +547,49 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('createTab defers setModel out of synchronous flushSync', () => {
+        it('attaches the new model in a microtask, not synchronously inside the listener', async () => {
+            const editor = createMockEditor()
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor,
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            // setModel runs in queueMicrotask, so it has fired by the time
+            // we yield back to the event loop above
+            expect(editor.setModel).toHaveBeenCalledTimes(1)
+        })
+
+        it('swallows Monaco CancellationError when wordHighlighter Delayer disposal throws', async () => {
+            const editor = createMockEditor()
+            const cancellationError = Object.assign(new Error('Canceled'), { name: 'Canceled' })
+            editor.setModel = jest.fn(() => {
+                throw cancellationError
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor,
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            // Flush the microtask that defers setModel out of flushSync
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(editor.setModel).toHaveBeenCalledTimes(1)
+            // updateTab still fires — the cancellation does not abort the listener
+            expect(logic.values.activeTab).not.toBeNull()
+        })
+    })
+
     describe('getDisplayTypeToSaveInsight', () => {
         it.each([
             {
