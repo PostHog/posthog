@@ -135,6 +135,27 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_call_as_assignment_target(self):
+        # A statement's leading expression folds its own postfix `(…)`
+        # call even when `:=` follows — `f() := 1` is
+        # `Call(f) := 1`, `if(x) := y` is `Call(if,[x]) := y`. The
+        # Rust parser ran the leading expr through the
+        # `stop_postfix_call_before_colon_equals` guard (which is meant
+        # only for RHS parsing) and split it into two statements.
+        cases = (
+            "f() := 1",
+            "f(x) := 1",
+            "f()(g) := h",
+            "if(x) := y",
+            # the guard's real RHS scenario must still hold
+            "(a) := (b) (c) := (d)",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

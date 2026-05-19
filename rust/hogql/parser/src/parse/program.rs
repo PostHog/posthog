@@ -358,11 +358,11 @@ impl<'a> Parser<'a> {
                 "right": right,
             }));
         }
-        // Parse the leading expression with the postfix-`(`-call guard
-        // active: a trailing `(…) :=` opens the NEXT statement's
-        // `(<target>) :=` rather than folding as a call onto this one
-        // (`columns('x') (y) := z` is `columns('x')` then `(y) := z`).
-        let expr = self.parse_stmt_rhs_expr()?;
+        // Leading expression — parsed without the
+        // `stop_postfix_call_before_colon_equals` guard (see
+        // `parse_expr_or_assignment_stmt`): a `(…)` here folds as this
+        // clause's own call.
+        let expr = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::ColonEquals)? {
             let right = self.parse_stmt_rhs_expr()?;
             return Ok(json!({
@@ -612,11 +612,13 @@ impl<'a> Parser<'a> {
                 "right": right,
             }));
         }
-        // Parse the leading expression with the postfix-`(`-call guard
-        // active: a trailing `(…) :=` opens the NEXT statement's
-        // `(<target>) :=` rather than folding as a call onto this one
-        // (`columns('x') (y) := z` is `columns('x')` then `(y) := z`).
-        let expr = self.parse_stmt_rhs_expr()?;
+        // The leading expression is parsed WITHOUT the
+        // `stop_postfix_call_before_colon_equals` guard: a `(…)` here
+        // is this statement's own call (`if(x) := y` is
+        // `Call(if,[x]) := y`, `f() := 1` is `Call(f) := 1`). The
+        // guard is only for a *RHS* parse, where a trailing `(…) :=`
+        // would be the next statement's target.
+        let expr = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::ColonEquals)? {
             let right = self.parse_stmt_rhs_expr()?;
             // `varAssignment` has no trailing `SEMICOLON?` in the
