@@ -718,6 +718,8 @@ async def _deliver_ai_subscription(
         if inputs.is_new_subscription_target and inputs.previous_value is not None:
             emails = list(set(emails) - set(inputs.previous_value.split(",")))
         rendered_html = render_ai_email_html(markdown)
+        success_count = 0
+        last_error: Exception | None = None
         for email in emails:
             email = email.strip()
             if not email:
@@ -727,9 +729,10 @@ async def _deliver_ai_subscription(
                     email=email, subscription=subscription, markdown=markdown, rendered_html=rendered_html
                 )
                 recipient_results.append(RecipientResult(recipient=email, status="success", error=None))
+                success_count += 1
             except Exception as exc:
-                # Per-recipient failure is captured and reported; we don't re-raise because
-                # one bad recipient shouldn't fail the others (matches the non-AI path).
+                # Per-recipient failure is captured and reported; one bad recipient
+                # shouldn't fail the others (matches the non-AI path).
                 LOGGER.error(
                     "deliver_subscription.ai_email_failed",
                     subscription_id=subscription.id,
@@ -745,6 +748,12 @@ async def _deliver_ai_subscription(
                         error={"message": str(exc), "type": type(exc).__name__},
                     )
                 )
+                last_error = exc
+        # If every recipient failed (typical AI sub has a single recipient), the
+        # markdown is already cached on the delivery row, so a Temporal retry is
+        # cheap — let it through so transient SMTP/Customer.io blips can recover.
+        if last_error is not None and success_count == 0:
+            raise last_error
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == Subscription.SubscriptionTarget.SLACK:

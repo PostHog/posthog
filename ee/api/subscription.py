@@ -317,6 +317,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"prompt": ["Prompt is required for AI subscriptions."]})
             if len(has_prompt) > AI_PROMPT_MAX_LENGTH:
                 raise ValidationError({"prompt": [f"Prompt cannot exceed {AI_PROMPT_MAX_LENGTH} characters."]})
+            # The delivery activity rejects unsupported targets, but auto-disabling
+            # on the first scheduled run is a poor first impression — fail fast here.
+            effective_target_type = attrs.get("target_type") or (existing.target_type if existing else None)
+            if effective_target_type and effective_target_type not in (
+                Subscription.SubscriptionTarget.EMAIL,
+                Subscription.SubscriptionTarget.SLACK,
+            ):
+                raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
 
             # Cloud / consent / feature-flag gates fire on create only. `content_type` is
             # pinned (rejected earlier in this method), so an existing AI subscription
