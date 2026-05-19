@@ -1324,6 +1324,59 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.model).toBe('claude-3-opus')
         })
+
+        it('should populate playground from Gemini OTel parts-shaped input', () => {
+            // Matches what opentelemetry-instrumentation-google-generativeai emits in gen_ai.input.messages.
+            const input = [
+                { role: 'user', parts: [{ type: 'text', content: 'What is the capital of France?' }] },
+                { role: 'model', parts: [{ type: 'text', content: 'The capital of France is Paris.' }] },
+                { role: 'user', parts: [{ type: 'text', content: 'And of Spain?' }] },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What is the capital of France?' },
+                { role: 'assistant', content: 'The capital of France is Paris.' },
+                { role: 'user', content: 'And of Spain?' },
+            ])
+        })
+
+        it('should populate system prompt + conversation from a Gemini OTel trace shape', () => {
+            // After Fix A (ingestion) prepends the system message synthesized from gen_ai.system_instructions,
+            // the playground sees a mix of standard `{role, content}` and OTel parts-shaped items.
+            const input = [
+                { role: 'system', content: 'You are a concise assistant.' },
+                { role: 'user', parts: [{ type: 'text', content: 'Tell me about Paris.' }] },
+                { role: 'model', parts: [{ type: 'text', content: 'Paris is the capital of France.' }] },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You are a concise assistant.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Tell me about Paris.' },
+                { role: 'assistant', content: 'Paris is the capital of France.' },
+            ])
+        })
+
+        it('should join multi-part text content for OTel parts messages', () => {
+            const input = [
+                {
+                    role: 'user',
+                    parts: [
+                        { type: 'text', content: 'First chunk.' },
+                        { type: 'text', content: 'Second chunk.' },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const message = llmPlaygroundPromptsLogic.values.messages[0]
+            expect(message.role).toBe('user')
+            expect(message.content).toBe('First chunk.\n\nSecond chunk.')
+        })
     })
 
     describe('Multi-prompt state management', () => {
