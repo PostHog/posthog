@@ -27,7 +27,12 @@ class TestMaxChatOpenAI(BaseTest):
 
     def test_initialization_and_context_variables(self):
         """Test initialization and context variable extraction."""
-        with patch("datetime.datetime") as mock_datetime:
+        from datetime import UTC
+
+        fixed_now = datetime(2024, 1, 15, 10, 30, 45, tzinfo=UTC)
+        with patch("ee.hogai.llm.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+
             for llm in (
                 MaxChatOpenAI(user=self.user, team=self.team),
                 MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
@@ -37,18 +42,33 @@ class TestMaxChatOpenAI(BaseTest):
                 self.assertEqual(llm.team, self.team)
                 self.assertIsNotNone(llm.max_retries)
 
-                # Test context variables
-                mock_now = datetime(2024, 1, 15, 10, 30, 45)
-                mock_datetime.now.return_value = mock_now
-
                 variables = llm._get_project_org_user_variables()
 
                 self.assertEqual(variables["project_name"], "Test Project")
                 self.assertEqual(variables["project_timezone"], "America/New_York")
-                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
+                # The prompt now communicates both UTC and the project-timezone time so users
+                # outside the project's timezone are not silently misled.
+                self.assertEqual(variables["utc_datetime_display"], "2024-01-15 10:30:45")
+                self.assertEqual(variables["project_datetime_display"], "2024-01-15 05:30:45")
                 self.assertEqual(variables["organization_name"], "Test Organization")
                 self.assertEqual(variables["user_full_name"], "John Doe")
                 self.assertEqual(variables["user_email"], "john@example.com")
+
+    def test_project_datetime_is_recomputed_per_invocation(self):
+        # Regression: long Max sessions caused timezone-confusion bugs because the
+        # start-of-conversation timestamp was injected as "now" across the whole chat.
+        # The current time must be recomputed on every call.
+        from datetime import UTC
+
+        stale_start = datetime(2024, 1, 15, 10, 0, 0)
+        llm = MaxChatOpenAI(user=self.user, team=self.team, conversation_start_dt=stale_start)
+
+        with patch("ee.hogai.llm.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+            variables = llm._get_project_org_user_variables()
+
+        self.assertEqual(variables["utc_datetime_display"], "2024-01-15 12:00:00")
+        self.assertEqual(variables["project_datetime_display"], "2024-01-15 07:00:00")
 
     def test_message_enrichment_with_context(self):
         """Test that context is properly injected into messages."""

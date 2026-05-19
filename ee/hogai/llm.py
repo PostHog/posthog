@@ -2,10 +2,10 @@ import datetime
 from collections.abc import Mapping
 from functools import cached_property
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
-import pytz
 import anthropic
 import structlog
 from asgiref.sync import sync_to_async
@@ -39,7 +39,7 @@ Key URL patterns:
 - Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
-Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
+The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project_datetime_display}}} in this project's timezone ({{{project_timezone}}}).
 {{#person_on_events_enabled}}
 Person-on-events mode is enabled. When querying `person.properties.*` on the events table, values reflect what was set at the time the event was ingested, not the person's current value. The same person can have different property values across different events. Do not suggest workarounds for "query-time" person properties.
 {{/person_on_events_enabled}}
@@ -65,7 +65,9 @@ class MaxChatMixin(BaseModel):
     stream_usage: bool | None = None
     conversation_start_dt: datetime.datetime | None = None
     """
-    The datetime of the start of the conversation. If not provided, the current time will be used.
+    Retained for backward compatibility with callers; no longer used for prompt timestamps.
+    The current time is recomputed on every LLM invocation so the model never sees a stale
+    "now" later in a long conversation. See the timezone-confusion incident in long Max sessions.
     """
     billable: bool = False
     """
@@ -91,8 +93,9 @@ class MaxChatMixin(BaseModel):
     def _get_project_org_user_variables(self) -> dict[str, Any]:
         """Note: this function may perform Postgres queries on `self._team`, `self._team.organization`, and `self._user`."""
         project_timezone = self.team.timezone
-        adjusted_dt = self.conversation_start_dt or datetime.datetime.now()
-        project_datetime = adjusted_dt.astimezone(tz=pytz.timezone(project_timezone))
+        # Recompute "now" on every invocation so the model never sees a stale time in long conversations.
+        utc_now = datetime.datetime.now(datetime.UTC)
+        project_now = utc_now.astimezone(ZoneInfo(project_timezone))
 
         region = CLOUD_DEPLOYMENT or "US"
         if region in ["US", "EU"]:
@@ -103,7 +106,8 @@ class MaxChatMixin(BaseModel):
         return {
             "project_name": self.team.name,
             "project_timezone": project_timezone,
-            "project_datetime": project_datetime.strftime("%Y-%m-%d %H:%M:%S"),
+            "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
+            "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
             "organization_name": self.team.organization.name,
             "user_full_name": self.user.get_full_name(),
             "user_email": self.user.email,
