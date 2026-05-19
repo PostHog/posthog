@@ -6,9 +6,25 @@ import type { CloudRegion } from "@/tools/types";
 const MCP_HONO_US_URL = "https://mcp.us.posthog.com";
 const MCP_HONO_EU_URL = "https://mcp.eu.posthog.com";
 
+const KV_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
 type ResolvedUser = { distinctId: string; region: CloudRegion };
 
-async function resolveUser(token: string): Promise<ResolvedUser | undefined> {
+async function resolveUser(
+    token: string,
+    userHash: string,
+    kv: KVNamespace | undefined,
+): Promise<ResolvedUser | undefined> {
+    if (kv) {
+        const [distinctId, region] = await Promise.all([
+            kv.get(`${userHash}:distinct_id`),
+            kv.get(`${userHash}:region`),
+        ]);
+        if (distinctId && region) {
+            return { distinctId, region: region as CloudRegion };
+        }
+    }
+
     const usBase = env.POSTHOG_API_BASE_URL || "https://us.posthog.com";
     const euBase = env.POSTHOG_API_BASE_URL || "https://eu.posthog.com";
 
@@ -17,13 +33,21 @@ async function resolveUser(token: string): Promise<ResolvedUser | undefined> {
         new ApiClient({ apiToken: token, baseUrl: euBase }).users().me(),
     ]);
 
+    let resolved: ResolvedUser | undefined;
     if (usResult.success) {
-        return { distinctId: usResult.data.distinct_id, region: "us" };
+        resolved = { distinctId: usResult.data.distinct_id, region: "us" };
+    } else if (euResult.success) {
+        resolved = { distinctId: euResult.data.distinct_id, region: "eu" };
     }
-    if (euResult.success) {
-        return { distinctId: euResult.data.distinct_id, region: "eu" };
+
+    if (resolved && kv) {
+        await Promise.all([
+            kv.put(`${userHash}:distinct_id`, resolved.distinctId, { expirationTtl: KV_TTL_SECONDS }),
+            kv.put(`${userHash}:region`, resolved.region, { expirationTtl: KV_TTL_SECONDS }),
+        ]);
     }
-    return undefined;
+
+    return resolved;
 }
 
 function getHonoTargetUrl(region: CloudRegion): string {
@@ -35,15 +59,19 @@ function getHonoTargetUrl(region: CloudRegion): string {
 
 export async function shouldProxyToHono(
     token: string,
+    userHash: string,
+    kv: KVNamespace | undefined,
 ): Promise<{ proxy: true; region: CloudRegion } | { proxy: false }> {
     try {
-        const user = await resolveUser(token);
+        const user = await resolveUser(token, userHash, kv);
         if (!user) {
             console.info("[MCP proxy] could not resolve user, staying on CF");
             return { proxy: false };
         }
         const enabled = await isFeatureFlagEnabled("mcp-hono", user.distinctId);
-        console.info(`[MCP proxy] flag mcp-hono=${enabled} for ${user.distinctId} (${user.region})`);
+        console.info(
+            `[MCP proxy] flag mcp-hono=${enabled} for ${user.distinctId} (${user.region})`,
+        );
         if (enabled) {
             return { proxy: true, region: user.region };
         }
@@ -64,7 +92,9 @@ export function proxyToHono(
     targetUrl.protocol = target.protocol;
     targetUrl.port = target.port;
 
-    console.info(`[MCP proxy] forwarding ${request.method} to ${targetUrl.toString()}`);
+    console.info(
+        `[MCP proxy] forwarding ${request.method} to ${targetUrl.toString()}`,
+    );
 
     return fetch(targetUrl.toString(), {
         method: request.method,

@@ -405,7 +405,7 @@ const handleRequest = async (
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        const proxyResult = await shouldProxyToHono(token)
+        const proxyResult = await shouldProxyToHono(token, ctx.props.userHash, env.MCP_KV)
         if (proxyResult.proxy) {
             log.extend({ proxy: 'hono', region: proxyResult.region })
             return proxyToHono(request, proxyResult.region)
