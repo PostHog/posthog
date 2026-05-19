@@ -7,6 +7,12 @@ export interface AxisBreakdownSeries<T> {
     name: string
     data: T[]
     settings?: AxisSeriesSettings
+    /**
+     * Raw breakdown column value the series was built from. `null` for null /
+     * undefined values. Carried so consumers can look up per-value overrides
+     * without depending on positional ordering of `seriesData`.
+     */
+    breakdownValue?: string | null
 }
 
 export interface BreakdownSeriesData<T> {
@@ -228,6 +234,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         return {
                             name: seriesName,
                             data: dataset,
+                            breakdownValue: value == null ? null : String(value),
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
                             // breakdown series at the moment, except for the

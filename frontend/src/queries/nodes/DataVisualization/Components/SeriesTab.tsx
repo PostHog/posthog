@@ -589,7 +589,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
     const { columns, responseLoading, selectedXAxis, selectedYAxis, dataVisualizationProps } =
         useValues(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
-    const { selectedSeriesBreakdownColumn, seriesBreakdownData, breakdownColumnValues } = useValues(breakdownLogic)
+    const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(breakdownLogic)
     const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(breakdownLogic)
 
     const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
@@ -639,16 +639,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
                     <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
                 ) : (
                     seriesBreakdownData.seriesData.map((series, index) => (
-                        <BreakdownSeries
-                            series={series}
-                            index={index}
-                            breakdownValue={
-                                breakdownColumnValues.length > 0
-                                    ? (breakdownColumnValues[index % breakdownColumnValues.length] ?? null)
-                                    : null
-                            }
-                            key={`${series.name}-${index}`}
-                        />
+                        <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
                     ))
                 )}
             </div>
@@ -659,25 +650,21 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
 const BreakdownSeries = ({
     series,
     index,
-    breakdownValue,
 }: {
     series: AxisBreakdownSeries<number | null>
     index: number
-    breakdownValue: string | null
 }): JSX.Element => {
     const { chartSettings } = useValues(dataVisualizationLogic)
     const { updateChartSettings } = useActions(dataVisualizationLogic)
 
-    const overrideKey = breakdownValue == null ? '__null__' : String(breakdownValue)
-    const existingOverride = chartSettings.seriesBreakdownColorOverrides?.[overrideKey]
+    const overrideKey = series.breakdownValue == null ? '__null__' : series.breakdownValue
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
-    const displayedColor = existingOverride ?? seriesColor
 
     return (
         <div className="flex gap-2 items-center mb-2">
             <LemonColorPicker
-                selectedColor={displayedColor}
-                customColorValue={displayedColor}
+                selectedColor={seriesColor}
+                customColorValue={seriesColor}
                 onSelectColor={(color) => {
                     const next = {
                         ...chartSettings.seriesBreakdownColorOverrides,
