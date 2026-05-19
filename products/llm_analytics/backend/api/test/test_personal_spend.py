@@ -33,12 +33,12 @@ class TestPersonalSpendEuRedirect(APIBaseTest):
         from products.llm_analytics.backend.api.personal_spend import personal_spend_eu_redirect
 
         factory = RequestFactory()
-        request = factory.get("/api/llm_analytics/@me/spend/", data={"days": "7", "product": "posthog_code"})
+        request = factory.get("/api/llm_analytics/@me/spend/", data={"date_from": "-7d", "product": "posthog_code"})
         response = personal_spend_eu_redirect(request)
 
         assert response.status_code == status.HTTP_302_FOUND
         assert response["Location"].startswith("https://us.posthog.com/api/llm_analytics/@me/spend/")
-        assert "days=7" in response["Location"]
+        assert "date_from=-7d" in response["Location"]
         assert "product=posthog_code" in response["Location"]
 
 
@@ -54,8 +54,8 @@ class TestPersonalSpendAuth(APIBaseTest):
         response = self.client.get(ENDPOINT)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_authenticated_caller_without_distinct_id_rejected(self) -> None:
-        self.user.distinct_id = ""
+    def test_authenticated_caller_without_email_rejected(self) -> None:
+        self.user.email = ""
         self.user.save()
         response = self.client.get(ENDPOINT)
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -70,25 +70,29 @@ class TestPersonalSpendValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("zero", "0", status.HTTP_400_BAD_REQUEST),
-            ("negative", "-5", status.HTTP_400_BAD_REQUEST),
-            ("over_max", "365", status.HTTP_400_BAD_REQUEST),
-            ("non_integer", "many", status.HTTP_400_BAD_REQUEST),
-            ("valid_min", "1", status.HTTP_200_OK),
-            ("valid_default", "30", status.HTTP_200_OK),
-            ("valid_max", "90", status.HTTP_200_OK),
+            ("nonsense", "wibble", status.HTTP_400_BAD_REQUEST),
+            ("over_max_window", "-365d", status.HTTP_400_BAD_REQUEST),
+            ("valid_relative_short", "-1d", status.HTTP_200_OK),
+            ("valid_relative_default", "-30d", status.HTTP_200_OK),
+            ("valid_relative_max", "-90d", status.HTTP_200_OK),
         ]
     )
-    def test_days_param_validation(self, _label: str, days: str, expected: int) -> None:
-        response = self.client.get(f"{ENDPOINT}?days={days}")
+    def test_date_from_param_validation(self, _label: str, date_from: str, expected: int) -> None:
+        response = self.client.get(f"{ENDPOINT}?date_from={date_from}")
         assert response.status_code == expected
 
-    def test_days_param_optional_defaults_to_30(self) -> None:
+    def test_date_params_optional_default_to_last_30_days(self) -> None:
         response = self.client.get(ENDPOINT)
         assert response.status_code == status.HTTP_200_OK
         summary = response.json()["summary"]
-        assert summary["period_days"] == 30
         assert summary["product"] is None
+        # date_from / date_to are returned as ISO strings.
+        assert summary["date_from"] is not None
+        assert summary["date_to"] is not None
+
+    def test_date_to_before_date_from_rejected(self) -> None:
+        response = self.client.get(f"{ENDPOINT}?date_from=-7d&date_to=-30d")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
@@ -273,10 +277,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(ENDPOINT)
         assert response.json()["summary"]["total_cost_usd"] == 1.0
 
-    def test_days_window_passes_through_to_query_layer(self) -> None:
+    def test_date_window_passes_through_to_query_layer(self) -> None:
         with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
             mock_exec.return_value.results = []
-            response = self.client.get(f"{ENDPOINT}?days=7")
+            response = self.client.get(f"{ENDPOINT}?date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
         # All 5 fetchers should run once.
@@ -298,12 +302,12 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             self.client.get(f"{ENDPOINT}?refresh=true")
             assert mock_exec.call_count == first * 2
 
-    def test_cache_key_includes_days(self) -> None:
+    def test_cache_key_includes_date_from(self) -> None:
         with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
             mock_exec.return_value.results = []
-            self.client.get(f"{ENDPOINT}?days=7")
+            self.client.get(f"{ENDPOINT}?date_from=-7d")
             first = mock_exec.call_count
-            self.client.get(f"{ENDPOINT}?days=30")
+            self.client.get(f"{ENDPOINT}?date_from=-30d")
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_product(self) -> None:

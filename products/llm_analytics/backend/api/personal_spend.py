@@ -8,12 +8,14 @@ analytics team. Optionally filter to a single `ai_product` (e.g. `posthog_code`,
 captured by LLM analytics for that user.
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?days=30&product=<key>&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?date_from=-30d&date_to=&product=<key>&limit=50&refresh=false
 """
 
 from __future__ import annotations
 
+import datetime
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -31,14 +33,15 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models import Team, User
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
+from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
 
 MAX_PRODUCT_KEY_LENGTH = 64
+MAX_DATE_STRING_LENGTH = 32
 
-MIN_DAYS = 1
-MAX_DAYS = 90
-DEFAULT_DAYS = 30
+DEFAULT_DATE_FROM = "-30d"
+MAX_WINDOW_DAYS = 90
 
 MIN_LIMIT = 1
 MAX_LIMIT = 200
@@ -46,23 +49,59 @@ DEFAULT_LIMIT = 50
 
 CACHE_TIMEOUT_SECONDS = 300
 
+UTC = ZoneInfo("UTC")
+
 
 def _internal_team_id() -> int:
     return settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
 
 
-def _cache_key(distinct_id: str, days: int, product: str | None, limit: int) -> str:
+def _cache_key(email: str, date_from: str, date_to: str | None, product: str | None, limit: int) -> str:
     product_slot = product or "_all"
-    return f"personal_spend:{distinct_id}:{days}:{product_slot}:{limit}"
+    to_slot = date_to or "_now"
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product_slot}:{limit}"
+
+
+def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datetime, datetime.datetime]:
+    """Resolve relative or absolute date strings to UTC datetimes, capped at MAX_WINDOW_DAYS."""
+    try:
+        from_dt = relative_date_parse(date_from, UTC)
+    except Exception as exc:
+        raise exceptions.ValidationError({"date_from": f"Could not parse `{date_from}`: {exc}"})
+    if date_to:
+        try:
+            to_dt = relative_date_parse(date_to, UTC)
+        except Exception as exc:
+            raise exceptions.ValidationError({"date_to": f"Could not parse `{date_to}`: {exc}"})
+    else:
+        to_dt = datetime.datetime.now(UTC)
+
+    if to_dt <= from_dt:
+        raise exceptions.ValidationError({"date_to": "Must be later than `date_from`."})
+    if (to_dt - from_dt).days > MAX_WINDOW_DAYS:
+        raise exceptions.ValidationError(
+            {"date_from": f"Window between `date_from` and `date_to` cannot exceed {MAX_WINDOW_DAYS} days."}
+        )
+    return from_dt, to_dt
 
 
 class _SpendQueryParamsSerializer(serializers.Serializer):
-    days = serializers.IntegerField(
+    date_from = serializers.CharField(
         required=False,
-        min_value=MIN_DAYS,
-        max_value=MAX_DAYS,
-        default=DEFAULT_DAYS,
-        help_text=f"Lookback window in days for the spend analysis ({MIN_DAYS}-{MAX_DAYS}). Defaults to {DEFAULT_DAYS}.",
+        default=DEFAULT_DATE_FROM,
+        max_length=MAX_DATE_STRING_LENGTH,
+        help_text=(
+            "Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings "
+            "(`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The "
+            "window between `date_from` and `date_to` cannot exceed 90 days."
+        ),
+    )
+    date_to = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        max_length=MAX_DATE_STRING_LENGTH,
+        help_text=("End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted."),
     )
     product = serializers.CharField(
         required=False,
@@ -147,7 +186,12 @@ class _ModelBreakdownRowSerializer(serializers.Serializer):
 class _TopTraceRowSerializer(serializers.Serializer):
     trace_id = serializers.CharField(
         allow_null=True,
-        help_text="`$ai_trace_id` of the session — opaque string scoped to the originating product.",
+        help_text=(
+            "`$ai_trace_id` of the session — opaque string scoped to the originating product. Format is "
+            "not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like "
+            '`{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque '
+            "identifier (URL-encode before linking to a trace view)."
+        ),
     )
     generation_count = serializers.IntegerField(help_text="Number of $ai_generation events in this trace.")
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this trace.")
@@ -155,7 +199,10 @@ class _TopTraceRowSerializer(serializers.Serializer):
 
 
 class _SummarySerializer(serializers.Serializer):
-    period_days = serializers.IntegerField(help_text="Lookback window in days used for the analysis.")
+    date_from = serializers.DateTimeField(
+        help_text="Inclusive UTC start of the spend window resolved from the request."
+    )
+    date_to = serializers.DateTimeField(help_text="Exclusive UTC end of the spend window resolved from the request.")
     product = serializers.CharField(
         allow_null=True,
         help_text="The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.",
@@ -175,6 +222,12 @@ class _SummarySerializer(serializers.Serializer):
     scoped_event_count = serializers.IntegerField(
         help_text="Total $ai_generation + $ai_embedding events for the scoped slice."
     )
+
+
+class _ErrorResponseSerializer(serializers.Serializer):
+    """DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema."""
+
+    detail = serializers.CharField(help_text="Human-readable error description from DRF.")
 
 
 class _ProductBreakdownSerializer(serializers.Serializer):
@@ -219,25 +272,32 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     )
 
 
-def _distinct_id_filter(distinct_id: str) -> ast.Expr:
+def _email_filter(email: str) -> ast.Expr:
+    # With person-on-events mode `person.properties.email` is a denormalized column on
+    # the events row, so this is a single column read rather than a join — it also catches
+    # every event the user identified with, including historical distinct_ids merged into
+    # the same person.
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["distinct_id"]),
-        right=ast.Constant(value=distinct_id),
+        left=ast.Field(chain=["person", "properties", "email"]),
+        right=ast.Constant(value=email),
     )
 
 
-def _timestamp_filter(days: int) -> ast.Expr:
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.GtEq,
-        left=ast.Field(chain=["timestamp"]),
-        right=ast.Call(
-            name="minus",
-            args=[
-                ast.Call(name="now", args=[]),
-                ast.Call(name="toIntervalDay", args=[ast.Constant(value=days)]),
-            ],
-        ),
+def _timestamp_filter(from_dt: datetime.datetime, to_dt: datetime.datetime) -> ast.Expr:
+    return ast.And(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=from_dt),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=to_dt),
+            ),
+        ]
     )
 
 
@@ -271,7 +331,9 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     return {"items": rows[:limit], "truncated": len(rows) > limit}
 
 
-def _fetch_summary(team: Team, distinct_id: str, days: int, product: str | None) -> dict[str, Any]:
+def _fetch_summary(
+    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str | None
+) -> dict[str, Any]:
     query = parse_select(
         """
         SELECT
@@ -280,7 +342,7 @@ def _fetch_summary(team: Team, distinct_id: str, days: int, product: str | None)
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
         FROM ai_events
-        WHERE {event_in} AND {distinct_id_filter} AND {timestamp_filter}
+        WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
     )
     result = execute_with_ai_events_fallback(
@@ -288,15 +350,16 @@ def _fetch_summary(team: Team, distinct_id: str, days: int, product: str | None)
         placeholders={
             "product_filter": _product_filter(product),
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
-            "distinct_id_filter": _distinct_id_filter(distinct_id),
-            "timestamp_filter": _timestamp_filter(days),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
         },
         team=team,
         query_type="PersonalSpendSummary",
     )
     row = (result.results or [(0, 0.0, 0, 0.0)])[0]
     return {
-        "period_days": days,
+        "date_from": from_dt,
+        "date_to": to_dt,
         "product": product,
         "scoped_event_count": int(row[0] or 0),
         "scoped_cost_usd": float(row[1] or 0.0),
@@ -305,7 +368,9 @@ def _fetch_summary(team: Team, distinct_id: str, days: int, product: str | None)
     }
 
 
-def _fetch_by_product(team: Team, distinct_id: str, days: int, limit: int) -> dict[str, Any]:
+def _fetch_by_product(
+    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, limit: int
+) -> dict[str, Any]:
     query = parse_select(
         """
         SELECT
@@ -313,7 +378,7 @@ def _fetch_by_product(team: Team, distinct_id: str, days: int, limit: int) -> di
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
         FROM ai_events
-        WHERE {event_in} AND {distinct_id_filter} AND {timestamp_filter}
+        WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         GROUP BY product
         ORDER BY cost_usd DESC
         LIMIT {limit}
@@ -323,8 +388,8 @@ def _fetch_by_product(team: Team, distinct_id: str, days: int, limit: int) -> di
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
-            "distinct_id_filter": _distinct_id_filter(distinct_id),
-            "timestamp_filter": _timestamp_filter(days),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
@@ -341,7 +406,14 @@ def _fetch_by_product(team: Team, distinct_id: str, days: int, limit: int) -> di
     return _truncate(rows, limit)
 
 
-def _fetch_by_tool(team: Team, distinct_id: str, days: int, product: str | None, limit: int) -> dict[str, Any]:
+def _fetch_by_tool(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str | None,
+    limit: int,
+) -> dict[str, Any]:
     # `$ai_tools_called` stores a comma-separated list of all tools called within a
     # generation (e.g. "Bash,Read"). Split it so multi-tool generations contribute to
     # each individual tool row. nullIf restores the no-tool case (where the property
@@ -356,7 +428,7 @@ def _fetch_by_tool(team: Team, distinct_id: str, days: int, product: str | None,
         FROM ai_events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
-            AND {distinct_id_filter}
+            AND {email_filter}
             AND {timestamp_filter}
         GROUP BY tool
         ORDER BY cost_usd DESC
@@ -367,8 +439,8 @@ def _fetch_by_tool(team: Team, distinct_id: str, days: int, product: str | None,
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
-            "distinct_id_filter": _distinct_id_filter(distinct_id),
-            "timestamp_filter": _timestamp_filter(days),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
@@ -386,7 +458,14 @@ def _fetch_by_tool(team: Team, distinct_id: str, days: int, product: str | None,
     return _truncate(rows, limit)
 
 
-def _fetch_by_model(team: Team, distinct_id: str, days: int, product: str | None, limit: int) -> dict[str, Any]:
+def _fetch_by_model(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str | None,
+    limit: int,
+) -> dict[str, Any]:
     query = parse_select(
         """
         SELECT
@@ -398,7 +477,7 @@ def _fetch_by_model(team: Team, distinct_id: str, days: int, product: str | None
         FROM ai_events
         WHERE {event_in}
             AND {product_filter}
-            AND {distinct_id_filter}
+            AND {email_filter}
             AND {timestamp_filter}
         GROUP BY model
         ORDER BY cost_usd DESC
@@ -410,8 +489,8 @@ def _fetch_by_model(team: Team, distinct_id: str, days: int, product: str | None
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
             "product_filter": _product_filter(product),
-            "distinct_id_filter": _distinct_id_filter(distinct_id),
-            "timestamp_filter": _timestamp_filter(days),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
@@ -430,7 +509,14 @@ def _fetch_by_model(team: Team, distinct_id: str, days: int, product: str | None
     return _truncate(rows, limit)
 
 
-def _fetch_top_traces(team: Team, distinct_id: str, days: int, product: str | None, limit: int) -> dict[str, Any]:
+def _fetch_top_traces(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str | None,
+    limit: int,
+) -> dict[str, Any]:
     query = parse_select(
         """
         SELECT
@@ -441,7 +527,7 @@ def _fetch_top_traces(team: Team, distinct_id: str, days: int, product: str | No
         FROM ai_events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
-            AND {distinct_id_filter}
+            AND {email_filter}
             AND {timestamp_filter}
         GROUP BY trace_id
         ORDER BY cost_usd DESC
@@ -452,8 +538,8 @@ def _fetch_top_traces(team: Team, distinct_id: str, days: int, product: str | No
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
-            "distinct_id_filter": _distinct_id_filter(distinct_id),
-            "timestamp_filter": _timestamp_filter(days),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
@@ -477,13 +563,17 @@ class PersonalSpendViewSet(viewsets.ViewSet):
 
     Queries are run server-side against PostHog's internal analytics team
     (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
-    authenticated user's PostHog distinct_id — callers cannot pivot to other
-    users' data. Routes through `execute_with_ai_events_fallback` so reads hit
-    the dedicated `ai_events` table when enabled, with the shared `events`
-    table as a fallback. Optionally filter tool / model / trace breakdowns to
-    a single `ai_product` via the `product` query param; `by_product` always
-    returns the full cross-product breakdown. The endpoint is only registered
-    on US Cloud + dev/test envs; hobby/self-hosted deploys never see this URL.
+    authenticated user's email (read off the events row via person-on-events) —
+    callers cannot pivot to other users' data. Authorization model is "any
+    authenticated PostHog user may read their own spend"; the `llm_analytics:read`
+    scope on the MCP tool is decorative since no project-level scope check
+    applies. Routes through `execute_with_ai_events_fallback` so reads hit the
+    dedicated `ai_events` table when enabled, with the shared `events` table as
+    a fallback. Optionally filter tool / model / trace breakdowns to a single
+    `ai_product` via the `product` query param; `by_product` always returns
+    the full cross-product breakdown. The endpoint is only registered on US
+    Cloud + dev/test envs; hobby / self-hosted deploys never see this URL;
+    EU deploys receive a 302 to the US URL.
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -499,31 +589,39 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         parameters=[_SpendQueryParamsSerializer],
         responses={
             200: PersonalSpendAnalysisResponseSerializer,
-            400: None,
-            401: None,
+            400: _ErrorResponseSerializer,
+            401: _ErrorResponseSerializer,
+            403: _ErrorResponseSerializer,
+            404: _ErrorResponseSerializer,
+            429: _ErrorResponseSerializer,
         },
         description=(
-            "Return a structured personal LLM spend analysis for the requesting user over the last "
-            "`days` days. Pass `product=<ai_product>` to scope tool / model / trace breakdowns to a "
-            "single product (e.g. `posthog_code`); omit it for an aggregate view. `by_product` is "
-            "always returned for cross-product visibility."
+            "Return a structured personal LLM spend analysis for the requesting user. Pass "
+            "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
+            "the window — defaults to the last 30 days, max 90 days. Pass `product=<ai_product>` "
+            "to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`); "
+            "omit it for an aggregate view. `by_product` is always returned for cross-product "
+            "visibility. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["LLM Analytics"],
     )
     def list(self, request: Request) -> Response:
         user = cast(User, request.user)
-        distinct_id = user.distinct_id
-        if not distinct_id:
-            raise exceptions.PermissionDenied("User has no distinct_id on record; cannot scope spend analysis.")
+        email = user.email
+        if not email:
+            raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
 
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        days = params.validated_data["days"]
+        date_from = params.validated_data["date_from"]
+        date_to = params.validated_data["date_to"]
         product = params.validated_data["product"]
         limit = params.validated_data["limit"]
         refresh = params.validated_data["refresh"]
 
-        cache_key = _cache_key(distinct_id, days, product, limit)
+        from_dt, to_dt = _resolve_window(date_from, date_to)
+
+        cache_key = _cache_key(email, date_from, date_to, product, limit)
 
         if not refresh:
             cached = cache.get(cache_key)
@@ -537,8 +635,8 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             logger.exception("personal_spend.team_missing", team_id=team_id)
             raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
-        summary = _fetch_summary(team, distinct_id, days, product)
-        by_tool = _fetch_by_tool(team, distinct_id, days, product, limit)
+        summary = _fetch_summary(team, email, from_dt, to_dt, product)
+        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
         scoped = summary["scoped_cost_usd"] or 0.0
         # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
         # contribute to every tool. `share_of_scoped` is independent per row, so agents can
@@ -548,10 +646,10 @@ class PersonalSpendViewSet(viewsets.ViewSet):
 
         payload = {
             "summary": summary,
-            "by_product": _fetch_by_product(team, distinct_id, days, limit),
+            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
             "by_tool": by_tool,
-            "by_model": _fetch_by_model(team, distinct_id, days, product, limit),
-            "top_traces": _fetch_top_traces(team, distinct_id, days, product, limit),
+            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+            "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
         }
 
         response_data = PersonalSpendAnalysisResponseSerializer(payload).data
