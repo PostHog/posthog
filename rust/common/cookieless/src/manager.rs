@@ -14,7 +14,9 @@ use crate::constants::{
     SALT_TTL_SECONDS, TIMEZONE_FALLBACK,
 };
 use crate::hash::{do_hash, HashError};
+use crate::metrics::metrics_consts::COOKIELESS_SALT_FALLBACK_COUNTER;
 use crate::salt_cache::{SaltCache, SaltCacheError};
+use common_metrics::inc;
 use common_redis::Client as RedisClient;
 
 #[derive(Debug, Error)]
@@ -270,6 +272,11 @@ impl CookielessManager {
                     original_date = %yyyymmdd,
                     original_timestamp_ms = params.timestamp_ms,
                     "Date out of range for salt cache, falling back to current date"
+                );
+                inc(
+                    COOKIELESS_SALT_FALLBACK_COUNTER,
+                    &[("reason".to_string(), "date_out_of_range".to_string())],
+                    1,
                 );
                 let now_ms = Utc::now().timestamp_millis() as u64;
                 let fallback_date = to_yyyy_mm_dd_in_timezone_safe(
