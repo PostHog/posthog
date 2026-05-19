@@ -26,22 +26,24 @@ _NOTIFICATION_FAILURE_LABELS: dict[NotificationAction, str] = {
 
 ALERTING_ACTIVITY_TYPES = frozenset(
     {
-        "check_alerts_activity",
+        "discover_cohorts_activity",
+        "evaluate_cohort_batch_activity",
     }
 )
 
 Attributes = dict[str, str | int | float | bool]
 
+# Consumed by `posthog/temporal/common/worker.py` to override Prometheus default
+# buckets per-metric. Keep in sync with the latency histograms emitted below.
 LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_check_duration_ms",
     "logs_alerting_cycle_duration_ms",
     "logs_alerting_scheduler_lag_ms",
     "logs_alerting_schedule_to_start_ms",
     "logs_alerting_clickhouse_duration_ms",
-    "logs_alerting_semaphore_wait_ms",
-    "logs_alerting_alert_save_ms",
-    "logs_alerting_alert_event_create_ms",
-    "logs_alerting_alert_update_ms",
+    "logs_alerting_cohort_save_ms",
+    "logs_alerting_cohort_event_insert_ms",
+    "logs_alerting_cohort_update_ms",
 )
 
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
@@ -127,15 +129,6 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
-def record_pending_alerts(count: int) -> None:
-    meter = get_metric_meter()
-    gauge = meter.create_gauge(
-        "logs_alerting_pending_alerts",
-        "Number of due alerts still waiting to be evaluated at end of cycle (backlog)",
-    )
-    gauge.set(count)
-
-
 def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
     meter = get_metric_meter()
     gauge = meter.create_gauge(
@@ -168,14 +161,6 @@ def record_clickhouse_duration(duration_ms: int) -> None:
         "logs_alerting_clickhouse_duration_ms",
         "ClickHouse query wall time for a single alert evaluation",
         duration_ms,
-    )
-
-
-def record_semaphore_wait(wait_ms: int) -> None:
-    _record_histogram(
-        "logs_alerting_semaphore_wait_ms",
-        "Time an alert spent waiting on the per-cycle concurrency semaphore",
-        wait_ms,
     )
 
 

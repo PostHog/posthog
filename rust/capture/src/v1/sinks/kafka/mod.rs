@@ -2,7 +2,13 @@ pub mod config;
 pub mod context;
 pub mod mock;
 pub mod producer;
+pub mod sink;
 pub mod types;
+
+#[cfg(test)]
+mod sink_tests;
+
+pub use sink::KafkaSink;
 
 use std::future::Future;
 use std::time::Duration;

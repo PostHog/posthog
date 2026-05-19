@@ -17,10 +17,12 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.cohort import Cohort
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    AI_EVENT_TYPES,
     MAX_TRACE_EVENTS_LIMIT,
     MAX_TRACE_PROPERTIES_SIZE,
 )
@@ -28,6 +30,44 @@ from posthog.temporal.llm_analytics.trace_summarization.models import BatchSumma
 from posthog.temporal.llm_analytics.trace_summarization.utils import format_datetime_for_clickhouse
 
 logger = structlog.get_logger(__name__)
+
+# Filter `type` values that resolve to cohort membership lookups in HogQL.
+# Saved cohort references survive cohort deletion, so we pre-flight check
+# them before sampling to avoid crashing the activity at resolver time.
+_COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
+
+
+def _missing_cohort_ids(team: Team, event_filters: list[dict[str, Any]]) -> list[int]:
+    """Return cohort IDs referenced in event_filters that no longer exist or are soft-deleted.
+
+    Mirrors the lookup the HogQL cohort resolver does (`team__project_id`,
+    `deleted=False`) so a clean pre-flight matches what `property_to_expr` /
+    `cohort_query_node` would have rejected at query time.
+    """
+    referenced: list[int] = []
+    for f in event_filters:
+        if f.get("type") not in _COHORT_FILTER_TYPES:
+            continue
+        value = f.get("value")
+        if not isinstance(value, (int, str)):
+            continue
+        try:
+            referenced.append(int(value))
+        except (TypeError, ValueError):
+            # Non-numeric cohort values (name lookups) skip pre-flight; the resolver
+            # raises a structured QueryError downstream.
+            continue
+    if not referenced:
+        return []
+
+    existing = set(
+        Cohort.objects.filter(
+            team__project_id=team.project_id,
+            id__in=referenced,
+            deleted=False,
+        ).values_list("id", flat=True)
+    )
+    return [cid for cid in referenced if cid not in existing]
 
 
 @temporalio.activity.defn
@@ -68,6 +108,18 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         # Build optional trace filter expression from property filters
         trace_filter_expr: ast.Expr | None = None
         if event_filters:
+            missing = _missing_cohort_ids(team, event_filters)
+            if missing:
+                # A cohort referenced by a saved clustering job was deleted after
+                # the job was created. Skip this run cleanly rather than crash the
+                # workflow — the user can fix the filter or delete the job.
+                logger.warning(
+                    "skipping_sampling_missing_cohort_filter",
+                    team_id=team_id,
+                    missing_cohort_ids=missing,
+                    analysis_level=analysis_level,
+                )
+                return []
             filter_exprs = [property_to_expr(f, team) for f in event_filters]
             trace_filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
@@ -87,7 +139,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN {event_types}
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
@@ -106,6 +158,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     query_type="GenerationsForSampling",
                     query=generations_query,
                     placeholders={
+                        "event_types": ast.Tuple(exprs=[ast.Constant(value=e) for e in AI_EVENT_TYPES]),
                         "start_ts": ast.Constant(value=start_dt_str),
                         "end_ts": ast.Constant(value=end_dt_str),
                         "limit": ast.Constant(value=max_items),
@@ -155,7 +208,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN {event_types}
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
@@ -173,6 +226,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     query_type="TracesForSampling",
                     query=traces_query,
                     placeholders={
+                        "event_types": ast.Tuple(exprs=[ast.Constant(value=e) for e in AI_EVENT_TYPES]),
                         "start_ts": ast.Constant(value=start_dt_str),
                         "end_ts": ast.Constant(value=end_dt_str),
                         "limit": ast.Constant(value=max_items),

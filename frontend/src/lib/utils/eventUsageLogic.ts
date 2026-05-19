@@ -1067,20 +1067,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
         // navbar starred
-        reportNavbarStarredItemAdded: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
-            isAIFirst,
         }),
-        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
-            isAIFirst,
         }),
-        reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
-            isAIFirst,
         }),
         reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
             itemCount,
@@ -2457,25 +2454,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
         },
-        reportNavbarStarredItemAdded: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item added', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemRemoved: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemRemoved: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item removed', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemClicked: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemClicked: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
         reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {

@@ -32,7 +32,7 @@ class TestProcessRunDiffs:
         )
 
         # Process (should complete immediately since no changed snapshots need diffing)
-        process_run_diffs(str(create_result.run_id))
+        process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is completed
         run = api.get_run(create_result.run_id)
@@ -55,7 +55,7 @@ class TestProcessRunDiffs:
             mock.side_effect = Exception("Something went wrong")
 
             with pytest.raises(Exception):
-                process_run_diffs(str(create_result.run_id))
+                process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is marked as failed
         run = api.get_run(create_result.run_id)

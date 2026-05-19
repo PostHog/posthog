@@ -729,6 +729,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                 : undefined,
                             exclude_hidden: true,
+                            exclude_restricted: true,
                         }).url,
                         scopedEndpoint:
                             eventNames.length > 0
@@ -740,6 +741,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                           ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                           : undefined,
                                       exclude_hidden: true,
+                                      exclude_restricted: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
@@ -1010,12 +1012,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'span attributes',
                         type: TaxonomicFilterGroupType.SpanAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                            attribute_type: 'span',
+                            attribute_type: 'span_attribute',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                                attribute_type: 'span',
+                                attribute_type: 'span_attribute',
                                 key: key,
                                 ...endpointFilters,
                             }).url,
@@ -1028,12 +1030,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'span resources',
                         type: TaxonomicFilterGroupType.SpanResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                            attribute_type: 'resource',
+                            attribute_type: 'span_resource_attribute',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                                attribute_type: 'resource',
+                                attribute_type: 'span_resource_attribute',
                                 key: key,
                                 ...endpointFilters,
                             }).url,
@@ -1063,6 +1065,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
                                 : undefined,
                             exclude_hidden: true,
+                            exclude_restricted: true,
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
@@ -1561,6 +1564,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: 'group',
                         group_type_index: type.group_type_index,
                         exclude_hidden: true,
+                        exclude_restricted: true,
                     }).url,
                     valuesEndpoint: (key) =>
                         `api/projects/${projectId}/groups/property_values?${toParams({
@@ -1772,17 +1776,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 })
 
                 // Record to recents (deferred to avoid render loop).
-                // Skip property groups — these are just the key-picking step;
-                // the complete filter (with operator + value) is recorded by propertyFilterLogic.
-                // Skip QuickFilterItem shortcuts — they are synthetic, not real data definitions.
+                // Record here when:
+                //   - the consumer says the selection is final (selectingKeyOnly), or
+                //   - we're re-clicking a recent that already has a complete propertyFilter, or
+                //   - this isn't a property-style group (so propertyFilterLogic isn't going to record it).
+                // QuickFilterItem shortcuts are synthetic, never recorded.
                 const hasCompletePropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
-                const isRecordedByPropertyFilterLogic =
-                    !hasCompletePropertyFilter &&
-                    (PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
-                        SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
-                        sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+                const isPropertyFilterLogicGroup =
+                    PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
+                    SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
+                    sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                const recordHereNow = props.selectingKeyOnly || hasCompletePropertyFilter || !isPropertyFilterLogicGroup
 
-                if (!isRecordedByPropertyFilterLogic && !isQuickFilterItem(item)) {
+                if (recordHereNow && !isQuickFilterItem(item)) {
                     setTimeout(() => {
                         if (recentTaxonomicFiltersLogic.isMounted()) {
                             const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
@@ -1790,17 +1796,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             const sourceGroupName = hasRecentContext(item)
                                 ? item._recentContext.sourceGroupName
                                 : group.name
-                            const propertyFilterFromRecent = hasRecentContext(item)
-                                ? item._recentContext.propertyFilter
-                                : undefined
-                            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                                sourceGroupType,
-                                sourceGroupName,
+                            const propertyFilterFromRecent =
+                                !props.selectingKeyOnly && hasRecentContext(item)
+                                    ? item._recentContext.propertyFilter
+                                    : undefined
+                            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                                groupType: sourceGroupType,
+                                groupName: sourceGroupName,
                                 value,
-                                cleanItem,
-                                teamLogic.values.currentTeamId ?? undefined,
-                                propertyFilterFromRecent
-                            )
+                                item: cleanItem,
+                                teamId: teamLogic.values.currentTeamId ?? undefined,
+                                propertyFilter: propertyFilterFromRecent,
+                                selectingKeyOnly: !!props.selectingKeyOnly,
+                            })
                         }
                     }, 0)
                 }

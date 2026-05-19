@@ -62,9 +62,55 @@ export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketin
     ])
 ) as Record<NativeMarketingSource, string[]>
 
-// Legacy table name fallbacks for native sources.
-// When a source's stats table was renamed, old syncs may still use the legacy name.
-// Mirrors the fallback logic in backend factory.py _create_googleads_config.
+const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
+    GoogleAds: 'Google Ads',
+    MetaAds: 'Meta Ads',
+    LinkedinAds: 'LinkedIn Ads',
+    TikTokAds: 'TikTok Ads',
+    RedditAds: 'Reddit Ads',
+    BingAds: 'Bing Ads',
+    SnapchatAds: 'Snapchat Ads',
+    PinterestAds: 'Pinterest Ads',
+}
+export function nativeSourceDisplayLabel(sourceType: string): string {
+    return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
+}
+
+// Mirrors the backend `NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES` derivation (constants.py).
+export type NativeSourceHierarchySchemaNames = {
+    adset?: string
+    adsetStats?: string
+    ad?: string
+    adStats?: string
+}
+/** Hierarchy fields are optional on MARKETING_INTEGRATION_CONFIGS. The `as unknown`
+ * cast widens the narrow per-source literal types so we can read them uniformly. */
+type HierarchyFieldsView = {
+    adsetTableName?: string
+    adsetStatsTableName?: string
+    adTableName?: string
+    adStatsTableName?: string
+}
+export const NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES: Partial<
+    Record<NativeMarketingSource, NativeSourceHierarchySchemaNames>
+> = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source): [NativeMarketingSource, NativeSourceHierarchySchemaNames] | null => {
+        const config = MARKETING_INTEGRATION_CONFIGS[source] as unknown as HierarchyFieldsView
+        const entry: NativeSourceHierarchySchemaNames = {}
+        if (config.adsetTableName && config.adsetStatsTableName) {
+            entry.adset = config.adsetTableName
+            entry.adsetStats = config.adsetStatsTableName
+        }
+        if (config.adTableName && config.adStatsTableName) {
+            entry.ad = config.adTableName
+            entry.adStats = config.adStatsTableName
+        }
+        return Object.keys(entry).length > 0 ? [source, entry] : null
+    }).filter((entry): entry is [NativeMarketingSource, NativeSourceHierarchySchemaNames] => entry !== null)
+)
+
+// Old syncs may still use a stats table's pre-rename name — mirrors the backend
+// fallback in factory.py.
 const LEGACY_TABLE_NAME_FALLBACKS: Partial<Record<NativeMarketingSource, Record<string, string[]>>> = {
     GoogleAds: {
         campaign_overview_stats: ['campaign_stats'],

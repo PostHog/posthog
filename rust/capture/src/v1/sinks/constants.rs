@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-#[allow(dead_code)]
 pub(crate) const DEFAULT_PRODUCE_TIMEOUT: Duration = Duration::from_secs(30);
 
 // Lifecycle Handle configuration for v1 sinks.

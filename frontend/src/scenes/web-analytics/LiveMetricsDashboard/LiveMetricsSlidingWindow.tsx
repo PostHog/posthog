@@ -11,6 +11,8 @@ import {
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
 
+export type BreakdownDimension = 'country' | 'city' | 'device' | 'browser'
+
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
     private windowSizeSeconds: number
@@ -21,6 +23,12 @@ export class LiveMetricsSlidingWindow {
     private browserBucketCounts = new Map<string, Map<string, number>>()
     private countryBucketCounts = new Map<string, Map<string, number>>()
     private cityBucketCounts = new Map<string, Map<string, number>>()
+    private bucketCountsByDimension: Record<BreakdownDimension, Map<string, Map<string, number>>> = {
+        country: this.countryBucketCounts,
+        city: this.cityBucketCounts,
+        device: this.deviceBucketCounts,
+        browser: this.browserBucketCounts,
+    }
 
     // Incrementally-maintained aggregates
     private _totalPageviews = 0
@@ -552,6 +560,10 @@ export class LiveMetricsSlidingWindow {
 
     getTotalUniqueUsers(): number {
         return this.userBucketCounts.size
+    }
+
+    getDistinctIdsFor(dimension: BreakdownDimension, value: string): string[] {
+        return [...(this.bucketCountsByDimension[dimension].get(value)?.keys() ?? [])]
     }
 
     getBotBreakdown(limit?: number): BotBreakdownItem[] {

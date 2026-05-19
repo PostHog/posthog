@@ -216,10 +216,11 @@ describe('hog-charts canvas-renderer (bars)', () => {
     })
 
     describe('drawBarHighlight', () => {
-        it('strokes a single rectangle', () => {
+        it('fills a single rectangle as a translucent overlay', () => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, BASE_BAR, '#000')
-            expect(ctx.stroke).toHaveBeenCalledTimes(1)
+            drawBarHighlight(ctx, BASE_BAR, 'rgba(0,0,0,0.2)')
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+            expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it.each([
@@ -229,20 +230,14 @@ describe('hog-charts canvas-renderer (bars)', () => {
             { desc: 'negative height', width: 50, height: -5 },
         ])('does nothing on a bar with $desc', ({ width, height }) => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, { ...BASE_BAR, width, height }, '#000')
-            expect(ctx.stroke).not.toHaveBeenCalled()
+            drawBarHighlight(ctx, { ...BASE_BAR, width, height }, 'rgba(0,0,0,0.2)')
+            expect(ctx.fill).not.toHaveBeenCalled()
         })
 
-        it('uses the provided color as strokeStyle', () => {
+        it('uses the provided color as fillStyle', () => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, BASE_BAR, '#abcabc')
-            expect(ctx.strokeStyle).toBe('#abcabc')
-        })
-
-        it('clears the dash pattern before stroking', () => {
-            const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, BASE_BAR, '#000')
-            expect(ctx.setLineDash).toHaveBeenCalledWith([])
+            drawBarHighlight(ctx, BASE_BAR, 'rgba(1,2,3,0.4)')
+            expect(ctx.fillStyle).toBe('rgba(1,2,3,0.4)')
         })
     })
 })

@@ -2,6 +2,7 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -346,11 +347,6 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return visit(func_stmt_ctx);
     }
 
-    auto var_assignment_ctx = ctx->varAssignment();
-    if (var_assignment_ctx) {
-      return visit(var_assignment_ctx);
-    }
-
     auto block_ctx = ctx->block();
     if (block_ctx) {
       return visit(block_ctx);
@@ -368,16 +364,39 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     throw ParsingError(
         "Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, "
-        "funcStmt, "
-        "varAssignment, block, exprStmt, or emptyStmt"
+        "funcStmt, block, exprStmt, or emptyStmt"
     );
   }
 
   VISIT(ExprStmt) {
     Json json = Json::object();
+    if (ctx->COLONEQUALS()) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["left"] = visitAsJSON(ctx->expression(0));
+      json["right"] = visitAsJSON(ctx->expression(1));
+      return json;
+    }
+    // `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+    // statement is a variable assignment. Checked on the parse tree, so parens are not
+    // unwrapped: `(x := 1)` stays an expression statement.
+    auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
+    if (named_arg) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      Json left = Json::object();
+      left["node"] = "Field";
+      if (!is_internal) addPositionInfo(left, named_arg->identifier());
+      Json chain = Json::array();
+      chain.pushBack(visitAsString(named_arg->identifier()));
+      left["chain"] = std::move(chain);
+      json["left"] = std::move(left);
+      json["right"] = visitAsJSON(named_arg->columnExpr());
+      return json;
+    }
     json["node"] = "ExprStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->expression());
+    json["expr"] = visitAsJSON(ctx->expression(0));
     return json;
   }
 
@@ -393,7 +412,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ThrowStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSONOrNull(ctx->expression());
+    // Grammar requires the expression (`throwStmt: THROW expression SEMICOLON?`) — a bare `throw` is a parse error.
+    json["expr"] = visitAsJSON(ctx->expression());
     return json;
   }
 
@@ -632,7 +652,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (subsequent_clauses.empty()) {
       Json result = visitAsJSON(ctx->selectStmtWithParens());
-      if (limit_clause) {
+      // A set-level LIMIT/OFFSET clause only attaches to SelectQuery/SelectSetQuery nodes, not a bare placeholder body, matching the Python parser.
+      const std::string& result_node = result["node"].getString();
+      bool result_takes_limit = result_node == "SelectQuery" || result_node == "SelectSetQuery";
+      if (limit_clause && result_takes_limit) {
         auto exprs = limit_clause->columnExpr();
         if (limit_clause->OFFSET()) {
           if (limit_clause->LIMIT()) {
@@ -2819,18 +2842,38 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     string text = ctx->getText();
     to_lower(text);
 
+    // Grammar admits an optional leading sign on every numberLiteral, including INF/NAN.
+    // Strip a leading '+' so downstream comparisons (and stoll's sign handling) work uniformly.
+    if (!text.empty() && text[0] == '+') {
+      text.erase(0, 1);
+    }
+
+    // Hex: route through the integer branch — `stod` would parse "0xfe" as a double and lose precision near 2^53.
+    bool is_hex = (text.compare(0, 2, "0x") == 0) ||
+                  (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0x") == 0);
+    // Binary (`0b…`, BINARY_LITERAL token): strip prefix, parse base 2.
+    bool is_binary = (text.compare(0, 2, "0b") == 0) ||
+                     (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0b") == 0);
+    // `0o…` (Postgres-16 octal, OCTAL_PREFIX_LITERAL token): unsupported, rejected below.
+    bool is_postgres_octal = (text.compare(0, 2, "0o") == 0) ||
+                             (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0o") == 0);
+    if (is_postgres_octal) {
+      throw SyntaxError(
+          "HogQL does not support `0o`-prefixed octal integer literals; got `" +
+          text + "`. Use a plain decimal literal instead.");
+    }
+
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
-      // Handle special number cases (infinity and NaN)
-      // Mark these with value_type="number" so the deserializer knows to convert them
-      if (!text.compare("-inf")) {
+      // INF token matches both `inf` and `infinity`. value_type="number" tells the deserializer to convert.
+      if (!text.compare("-inf") || !text.compare("-infinity")) {
         json["value"] = "-Infinity";
-      } else if (!text.compare("inf")) {
+      } else if (!text.compare("inf") || !text.compare("infinity")) {
         json["value"] = "Infinity";
       } else {
         json["value"] = "NaN";
       }
       json["value_type"] = "number";
-    } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
+    } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
       try {
         json["value"] = Json(stod(text));  // Float
       } catch (const std::out_of_range&) {
@@ -2838,9 +2881,35 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value_type"] = "number";
       }
       return json;
+    } else if (is_binary) {
+      // ClickHouse caps binary literals at 64 bits — magnitude must fit UInt64
+      // (positive) or Int64 (negative); wider literals are rejected.
+      bool negative = text[0] == '-';
+      string digits = negative ? text.substr(3) : text.substr(2);
+      uint64_t magnitude;
+      try {
+        magnitude = stoull(digits, nullptr, 2);
+      } catch (const std::out_of_range&) {
+        throw SyntaxError("HogQL binary integer literals are limited to 64 bits; got `" + text + "`.");
+      }
+      if (negative) {
+        if (magnitude > 9223372036854775808ULL) {
+          throw SyntaxError("HogQL binary integer literals are limited to 64 bits; got `" + text + "`.");
+        }
+        json["value"] = (magnitude == 9223372036854775808ULL) ? INT64_MIN : -static_cast<int64_t>(magnitude);
+      } else if (magnitude > static_cast<uint64_t>(INT64_MAX)) {
+        // Exceeds Int64 but fits UInt64; Json has no unsigned slot, so emit
+        // the exact value as a raw JSON number rather than rounding to double.
+        json["value"] = Json::raw(std::to_string(magnitude));
+      } else {
+        json["value"] = static_cast<int64_t>(magnitude);
+      }
+      return json;
     } else {
       try {
-        json["value"] = static_cast<int64_t>(stoll(text));  // Integer
+        // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.
+        int base = is_hex ? 16 : 10;
+        json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
         try {
           json["value"] = Json(stod(text));  // Too large for int64, use float
