@@ -59,7 +59,6 @@ export function SettingsTab(): JSX.Element {
                             {cupedEnabled ? 'Enabled' : 'Disabled'}
                         </LemonTag>
                         {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
-                        {!cupedExplicitlySet}
                         <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
                     </div>
                     <p className="text-muted text-xs mt-1">
