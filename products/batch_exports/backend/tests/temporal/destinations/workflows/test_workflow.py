@@ -102,6 +102,7 @@ async def test_workflows_export_workflow(
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
+                build_id="test-workflows-batch-export",
             ):
                 await activity_environment.client.execute_workflow(
                     WorkflowsBatchExportWorkflow.run,
