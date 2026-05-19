@@ -277,11 +277,8 @@ class FeatureFlagMatcher:
         return True, variant, FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE
 
     def is_feature_enrollment_match(self, feature_flag: FeatureFlag) -> tuple[bool, bool, FeatureFlagMatchReason]:
-        enrollment_is_set = self._get_query_condition(f"flag_{feature_flag.pk}_enrollment_is_set")
-        enrollment_matches = self._get_query_condition(f"flag_{feature_flag.pk}_enrollment")
-
-        if enrollment_is_set:
-            return (True, enrollment_matches, FeatureFlagMatchReason.SUPER_CONDITION_VALUE)
+        is_set_key = f"flag_{feature_flag.pk}_enrollment_is_set"
+        enrollment_is_set = self.query_conditions.get(is_set_key)
 
         if enrollment_is_set is None:
             logger.warning(
@@ -289,6 +286,11 @@ class FeatureFlagMatcher:
                 flag_id=feature_flag.pk,
                 flag_key=feature_flag.key,
             )
+            return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
+
+        enrollment_matches = self._get_query_condition(f"flag_{feature_flag.pk}_enrollment")
+        if enrollment_is_set:
+            return (True, enrollment_matches, FeatureFlagMatchReason.SUPER_CONDITION_VALUE)
 
         return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
