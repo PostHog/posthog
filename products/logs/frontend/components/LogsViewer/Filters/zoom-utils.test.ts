@@ -26,6 +26,52 @@ describe('zoomDateRange', () => {
                 date_to: null,
             })
         })
+
+        it('accepts the minute unit (capital M) used by the logs date range picker', () => {
+            expect(zoomDateRange({ date_from: '-30M', date_to: null }, 2)).toEqual({
+                date_from: '-60M',
+                date_to: null,
+            })
+        })
+
+        describe('successive zoom-in clicks on a relative range', () => {
+            // Locks in the fix for the rage-click bug: every click must produce a
+            // visibly different range. Previously `parseInt(amount) * 0.5` could
+            // collapse `-1h` to `-0.5h`, which the regex then failed to re-match,
+            // turning subsequent clicks into silent no-ops.
+            it.each([
+                // [input, expected after one zoom-in (multiplier 0.5)]
+                ['-2h', '-1h'],
+                ['-1h', '-30M'],
+                ['-30M', '-15M'],
+                ['-15M', '-8M'],
+                ['-2d', '-1d'],
+                ['-1d', '-12h'],
+                ['-1w', '-4d'],
+                ['-1m', '-15d'],
+                ['-1y', '-6m'],
+                ['-1q', '-2m'],
+            ])('zooms in %s to %s', (input, expected) => {
+                expect(zoomDateRange({ date_from: input, date_to: null }, 0.5)).toEqual({
+                    date_from: expected,
+                    date_to: null,
+                })
+            })
+
+            it('never collapses to a zero-duration range, even after many zoom-ins', () => {
+                let range: { date_from?: string | null; date_to?: string | null } = {
+                    date_from: '-1h',
+                    date_to: null,
+                }
+                for (let i = 0; i < 20; i++) {
+                    range = zoomDateRange(range, 0.5)
+                    const match = range.date_from?.match(/(^-?)(\d+)([Mhdwmqy])$/)
+                    expect(match).not.toBeNull()
+                    // amount must always be >= 1 so the range is never a no-op
+                    expect(parseInt(match![2])).toBeGreaterThanOrEqual(1)
+                }
+            })
+        })
     })
 
     describe('absolute date ranges', () => {

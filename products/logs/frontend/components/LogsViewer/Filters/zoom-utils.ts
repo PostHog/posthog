@@ -1,20 +1,48 @@
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 
-const RELATIVE_DATE_REGEX = /(^-?)(\d+)([hdwmy])$/
+// PostHog relative date units: `M` = minute, `h` = hour, `d` = day, `w` = week,
+// `m` = month, `q` = quarter, `y` = year (matches `isStringDateRegex` in lib/utils).
+const RELATIVE_DATE_REGEX = /(^-?)(\d+)([Mhdwmqy])$/
+
+// Step a unit down to a smaller unit when a zoom-in would otherwise produce a
+// fractional or zero amount (e.g. `-1h` * 0.5 collapsing to a no-op).
+const RELATIVE_UNIT_STEP_DOWN: Record<string, { unit: string; perUnit: number }> = {
+    y: { unit: 'm', perUnit: 12 },
+    q: { unit: 'm', perUnit: 3 },
+    m: { unit: 'd', perUnit: 30 },
+    w: { unit: 'd', perUnit: 7 },
+    d: { unit: 'h', perUnit: 24 },
+    h: { unit: 'M', perUnit: 60 },
+}
 
 const zoomDateRelative = (date: string | null | undefined, multiplier: number): string | null => {
     if (!date) {
         return null
     }
     const match = date.match(RELATIVE_DATE_REGEX)
-    if (match) {
-        // Just multiply the value if we have it
-        const [, sign, amount, unit] = match
-        const newAmount = parseInt(amount) * multiplier
-        return `${sign}${newAmount}${unit}`
+    if (!match) {
+        return null
     }
-    return null
+
+    const [, sign, amountStr, unit] = match
+    let amount = parseInt(amountStr)
+    let currentUnit = unit
+    let scaled = amount * multiplier
+
+    // When zooming in collapses the amount below 1 in the current unit, drop to
+    // a smaller unit so the visible range still changes meaningfully.
+    while (scaled < 1 && RELATIVE_UNIT_STEP_DOWN[currentUnit]) {
+        const stepDown = RELATIVE_UNIT_STEP_DOWN[currentUnit]
+        amount = amount * stepDown.perUnit
+        currentUnit = stepDown.unit
+        scaled = amount * multiplier
+    }
+
+    // Round to ensure we always move (e.g. 1.5 → 2 when zooming out, 1.5 → 2 when zooming in)
+    // and clamp to a minimum of 1 so the range never becomes a zero-duration no-op.
+    const newAmount = Math.max(1, Math.round(scaled))
+    return `${sign}${newAmount}${currentUnit}`
 }
 
 export const zoomDateRange = (

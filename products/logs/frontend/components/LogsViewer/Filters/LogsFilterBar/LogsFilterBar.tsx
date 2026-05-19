@@ -76,6 +76,8 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
                                 type="secondary"
                                 tooltip="Zoom out"
                                 onClick={() => zoomDateRange(2)}
+                                loading={logsLoading}
+                                disabledReason={logsLoading ? 'Loading logs…' : undefined}
                             />
 
                             {!newLogsDateRangePicker && <DateRangeFilter />}
@@ -89,6 +91,8 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
                                 type="secondary"
                                 tooltip="Zoom in"
                                 onClick={() => zoomDateRange(0.5)}
+                                loading={logsLoading}
+                                disabledReason={logsLoading ? 'Loading logs…' : undefined}
                             />
                         </div>
 
