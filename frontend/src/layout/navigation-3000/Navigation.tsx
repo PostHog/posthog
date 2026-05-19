@@ -4,6 +4,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -47,6 +48,9 @@ export function Navigation({
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+    // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
+    // context above scene content, so we hide the notice for users on the new menu bar.
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const inlinePanelRef = useRef<HTMLDivElement | null>(null)
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => {
@@ -163,7 +167,7 @@ export function Navigation({
                             }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {!sceneConfig?.hideProjectNotice && (
+                                {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',

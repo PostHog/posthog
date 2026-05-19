@@ -809,10 +809,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         if result.status == "stale":
-            return Response(
-                {"code": "conflict_stale", "detail": "Reload the notebook."},
-                status=410,
-            )
+            # Stream was trimmed (MAXLEN/TTL).
+            return Response({"code": "conflict_stale"}, status=410)
 
         # Carries the missed steps so the client can reconcile without depending on SSE
         assert result.steps_since is not None  # status == "conflict" guarantees this

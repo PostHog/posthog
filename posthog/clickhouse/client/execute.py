@@ -166,14 +166,16 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     from posthog.models.instance_setting import get_instance_setting
 
     try:
-        full_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS") or [])
+        raw = get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS")
+        full_teams = frozenset(raw if isinstance(raw, list) else [])
     except Exception:
         # During an incident, silently falling back to "no override" would hide why the
         # per-team kill switch isn't taking effect. Log so operators can see the failure.
         logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_FULL_TEAMS; per-team kill switch disabled for full")
         full_teams = frozenset()
     try:
-        light_teams = frozenset(get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS") or [])
+        raw = get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS")
+        light_teams = frozenset(raw if isinstance(raw, list) else [])
     except Exception:
         logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
         light_teams = frozenset()

@@ -265,9 +265,13 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
                 {} as Record<string, any>
             )
 
-            const hasChanges = Object.keys(stringifiedAttrs).some(
-                (key) => previousNodeAttrs.current?.[key] !== stringifiedAttrs[key]
-            )
+            // Compare in stringified form — prosemirror state may hold the value as an object,
+            // stringifiedAttrs as a string. Without this, no-op updates dispatch a transaction.
+            const hasChanges = Object.keys(stringifiedAttrs).some((key) => {
+                const prev = previousNodeAttrs.current?.[key]
+                const prevStringified = prev && typeof prev === 'object' ? JSON.stringify(prev) : prev
+                return prevStringified !== stringifiedAttrs[key]
+            })
 
             if (!hasChanges) {
                 return

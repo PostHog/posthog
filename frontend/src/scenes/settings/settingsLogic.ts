@@ -109,6 +109,7 @@ export const settingsLogic = kea<settingsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
         toggleGroupCollapse: (group: string) => ({ group }),
+        expandGroup: (group: string) => ({ group }),
         loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
         navigateToSetting: (sectionId: SettingSectionId, settingId: SettingId) => ({ sectionId, settingId }),
     }),
@@ -182,6 +183,11 @@ export const settingsLogic = kea<settingsLogicType>([
                     ...state,
                     [group]: !state[group],
                 }),
+                // Auto-expand the group that contains a freshly selected section
+                expandGroup: (state, { group }) => ({
+                    ...state,
+                    [group]: false,
+                }),
             },
         ],
     })),
@@ -207,7 +213,13 @@ export const settingsLogic = kea<settingsLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        selectSection: () => {
+        selectSection: ({ section, level }) => {
+            // Expand the collapsible group containing the selected section so it's visible
+            // (e.g. when navigating via URL or settings search into a collapsed group)
+            const sectionObj = values.sections.find((s) => s.id === section)
+            if (sectionObj?.group) {
+                actions.expandGroup(`${level}-${sectionObj.group}`)
+            }
             setTimeout(() => {
                 const mainElement = document.querySelector('main')
                 if (mainElement) {

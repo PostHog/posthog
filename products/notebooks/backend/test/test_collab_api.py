@@ -164,7 +164,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
 
         response = self._collab_save(
             notebook,
-            version=0,
+            version=notebook["version"],
             steps=[{"stepType": "replace", "from": 0, "to": 0}],
         )
         assert response.status_code == status.HTTP_410_GONE

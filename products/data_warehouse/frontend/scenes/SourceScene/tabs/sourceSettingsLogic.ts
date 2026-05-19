@@ -517,7 +517,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             const latestPendingUpdate = schemaUpdateCache.pendingSchemaUpdates[updatedSchema.id]
                             const inFlightUpdate = pendingSchemaUpdates[updatedSchema.id]
 
-                            return !latestPendingUpdate || latestPendingUpdate.revision <= inFlightUpdate.revision
+                            return (
+                                !latestPendingUpdate ||
+                                !inFlightUpdate ||
+                                latestPendingUpdate.revision <= inFlightUpdate.revision
+                            )
                         })
 
                         if (schemasToApply.length > 0) {
