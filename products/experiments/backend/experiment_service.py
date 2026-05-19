@@ -78,15 +78,16 @@ def _strip_step_sessions(result: Any) -> Any:
     """
     if not isinstance(result, Mapping):
         return result
-    cleaned = deepcopy(dict(result))
+    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
     baseline = cleaned.get("baseline")
     if isinstance(baseline, dict):
-        baseline.pop("step_sessions", None)
+        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
     variants = cleaned.get("variant_results")
     if isinstance(variants, list):
-        for variant in variants:
-            if isinstance(variant, dict):
-                variant.pop("step_sessions", None)
+        cleaned["variant_results"] = [
+            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
+            for variant in variants
+        ]
     return cleaned
 
 

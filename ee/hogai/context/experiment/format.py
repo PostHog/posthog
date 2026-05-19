@@ -7,11 +7,8 @@ def _safe_mean(sum_value: Any, number_of_samples: Any) -> float | None:
     if sum_value is None or not number_of_samples:
         return None
     try:
-        n = float(number_of_samples)
-        if n == 0:
-            return None
-        return float(sum_value) / n
-    except (TypeError, ValueError):
+        return float(sum_value) / float(number_of_samples)
+    except (TypeError, ValueError, ZeroDivisionError):
         return None
 
 
