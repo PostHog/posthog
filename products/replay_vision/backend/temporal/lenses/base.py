@@ -26,7 +26,7 @@ The video is the rasterized recording: 8x playback speed with inactive periods s
 
 
 class BaseLensOutput(BaseModel, frozen=True):
-    """Final output shape persisted in `ReplayObservation.model_output` and emitted as `$replay_lens`."""
+    """Final output shape emitted as `$recording_observed` event properties (flattened with `lens_output_*` keys)."""
 
     confidence: float = Field(
         ge=0,

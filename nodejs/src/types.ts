@@ -31,24 +31,25 @@ import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
-export { CdpConfig } from './cdp/config'
-export { LlmAnalyticsConfig } from './llm-analytics/config'
-export { CommonConfig, KafkaSaslMechanism, LogLevel, PluginServerMode, stringToPluginServerMode } from './common/config'
-export {
+export type { CdpConfig } from './cdp/config'
+export type { LlmAnalyticsConfig } from './llm-analytics/config'
+export { KafkaSaslMechanism, PluginServerMode, stringToPluginServerMode } from './common/config'
+export type { CommonConfig, LogLevel } from './common/config'
+export type {
     IngestionConsumerConfig,
     IngestionLane,
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
-export { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
-export { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
-export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
+export type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
+export type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+export type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
+export type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
     service: string

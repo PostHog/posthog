@@ -13,6 +13,7 @@ import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedP
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import {
     Button,
     cn,
@@ -303,11 +304,7 @@ export function Settings({
                                                 key={`${result.sectionId}-${result.settingId}`}
                                                 value={result}
                                                 data-attr={`settings-search-result-${result.settingId}`}
-                                                render={
-                                                    <Button left className="text-primary hover:underline">
-                                                        {result.settingTitle}
-                                                    </Button>
-                                                }
+                                                render={<Button left>{result.settingTitle}</Button>}
                                             />
                                         )}
                                     </ComboboxCollection>
@@ -359,7 +356,7 @@ export function Settings({
                 <div
                     data-quill
                     className={clsx(
-                        'bg-muted border rounded w-[var(--settings-nav-width)] flex flex-col',
+                        'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
                             ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
                             : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
@@ -439,8 +436,8 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
 }
 
 const depthMap: Record<number, string> = {
-    1: 'pl-6',
-    2: 'pl-6.5 -ml-3',
+    1: 'pl-4.5',
+    2: 'pl-5.5 -ml-3',
 }
 
 const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?: number }): JSX.Element => {
@@ -521,15 +518,7 @@ const OptionButton = ({
             }
             {...(to && !isDisabled
                 ? {
-                      render: (
-                          <Link
-                              to={to}
-                              className={cn(
-                                  'no-underline hover:underline px-1',
-                                  active && 'bg-fill-button-tertiary-active font-bold'
-                              )}
-                          />
-                      ),
+                      render: <LinkPrimitive to={to} className={cn('no-underline', active && 'font-bold')} />,
                   }
                 : {})}
         >

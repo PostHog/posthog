@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconPlus, IconComment } from '@posthog/icons'
+import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,7 +12,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { composeTicketLogic } from './composeTicketLogic'
-import { ComposeTicketModal } from './ComposeTicketModal'
 
 interface ComposeTicketButtonProps {
     size?: LemonButtonProps['size']
@@ -70,7 +69,7 @@ export function ComposeTicketButton({
                 <LemonButton
                     type={type}
                     size={size}
-                    icon={iconOnly ? <IconComment /> : <IconPlus />}
+                    icon={<IconLetter />}
                     tooltip={iconOnly ? 'New ticket' : undefined}
                     onClick={() => {
                         if (conversationsEnabled) {
@@ -85,7 +84,6 @@ export function ComposeTicketButton({
                     {iconOnly ? null : 'New ticket'}
                 </LemonButton>
             </Popover>
-            <ComposeTicketModal />
         </>
     )
 }
