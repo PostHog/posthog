@@ -255,6 +255,34 @@ class TestCheckProductAccess:
         assert error is not None
         assert "not allowed" in error
 
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "gpt-5.3-codex",
+        ],
+    )
+    def test_slack_app_allows_agent_models(self, model: str):
+        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        assert allowed is True
+        assert error is None
+
+    def test_slack_app_rejects_api_keys(self):
+        allowed, error = check_product_access("slack_app", "personal_api_key", None, "claude-sonnet-4-6")
+        assert allowed is False
+        assert error is not None
+        assert "requires OAuth" in error
+
+    def test_slack_app_rejects_unauthorized_oauth_app(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not authorized" in error
+
 
 class TestBackwardsCompatibility:
     def test_twig_app_id_constants_are_aliases(self):
