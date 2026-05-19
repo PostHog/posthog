@@ -185,9 +185,9 @@ first exposure**. This
 is the same design as all other metric types — the analysis question is "what is the effect of this
 feature _after_ a user sees it?"
 
-**`start_handling` (FIRST_SEEN vs LAST_SEEN) does _not_ relax this.** It only picks _which_
-post-exposure start event anchors the retention window when a user has multiple: FIRST_SEEN uses
-`min(timestamp)`, LAST_SEEN uses `max(timestamp)` — but both are computed over events already
+**`start_handling` (`FIRST_SEEN` vs `LAST_SEEN`) does _not_ relax this.** It only picks _which_
+post-exposure start event anchors the retention window when a user has multiple: `FIRST_SEEN` uses
+`min(timestamp)`, `LAST_SEEN` uses `max(timestamp)` — but both are computed over events already
 filtered to `timestamp >= first_exposure_time`. Pre-exposure start events are dropped before the
 min/max ever runs.
 
