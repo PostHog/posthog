@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db.models import Q
+from slack_sdk.errors import SlackApiError
 
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
@@ -38,7 +39,6 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
-from products.slack_app.backend.api import lookup_slack_user_id_by_email
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +159,7 @@ def _notification_targets_for_report(report: SignalReport) -> list[SignalUserAut
 
     return list(
         SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids)
+        .filter(slack_notification_integration__team_id=report.team_id)
         .exclude(Q(slack_notification_integration__isnull=True) | Q(slack_notification_channel__isnull=True))
         .exclude(slack_notification_channel="")
         .select_related("slack_notification_integration")
@@ -188,13 +189,39 @@ def _posthog_user_display_name(user: User) -> str:
     return email or "Unknown user"
 
 
+def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | None:
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+
+    try:
+        response = slack.client.users_lookupByEmail(email=normalized_email)
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        if error_code != "users_not_found":
+            logger.warning(
+                "signals_inbox_slack_user_email_lookup_failed",
+                extra={"email": normalized_email, "error": error_code},
+            )
+        return None
+
+    data = response.data if hasattr(response, "data") and isinstance(response.data, dict) else response
+    if not isinstance(data, dict) or not data.get("ok"):
+        return None
+
+    slack_user = data.get("user")
+    if not isinstance(slack_user, dict) or not slack_user.get("id"):
+        return None
+    return str(slack_user["id"])
+
+
 def _recipient_presentation(
     user: User,
     slack: SlackIntegration,
     integration: Integration,
 ) -> _RecipientPresentation:
     plain_name = _posthog_user_display_name(user)
-    slack_user_id = lookup_slack_user_id_by_email(slack, integration, user.email) if user.email else None
+    slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
     header_label = f"<@{slack_user_id}>" if slack_user_id else plain_name
     return _RecipientPresentation(header_label=header_label, plain_name=plain_name)
 
@@ -319,6 +346,9 @@ def dispatch_inbox_item_notifications(
 
         integration = config.slack_notification_integration
         channel = config.slack_notification_channel
+        if integration is None or not channel:
+            continue
+
         try:
             slack = SlackIntegration(integration)
             recipient = _recipient_presentation(user, slack, integration)

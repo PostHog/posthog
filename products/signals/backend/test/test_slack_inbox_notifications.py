@@ -246,6 +246,28 @@ def test_dispatch_respects_min_priority_filter(org_and_team):
 
 
 @pytest.mark.django_db
+def test_dispatch_ignores_slack_config_from_another_team(org_and_team):
+    org, report_team = org_and_team
+    other_team = Team.objects.create(organization=org, name="other-slack-team")
+    user = _make_reviewer_user(org, "reviewer-other-team@example.com", "other-team-bot")
+    integration = _make_slack_integration(other_team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(report_team, suggested_logins=["other-team-bot"])
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), report_team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
 def test_dispatch_continues_after_per_user_failure(org_and_team):
     org, team = org_and_team
     user1 = _make_reviewer_user(org, "alpha@example.com", "alpha-login")

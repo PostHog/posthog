@@ -43,9 +43,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.models.integration import Integration
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
+from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -71,6 +73,7 @@ from products.signals.backend.serializers import (
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
+    SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -960,7 +963,6 @@ class SignalUserAutonomyConfigView(APIView):
             return request.user
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff can access other users' autonomy config.")
-        from posthog.models import User
 
         try:
             return User.objects.get(pk=user_id)
@@ -977,11 +979,6 @@ class SignalUserAutonomyConfigView(APIView):
 
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def post(self, request, user_id, **kwargs):
-        from posthog.models.integration import Integration
-        from posthog.user_permissions import UserPermissions
-
-        from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
-
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1000,16 +997,15 @@ class SignalUserAutonomyConfigView(APIView):
             integration_id = validated.get("slack_notification_integration_id")
             integration = None
             if integration_id is not None:
-                # Scope to teams the caller has access to: look up the
-                # candidate integration first, then verify its team is in the
-                # caller's reachable set. Separate fetch + per-team-id check
-                # is what the semgrep IDOR rule wants — a blanket
-                # `team_id__in=` filter would be flagged.
-                accessible_team_ids = set(UserPermissions(user).team_ids_visible_for_user)
+                current_team_id = request.user.current_team_id
+                if current_team_id is None or current_team_id not in UserPermissions(user).team_ids_visible_for_user:
+                    raise serializers.ValidationError(
+                        {"slack_notification_integration_id": "Unknown Slack integration for this user."}
+                    )
                 candidate = Integration.objects.filter(
                     pk=integration_id,
                     kind="slack",
-                    team_id__in=accessible_team_ids,
+                    team_id=current_team_id,
                 ).first()
                 if candidate is None:
                     raise serializers.ValidationError(
