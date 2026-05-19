@@ -101,18 +101,84 @@ function withFilterAndMetrics(overrides: Record<string, unknown> = {}): () => JS
 // Simple — basic visual states
 // ============================================================
 
-export const EmptyState: Story = {}
+export const EmptyState: Story = {
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Initial empty state shown when no filter config exists yet (API returns 204).
+
+Expected to show:
+- Status card labelled "Filter is disabled" with no colored border
+- Mode segmented button defaulting to "Disabled"
+- Empty filter tree with only an "Add condition" button
+- No test cases section content
+- No metrics chart
+                `,
+            },
+        },
+    },
+}
 
 export const DryRunWithTests: Story = {
     render: withFilterAndMetrics(),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Dry-run mode with a populated filter, four test cases, and a sample metrics series.
+
+Expected to show:
+- Status card with yellow border, label "Filter is in dry run"
+- "Dry run" selected in the mode segmented button
+- Filter tree: root OR containing \`event_name = "$drop_me"\` and a nested AND group with two conditions
+- Four test cases, all with green "Pass" tags
+- Metrics chart with a "dropped" series populated across five days
+                `,
+            },
+        },
+    },
 }
 
 export const LiveMode: Story = {
     render: withFilterAndMetrics({ mode: 'live' }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Same filter as DryRunWithTests, switched to live mode.
+
+Expected to show:
+- Status card with green border, label "Filter is active"
+- "Live" selected in the mode segmented button
+- Status copy "Matching events are being dropped from ingestion."
+- Same tree and test cases as the dry-run story
+- Metrics chart unchanged
+                `,
+            },
+        },
+    },
 }
 
 export const DisabledWithConditions: Story = {
     render: withFilter({ mode: 'disabled' }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Disabled mode with a configured filter tree and test cases — captures that nothing is dropped or counted
+even when the filter is fully set up.
+
+Expected to show:
+- Status card with no colored border, label "Filter is disabled"
+- "Disabled" selected in the mode segmented button
+- Status copy "No events are being filtered or counted."
+- Filter tree and test cases still rendered (same as DryRunWithTests)
+- No metrics chart
+                `,
+            },
+        },
+    },
 }
 
 // ============================================================
@@ -130,6 +196,20 @@ export const SingleCondition: Story = {
             { event_name: '$pageview', distinct_id: 'user-1', expected_result: 'ingest' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Smallest non-empty filter — root OR with a single condition. Used to confirm the tree renders
+correctly when there is no nested group to draw.
+
+Expected to show:
+- Root OR with exactly one condition row: \`event_name = "$drop_me"\`
+- Two test cases, both with green "Pass" tags
+                `,
+            },
+        },
+    },
 }
 
 export const EmptyGroupsInTree: Story = {
@@ -146,6 +226,21 @@ export const EmptyGroupsInTree: Story = {
             { event_name: '$pageview', distinct_id: 'user-1', expected_result: 'ingest' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Root OR with an empty AND group alongside a real condition. Verifies that an empty group renders
+without crashing and that \`isTreeEmpty\` does not collapse the whole tree to "no conditions".
+
+Expected to show:
+- Root OR with two rows: an empty AND group (rendered with "Add condition" / "Add group" buttons,
+  no leaf rows) and \`event_name = "$drop_me"\`
+- Two test cases, both with green "Pass" tags
+                `,
+            },
+        },
+    },
 }
 
 export const NotWrappedCondition: Story = {
@@ -164,6 +259,20 @@ export const NotWrappedCondition: Story = {
             { event_name: '$pageview', distinct_id: 'regular-user', expected_result: 'drop' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Root OR containing a single NOT-wrapped condition. Covers the NOT wrapper rendering and its
+inverse evaluation semantics in the test-case Pass/Fail display.
+
+Expected to show:
+- Root OR with one row: a NOT wrapper around \`distinct_id ~ "admin"\`
+- Two test cases, both with green "Pass" tags (the admin user is "ingest", the regular user is "drop")
+                `,
+            },
+        },
+    },
 }
 
 export const FailingTests: Story = {
@@ -173,6 +282,25 @@ export const FailingTests: Story = {
             { event_name: '$pageview', distinct_id: 'user-1', expected_result: 'drop' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Same SIMPLE_FILTER as DryRunWithTests with one extra test case whose expected outcome doesn't
+match the tree. Captures the failing-test UI plus the "tests failing — will be saved as dry run"
+hint surface.
+
+Expected to show:
+- Mode is "Dry run"; status card still yellow
+- Filter tree identical to DryRunWithTests
+- Five test cases: four with green "Pass" tags, one with a red "Fail" tag (the trailing
+  \`$pageview / user-1\` case)
+- Inline danger text "Tests failing — will be saved as dry run" only appears once the user
+  attempts to switch to live (not visible here)
+                `,
+            },
+        },
+    },
 }
 
 export const DeepNestedTree: Story = {
@@ -206,6 +334,20 @@ export const DeepNestedTree: Story = {
             { event_name: '$pageview', distinct_id: 'user-1', expected_result: 'ingest' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Tree exercising every node type at non-trivial depth: OR → (condition, AND → (OR → (condition, condition), NOT → condition)).
+
+Expected to show:
+- Root OR with two children: \`event_name = "$drop_me"\` and an AND group
+- The AND group contains a nested OR (two conditions) and a NOT-wrapped condition
+- Four test cases, all with green "Pass" tags
+                `,
+            },
+        },
+    },
 }
 
 export const ManyConditions: Story = {
@@ -221,6 +363,21 @@ export const ManyConditions: Story = {
         },
         test_cases: [],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Root OR with 10 sibling conditions — stresses vertical layout and the "Add condition" button
+position when there are many siblings (but still under the max).
+
+Expected to show:
+- Root OR with 10 condition rows: \`event_name = "$event_0"\` … \`$event_9\`
+- "Add condition" and "Add group" buttons still enabled
+- Test cases section empty
+                `,
+            },
+        },
+    },
 }
 
 export const AtMaxConditions: Story = {
@@ -239,6 +396,22 @@ export const AtMaxConditions: Story = {
             { event_name: '$nomatch', distinct_id: 'user-1', expected_result: 'ingest' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Filter at the EVENT_FILTER_MAX_CONDITIONS limit (20). Confirms that "Add condition" / "Add group"
+are disabled and the limit hint surfaces.
+
+Expected to show:
+- Root OR with 20 condition rows alternating between \`event_name\` and \`distinct_id\` fields
+- "Add condition" / "Add group" buttons disabled or hidden at the root
+- Limit hint visible somewhere near the buttons
+- Two test cases, both with green "Pass" tags
+                `,
+            },
+        },
+    },
 }
 
 export const AtMaxDepth: Story = {
@@ -283,6 +456,22 @@ export const AtMaxDepth: Story = {
             { event_name: '$deepest', distinct_id: 'user-1', expected_result: 'ingest' },
         ],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Filter at the EVENT_FILTER_MAX_DEPTH limit (5 nesting levels). Confirms indentation, connector
+lines, and the "Add group" button being disabled inside the deepest groups.
+
+Expected to show:
+- Visible nesting OR → AND → OR → AND → NOT → condition (\`$deepest\`)
+- Sibling \`event_name = "$shallow"\` rendered at the AND-depth-1 level
+- "Add group" disabled inside the depth-5 chain
+- Two test cases, both with green "Pass" tags
+                `,
+            },
+        },
+    },
 }
 
 export const ManyTestCases: Story = {
@@ -293,19 +482,42 @@ export const ManyTestCases: Story = {
             expected_result: i % 2 === 0 ? ('drop' as const) : ('ingest' as const),
         })),
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Same SIMPLE_FILTER tree with 20 test cases — stresses the test cases list layout and scrolling.
+
+Expected to show:
+- Filter tree identical to DryRunWithTests
+- 20 test case rows, alternating \`$drop_me\` and \`$pageview\`, all with green "Pass" tags
+                `,
+            },
+        },
+    },
 }
 
 // ============================================================
 // Interactive — play functions that simulate user actions
 // ============================================================
 
-// Verify:
-// - [ ] 4 value inputs in tree (3 original + 1 new with "$new_event")
-// - [ ] 5 test cases (4 original + 1 new)
-// - [ ] new test case event name is "$new_event"
-// - [ ] new test case shows "Pass" tag (matches the OR condition)
 export const AddConditionAndTestCase: Story = {
     render: withFilter(),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Adds a condition to the root OR group and a new test case via the UI.
+
+Expected to show:
+- 4 value inputs in the tree (3 original + 1 new containing "$new_event")
+- 5 test cases (4 original + 1 new)
+- New test case's event name is "$new_event"
+- New test case shows a green "Pass" tag (matches the OR condition)
+                `,
+            },
+        },
+    },
     play: async () => {
         await waitFor(() => {
             if (!document.querySelector('[data-attr="add-condition-root"]')) {
@@ -353,12 +565,22 @@ export const AddConditionAndTestCase: Story = {
     },
 }
 
-// Verify:
-// - [ ] status card says "Filter is in dry run"
-// - [ ] status card has warning border
-// - [ ] "Dry run" is selected in the segmented button
 export const SwitchModeToDryRun: Story = {
     render: withFilter({ mode: 'disabled' }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Starts in disabled mode, then clicks the "Dry run" button.
+
+Expected to show:
+- Status card says "Filter is in dry run"
+- Status card has the warning (yellow) border
+- "Dry run" is selected in the segmented button
+                `,
+            },
+        },
+    },
     play: async () => {
         await waitFor(() => {
             if (!document.querySelector('[data-attr="add-condition-root"]')) {
@@ -372,12 +594,23 @@ export const SwitchModeToDryRun: Story = {
     },
 }
 
-// Verify:
-// - [ ] status card says "Filter is active" with green border
-// - [ ] "Live" is selected in the segmented button
-// - [ ] both test cases show "Pass" tags (no red tags)
-// - [ ] second test case event name is "$drop" (was "$dro", "p" appended)
 export const FixFailingTestAndGoLive: Story = {
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Starts with a failing test case ("$dro" expected to drop, but the filter is \`contains "drop"\`),
+fixes it by appending "p" to make "$drop", then clicks Live.
+
+Expected to show:
+- Status card says "Filter is active" with green border
+- "Live" is selected in the segmented button
+- Both test cases show green "Pass" tags (no red Fail tags)
+- Second test case event name is "$drop" (was "$dro", "p" appended)
+                `,
+            },
+        },
+    },
     render: () => {
         useStorybookMocks({
             get: {
@@ -427,13 +660,23 @@ export const FixFailingTestAndGoLive: Story = {
     },
 }
 
-// Verify:
-// - [ ] modal is open with title "Filter tree"
-// - [ ] modal shows tree with "├──" and "└──" connectors
-// - [ ] tree contains "$drop_me", "$internal", "bot-"
-// - [ ] OR at root, AND as nested group
 export const OpenAsciiModal: Story = {
     render: withFilter(),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Clicks "Show as ASCII" to open the expression preview modal.
+
+Expected to show:
+- Modal is open with title "Filter tree"
+- Modal shows the tree with "├──" and "└──" connectors
+- Tree contains "$drop_me", "$internal", "bot-"
+- OR at the root, AND as the nested group
+                `,
+            },
+        },
+    },
     play: async () => {
         await waitFor(() => {
             if (!document.querySelector('[data-attr="add-condition-root"]')) {
@@ -454,13 +697,24 @@ export const OpenAsciiModal: Story = {
     },
 }
 
-// Verify:
-// - [ ] $drop_me condition is gone from the tree
-// - [ ] tree has 2 children in root OR: original AND group + new empty AND group
-// - [ ] ASCII modal is open showing the tree structure
-// - [ ] ASCII output contains "$internal", "bot-", and two AND groups
 export const RemoveConditionAndAddGroup: Story = {
     render: withFilter(),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Removes the \`$drop_me\` condition, adds a new empty AND group at the root, then opens the
+ASCII modal to verify the resulting structure.
+
+Expected to show:
+- \`$drop_me\` condition is gone from the tree
+- Tree has 2 children in root OR: the original AND group + the new empty AND group
+- ASCII modal is open showing the tree structure
+- ASCII output contains "$internal", "bot-", and two AND groups
+                `,
+            },
+        },
+    },
     play: async () => {
         await waitFor(() => {
             if (!document.querySelector('[data-attr="remove-0"]')) {
@@ -502,11 +756,6 @@ export const RemoveConditionAndAddGroup: Story = {
     },
 }
 
-// Verify:
-// - [ ] tree has 1 condition: event_name = "$autocapture"
-// - [ ] 1 test case with event name "$autocapture"
-// - [ ] test case shows "Pass" tag (default expected is "drop", matches the condition)
-// - [ ] mode is still "Disabled"
 export const BuildFilterFromScratch: Story = {
     render: withFilter({
         id: null,
@@ -514,6 +763,21 @@ export const BuildFilterFromScratch: Story = {
         filter_tree: { type: 'or', children: [] },
         test_cases: [],
     }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Starts from an empty filter and uses the UI to add one condition and one test case.
+
+Expected to show:
+- Tree has 1 condition: \`event_name = "$autocapture"\`
+- 1 test case with event name "$autocapture"
+- Test case shows a green "Pass" tag (default expected is "drop", matches the condition)
+- Mode is still "Disabled"
+                `,
+            },
+        },
+    },
     play: async () => {
         await waitFor(() => {
             if (!document.querySelector('[data-attr="add-condition-root"]')) {
