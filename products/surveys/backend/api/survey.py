@@ -2350,9 +2350,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         # Custom (non-`list`) actions skip the routing layer's automatic access-level filter,
         # so apply it explicitly here — otherwise a user with access to only one survey would
         # receive labels for every survey in the team.
-        queryset = self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).only(
-            "id", "name", "questions"
-        )
+        queryset = self.user_access_control.filter_queryset_by_access_level(self.get_queryset())
+        # The viewset's class-level queryset pre-joins `linked_flag`, `linked_insight`,
+        # `targeting_flag`, `internal_targeting_flag` via `select_related`. `.only(...)` on
+        # those deferred FK columns raises `FieldError: cannot be both deferred and traversed
+        # using select_related`. Reset the select_related list before slimming the projection.
+        queryset = queryset.select_related(None).only("id", "name", "questions")
         labels: list[dict[str, Any]] = []
         for survey in queryset.iterator(chunk_size=200):
             questions = survey.questions or []
