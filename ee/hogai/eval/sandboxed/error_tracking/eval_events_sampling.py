@@ -77,16 +77,29 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
             target_issue_name="Checkout API timeout",
             events_args={"limit": "<=3", "verbosity": "raw"},
         ),
-        # URL-narrowing ask — searchQuery or filterGroup should mention
-        # `/files/` (the seeded issue's $current_url is /app/files).
+        # URL-narrowing ask — `searchQuery` on this endpoint only matches
+        # exception-level fields ($exception_types/values/sources/functions
+        # + email), NOT $current_url, so the product-correct way to filter
+        # by URL here is `filterGroup` with $current_url. The judge prompt
+        # accepts an equivalent searchQuery too, but the canonical
+        # expectation is the property filter.
         _events_case(
             name="events_search_filter",
             prompt=(
                 "Find an event for the PDF preview RenderError where the URL "
-                "contained `/files/`."
+                "contained `/files/preview`."
             ),
             target_issue_name="File preview render failure",
-            events_args={"searchQuery": "/files/"},
+            events_args={
+                "filterGroup": [
+                    {
+                        "key": "$current_url",
+                        "type": "event",
+                        "operator": "icontains",
+                        "value": "/files/preview",
+                    }
+                ],
+            },
         ),
         # Multi-example ask — limit should be at least 3 but not maxed out.
         _events_case(

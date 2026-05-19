@@ -77,7 +77,7 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
         "fingerprint": "eval-file-preview-render-failure-v1",
         "type": "RenderError",
         "value": "Failed to render PDF preview",
-        "url": "https://app.hedgebox.test/app/files",
+        "url": "https://app.hedgebox.test/app/files/preview/file-abc123",
         "function": "renderPdfPreview",
         "source": "https://app.hedgebox.test/static/js/file-preview.js",
         "days_ago": (1, 4, 9),
