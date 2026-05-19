@@ -395,8 +395,10 @@ class TestSharingTokenReplayThrottle(BaseTest):
         for _ in range(10_000):
             assert throttle.allow_request(_fake_sharing_token_request("token"), view=view) is True
 
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.team_is_allowed_to_bypass_throttle", return_value=True)
-    def test_allow_request_short_circuits_for_bypass_listed_team(self, _mock) -> None:
+    def test_allow_request_short_circuits_for_bypass_listed_team(self, _mock_bypass, _mock_enabled) -> None:
+        # Without enabling the kill switch, the test would short-circuit on it and never exercise bypass.
         throttle = SharingTokenReplayThrottle()
         view = type("FakeView", (), {"team_id": 7})()
 
