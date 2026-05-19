@@ -6,9 +6,8 @@ from django.conf import settings
 
 import tiktoken
 import structlog
-import posthoganalytics
+from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
-from posthoganalytics.ai.anthropic import AsyncAnthropic
 
 logger = structlog.get_logger(__name__)
 
@@ -31,18 +30,21 @@ TIMEOUT = 100.0
 
 
 def get_async_anthropic_client() -> AsyncAnthropic:
-    """Get configured AsyncAnthropic client with PostHog analytics."""
-    posthog_client = posthoganalytics.default_client
-    if not posthog_client:
-        raise ValueError("PostHog analytics client not configured")
+    """Get the raw Anthropic SDK client (no PostHog analytics capture).
 
+    The signals product calls this for grouping / summarization. We deliberately use the
+    upstream `anthropic.AsyncAnthropic` rather than `posthoganalytics.ai.anthropic.AsyncAnthropic`
+    so these calls do not emit `$ai_generation` events. Capturing them was creating a feedback
+    loop where LLM judges (notably "Unhappy User") would then evaluate the signals product's
+    own meta-content (candidate-signal descriptions, eval summaries) and fire fabricated
+    "user is unhappy" signals back into the inbox.
+    """
     api_key = settings.ANTHROPIC_API_KEY
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY is not configured")
 
     return AsyncAnthropic(
         api_key=api_key,
-        posthog_client=posthog_client,
         timeout=TIMEOUT,
     )
 

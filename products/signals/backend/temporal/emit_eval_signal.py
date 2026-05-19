@@ -61,7 +61,7 @@ Produce:
 
 2. A 4-8 sentence description that explains:
    - What the evaluation was checking for (derived from the prompt)
-   - Why the judge determined the result was true
+   - Why the judge determined the result was true (quoting or paraphrasing the judge's reasoning)
    - Any relevant context about the trace or event
 
 3. A significance score between 0 and 1:
@@ -76,6 +76,13 @@ Base significance on: severity of the finding, breadth of impact, and how obviou
 The output will be fed into a signal grouping and investigation system that groups related findings from different observability tools and data sources, across an entire product.
 Write for an engineer who hasn't seen this specific evaluation before.
 Do NOT parrot the evaluation name or say "the evaluation passed". Describe the actual finding.
+
+Grounding rules — these are mandatory:
+- Use ONLY information explicitly present in the judge reasoning, the evaluation prompt, and the event metadata you were given.
+- Do NOT invent UI specifics (e.g. specific alert text, button labels, error messages, page names, feature names) that are not present in the judge reasoning.
+- Do NOT speculate about user actions, product flows, or customer use cases that the judge did not actually describe.
+- If the judge reasoning is terse, vague, or only says something like "True" without details, the description must reflect that — say the judge flagged the trace without elaborating, and assign a LOW significance (≤ 0.3) because the finding is unverified.
+- If the judge reasoning does not contain enough detail to write a meaningful finding without speculation, return significance 0.0 so the signal is dropped downstream.
 
 Keep total output under 4000 tokens - be as concise as possible, without losing important information for the downstream investigators.
 

@@ -456,6 +456,162 @@ class TestRunEvaluationWorkflow:
         assert result["skip_reason"] == "trace_errored"
 
     @pytest.mark.parametrize(
+        "ai_product",
+        [
+            pytest.param("background_agents", id="background_agents"),
+            pytest.param("posthog_code", id="posthog_code"),
+            pytest.param("llma_summarization", id="llma_summarization"),
+            pytest.param("llma_eval_reports", id="llma_eval_reports"),
+            pytest.param("evals", id="evals"),
+            pytest.param("wizard", id="wizard"),
+            pytest.param("stamphog", id="stamphog"),
+            pytest.param("mcp", id="mcp"),
+            pytest.param("signals", id="signals"),
+        ],
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_skips_internal_product_traces(
+        self, ai_product: str, setup_data
+    ):
+        """Traces tagged with PostHog-internal `ai_product` values are meta-content (research
+        agents inspecting prior signals, evaluator outputs, signals grouping prompts) — never
+        real customer LLM traffic. Running judges on them creates a feedback loop where the
+        judge flags PostHog's own internal tooling as if it were a user. Skip them at the
+        judge boundary, no LLM call."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Unhappy User",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "return True if the user seems unhappy at all"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "investigate the no results alert"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Found root cause."}],
+                "ai_product": ai_product,
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client_class.assert_not_called()
+
+        assert result["verdict"] is False
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "internal_product"
+        assert result["allows_na"] is False
+        assert result["input_tokens"] == 0
+        assert result["output_tokens"] == 0
+        assert result["total_tokens"] == 0
+        # `model` / `provider` must be omitted so they don't get attributed to a phantom call.
+        assert "model" not in result
+        assert "provider" not in result
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_skips_internal_product_with_allows_na(self, setup_data):
+        """When N/A is allowed, internal-product traces should be marked inapplicable rather than verdict=false."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response relevant?"},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "Hi"}],
+                "ai_product": "background_agents",
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client_class.assert_not_called()
+
+        assert result["verdict"] is None
+        assert result["applicable"] is False
+        assert result["allows_na"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "internal_product"
+
+    @pytest.mark.parametrize(
+        "ai_product",
+        [
+            pytest.param(None, id="missing"),
+            pytest.param("", id="empty_string"),
+            pytest.param("customer_app", id="external_product"),
+        ],
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_does_not_skip_for_external_traces(
+        self, ai_product: str | None, setup_data
+    ):
+        """Sanity check: traces without an internal `ai_product` tag still flow through to the LLM judge."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response relevant?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        properties: dict[str, Any] = {
+            "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+        }
+        if ai_product is not None:
+            properties["ai_product"] = ai_product
+
+        event_data = create_mock_event_data(team.id, properties=properties)
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Correct")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client.complete.assert_called_once()
+
+        assert result["verdict"] is True
+        assert result.get("skipped") is not True
+
+    @pytest.mark.parametrize(
         "error_props",
         [
             pytest.param({}, id="missing"),

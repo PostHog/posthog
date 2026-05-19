@@ -499,8 +499,38 @@ def _is_errored_trace(properties: dict[str, Any]) -> bool:
     return False
 
 
-def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
-    """Result returned when the source trace errored — skips the LLM call entirely.
+# PostHog-internal `ai_product` tags whose `$ai_generation` events are meta-traffic about
+# user behavior (research agents, evaluators, summarizers) — not actual user-facing LLM
+# conversations. Judges run against this content produce false positives: an "unhappy user"
+# judge reading a research agent's investigation notes flags the agent as a frustrated user;
+# the signals-grouping LLM's clustering prompt mentions every candidate signal description
+# and gets flagged on whichever one was about a real unhappy user. Skipping these at the
+# judge boundary keeps the loop from amplifying internal traffic into fabricated findings.
+INTERNAL_AI_PRODUCTS: frozenset[str] = frozenset(
+    {
+        "background_agents",
+        "posthog_code",
+        "llma_summarization",
+        "llma_eval_reports",
+        "evals",
+        "wizard",
+        "stamphog",
+        "mcp",
+        "signals",
+    }
+)
+
+
+def _is_internal_product_trace(properties: dict[str, Any]) -> bool:
+    """Return True when the captured trace is from a PostHog-internal product/tool."""
+    ai_product = properties.get("ai_product")
+    if isinstance(ai_product, str) and ai_product in INTERNAL_AI_PRODUCTS:
+        return True
+    return False
+
+
+def _build_skipped_result(allows_na: bool, reasoning: str, skip_reason: str) -> LLMJudgeResult:
+    """Result returned when the LLM call is skipped entirely.
 
     `model` and `provider` are deliberately omitted so the `.get(..., DEFAULT_JUDGE_MODEL)`
     defaults in downstream activities don't silently attribute phantom calls to a model that
@@ -508,7 +538,6 @@ def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
     and model attribution entirely. The `LLMJudgeResult` TypedDict expresses the shape
     contract previously enforced by convention.
     """
-    reasoning = "Source trace errored before producing output; evaluation skipped."
     result: LLMJudgeResult = {
         "verdict": None if allows_na else False,
         "reasoning": reasoning,
@@ -519,11 +548,29 @@ def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
         "key_id": None,
         "allows_na": allows_na,
         "skipped": True,
-        "skip_reason": "trace_errored",
+        "skip_reason": skip_reason,
     }
     if allows_na:
         result["applicable"] = False
     return result
+
+
+def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
+    """Result returned when the source trace errored — skips the LLM call entirely."""
+    return _build_skipped_result(
+        allows_na,
+        reasoning="Source trace errored before producing output; evaluation skipped.",
+        skip_reason="trace_errored",
+    )
+
+
+def _build_internal_product_skipped_result(allows_na: bool) -> LLMJudgeResult:
+    """Result returned when the trace originated from a PostHog-internal product."""
+    return _build_skipped_result(
+        allows_na,
+        reasoning="Source trace originated from a PostHog-internal product; evaluation skipped.",
+        skip_reason="internal_product",
+    )
 
 
 @temporalio.activity.defn
@@ -571,6 +618,13 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
         # Visibility for skipped evaluations comes from the workflow-level SKIPPED status emitted
         # by the metrics interceptor; there is no error to record here.
         return _build_errored_trace_result(allows_na)
+
+    if _is_internal_product_trace(properties):
+        # PostHog-internal traffic (research agents, evaluators, summarizers, MCP, etc.) feeds
+        # meta-content about user behavior into the judge rather than real conversations, which
+        # tends to produce false positives that pollute downstream signal reports. Skip these at
+        # the judge boundary instead of running the model.
+        return _build_internal_product_skipped_result(allows_na)
 
     # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
