@@ -66,18 +66,30 @@ class TestParserRegressions(BaseTest):
         # keyword stays a column: `select a, where` is two columns.
         # The Rust parser used to always keep it as a column.
         for backend in _BACKENDS:
-            # clause keyword + body → trailing comma, clause starts
+            # clause keyword + body → trailing comma, clause starts.
+            # `where * columns('x')` is also a valid multiplication
+            # column, but cpp's ALL(*) prefers the clause; the Rust
+            # parser used to keep the (valid) column interpretation.
             for src, attr in (
                 ("select a, where b", "where"),
                 ("select a, having b", "having"),
                 ("select a, prewhere c", "prewhere"),
                 ("select a, qualify d", "qualify"),
+                ("select columns('gk'), where * columns('gk') with totals", "where"),
+                ("select a, prewhere * columns('y')", "prewhere"),
             ):
                 node = parse_select(src, backend=backend)
                 self.assertEqual(len(node.select), 1, msg=f"{backend}: {src!r}")
                 self.assertIsNotNone(getattr(node, attr), msg=f"{backend}: {src!r}")
-            # bare clause keyword (no body) → stays a column
-            for src in ("select a, where", "select a, having", "select a, window x"):
+            # bare clause keyword (no body) → stays a column;
+            # `window from events` is `window` the Field then a FROM
+            # clause, not a malformed WINDOW clause.
+            for src in (
+                "select a, where",
+                "select a, having",
+                "select a, window x",
+                "select 1, window from events",
+            ):
                 node = parse_select(src, backend=backend)
                 self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
 

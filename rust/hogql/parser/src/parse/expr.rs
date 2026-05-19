@@ -2750,12 +2750,13 @@ impl<'a> Parser<'a> {
         {
             return false;
         }
-        // `WINDOW <ident>` only opens the WINDOW clause when followed
-        // by `AS LParen` (the windowExpr definition). Otherwise the
-        // WINDOW keyword is a Field identifier in the column list and
-        // the trailing ident is its alias. Mirrors cpp's resolution.
+        // `WINDOW` only opens the WINDOW clause when a `<name> AS
+        // LParen` (the windowExpr definition) follows. Otherwise the
+        // WINDOW keyword is a Field identifier in the column list.
+        // The probe covers any name token (`window x …`, `window from
+        // …`) — `WINDOW from events` is `window` the Field followed by
+        // a FROM clause, not a malformed WINDOW clause.
         if self.peek() == TokenKind::Keyword(Kw::Window)
-            && matches!(self.peek_next(), TokenKind::Ident | TokenKind::QuotedIdent)
             && !self.window_ident_followed_by_as_lparen()
         {
             return false;
