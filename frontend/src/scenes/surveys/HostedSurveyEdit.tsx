@@ -350,17 +350,27 @@ function HostedSurveyEditorHeader({
                         <span className="text-xs text-secondary">One question at a time</span>
                     </div>
                     <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(260px,0.55fr)_minmax(220px,0.45fr)]">
-                        <LemonInput
-                            value={survey.name}
-                            onChange={onNameChange}
-                            placeholder="Untitled hosted survey"
-                            className="font-semibold"
-                        />
-                        <LemonInput
-                            value={survey.description ?? ''}
-                            onChange={onDescriptionChange}
-                            placeholder="Internal description"
-                        />
+                        <LemonField.Pure label="Survey name" htmlFor="hosted-survey-name">
+                            <LemonInput
+                                id="hosted-survey-name"
+                                value={survey.name}
+                                onChange={onNameChange}
+                                placeholder="Untitled hosted survey"
+                                className="font-semibold"
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure
+                            label="Internal description"
+                            info="Not shown to respondents. Helps your team find this survey later."
+                            htmlFor="hosted-survey-description"
+                        >
+                            <LemonInput
+                                id="hosted-survey-description"
+                                value={survey.description ?? ''}
+                                onChange={onDescriptionChange}
+                                placeholder="What this survey is for"
+                            />
+                        </LemonField.Pure>
                     </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
