@@ -1,3 +1,4 @@
+import copy
 import json
 from typing import Any
 
@@ -750,8 +751,11 @@ def handle_evaluation_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     # `save()` re-derives `conditions[*].bytecode` and `evaluation_config.bytecode` on every write.
-    # Strip them on a shallow copy of each side so the diff reflects user intent, not the compiler.
-    for snapshot in (before_update, after_update):
+    # Strip them on shallow copies so the diff reflects user intent, not the compiler — mutating
+    # `after_update` directly would also mutate the live instance DRF serialises for the response.
+    before_log = copy.copy(before_update) if before_update is not None else None
+    after_log = copy.copy(after_update) if after_update is not None else None
+    for snapshot in (before_log, after_log):
         if snapshot is not None:
             snapshot.conditions = _strip_compiled_from_conditions(snapshot.conditions)
             snapshot.evaluation_config = _strip_compiled_from_eval_config(snapshot.evaluation_config)
@@ -771,7 +775,7 @@ def handle_evaluation_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes_between(scope, previous=before_log, current=after_log),
             name=after_update.name,
         ),
     )
