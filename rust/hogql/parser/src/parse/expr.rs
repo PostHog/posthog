@@ -4671,6 +4671,21 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
             }
         }
     }
+    // `Not(expr)` — same shape as Lambda. The AND-reservation context
+    // for BETWEEN's body must pass *through* a NOT prefix into the
+    // wrapped expression. `a BETWEEN NOT lambda x : b AND c` parses
+    // as `Not(Lambda(x, And(b, c)))` greedily; descending into
+    // `Not.expr` peels the AND off so the outer BETWEEN sees its own
+    // `low = Not(Lambda(x, b))`, `high = c` split.
+    if node_name == Some("Not") {
+        if let Some(inner) = node.get("expr") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
+                let mut new_node = node.as_object()?.clone();
+                new_node.insert("expr".into(), left_in);
+                return Some((Value::Object(new_node), right_in, hoisted));
+            }
+        }
+    }
     // ArithmeticOperation has two slots that can carry the BETWEEN-
     // separator AND, and the two shapes need DIFFERENT handling:
     //
