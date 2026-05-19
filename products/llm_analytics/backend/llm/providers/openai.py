@@ -108,6 +108,7 @@ class OpenAIAdapter:
 
         default_headers = self._get_default_headers()
         posthog_client = posthoganalytics.default_client
+        http_client = tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
         if analytics.capture and posthog_client:
             return OpenAI(
                 api_key=api_key,
@@ -115,14 +116,14 @@ class OpenAIAdapter:
                 base_url=base_url,
                 timeout=OpenAIConfig.TIMEOUT,
                 default_headers=default_headers or None,
-                http_client=tagged_http_client(timeout=OpenAIConfig.TIMEOUT),
+                http_client=http_client,
             )
         return openai.OpenAI(
             api_key=api_key,
             base_url=base_url,
             timeout=OpenAIConfig.TIMEOUT,
             default_headers=default_headers or None,
-            http_client=tagged_http_client(timeout=OpenAIConfig.TIMEOUT),
+            http_client=http_client,
         )
 
     def complete(
