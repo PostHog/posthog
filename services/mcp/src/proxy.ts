@@ -25,6 +25,10 @@ async function resolveUser(
         }
     }
 
+    // When POSTHOG_API_BASE_URL is set (local dev), both hit the same server —
+    // region always resolves to "us", which is correct since local Hono is a
+    // single instance. In production, POSTHOG_API_BASE_URL is not set on the
+    // CF worker, so this probes both regions in parallel.
     const usBase = env.POSTHOG_API_BASE_URL || "https://us.posthog.com";
     const euBase = env.POSTHOG_API_BASE_URL || "https://eu.posthog.com";
 
@@ -70,7 +74,7 @@ export async function shouldProxyToHono(
         }
         const enabled = await isFeatureFlagEnabled("mcp-hono", user.distinctId);
         console.info(
-            `[MCP proxy] flag mcp-hono=${enabled} for ${user.distinctId} (${user.region})`,
+            `[MCP proxy] flag mcp-hono=${enabled} for ${userHash.slice(0, 8)}... (${user.region})`,
         );
         if (enabled) {
             return { proxy: true, region: user.region };
