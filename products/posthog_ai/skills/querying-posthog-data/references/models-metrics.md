@@ -1,10 +1,12 @@
 # Metrics (OpenTelemetry metric points)
 
-The `metrics` table holds OpenTelemetry metric data points from instrumented services. Each row is one observation of a metric (a counter increment, a gauge sample, or a histogram bucket).
+The `posthog.metrics` table holds OpenTelemetry metric data points from instrumented services. Each row is one observation of a metric (a counter increment, a gauge sample, or a histogram bucket).
 
-There is no typed `query-metrics` MCP tool yet — **HogQL is the primary interface for metrics**. The schema mirrors `logs` and `trace_spans` deliberately so cross-signal joins are cheap, and `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern).
+**Namespacing:** Reference this table as `posthog.metrics`, not bare `metrics` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`). The same applies to `posthog.metric_attributes`. Bare names fail with "Unknown table" at HogQL compile time. (Asymmetric with `logs`, which is registered at root level.)
 
-## `metrics`
+There is no typed `query-metrics` MCP tool yet — **HogQL is the primary interface for metrics**. The schema mirrors `logs` and `posthog.trace_spans` deliberately so cross-signal joins are cheap, and `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern).
+
+## `posthog.metrics`
 
 OpenTelemetry metric points. One row per observation. Backed by ClickHouse `metrics1` (distributed alias `metrics`).
 
@@ -54,12 +56,12 @@ with `count() AS event_count`, `sum(value) AS total_value`, `min(value) AS min_v
 - **`trace_id` is empty when no exemplar attached**, not null. Filter `trace_id != ''` when using metrics for exemplar lookup.
 - **Histograms store `histogram_bounds` and `histogram_counts` per row** — you need to expand them for quantile estimation. For a quick p95-ish summary, `value / count` gives the mean per-point.
 - **Choose the right temporality.** `delta` metrics measure activity in the interval; `cumulative` metrics are running totals. Summing `value` over time only makes sense for `delta`.
-- Cross-signal joins by `trace_id` work against `logs` and `trace_spans` — same `trace_id` format.
-- User HogQL queries on `metrics` are capped at 50 GB read per query.
+- Cross-signal joins by `trace_id` work against `logs` and `posthog.trace_spans` — same `trace_id` format.
+- User HogQL queries on `posthog.metrics` are capped at 50 GB read per query.
 
-## `metric_attributes`
+## `posthog.metric_attributes`
 
-AggregatingMergeTree rollup of metric attribute values, partitioned by service and 10-minute bucket. Same pattern as `log_attributes` / `trace_attributes`.
+AggregatingMergeTree rollup of metric attribute values, partitioned by service and 10-minute bucket. Same pattern as `log_attributes` / `posthog.trace_attributes`. Same `posthog.` namespacing rule — reference as `posthog.metric_attributes`.
 
 ### Columns
 
@@ -82,7 +84,7 @@ Use this for cheap discovery of which attribute keys exist on which services.
 
 ```sql
 SELECT metric_name, metric_type, count() AS n
-FROM metrics
+FROM posthog.metrics
 WHERE service_name = 'checkout'
   AND timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY metric_name, metric_type
@@ -96,7 +98,7 @@ SELECT
     toStartOfMinute(timestamp) AS minute,
     service_name,
     sum(value) / sum(count) AS mean_value
-FROM metrics
+FROM posthog.metrics
 WHERE metric_name = 'http.server.duration'
   AND timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY minute, service_name
@@ -107,7 +109,7 @@ ORDER BY minute, mean_value DESC
 
 ```sql
 SELECT service_name, sum(value) AS total
-FROM metrics
+FROM posthog.metrics
 WHERE metric_name = 'http.server.request.count'
   AND metric_type = 'counter'
   AND aggregation_temporality = 'delta'
@@ -121,7 +123,7 @@ LIMIT 10
 
 ```sql
 SELECT argMax(trace_id, value) AS exemplar_trace_id, max(value) AS peak
-FROM metrics
+FROM posthog.metrics
 WHERE service_name = 'checkout'
   AND metric_name = 'http.server.duration'
   AND timestamp >= now() - INTERVAL 10 MINUTE

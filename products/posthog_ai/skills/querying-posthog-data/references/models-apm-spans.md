@@ -1,10 +1,12 @@
 # APM / tracing (OpenTelemetry spans)
 
-The `trace_spans` table holds OpenTelemetry span data from instrumented services. Each row is one span — a unit of work in a distributed trace. Spans within the same trace share a `trace_id`; the parent-child hierarchy is reconstructed via `parent_span_id` → `span_id`.
+The `posthog.trace_spans` table holds OpenTelemetry span data from instrumented services. Each row is one span — a unit of work in a distributed trace. Spans within the same trace share a `trace_id`; the parent-child hierarchy is reconstructed via `parent_span_id` → `span_id`.
 
-**Prefer the typed tools when they fit:** `posthog:query-apm-spans` for span listing with structured filters, `posthog:apm-trace-get` for full-trace fetches, `posthog:apm-spans-aggregate` / `posthog:apm-spans-tree` for aggregations. Reach for HogQL when you need cross-signal joins (with `logs` or `metrics` by `trace_id`), exemplar lookups, or aggregations the typed tools don't expose.
+**Namespacing:** Reference this table as `posthog.trace_spans`, not bare `trace_spans` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`). The same applies to `posthog.trace_attributes`. Bare names fail with "Unknown table" at HogQL compile time. (Asymmetric with `logs`, which is registered at root level — `logs` works without a prefix.)
 
-## `trace_spans`
+**Prefer the typed tools when they fit:** `posthog:query-apm-spans` for span listing with structured filters, `posthog:apm-trace-get` for full-trace fetches, `posthog:apm-spans-aggregate` / `posthog:apm-spans-tree` for aggregations. Reach for HogQL when you need cross-signal joins (with `logs` or `posthog.metrics` by `trace_id`), exemplar lookups, or aggregations the typed tools don't expose.
+
+## `posthog.trace_spans`
 
 OpenTelemetry spans. One row per span. Backed by ClickHouse `trace_spans_distributed`.
 
@@ -41,12 +43,12 @@ OpenTelemetry spans. One row per span. Backed by ClickHouse `trace_spans_distrib
 - **Durations are nanoseconds.** Filter `duration_nano > 1000000000` for spans longer than 1 second.
 - **`status_code == 2` is Error.** Use `status_code = 2` (not the string `"ERROR"`).
 - **`parent_span_id` of a root span** is `"00000000000000000000000000000000"`, not null. Use `is_root_span` to find trace entries.
-- Cross-signal joins by `trace_id` work against `logs` and `metrics` — all three share the same `trace_id` format.
-- User HogQL queries on `trace_spans` are capped at 50 GB read per query.
+- Cross-signal joins by `trace_id` work against `logs` and `posthog.metrics` — all three share the same `trace_id` format.
+- User HogQL queries on `posthog.trace_spans` are capped at 50 GB read per query.
 
-## `trace_attributes`
+## `posthog.trace_attributes`
 
-AggregatingMergeTree rollup of span attribute values, partitioned by service and 10-minute bucket. Backs the attribute discovery endpoints used by `posthog:apm-attributes-list` and `posthog:apm-attribute-values-list`.
+AggregatingMergeTree rollup of span attribute values, partitioned by service and 10-minute bucket. Backs the attribute discovery endpoints used by `posthog:apm-attributes-list` and `posthog:apm-attribute-values-list`. Same `posthog.` namespacing rule — reference as `posthog.trace_attributes`.
 
 ### Columns
 
@@ -69,7 +71,7 @@ Prefer `posthog:apm-attributes-list` / `posthog:apm-attribute-values-list` over 
 
 ```sql
 SELECT name, duration_nano, trace_id, timestamp
-FROM trace_spans
+FROM posthog.trace_spans
 WHERE service_name = 'checkout'
   AND is_root_span
   AND timestamp >= now() - INTERVAL 1 HOUR
@@ -85,7 +87,7 @@ SELECT
     countIf(status_code = 2) AS errors,
     count() AS total,
     errors / total AS error_rate
-FROM trace_spans
+FROM posthog.trace_spans
 WHERE timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY service_name
 HAVING total > 100
@@ -96,7 +98,7 @@ ORDER BY error_rate DESC
 
 ```sql
 SELECT trace_id, min(timestamp) AS started, count() AS span_count
-FROM trace_spans
+FROM posthog.trace_spans
 WHERE service_name IN ('payments', 'inventory')
   AND timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY trace_id

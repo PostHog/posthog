@@ -4,7 +4,9 @@
 
 OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_distributed`.
 
-**Prefer the typed tool when it fits:** `posthog:query-logs` for filtered list queries (with the encoded discovery → narrow → count → drill-down workflow). Reach for HogQL when you need cross-signal joins (with `trace_spans` or `metrics` by `trace_id`) or aggregations the typed tool doesn't expose.
+**Prefer the typed tool when it fits:** `posthog:query-logs` for filtered list queries (with the encoded discovery → narrow → count → drill-down workflow). Reach for HogQL when you need cross-signal joins (with `posthog.trace_spans` or `posthog.metrics` by `trace_id`) or aggregations the typed tool doesn't expose.
+
+**Namespacing:** `logs` and `log_attributes` are registered at the HogQL root level — reference them as bare names. (Asymmetric with `posthog.trace_spans` and `posthog.metrics`, which require the `posthog.` namespace prefix.)
 
 ### Columns
 
@@ -36,7 +38,7 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 
 - **`trace_id` and `span_id` are zero-padded strings when unset**, not null. Filter `trace_id != '00000000000000000000000000000000'` to find logs with trace context.
 - **Prefer `severity_text` over `severity_number` / `level`** for human-readable filters.
-- Cross-signal joins by `trace_id` work against `trace_spans` and `metrics`.
+- Cross-signal joins by `trace_id` work against `posthog.trace_spans` and `posthog.metrics`.
 - User HogQL queries on `logs` are capped at 50 GB read per query.
 
 ## `log_attributes`
