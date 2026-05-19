@@ -22,8 +22,8 @@ Returned dict is merged into the task output under ``seed`` by
 
 from __future__ import annotations
 
-import logging
 import uuid
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
