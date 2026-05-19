@@ -36,6 +36,22 @@ POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this r
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
 
+def _defang_thread_text(text: str) -> str:
+    """Defang structural markers in untrusted Slack-thread text.
+
+    The description framing relies on `---` as a section divider and on the
+    placeholder string to mark the initiator's slot. Anyone in the same Slack
+    thread can post those literals to forge structure and try to slip a prompt
+    into what the agent thinks is the initiator's ask. Replace them with
+    visually similar but non-structural alternatives — the agent still sees the
+    intent, but the structural framing can't be hijacked.
+    """
+    # Standalone `---` line → em-dash variant that doesn't look like our divider.
+    text = re.sub(r"(?m)^[ \t]*---[ \t]*$", "— — —", text)
+    text = text.replace(_INITIATOR_PLACEHOLDER, "<original user message was here (quoted)>")
+    return text
+
+
 def _build_posthog_code_task_description(
     initiator_text: str,
     thread_messages: list[dict[str, str]],
@@ -67,7 +83,7 @@ def _build_posthog_code_task_description(
         if initiator_ts and msg.get("ts") == initiator_ts:
             context_entries.append(f"{username}: {_INITIATOR_PLACEHOLDER}")
         else:
-            context_entries.append(f"{username}: {msg['text']}")
+            context_entries.append(f"{username}: {_defang_thread_text(msg['text'])}")
 
     # Drop a trailing placeholder — the prompt follows the divider, so the marker is
     # redundant there. Slack `ts` values are unique per message, so at most one entry
