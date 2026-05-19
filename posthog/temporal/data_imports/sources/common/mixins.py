@@ -7,7 +7,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from products.data_warehouse.backend.models.util import _is_safe_public_ip
 
 
@@ -61,12 +61,25 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     return True, None
 
 
+def _ssh_tunnel_enabled(config: Any) -> bool:
+    """Return True only when `config.ssh_tunnel` is a real SSHTunnelConfig
+    with `enabled=True`.
+
+    Defends against malformed payloads where the upstream validator failed to
+    reject a non-dict `ssh_tunnel` value and left a raw string / other type in
+    the field — accessing `.enabled` on such a value would raise an
+    AttributeError and surface as a 500.
+    """
+    ssh_tunnel = getattr(config, "ssh_tunnel", None)
+    return isinstance(ssh_tunnel, SSHTunnelConfig) and ssh_tunnel.enabled
+
+
 class SSHTunnelMixin:
     """Mixin for sources that support SSH tunnels"""
 
     @contextmanager
     def with_ssh_tunnel(self, config) -> Generator[tuple[str, int], Any, None]:
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+        if _ssh_tunnel_enabled(config):
             ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
 
             with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
@@ -78,7 +91,7 @@ class SSHTunnelMixin:
             yield config.host, config.port
 
     def make_ssh_tunnel_func(self, config) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+        if _ssh_tunnel_enabled(config):
             ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
 
             @contextmanager
@@ -97,7 +110,7 @@ class SSHTunnelMixin:
         return without_ssh_func
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+        if _ssh_tunnel_enabled(config):
             if config.ssh_tunnel.host:
                 is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
                 if not is_host_valid:

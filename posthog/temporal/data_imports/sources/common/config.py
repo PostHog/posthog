@@ -125,6 +125,23 @@ def validate_config(
             else:
                 config_types = [arg for arg in typing.get_args(field_type) if is_config(arg)]
 
+            # If the nested key is present but its value is not a dict, only
+            # accept when the value matches a non-config arm of the union (None
+            # for `Config | None`, int for `Config | int`, ...). We must not
+            # fall through to flat-mode validation here: outer keys can collide
+            # with the nested config's flat key names (e.g. a Postgres payload
+            # contains `host`/`port`, which happen to match `ssh_tunnel`'s
+            # required fields under flat-mode), causing validation to spuriously
+            # pass while `to_config` later writes a raw non-config value into a
+            # `Config | None` field.
+            if field_nested_key in d and not isinstance(d[field_nested_key], dict):
+                if not _matches_non_config_union_arm(d[field_nested_key], field_type):
+                    errors.append(
+                        f"Field '{field.name}' expected a mapping for nested config, "
+                        f"got {type(d[field_nested_key]).__name__}"
+                    )
+                continue
+
             for config_type in config_types:
                 if field_nested_key in d and isinstance(d[field_nested_key], dict):
                     is_valid, nested_errors = validate_config(config_type, d[field_nested_key], prefixes)
@@ -205,9 +222,28 @@ def to_config(
                         value = d[field_key]
                     except KeyError:
                         continue
-                    else:
-                        inputs[field.name] = convert(value)
-                        break
+
+                    # Only accept the value if it actually matches this non-config
+                    # arm. Without this check, a non-config arm (e.g. NoneType in
+                    # `Config | None`) would swallow any value the user supplies,
+                    # leaving a raw non-config value (string, list, ...) in a
+                    # field typed as a config dataclass and crashing the first
+                    # downstream caller that touches the config's attributes.
+                    if config_type is type(None):
+                        if value is None:
+                            inputs[field.name] = convert(value)
+                            break
+                        continue
+                    try:
+                        if not isinstance(value, config_type):
+                            continue
+                    except TypeError:
+                        # `config_type` is a parameterized generic / non-class —
+                        # we can't isinstance-check, so skip this arm rather than
+                        # accept blindly.
+                        continue
+                    inputs[field.name] = convert(value)
+                    break
 
                 field_type_meta: MetaConfig | None = _try_get_meta(config_type)
                 # We have checked that this is a config, so meta attribute must
@@ -305,6 +341,33 @@ def _is_union_of_config(t: typing.Any) -> bool:
     """Check if given type is a union consisting of at least one config."""
     origin = typing.get_origin(t)
     return (origin is typing.Union or origin is types.UnionType) and any(is_config(arg) for arg in typing.get_args(t))
+
+
+def _matches_non_config_union_arm(value: typing.Any, field_type: typing.Any) -> bool:
+    """Return True if `value` matches any non-config arm of a union type.
+
+    Used to decide whether a non-dict value supplied at a field's nested key is
+    acceptable for a `Config | <other>` union. For `Config | None` only `None`
+    matches; for `Config | int` an `int` matches; for a bare `Config` type
+    (no union) nothing matches.
+    """
+    if is_config(field_type):
+        return False
+
+    for arg in typing.get_args(field_type):
+        if is_config(arg):
+            continue
+        if arg is type(None):
+            if value is None:
+                return True
+            continue
+        try:
+            if isinstance(value, arg):
+                return True
+        except TypeError:
+            # Parameterized generic or other non-class — skip rather than match.
+            continue
+    return False
 
 
 def is_config(maybe_config: typing.Any):

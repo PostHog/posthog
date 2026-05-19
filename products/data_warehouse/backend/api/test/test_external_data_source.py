@@ -6083,3 +6083,27 @@ class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
             format="json",
         )
         assert response.status_code == 400
+
+    def test_create_rejects_non_dict_ssh_tunnel(self) -> None:
+        """A Postgres payload with `ssh_tunnel` as a non-dict (e.g. a string)
+        must come back as a 400 'Invalid source config' rather than crashing
+        with an AttributeError when downstream code dereferences `.enabled`.
+        """
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            {
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "db.example.com",
+                    "port": 5432,
+                    "database": "postgres",
+                    "user": "postgres",
+                    "password": "password",
+                    "schema": "public",
+                    "ssh_tunnel": "not-an-object",
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Invalid source config" in response.json().get("message", "")

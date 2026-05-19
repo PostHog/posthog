@@ -8,6 +8,8 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin, _is_host_safe
 
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
+
 
 class TestIsHostSafe(SimpleTestCase):
     @parameterized.expand(
@@ -137,24 +139,21 @@ class TestValidateDatabaseHostMixin(SimpleTestCase):
 
 
 @dataclass
-class FakeSSHTunnelConfig:
-    enabled: bool
-    host: str
-    port: int = 22
-
-
-@dataclass
 class FakeConfig:
     host: str = "dbhost.example.com"
     port: int = 5432
-    ssh_tunnel: FakeSSHTunnelConfig | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+def _ssh_tunnel(enabled: bool, host: str, port: int = 22) -> SSHTunnelConfig:
+    return SSHTunnelConfig(host=host, port=port, enabled=enabled)
 
 
 class TestSSHTunnelHostValidation(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_ssh_tunnel_with_internal_host_blocked(self):
         mixin = SSHTunnelMixin()
-        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="10.0.0.1"))
+        config = FakeConfig(ssh_tunnel=_ssh_tunnel(enabled=True, host="10.0.0.1"))
         valid, error = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid
         assert "SSH tunnel host not allowed" in error  # type: ignore
@@ -162,7 +161,7 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_ssh_tunnel_disabled_skips_validation(self):
         mixin = SSHTunnelMixin()
-        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=False, host="10.0.0.1"))
+        config = FakeConfig(ssh_tunnel=_ssh_tunnel(enabled=False, host="10.0.0.1"))
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert valid
 
@@ -172,6 +171,23 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         config = FakeConfig(ssh_tunnel=None)
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_malformed_ssh_tunnel_value_skips_validation(self):
+        """Defensive guard: a non-config value left in `ssh_tunnel` (e.g. when
+        upstream validation gave a malformed payload a pass) must not crash —
+        the mixin treats it as 'no tunnel' rather than dereferencing `.enabled`."""
+
+        @dataclass
+        class _LooseConfig:
+            host: str = "dbhost.example.com"
+            port: int = 5432
+            ssh_tunnel: object = "not-a-config"
+
+        mixin = SSHTunnelMixin()
+        valid, error = mixin.ssh_tunnel_is_valid(_LooseConfig(), team_id=999)
+        assert valid
+        assert error is None
 
     @parameterized.expand(
         [
@@ -183,6 +199,6 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_ssh_tunnel_blocks_various_internal_hosts(self, _name: str, host: str):
         mixin = SSHTunnelMixin()
-        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host=host))
+        config = FakeConfig(ssh_tunnel=_ssh_tunnel(enabled=True, host=host))
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid

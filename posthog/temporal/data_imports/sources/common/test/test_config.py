@@ -383,6 +383,105 @@ def test_validate_dict_default():
     assert len(errors) == 0
 
 
+def test_validate_dict_rejects_non_dict_for_nested_config():
+    """A nested config-typed field must reject non-dict values at the nested
+    key. Previously the validator silently fell through to flat-mode lookup,
+    which could spuriously pass when outer keys happened to match the nested
+    config's flat key names — and `to_config` then wrote the raw non-config
+    value (e.g. a string) into the field, crashing downstream consumers.
+    """
+
+    @config.config
+    class Inner:
+        host: str | None
+        enabled: bool = False
+
+    @config.config
+    class Outer(config.Config):
+        host: str
+        # Field intentionally collides with Inner.host under flat-mode lookup.
+        inner: Inner | None = None
+
+    config_dict: dict[str, typing.Any] = {"host": "outer-host", "inner": "not-a-dict"}
+
+    is_valid, errors = Outer.validate_dict(config_dict)
+
+    assert is_valid is False
+    assert any("inner" in err for err in errors)
+
+
+def test_validate_dict_accepts_none_for_nullable_nested_config():
+    @config.config
+    class Inner:
+        host: str | None
+        enabled: bool = False
+
+    @config.config
+    class Outer(config.Config):
+        host: str
+        inner: Inner | None = None
+
+    is_valid, errors = Outer.validate_dict({"host": "outer-host", "inner": None})
+
+    assert is_valid is True
+    assert errors == []
+
+
+def test_validate_dict_rejects_non_dict_for_non_nullable_nested_config():
+    @config.config
+    class Inner:
+        host: str | None
+        enabled: bool = False
+
+    @config.config
+    class Outer(config.Config):
+        host: str
+        inner: Inner
+
+    is_valid, errors = Outer.validate_dict({"host": "outer-host", "inner": "oops"})
+
+    assert is_valid is False
+    assert any("inner" in err for err in errors)
+
+
+def test_to_config_drops_non_dict_value_for_config_or_none_union():
+    """When a `Config | None` field receives a non-dict, non-None value, the
+    NoneType arm must not silently accept it. The field falls back to its
+    default (None) instead of holding a raw incompatible value.
+    """
+
+    @config.config
+    class Inner:
+        host: str | None
+        enabled: bool = False
+
+    @config.config
+    class Outer(config.Config):
+        host: str
+        inner: Inner | None = None
+
+    cfg = Outer.from_dict({"host": "outer-host", "inner": "bogus"})
+
+    assert cfg.host == "outer-host"
+    assert cfg.inner is None
+
+
+def test_to_config_keeps_matching_non_config_union_arm():
+    """A union like `Config | int` must still accept a raw int at the nested key."""
+
+    @config.config
+    class A:
+        a: str
+
+    @config.config
+    class C(config.Config):
+        inner: A | int
+
+    cfg = C.from_dict({"inner": 7})
+
+    assert cfg.inner == 7
+
+
 def test_validate_dict_with_nested_dict():
     @config.config
     class TestConfigA:
