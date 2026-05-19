@@ -7,8 +7,7 @@ import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsC
 import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-
-type CupedSelection = 'default' | 'enabled' | 'disabled'
+import { CupedSelection, getCupedSelection } from './cuped'
 
 export function CupedModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -17,9 +16,7 @@ export function CupedModal(): JSX.Element {
     const { closeCupedModal } = useActions(modalsLogic)
     const { isCupedModalOpen } = useValues(modalsLogic)
 
-    const explicitEnabled = experiment.stats_config?.cuped?.enabled
-    const selection: CupedSelection =
-        explicitEnabled === undefined ? 'default' : explicitEnabled ? 'enabled' : 'disabled'
+    const selection = getCupedSelection(experiment.stats_config?.cuped)
     const lookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
     const teamDefaultEnabled = experimentsConfig?.default_cuped_enabled ?? false
 
