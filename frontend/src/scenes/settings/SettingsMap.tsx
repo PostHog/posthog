@@ -442,7 +442,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Accounts',
                 description: 'Select which group type represents an account in customer analytics.',
                 component: <CustomerAnalyticsAccountConfig />,
-                flag: ['CUSTOMER_ANALYTICS', 'POSTHOG_CSP'],
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
             },
         ],
