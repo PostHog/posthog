@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
+import { sidePanelSettingsLogic } from './panels/settings/sidePanelSettingsLogic'
 import { sidePanelContextLogic } from './sidePanelContextLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -38,6 +39,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             userLogic,
             ['hasAvailableFeature'],
+            sidePanelSettingsLogic,
+            ['isExplicitSettings'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
@@ -50,8 +53,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.scenePanelIsPresent,
                 s.isCloudOrDev,
                 s.hasAvailableFeature,
+                s.isExplicitSettings,
             ],
-            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev, hasAvailableFeature) => {
+            (
+                sceneSidePanelContext,
+                currentTeam,
+                scenePanelIsPresent,
+                isCloudOrDev,
+                hasAvailableFeature,
+                isExplicitSettings
+            ) => {
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -70,10 +81,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                // Settings is always enabled so `openSettingsPanel` works on any scene
-                // (e.g. the gear icon next to "Filter out internal and test users").
-                // `visibleTabs` decides whether the gear shows in the nav bar.
-                tabs.push(SidePanelTab.Settings)
+                // Settings is enabled when the scene declares a `settings_section` OR when the
+                // user explicitly opened settings via `openSettingsPanel(...)` (e.g. the gear
+                // icon next to "Filter out internal and test users"). Direct, non-explicit
+                // `openSidePanel(Settings)` calls still respect scene context.
+                if (sceneSidePanelContext.settings_section || isExplicitSettings) {
+                    tabs.push(SidePanelTab.Settings)
+                }
 
                 // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)

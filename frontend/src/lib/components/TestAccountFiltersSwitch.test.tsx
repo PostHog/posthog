@@ -74,12 +74,30 @@ describe('TestAccountFilterSwitch — gear icon opens Settings, not the AI side 
         expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('keeps the Settings nav-bar gear hidden on scenes without a settings_section', () => {
-        // The fix preserves the existing nav-bar behavior: Settings is openable
-        // programmatically everywhere, but only visible in the nav bar when the
-        // current scene declares `settings_section`. Without any scene mounted,
-        // `visibleTabs` should not include Settings.
-        expect(sidePanelLogic.values.visibleTabs).not.toContain(SidePanelTab.Settings)
+    it('keeps the Settings nav-bar gear hidden on scenes without a settings_section after the click', async () => {
+        const onChange = jest.fn()
+        render(<TestAccountFilterSwitch checked={false} onChange={onChange} />)
+
+        await userEvent.click(screen.getByRole('button'))
+
+        // Settings is now in enabledTabs (so the panel can render and the fallback
+        // doesn't flip to Max), but it is intentionally still hidden from the nav
+        // bar — that gear icon should only appear when the scene declares a
+        // `settings_section`.
         expect(sidePanelLogic.values.enabledTabs).toContain(SidePanelTab.Settings)
+        expect(sidePanelLogic.values.visibleTabs).not.toContain(SidePanelTab.Settings)
+    })
+
+    it('does NOT enable Settings when openSidePanel(Settings) is called without explicit args', async () => {
+        // This is the path the SidePanel storybook (`SidePanelSettings` story) uses:
+        // `useActions(sidePanelStateLogic).openSidePanel(SidePanelTab.Settings)`. On
+        // a scene without `settings_section` (e.g. the dashboards URL the stories
+        // pin themselves to) Settings should remain unavailable so the fallback
+        // useEffect in SidePanel.tsx still routes to Max — preserving the existing
+        // storybook snapshot.
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Settings)
+
+        expect(sidePanelLogic.values.enabledTabs).not.toContain(SidePanelTab.Settings)
+        expect(sidePanelSettingsLogic.values.isExplicitSettings).toBe(false)
     })
 })
