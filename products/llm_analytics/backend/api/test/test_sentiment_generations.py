@@ -185,21 +185,117 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
 
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_traces_without_heavy_match_get_null_ai_input(
-        self, mock_preflight: MagicMock, mock_heavy: MagicMock
+    def test_missing_heavy_rows_get_backfilled_from_events(
+        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
     ) -> None:
-        mock_preflight.return_value = self._make_response(
-            [
-                self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
-                self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
-            ]
-        )
+        """During the ai_events rollout, the dedicated table can carry inputs for
+        some traces in a batch but not others. `execute_with_ai_events_fallback`
+        only falls back when the dedicated result is fully empty, so without the
+        per-row backfill the missing traces would render as blank cards in the
+        Sentiment tab even though the input is still in the events table.
+        """
+        mock_execute_hogql_query.side_effect = [
+            self._make_response(
+                [
+                    self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
+                    self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
+                ]
+            ),
+            self._make_response([["trace-2", '[{"role":"user","content":"backfilled"}]']]),
+        ]
+        # Dedicated table only has trace-1
         mock_heavy.return_value = self._make_response([["trace-1", '[{"role":"user","content":"hi"}]']])
 
         response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert len(body["results"]) == 2
+        # trace-1 from ai_events, trace-2 from the events-table backfill
+        assert body["results"][0][2] == '[{"role":"user","content":"hi"}]'
+        assert body["results"][1][2] == '[{"role":"user","content":"backfilled"}]'
+
+        # Backfill should have run with only the missing trace_id/uuid pair
+        backfill_call = mock_execute_hogql_query.call_args_list[1]
+        assert backfill_call.kwargs["query_type"] == "LLMSentimentGenerationsBackfill"
+        backfill_placeholders = backfill_call.kwargs["placeholders"]
+        # rewrite_expr_for_events_table preserves Tuple, just may swap inner refs
+        trace_id_values = [c.value for c in backfill_placeholders["trace_ids"].exprs]
+        uuid_values = [c.value for c in backfill_placeholders["uuids"].exprs]
+        assert trace_id_values == ["trace-2"]
+        assert uuid_values == ["uuid-2"]
+
+    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_no_backfill_when_heavy_returns_all_traces(
+        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+    ) -> None:
+        """When the dedicated ai_events table covers every trace in the batch the
+        backfill must be skipped — otherwise we'd double the heavy-input read on
+        the hot path."""
+        mock_execute_hogql_query.return_value = self._make_response(
+            [
+                self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
+                self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
+            ]
+        )
+        mock_heavy.return_value = self._make_response(
+            [
+                ["trace-1", '[{"role":"user","content":"a"}]'],
+                ["trace-2", '[{"role":"user","content":"b"}]'],
+            ]
+        )
+
+        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
+        assert response.status_code == status.HTTP_200_OK
+        # Only the preflight call — no backfill
+        assert mock_execute_hogql_query.call_count == 1
+
+    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_no_backfill_when_heavy_returns_zero_traces(
+        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+    ) -> None:
+        """If the dedicated ai_events table returns zero rows for the batch,
+        `execute_with_ai_events_fallback` already re-routes to events on our
+        behalf, so the per-row backfill must not double-query."""
+        mock_execute_hogql_query.return_value = self._make_response(
+            [
+                self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
+                self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
+            ]
+        )
+        mock_heavy.return_value = self._make_response([])
+
+        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
+        assert response.status_code == status.HTTP_200_OK
+        # Only the preflight call — no backfill; both rows get null ai_input,
+        # matching the pre-fix behaviour when neither table has data.
+        assert mock_execute_hogql_query.call_count == 1
+        body = response.json()
+        assert all(row[2] is None for row in body["results"])
+
+    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_backfill_failure_falls_back_to_null(
+        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+    ) -> None:
+        """A backfill failure must not take down the whole response — the
+        affected traces fall back to the pre-fix null-input behaviour, and
+        the rest of the page still renders."""
+        mock_execute_hogql_query.side_effect = [
+            self._make_response(
+                [
+                    self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
+                    self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
+                ]
+            ),
+            RuntimeError("backfill boom"),
+        ]
+        mock_heavy.return_value = self._make_response([["trace-1", '[{"role":"user","content":"hi"}]']])
+
+        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
         assert body["results"][0][2] == '[{"role":"user","content":"hi"}]'
         assert body["results"][1][2] is None
 

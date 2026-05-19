@@ -34,6 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsSentimentBurstThrottle, LLMAnalyticsSentimentSustainedThrottle
@@ -370,15 +371,16 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             ts_end = max(row.ts_max for row in preflight_rows)
 
             heavy_query = parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL)
+            heavy_placeholders = {
+                "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+                "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
+                "ts_start": ast.Constant(value=ts_start),
+                "ts_end": ast.Constant(value=ts_end),
+            }
             try:
                 heavy_result = execute_with_ai_events_fallback(
                     query=heavy_query,
-                    placeholders={
-                        "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
-                        "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
-                        "ts_start": ast.Constant(value=ts_start),
-                        "ts_end": ast.Constant(value=ts_end),
-                    },
+                    placeholders=heavy_placeholders,
                     team=self.team,
                     query_type="LLMSentimentGenerations",
                     limit_context=LimitContext.QUERY,
@@ -394,7 +396,52 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-        ai_input_by_trace = {str(trace_id): ai_input for trace_id, ai_input in (heavy_result.results or [])}
+            ai_input_by_trace = {str(trace_id): ai_input for trace_id, ai_input in (heavy_result.results or [])}
+
+            # `execute_with_ai_events_fallback` only falls back when the dedicated
+            # table returns *zero* rows total. During the ai_events rollout the
+            # table can hold inputs for some traces in the batch but not others,
+            # so any trace missing from `ai_input_by_trace` here would render a
+            # blank card in the sentiment tab. Fill those in from the shared
+            # `events` table directly (the same fallback target the wrapper would
+            # have used). Skipped when the wrapper already routed to events
+            # (kill switch off, or zero coverage) — `ai_input_by_trace` already
+            # reflects events in that case.
+            missing_trace_ids = [tid for tid in trace_ids if tid not in ai_input_by_trace]
+            if missing_trace_ids and ai_input_by_trace:
+                missing_uuids = [u for tid, u in zip(trace_ids, uuids) if tid in set(missing_trace_ids)]
+                backfill_query = rewrite_query_for_events_table(parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL))
+                backfill_placeholders = {
+                    "trace_ids": rewrite_expr_for_events_table(
+                        ast.Tuple(exprs=[ast.Constant(value=tid) for tid in missing_trace_ids])
+                    ),
+                    "uuids": rewrite_expr_for_events_table(
+                        ast.Tuple(exprs=[ast.Constant(value=u) for u in missing_uuids])
+                    ),
+                    "ts_start": ast.Constant(value=ts_start),
+                    "ts_end": ast.Constant(value=ts_end),
+                }
+                try:
+                    backfill_result = execute_hogql_query(
+                        query=backfill_query,
+                        placeholders=backfill_placeholders,
+                        team=self.team,
+                        query_type="LLMSentimentGenerationsBackfill",
+                        limit_context=LimitContext.QUERY,
+                    )
+                except Exception as e:
+                    # Don't fail the whole response — the cards will render
+                    # blank for the missing traces (same as today) and we log
+                    # for follow-up.
+                    logger.warning(
+                        "Failed to backfill sentiment generations from events",
+                        team_id=self.team_id,
+                        missing_trace_count=len(missing_trace_ids),
+                        error=str(e),
+                    )
+                else:
+                    for trace_id, ai_input in backfill_result.results or []:
+                        ai_input_by_trace[str(trace_id)] = ai_input
         # Positional response shape (unchanged, frontend depends on it): row[0..6] =
         # [uuid, trace_id, ai_input, model, distinct_id, ts_max, ts_min]. The internal
         # `ts_max` / `ts_min` aliases (see `_SENTIMENT_GENERATIONS_PREFLIGHT_SQL`) are
