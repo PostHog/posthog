@@ -37,6 +37,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.ai_subscription.delivery import (
+    SlackIntegrationMissingError,
     generate_ai_subscription_markdown,
     render_ai_email_html,
     send_email_ai_subscription_report,
@@ -747,26 +748,21 @@ async def _deliver_ai_subscription(
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
-        # Mirror the non-AI Slack path: if no integration is resolvable for this
-        # subscription, auto-disable rather than re-firing into a silent no-op every cycle.
-        slack_integration = subscription.integration
-        if slack_integration is None or slack_integration.kind != "slack":
-            slack_integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                subscription.team_id
-            )
-        if slack_integration is None:
-            LOGGER.warning(
-                "deliver_subscription.ai_slack_no_integration",
-                subscription_id=subscription.id,
-            )
-            return await _auto_disable_and_return(subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results)
-
         try:
             await database_sync_to_async(send_slack_ai_subscription_report, thread_sensitive=False)(
                 subscription=subscription, markdown=markdown
             )
             recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success", error=None))
             return DeliverSubscriptionResult(recipient_results=recipient_results)
+        except SlackIntegrationMissingError as exc:
+            # Integration was disconnected between the user's last edit and now;
+            # auto-disable rather than re-firing into a silent no-op every cycle.
+            LOGGER.warning(
+                "deliver_subscription.ai_slack_no_integration",
+                subscription_id=subscription.id,
+            )
+            _capture_delivery_failed_event(subscription, exc)
+            return await _auto_disable_and_return(subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results)
         except Exception as exc:
             slack_error_code = exc.response.get("error") if isinstance(exc, SlackApiError) else None
             is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS

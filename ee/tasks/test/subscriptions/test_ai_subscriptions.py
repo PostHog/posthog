@@ -241,10 +241,116 @@ class TestSlackRendering(APIBaseTest):
         assert len(calls) >= 2
         assert calls[1].kwargs.get("thread_ts") == "abc"
 
+    @patch("ee.tasks.subscriptions.ai_subscription.delivery.SlackIntegration")
     @patch("ee.tasks.subscriptions.ai_subscription.delivery.get_slack_integration_for_team", return_value=None)
-    def test_no_integration_is_a_noop(self, _mock):
+    def test_missing_integration_raises(self, _mock_team_lookup, mock_slack_integration_cls):
+        # Caller (activity) catches SlackIntegrationMissingError and auto-disables;
+        # a silent return would record a phantom "success" with no message sent.
+        from ee.tasks.subscriptions.ai_subscription.delivery import SlackIntegrationMissingError
+
         sub = self._ai_sub()
-        send_slack_ai_subscription_report(subscription=sub, markdown="# Hi")
+        with pytest.raises(SlackIntegrationMissingError):
+            send_slack_ai_subscription_report(subscription=sub, markdown="# Hi")
+        mock_slack_integration_cls.assert_not_called()
+
+
+class TestDeliverAISubscriptionActivity(APIBaseTest):
+    """Activity-level orchestration for AI deliveries — caching, auto-disable on terminal
+    errors, Slack-integration auto-disable. The narrower unit tests above cover the per-
+    helper logic; these tests exercise the activity wiring that connects them."""
+
+    def _ai_email_sub(self) -> Subscription:
+        return create_subscription(
+            team=self.team,
+            created_by=self.user,
+            content_type=Subscription.ContentType.AI_PROMPT,
+            prompt="Top events",
+            title="AI report",
+            target_value="ai@posthog.com",
+        )
+
+    def _ai_slack_sub(self) -> Subscription:
+        return create_subscription(
+            team=self.team,
+            created_by=self.user,
+            content_type=Subscription.ContentType.AI_PROMPT,
+            prompt="Top events",
+            title="AI report",
+            target_type="slack",
+            target_value="C123|#channel",
+        )
+
+    def _delivery_inputs(self, subscription_id: int, delivery_id=None):
+        from posthog.temporal.subscriptions.types import DeliverSubscriptionInputs
+
+        return DeliverSubscriptionInputs(
+            subscription_id=subscription_id,
+            exported_asset_ids=[],
+            total_insight_count=0,
+            delivery_id=delivery_id,
+        )
+
+    @patch("posthog.temporal.subscriptions.activities._auto_disable_and_return")
+    @patch("posthog.temporal.subscriptions.activities.generate_ai_subscription_markdown")
+    def test_prompt_rejected_error_auto_disables(self, mock_generate, mock_auto_disable):
+        import asyncio
+
+        from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
+        from posthog.temporal.subscriptions.types import DeliverSubscriptionResult
+
+        mock_generate.side_effect = PromptRejectedError("Prompt is empty.")
+        mock_auto_disable.return_value = DeliverSubscriptionResult(recipient_results=[])
+        sub = self._ai_email_sub()
+        asyncio.run(_deliver_ai_subscription(sub, self._delivery_inputs(sub.id), []))
+
+        assert mock_auto_disable.called, "PromptRejectedError must route through _auto_disable_and_return"
+        _, called_reason, _ = mock_auto_disable.call_args.args
+        from ee.tasks.subscriptions.auto_disable import AI_PROMPT_INVALID_DISABLE_REASON
+
+        assert called_reason is AI_PROMPT_INVALID_DISABLE_REASON
+
+    @patch("posthog.temporal.subscriptions.activities._auto_disable_and_return")
+    @patch("posthog.temporal.subscriptions.activities.send_slack_ai_subscription_report")
+    @patch("posthog.temporal.subscriptions.activities.generate_ai_subscription_markdown")
+    def test_missing_slack_integration_auto_disables(self, mock_generate, mock_send_slack, mock_auto_disable):
+        import asyncio
+
+        from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
+        from posthog.temporal.subscriptions.types import DeliverSubscriptionResult
+
+        from ee.tasks.subscriptions.ai_subscription.delivery import SlackIntegrationMissingError
+        from ee.tasks.subscriptions.auto_disable import SLACK_DISCONNECTED_DISABLE_REASON
+
+        mock_generate.return_value = "# Report"
+        mock_send_slack.side_effect = SlackIntegrationMissingError("disconnected")
+        mock_auto_disable.return_value = DeliverSubscriptionResult(recipient_results=[])
+        sub = self._ai_slack_sub()
+        asyncio.run(_deliver_ai_subscription(sub, self._delivery_inputs(sub.id), []))
+
+        assert mock_auto_disable.called, "Missing Slack integration must route through _auto_disable_and_return"
+        _, called_reason, _ = mock_auto_disable.call_args.args
+        assert called_reason is SLACK_DISCONNECTED_DISABLE_REASON
+
+    @patch("posthog.temporal.subscriptions.activities._persist_ai_markdown", new_callable=AsyncMock)
+    @patch("posthog.temporal.subscriptions.activities._load_cached_ai_markdown", new_callable=AsyncMock)
+    @patch("posthog.temporal.subscriptions.activities.send_email_ai_subscription_report")
+    @patch("posthog.temporal.subscriptions.activities.generate_ai_subscription_markdown")
+    def test_cached_markdown_skips_llm_on_retry(self, mock_generate, mock_send_email, mock_load_cache, mock_persist):
+        import uuid
+        import asyncio
+
+        from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
+
+        mock_load_cache.return_value = "# Cached"
+        sub = self._ai_email_sub()
+        delivery_id = uuid.uuid4()
+
+        result = asyncio.run(_deliver_ai_subscription(sub, self._delivery_inputs(sub.id, delivery_id=delivery_id), []))
+
+        mock_generate.assert_not_called(), "Cached markdown must short-circuit the LLM pipeline"
+        mock_persist.assert_not_called(), "Cache-hit path doesn't re-persist"
+        mock_send_email.assert_called_once()
+        assert result.recipient_results[0].status == "success"
 
 
 class TestSchedulerIncludesAISubscriptions(APIBaseTest):

@@ -274,7 +274,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         has_insight = attrs.get("insight") or (existing and existing.insight_id)
         has_dashboard = attrs.get("dashboard") or (existing and existing.dashboard_id)
-        has_prompt = (attrs.get("prompt") or (existing.prompt if existing else None) or "").strip()
+        # Use explicit-key check so a deliberate `""` in the PATCH body doesn't fall
+        # through to the stale instance value and pass validation while writing empty
+        # to the DB (the next delivery would then PromptRejectedError + auto-disable).
+        prompt_value = attrs["prompt"] if "prompt" in attrs else (existing.prompt if existing else None)
+        has_prompt = (prompt_value or "").strip()
 
         # `content_type` was added late; legacy callers (and the dashboard-subscription
         # tests they shipped against) omit it and rely on `dashboard`/`insight` to imply

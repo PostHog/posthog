@@ -211,6 +211,10 @@ def send_email_ai_subscription_report(
     message.send(send_async=False)
 
 
+class SlackIntegrationMissingError(RuntimeError):
+    """Raised when an AI subscription's Slack integration can't be resolved at send time."""
+
+
 def send_slack_ai_subscription_report(
     *,
     subscription: Subscription,
@@ -218,7 +222,8 @@ def send_slack_ai_subscription_report(
 ) -> None:
     # Respect the integration the user explicitly attached to this subscription;
     # only fall back to the team-wide first match when none is configured (matches
-    # the non-AI Slack delivery path).
+    # the non-AI Slack delivery path). Raise on missing so the activity can
+    # auto-disable instead of recording a phantom "success".
     integration = subscription.integration
     if integration is not None and integration.kind != "slack":
         logger.warning(
@@ -231,8 +236,9 @@ def send_slack_ai_subscription_report(
     if integration is None:
         integration = get_slack_integration_for_team(subscription.team_id)
     if not integration:
-        logger.warning("ai_subscription.slack_no_integration", subscription_id=subscription.id)
-        return
+        raise SlackIntegrationMissingError(
+            f"No Slack integration available for subscription {subscription.id} (team {subscription.team_id})"
+        )
 
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
