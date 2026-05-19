@@ -196,7 +196,6 @@ export interface PaginatedTaskAutomationListApi {
  * `user_created` - User Created
  * `automation` - Automation
  * `slack` - Slack
- * `sendblue` - Sendblue
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  * `signal_report` - Signal Report
@@ -209,7 +208,6 @@ export const OriginProductEnumApi = {
     UserCreated: 'user_created',
     Automation: 'automation',
     Slack: 'slack',
-    Sendblue: 'sendblue',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',

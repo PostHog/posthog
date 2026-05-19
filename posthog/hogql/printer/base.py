@@ -1294,6 +1294,7 @@ class BasePrinter(Visitor[str]):
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
                 )
 
             # Check for dmat (dynamic materialized) columns
@@ -1305,6 +1306,7 @@ class BasePrinter(Visitor[str]):
                     has_minmax_index=False,
                     has_ngram_lower_index=False,
                     has_bloom_filter_index=False,
+                    has_bloom_filter_lower_index=False,
                 )
 
             yield from self._yield_property_group_columns(field_type, table_name, field_name, property_name)
@@ -1324,6 +1326,7 @@ class BasePrinter(Visitor[str]):
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 import shlex
 import shutil
@@ -49,7 +50,6 @@ from products.tasks.backend.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.services.sandbox import (
-    PREWARMED_SANDBOX_ENV_FILE,
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
@@ -98,44 +98,91 @@ _image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
 _image_ref_lock = threading.Lock()
 
 
-@cached(cache=_image_ref_cache, lock=_image_ref_lock)
-def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
-    """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
-    so Modal fetches the correct version. Re-resolves from GHCR every ~5 minutes.
+# Modal caches images by reference indefinitely. Falling back to the mutable
+# `:master` tag therefore lets Modal keep serving a stale or broken image
+# (e.g. one missing /scripts/node_modules/.bin/agent-server) forever, so we
+# retry transient GHCR failures and otherwise fail closed.
+_GHCR_RESOLVE_MAX_ATTEMPTS = 4
+_GHCR_RESOLVE_BACKOFF_BASE_SECONDS = 1.0
+
+
+class _ImageDigestResolutionError(Exception):
+    """A single attempt to resolve the GHCR digest failed."""
+
+
+def _resolve_image_digest_once(image: str) -> str:
+    """Resolve ``image:master`` to an immutable ``image@sha256:...`` reference.
+
+    Raises ``_ImageDigestResolutionError`` for non-200 responses or missing
+    fields; network-level exceptions (``ConnectionError``, ``Timeout``, etc.)
+    propagate as-is. The caller catches ``Exception`` in all cases, so we never
+    fall back to the mutable ``:master`` tag.
     """
     image_repo = image.replace("ghcr.io/", "")
-    try:
-        token_resp = requests.get(
-            f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
-            timeout=10,
-        )
-        if token_resp.status_code != 200:
-            logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
-            return f"{image}:master"
 
-        token = token_resp.json().get("token")
-        if not token:
-            logger.warning("GHCR token response missing token field")
-            return f"{image}:master"
+    token_resp = requests.get(
+        f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
+        timeout=10,
+    )
+    if token_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR token request failed: status={token_resp.status_code}")
 
-        manifest_resp = requests.get(
-            f"https://ghcr.io/v2/{image_repo}/manifests/master",
-            headers={
-                "Accept": "application/vnd.oci.image.index.v1+json",
-                "Authorization": f"Bearer {token}",
-            },
-            timeout=10,
-        )
-        if manifest_resp.status_code == 200:
-            digest = manifest_resp.headers.get("Docker-Content-Digest")
-            if digest:
-                logger.info(f"Resolved sandbox image digest for {image_repo}: {digest}")
-                return f"{image}@{digest}"
-        logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Failed to fetch sandbox image digest: {e}")
+    token = token_resp.json().get("token")
+    if not token:
+        raise _ImageDigestResolutionError("GHCR token response missing token field")
 
-    return f"{image}:master"
+    manifest_resp = requests.get(
+        f"https://ghcr.io/v2/{image_repo}/manifests/master",
+        headers={
+            "Accept": "application/vnd.oci.image.index.v1+json",
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=10,
+    )
+    if manifest_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR manifest request failed: status={manifest_resp.status_code}")
+
+    digest = manifest_resp.headers.get("Docker-Content-Digest")
+    if not digest:
+        raise _ImageDigestResolutionError("GHCR manifest response missing Docker-Content-Digest header")
+
+    return f"{image}@{digest}"
+
+
+@cached(cache=_image_ref_cache, lock=_image_ref_lock)
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
+    """Resolve the sandbox image to an immutable digest pin.
+
+    Modal caches sandbox images by reference indefinitely, so a mutable
+    ``:master`` tag would let Modal keep serving a stale or broken image. We
+    therefore retry transient GHCR failures with exponential backoff and, if
+    resolution still fails, fail closed by raising ``SandboxProvisionError``
+    (transient — the provisioning activity retries) rather than ever returning
+    the floating tag. Successful resolutions are cached for ~5 minutes;
+    failures are not cached and re-resolve on the next call.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, _GHCR_RESOLVE_MAX_ATTEMPTS + 1):
+        try:
+            reference = _resolve_image_digest_once(image)
+            logger.info(f"Resolved sandbox image digest for {image} on attempt {attempt}: {reference}")
+            return reference
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"Failed to resolve sandbox image digest for {image} "
+                f"(attempt {attempt}/{_GHCR_RESOLVE_MAX_ATTEMPTS}): {e}"
+            )
+            if attempt < _GHCR_RESOLVE_MAX_ATTEMPTS:
+                time.sleep(_GHCR_RESOLVE_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+
+    raise SandboxProvisionError(
+        f"Could not resolve an immutable digest for {image}:master after "
+        f"{_GHCR_RESOLVE_MAX_ATTEMPTS} attempts; refusing to fall back to the mutable "
+        f":master tag because Modal caches images by reference indefinitely",
+        {"image": image},
+        cause=last_error if last_error is not None else RuntimeError("digest resolution failed"),
+    )
 
 
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
@@ -245,9 +292,7 @@ class ModalSandbox(SandboxBase):
         return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
-    def _get_app_for_template(cls, template: SandboxTemplate, app_name: str | None = None) -> modal.App:
-        if app_name:
-            return modal.App.lookup(app_name, create_if_missing=True)
+    def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
@@ -255,7 +300,7 @@ class ModalSandbox(SandboxBase):
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
-            app = cls._get_app_for_template(config.template, config.modal_app_name)
+            app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
             used_snapshot_image = False
@@ -570,9 +615,7 @@ class ModalSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            env_file = shlex.quote(PREWARMED_SANDBOX_ENV_FILE)
-            unwrapped_inner = f"[ -f {env_file} ] && . {env_file}; {inner}"
-            return f"cd /scripts && nohup bash -c {shlex.quote(unwrapped_inner)} > /tmp/agent-server-launch.log 2>&1 &"
+            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         result = self.execute(command, timeout_seconds=30)

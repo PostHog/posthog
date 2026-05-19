@@ -55,6 +55,7 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |Account
                               |Action
                               |AgentArtifact
                               |Alert
@@ -206,7 +207,6 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
-                              |TaskPrewarmedSandbox
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
@@ -277,6 +277,7 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |Account
                         |Action
                         |AgentArtifact
                         |Alert
@@ -424,7 +425,6 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
-                        |TaskPrewarmedSandbox
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport

@@ -234,6 +234,14 @@ class _TracingTreeQueryBodySerializer(serializers.Serializer):
             "(trace_id, parent_span_id) self-join is unsafe without bounding the matched traces."
         ),
     )
+    serviceName = serializers.CharField(
+        required=True,
+        help_text=(
+            "Service name that scopes the returned tree. Applied to the spans CTE so "
+            "the call-tree only contains spans from this service, even when matched "
+            "traces span multiple services."
+        ),
+    )
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the primary window. Defaults to last hour.",
@@ -426,6 +434,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        service_name = query_data.get("serviceName")
+        if not service_name or not isinstance(service_name, str):
+            return Response(
+                {"detail": "`serviceName` is required for tree aggregation queries."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
 
         try:
@@ -449,6 +464,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             team=self.team,
             date_range=date_range,
             span_name=span_name,
+            service_name=service_name,
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),

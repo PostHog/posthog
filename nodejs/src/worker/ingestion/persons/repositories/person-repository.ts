@@ -11,11 +11,11 @@ import {
     TeamId,
 } from '../../../../types'
 import { CreatePersonResult } from '../../../../utils/db/db'
-import { PersonMessage } from '../person-message'
+import type { PersonMessage } from '../person-message'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 
-export { PersonMessage }
+export type { PersonMessage }
 
 export type InternalPersonWithDistinctId = InternalPerson & {
     distinct_id: string

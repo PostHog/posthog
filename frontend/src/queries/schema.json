@@ -1090,13 +1090,13 @@
                     "type": "string"
                 },
                 "operator": {
-                    "const": "in",
                     "default": "in",
+                    "enum": ["in", "not_in"],
                     "type": "string"
                 },
                 "type": {
                     "const": "cohort",
-                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
                     "type": "string"
                 },
                 "value": {
@@ -11332,6 +11332,16 @@
         "CustomerAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "account_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "activity_event": {
                     "anyOf": [
                         {
@@ -18904,6 +18914,7 @@
                 "error_tracking",
                 "heatmap",
                 "session_replay",
+                "replay_vision",
                 "session_profile",
                 "survey",
                 "product_tour",
@@ -23211,6 +23222,28 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsAlertFilters": {
+            "additionalProperties": false,
+            "description": "Filter criteria for a logs alert configuration. Subset of LogsViewerFilters (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or `filterGroup` must be set on a live (enabled=true) alert.",
+            "properties": {
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "LogsOrderBy": {
             "enum": ["latest", "earliest"],
             "title": "LogsOrderBy",
@@ -23907,6 +23940,22 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_stats",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ad",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_group",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaign",
                             "type": "string"
@@ -24006,13 +24055,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "creative_stats",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "creatives",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaign_groups",
                             "type": "string"
@@ -24080,13 +24149,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_stats",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "adset_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "adsets",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24287,6 +24376,10 @@
                         "tableExclusions",
                         "defaultSources",
                         "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName",
                         "conversionActionTypes"
                     ],
                     "type": "object"
@@ -24294,6 +24387,22 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_report",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_report",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_groups",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24355,13 +24464,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_report",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_report",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_groups",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24423,13 +24552,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_performance_report",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ad_performance_report",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_performance_report",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_group_performance_report",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24497,13 +24646,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_stats_daily",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_squad_stats_daily",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_squads",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24604,6 +24773,10 @@
                         "tableExclusions",
                         "defaultSources",
                         "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName",
                         "conversionFields",
                         "conversionValueFields"
                     ],
@@ -24612,6 +24785,22 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_analytics",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_analytics",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_groups",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24673,7 +24862,11 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 }
@@ -27199,6 +27392,7 @@
                 "product_tours",
                 "revenue_analytics",
                 "session_replay",
+                "replay_vision",
                 "site_apps",
                 "subscriptions",
                 "streamlit_apps",
@@ -37826,6 +38020,10 @@
                 "response": {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
                 },
+                "serviceName": {
+                    "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
+                    "type": "string"
+                },
                 "serviceNames": {
                     "items": {
                         "type": "string"
@@ -37844,7 +38042,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "kind", "spanName"],
+            "required": ["dateRange", "kind", "serviceName", "spanName"],
             "type": "object"
         },
         "TraceSpansTreeQueryResponse": {

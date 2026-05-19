@@ -1566,7 +1566,7 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
     customer_name = traits.get("name")
     customer_email = traits.get("email")
 
-    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/conversations/tickets/{ticket.id}"
+    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/support/tickets/{ticket.ticket_number}"
 
     campaign_key = f"new_conversation_ticket_{ticket.id}"
     message = EmailMessage(

@@ -543,6 +543,68 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_generate_survey_translation.assert_not_called()
 
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_enforces_object_access_control(self, mock_generate_survey_translation):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        user2 = self._create_user("survey2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="secret survey",
+            type="popover",
+            questions=[],
+        )
+        AccessControl.objects.create(resource="survey", resource_id=survey.id, team=self.team, access_level="none")
+        mock_generate_survey_translation.return_value = ({}, [], [], "trace-id")
+
+        self.client.force_login(user2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft", "questions": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_generate_survey_translation.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_cross_organization_survey_id(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
+        other_survey = Survey.objects.create(
+            team=other_team,
+            name="foreign survey",
+            type="popover",
+            questions=[],
+        )
+        mock_generate_survey_translation.return_value = ({}, [], [], "trace-id")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{other_survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft", "questions": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        mock_generate_survey_translation.assert_not_called()
+
     def test_can_create_survey_without_translations(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -3280,7 +3342,7 @@ class TestSurvey(APIBaseTest):
 
     def test_survey_activity_respects_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()

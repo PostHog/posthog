@@ -100,8 +100,6 @@ class GetSandboxForRepositoryOutput:
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
-    used_prewarmed_sandbox: bool = False
-    prewarmed_sandbox_pool_entry_id: str | None = None
 
 
 @activity.defn

@@ -565,11 +565,19 @@ def is_projection_eligible(filters: dict) -> bool:
     service_name, severity_text, resource_fingerprint), so it covers these two
     filter types. Any filterGroup values reference columns outside the projection
     and require a raw table scan.
+
+    Returns False on malformed shapes so the caller falls through to the raw-scan
+    path, where `PropertyGroupFilter.model_validate` surfaces a per-alert error
+    instead of crashing discovery for every alert in the project.
     """
     filter_group = filters.get("filterGroup")
     if not filter_group:
         return True
+    if not isinstance(filter_group, dict):
+        return False
     for group in filter_group.get("values", []):
+        if not isinstance(group, dict):
+            return False
         if group.get("values"):
             return False
     return True

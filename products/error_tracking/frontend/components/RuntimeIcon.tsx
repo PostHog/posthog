@@ -16,8 +16,8 @@ import {
     IconRuby,
     IconRust,
     IconSwift,
+    type IconProps,
 } from '@posthog/icons'
-import { IconProps } from '@posthog/icons/dist/src/types/icon-types'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 

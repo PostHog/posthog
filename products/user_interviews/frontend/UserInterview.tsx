@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { UserInterviewTopicApi } from './generated/api.schemas'
+import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
 export const scene: SceneExport<UserInterviewLogicProps> = {
@@ -23,11 +24,7 @@ export const scene: SceneExport<UserInterviewLogicProps> = {
 function targetingLabel(topic: UserInterviewTopicApi): string {
     const emailCount = topic.interviewee_emails?.length || 0
     const distinctIdCount = topic.interviewee_distinct_ids?.length || 0
-    const hasCohort = topic.interviewee_cohort != null
     const parts: string[] = []
-    if (hasCohort) {
-        parts.push(`Cohort #${topic.interviewee_cohort}`)
-    }
     if (emailCount > 0) {
         parts.push(`${emailCount} email${emailCount !== 1 ? 's' : ''}`)
     }
@@ -241,6 +238,7 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>
                                 Responded

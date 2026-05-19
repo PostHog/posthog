@@ -76,7 +76,7 @@ export const PayGateMiniAddon: Story = {
 }
 
 export const PayGateMiniLimitFeatureOther: Story = {
-    args: { feature: AvailableFeature.ADVANCED_PERMISSIONS, currentUsage: 3 },
+    args: { feature: AvailableFeature.ACCESS_CONTROL, currentUsage: 3 },
     render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
@@ -88,8 +88,8 @@ export const PayGateMiniLimitFeatureOther: Story = {
                             ...meCurrent.organization,
                             available_product_features: [
                                 {
-                                    key: 'advanced_permissions',
-                                    name: 'Advanced Permissions',
+                                    key: 'access_control',
+                                    name: 'Access control',
                                 },
                             ],
                         },
