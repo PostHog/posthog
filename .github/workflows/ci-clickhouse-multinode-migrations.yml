@@ -44,8 +44,23 @@ jobs:
             REDIS_URL: 'redis://localhost'
             # unsafe - for testing only
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+            # PostHogConfig.ready() calls setup_async_migrations() which reads
+            # posthog_asyncmigration / posthog_instancesetting. Skip it so the
+            # smoke can run against a schema-only Postgres dump.
+            SKIP_ASYNC_MIGRATIONS_SETUP: '1'
+            # If the "Restore Postgres schema cache" step below succeeds, this
+            # file exists and the smoke script primes Postgres from it instead
+            # of running a full `manage.py migrate`. Cache miss → file absent →
+            # script falls back to migrate automatically.
+            PRIME_POSTGRES_FROM: schema.sql.gz
         steps:
             - uses: actions/checkout@v6
+              with:
+                  # Needed for `git merge-base HEAD^2 origin/master` so we can key
+                  # the Postgres schema cache by the PR's merge base, matching
+                  # the producer in ci-backend.yml.
+                  fetch-depth: 1000
+                  filter: blob:none
 
             - name: Add multinode hostnames to /etc/hosts
               run: |
@@ -65,6 +80,31 @@ jobs:
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Compute Postgres schema cache key
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # ci-backend.yml's "Validate migrations" job dumps the post-PR
+                  # schema and caches it keyed by master SHA. PR test jobs key
+                  # off the merge base so they restore the dump produced by the
+                  # commit their branch diverged from.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "key=" >> "$GITHUB_OUTPUT"
+                      echo "::notice::merge-base not found — Postgres schema cache will be skipped"
+                  fi
+
+            - name: Restore Postgres schema cache
+              if: steps.schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.schema-key.outputs.key }}
 
             - name: Run smoke test
               run: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
