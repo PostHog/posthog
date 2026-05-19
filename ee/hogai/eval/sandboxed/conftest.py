@@ -121,6 +121,14 @@ _EVAL_CONTAINER_PREFIX = "task-sandbox-"
 _LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 
 
+def pytest_keyboard_interrupt(excinfo: object) -> None:  # noqa: ARG001
+    _LONG_LIVED_SUBPROCESSES.stop_all()
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:  # noqa: ARG001
+    _LONG_LIVED_SUBPROCESSES.stop_all()
+
+
 def _temporal_client_target(env: WorkflowEnvironment) -> tuple[str, str]:
     config = env.client.config()
     service_client = config["service_client"]

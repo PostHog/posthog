@@ -1,22 +1,34 @@
 from __future__ import annotations
 
 import os
+import json
 import time
 import atexit
 import signal
 import socket
 import logging
+import tempfile
 import threading
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
+from typing import TypedDict, cast
 
 import pytest
 
 logger = logging.getLogger(__name__)
 
 StopCallback = Callable[[], None]
+
+
+class ProcessMetadata(TypedDict):
+    name: str
+    port: int
+    pid: int
+    pgid: int
+    cmd: list[str]
+    cwd: str
 
 
 class LongLivedSubprocessManager:
@@ -53,6 +65,7 @@ class LongLivedSubprocessManager:
           an ``atexit`` hook, and SIGINT/SIGTERM handlers send ``SIGTERM``
           then ``SIGKILL`` to the process group.
         """
+        self._stop_stale_managed_process(name=name, port=port, cmd=cmd, cwd=cwd)
         self._fail_if_port_bound(name, port)
 
         proc = subprocess.Popen(
@@ -63,11 +76,13 @@ class LongLivedSubprocessManager:
             stderr=subprocess.PIPE,
             start_new_session=True,
         )
+        self._write_pid_file(name=name, port=port, proc=proc, cmd=cmd, cwd=cwd)
 
         def stop() -> None:
             try:
                 self._stop_process_group(proc)
             finally:
+                self._remove_pid_file(port)
                 self._unregister(stop)
 
         self._register(stop)
@@ -113,6 +128,38 @@ class LongLivedSubprocessManager:
         except OSError:
             pass
 
+    def _stop_stale_managed_process(self, *, name: str, port: int, cmd: list[str], cwd: Path) -> None:
+        metadata = self._read_pid_file(port)
+        if metadata is None:
+            return
+
+        if not self._metadata_matches(metadata, name=name, port=port, cmd=cmd, cwd=cwd):
+            return
+
+        pid = metadata["pid"]
+        pgid = metadata["pgid"]
+        if not self._process_exists(pid):
+            self._remove_pid_file(port)
+            return
+
+        try:
+            process_pgid = os.getpgid(pid)
+        except (ProcessLookupError, PermissionError):
+            self._remove_pid_file(port)
+            return
+
+        if process_pgid != pgid:
+            self._remove_pid_file(port)
+            return
+
+        if not self._is_port_bound(port):
+            self._remove_pid_file(port)
+            return
+
+        logger.warning("Stopping stale sandboxed eval %s process group %s on port %s", name, pgid, port)
+        self._terminate_process_group(pgid, port)
+        self._remove_pid_file(port)
+
     def _stop_process_group(self, proc: subprocess.Popen) -> None:
         if proc.poll() is not None:
             return
@@ -127,6 +174,128 @@ class LongLivedSubprocessManager:
                 os.killpg(proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
+
+    def _terminate_process_group(self, pgid: int, port: int) -> None:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not self._is_port_bound(port):
+                return
+            time.sleep(0.1)
+
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            return
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not self._is_port_bound(port):
+                return
+            time.sleep(0.1)
+
+    def _is_port_bound(self, port: int) -> bool:
+        try:
+            sock = socket.create_connection(("localhost", port), timeout=0.5)
+            sock.close()
+            return True
+        except OSError:
+            return False
+
+    def _process_exists(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    def _pid_file_path(self, port: int) -> Path:
+        return Path(tempfile.gettempdir()) / f"posthog-sandboxed-eval-{port}.json"
+
+    def _read_pid_file(self, port: int) -> ProcessMetadata | None:
+        pid_file = self._pid_file_path(port)
+        try:
+            raw: object = json.loads(pid_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        if not isinstance(raw, dict):
+            return None
+
+        data = cast(dict[str, object], raw)
+        name = data.get("name")
+        stored_port = data.get("port")
+        pid = data.get("pid")
+        pgid = data.get("pgid")
+        cmd = data.get("cmd")
+        cwd = data.get("cwd")
+
+        if (
+            not isinstance(name, str)
+            or not isinstance(stored_port, int)
+            or not isinstance(pid, int)
+            or not isinstance(pgid, int)
+            or not isinstance(cmd, list)
+            or not all(isinstance(part, str) for part in cmd)
+            or not isinstance(cwd, str)
+        ):
+            return None
+
+        return {
+            "name": name,
+            "port": stored_port,
+            "pid": pid,
+            "pgid": pgid,
+            "cmd": cast(list[str], cmd),
+            "cwd": cwd,
+        }
+
+    def _write_pid_file(
+        self,
+        *,
+        name: str,
+        port: int,
+        proc: subprocess.Popen,
+        cmd: list[str],
+        cwd: Path,
+    ) -> None:
+        metadata: ProcessMetadata = {
+            "name": name,
+            "port": port,
+            "pid": proc.pid,
+            "pgid": os.getpgid(proc.pid),
+            "cmd": cmd,
+            "cwd": str(cwd),
+        }
+        self._pid_file_path(port).write_text(json.dumps(metadata), encoding="utf-8")
+
+    def _remove_pid_file(self, port: int) -> None:
+        try:
+            self._pid_file_path(port).unlink()
+        except FileNotFoundError:
+            pass
+
+    def _metadata_matches(
+        self,
+        metadata: ProcessMetadata,
+        *,
+        name: str,
+        port: int,
+        cmd: list[str],
+        cwd: Path,
+    ) -> bool:
+        return (
+            metadata["name"] == name
+            and metadata["port"] == port
+            and metadata["cmd"] == cmd
+            and Path(metadata["cwd"]) == cwd
+        )
 
     def _pipe_output(self, proc: subprocess.Popen, log_prefix: str) -> None:
         def pipe_to_logger(pipe, level: int) -> None:
