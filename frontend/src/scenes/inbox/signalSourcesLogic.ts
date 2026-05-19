@@ -25,6 +25,12 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.ISSUE_SPIKING,
 ]
 
+/** The two web-vitals signal source types — toggled together via a single UI control. */
+export const WEB_VITALS_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
+    SignalSourceType.WEB_VITALS_THRESHOLD_CROSSING,
+    SignalSourceType.WEB_VITALS_REGRESSION,
+]
+
 const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
     DataWarehouseSource,
     {
@@ -127,6 +133,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleWebVitals: true,
+        toggleWebVitalsComplete: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -207,6 +215,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     next.delete('error_tracking')
                     return next
                 },
+                toggleWebVitals: (state) => {
+                    const next = new Set(state)
+                    next.add('web_vitals')
+                    return next
+                },
+                toggleWebVitalsComplete: (state) => {
+                    const next = new Set(state)
+                    next.delete('web_vitals')
+                    return next
+                },
             },
         ],
     }),
@@ -262,6 +280,22 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has('error_tracking'),
+        ],
+        isWebVitalsToggling: [(s) => [s.togglingSourceKeys], (keys: Set<string>): boolean => keys.has('web_vitals')],
+        webVitalsIsFullyEnabled: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): boolean => {
+                if (!sourceConfigs?.length) {
+                    return false
+                }
+                return WEB_VITALS_SIGNAL_SOURCE_TYPES.every((sourceType) => {
+                    const c = sourceConfigs.find(
+                        (row) =>
+                            row.source_product === SignalSourceProduct.WEB_ANALYTICS && row.source_type === sourceType
+                    )
+                    return c?.enabled === true
+                })
+            },
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -410,6 +444,37 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     breakpoint() // re-throws if superseded, skipping the lines below
                     actions.toggleErrorTrackingComplete()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle Error tracking signals'
+                    lemonToast.error(errorMessage)
+                    actions.loadSourceConfigs()
+                }
+            },
+            toggleWebVitals: async (_, breakpoint) => {
+                const desiredEnabled = !values.webVitalsIsFullyEnabled
+                const configs = values.sourceConfigs ?? []
+                try {
+                    for (const sourceType of WEB_VITALS_SIGNAL_SOURCE_TYPES) {
+                        const existing = configs.find(
+                            (c) =>
+                                c.source_product === SignalSourceProduct.WEB_ANALYTICS && c.source_type === sourceType
+                        )
+                        if (existing && !existing.id.startsWith('new_')) {
+                            await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                        } else if (desiredEnabled) {
+                            await api.signalSourceConfigs.create({
+                                source_product: SignalSourceProduct.WEB_ANALYTICS,
+                                source_type: sourceType,
+                                enabled: true,
+                                config: {},
+                            })
+                        }
+                    }
+                    breakpoint()
+                    actions.toggleWebVitalsComplete()
+                    actions.loadSourceConfigs()
+                } catch (error: any) {
+                    breakpoint()
+                    actions.toggleWebVitalsComplete()
+                    const errorMessage = error?.detail || error?.message || 'Failed to toggle Web vitals signals'
                     lemonToast.error(errorMessage)
                     actions.loadSourceConfigs()
                 }
