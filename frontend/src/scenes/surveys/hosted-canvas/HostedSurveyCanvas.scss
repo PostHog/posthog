@@ -26,22 +26,53 @@
         border-radius: 0;
     }
 
-    .inline-editable,
+    // Display elements (h1.survey-question, p.survey-question-description,
+    // span.form-submit, etc.) keep their natural styling — we ONLY add an edit
+    // affordance. No font/padding/background reset on these.
+    .inline-editable {
+        cursor: text;
+        border-radius: 3px;
+        transition:
+            background-color 120ms ease,
+            box-shadow 120ms ease;
+    }
+
+    .inline-editable--placeholder {
+        font-style: italic;
+        opacity: 0.55;
+    }
+
+    .inline-editable--invalid {
+        // Subtle red wave under invalid text — keeps editing native.
+        text-decoration: underline wavy var(--danger);
+        text-underline-offset: 4px;
+    }
+
+    .inline-editable:focus,
+    .inline-editable:focus-visible {
+        background-color: rgb(17 17 17 / 4%);
+        border-radius: 3px;
+        outline: none;
+        box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
+    }
+
+    // Input/textarea editing chrome — strip browser defaults AND the base
+    // .PostHogHostedSurvey input[type='text'] / textarea styling (heavy
+    // padding, border, box-shadow) so the editor doesn't morph into a form
+    // field when you click into it. font:inherit picks up the surrounding
+    // rendered class (.survey-question, .form-submit, etc.) so the input
+    // looks identical to the text it replaces.
     input.inline-editable,
     textarea.inline-editable {
-        display: inline-block;
-        width: auto;
+        width: 100%;
         min-width: 0;
         max-width: 100%;
         padding: 0;
         margin: 0;
         font: inherit;
-        font-size: inherit;
         line-height: inherit;
         color: inherit;
         letter-spacing: inherit;
-
-        // Reset all input chrome — the surrounding rendered text supplies the styling.
         appearance: none;
         cursor: text;
         resize: none;
@@ -57,47 +88,21 @@
         field-sizing: content;
     }
 
-    // Display targets that should occupy a full block — question title,
-    // description, thank-you screen text. These match the rendered shape
-    // of the hosted survey so the swap to edit mode is invisible.
-    h1.inline-editable,
-    h2.inline-editable,
-    p.inline-editable,
-    div.inline-editable,
-    textarea.inline-editable {
-        display: block;
-        width: 100%;
+    // Inline display contexts (e.g. choice text + ":" suffix, submit button
+    // label) need width: auto so the editable hugs its text and siblings sit
+    // flush. Block contexts (title, description, full submit button) still
+    // want width: 100%.
+    span.inline-editable,
+    span.inline-editable:focus,
+    span.inline-editable:focus-visible {
+        display: inline-block;
     }
 
-    .inline-editable--placeholder {
-        font-style: italic;
-        opacity: 0.55;
+    .response-choice .inline-editable,
+    .form-submit .inline-editable {
+        width: auto;
     }
 
-    .inline-editable--invalid {
-        // Subtle red wave under invalid text — keeps editing native.
-        text-decoration: underline wavy var(--danger);
-        text-underline-offset: 4px;
-    }
-
-    .inline-editable {
-        border-radius: 3px;
-        transition:
-            background-color 120ms ease,
-            box-shadow 120ms ease;
-    }
-
-    // Focus: a minimal accent rule beneath the text — no boxed outline,
-    // no padding shift. Feels like editing native text.
-    .inline-editable:focus,
-    .inline-editable:focus-visible {
-        background-color: rgb(17 17 17 / 4%);
-        border-radius: 3px;
-        box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
-    }
-
-    // Hover: barely-there tint so authors know what's clickable without
-    // ever showing input chrome.
     @media (hover: hover) {
         .inline-editable:hover:not(:focus) {
             background-color: rgb(17 17 17 / 4%);
@@ -146,15 +151,6 @@
         min-width: 0;
     }
 
-    // The InlineEditable inside .response-choice should hug its content so
-    // the colon suffix and the open-ended text input sit right next to the
-    // editable label, not pushed to the far right.
-    .response-choice .inline-editable {
-        display: inline-block;
-        flex: 0 1 auto;
-        width: auto;
-    }
-
     // Wrap the editable choice text + the optional ":" suffix so the colon
     // sits flush against the text, not separated by the .response-choice
     // flex gap.
@@ -165,10 +161,15 @@
         min-width: 0;
     }
 
-    &__grip,
-    &__delete {
+    &__grip {
+        display: inline-flex;
         flex-shrink: 0;
+        align-items: center;
         align-self: center;
+        justify-content: center;
+        width: 1.5rem;
+        color: var(--text-secondary);
+        cursor: grab;
         opacity: 0.85;
         transition:
             opacity 120ms ease,
@@ -178,15 +179,6 @@
         &:focus-visible {
             opacity: 1;
         }
-    }
-
-    &__grip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 1.5rem;
-        color: var(--text-secondary);
-        cursor: grab;
 
         &:active {
             cursor: grabbing;
@@ -195,6 +187,27 @@
         &--locked {
             cursor: not-allowed;
             opacity: 0.3;
+        }
+    }
+
+    // Delete button — make it visible against the white survey card by giving
+    // it a real background and a darker icon. Without this, LemonButton
+    // tertiary renders nearly invisible inside the survey context.
+    &__delete {
+        flex-shrink: 0;
+        align-self: center;
+        color: var(--text-primary);
+        background: var(--surface-tertiary, rgb(17 17 17 / 6%));
+        border: 1px solid var(--border, rgb(17 17 17 / 10%));
+        opacity: 1;
+        transition:
+            background-color 120ms ease,
+            border-color 120ms ease;
+
+        &:hover {
+            color: var(--danger, #c0392b);
+            background: var(--danger-highlight, rgb(192 57 43 / 10%));
+            border-color: var(--danger, #c0392b);
         }
     }
 }

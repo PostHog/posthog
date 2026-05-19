@@ -363,6 +363,12 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                             className="form-submit"
                             data-attr={`canvas-question-${index}-button-text`}
                         />
+                        <span className="survey-keyhint" aria-hidden>
+                            <span className="survey-keyhint-row">
+                                <kbd className="survey-kbd">{'\u21B5'}</kbd>
+                                <span className="survey-keyhint-label">submit</span>
+                            </span>
+                        </span>
                     </div>
                 </div>
             </div>
