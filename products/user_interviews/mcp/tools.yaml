@@ -73,6 +73,25 @@ tools:
             alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required.
             Calling this multiple times is safe: existing share links are reused.
         feature_flag: user-interviews
+    user-interview-topics-interviewees-bulk-create:
+        operation: user_interview_topics_interviewees_bulk_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create many per-interviewee context rows at once
+        description: >
+            Create up to 500 per-interviewee context rows for a topic in a single request. Each item is
+            (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are
+            skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller
+            can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over
+            `user-interview-topics-interviewees-create` when adding many rows.
+        include_params:
+            - items
+        feature_flag: user-interviews
     user-interview-topics-interviewees-create:
         operation: user_interview_topics_interviewees_create
         enabled: true
@@ -93,25 +112,6 @@ tools:
         include_params:
             - interviewee_identifier
             - agent_context
-        feature_flag: user-interviews
-    user-interview-topics-interviewees-bulk-create:
-        operation: user_interview_topics_interviewees_bulk_create
-        enabled: true
-        scopes:
-            - user_interview:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create many per-interviewee context rows at once
-        description: >
-            Create up to 500 per-interviewee context rows for a topic in a single request. Each item is
-            (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are
-            skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller
-            can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over
-            `user-interview-topics-interviewees-create` when adding many rows.
-        include_params:
-            - items
         feature_flag: user-interviews
     user-interview-topics-interviewees-destroy:
         operation: user_interview_topics_interviewees_destroy
