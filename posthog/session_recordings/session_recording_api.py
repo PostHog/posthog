@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import struct
 import asyncio
 import builtins
@@ -39,6 +40,7 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
 from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
@@ -64,6 +66,7 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
@@ -75,7 +78,14 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.models.utils import hash_key_value
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalApiKeyRateThrottle,
+    is_rate_limit_enabled,
+    team_is_allowed_to_bypass_throttle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
@@ -685,6 +695,36 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
         return listing_rates()
 
 
+class SharingTokenReplayThrottle(SimpleRateThrottle):
+    """Per-token cap for replay endpoints reached via a sharing-token authenticator."""
+
+    scope = "replay_sharing_token"
+
+    def __init__(self) -> None:
+        # Read at instantiation so override_settings takes effect.
+        self.rate = settings.REPLAY_SHARING_TOKEN_RATE
+        super().__init__()
+
+    def get_cache_key(self, request, view) -> str | None:
+        auth = request.successful_authenticator
+        token = getattr(getattr(auth, "sharing_configuration", None), "access_token", None)
+        if not token:
+            return None
+        # Hash the bearer token before composing the key — mirrors PersonalApiKeyRateThrottle.
+        return self.cache_format % {"scope": self.scope, "ident": hash_key_value(token)}
+
+    def allow_request(self, request, view) -> bool:
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            return True
+        if super().allow_request(request, view):
+            return True
+        SESSION_RECORDING_THROTTLED.labels(location=self.scope, auth_type="sharing_token").inc()
+        return False
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -747,6 +787,12 @@ class SessionRecordingViewSet(
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
     def get_throttles(self):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
+            # Sharing-token requests get a per-token cap instead of per-IP / per-team.
+            return [SharingTokenReplayThrottle()]
         if self.action == "list":
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
