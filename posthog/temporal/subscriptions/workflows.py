@@ -268,7 +268,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     previous_value=inputs.previous_value,
                     delivery_id=delivery_id,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                # 15 min ceiling absorbs per-insight snapshot serialization on large
+                # dashboards; the inner Heartbeater keeps Temporal informed so a hung
+                # activity surfaces as heartbeat-timeout rather than burning the full
+                # 15 min × 3 attempts = ~45 min ActivityError before Temporal gives up.
+                start_to_close_timeout=dt.timedelta(minutes=15),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=2),
@@ -372,6 +377,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     change_summary=change_summary,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
+                # Heartbeater inside the activity body keeps Temporal informed during
+                # slow SMTP/Slack calls; without this timeout, a stalled third-party
+                # client burns the full start_to_close on every retry.
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
