@@ -9,7 +9,11 @@ import { expect, Page } from '@playwright/test'
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
 import { SharingConfigurationType } from '../../frontend/src/types'
 import { PlaywrightSetup } from '../utils/playwright-setup'
-import { expectNoTeamScopedApiLeaks, openUnauthenticatedSharedPage } from '../utils/sharedViewExpectations'
+import {
+    expectNoNonGetApiRequests,
+    expectNoTeamScopedApiLeaks,
+    openUnauthenticatedSharedPage,
+} from '../utils/sharedViewExpectations'
 import { test } from '../utils/workspace-test-base'
 
 async function createSharedInsight(
@@ -67,7 +71,8 @@ test.describe('Shared insight (unauthenticated)', () => {
         )
 
         const unauthContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
-        const { unauthPage, failedApiResponses } = await openUnauthenticatedSharedPage(unauthContext)
+        const { unauthPage, failedApiResponses, nonGetApiRequests } =
+            await openUnauthenticatedSharedPage(unauthContext)
 
         try {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
@@ -77,6 +82,7 @@ test.describe('Shared insight (unauthenticated)', () => {
             await expect(unauthPage.locator('[data-attr="insights-graph"]')).toBeVisible({ timeout: 30000 })
 
             expectNoTeamScopedApiLeaks(failedApiResponses)
+            expectNoNonGetApiRequests(nonGetApiRequests)
         } finally {
             await unauthContext.close()
         }

@@ -148,6 +148,37 @@ describe('API helper', () => {
         })
     })
 
+    describe('shared view short-circuit', () => {
+        beforeEach(() => {
+            ;(window as any).POSTHOG_EXPORTED_DATA = { type: 'dashboard', accessToken: 'tok' }
+        })
+        afterEach(() => {
+            ;(window as any).POSTHOG_EXPORTED_DATA = undefined
+        })
+
+        const nonGetVerbs: Array<[string, (url: string) => Promise<unknown>]> = [
+            ['update', (url) => api.update(url, { foo: 'bar' })],
+            ['create', (url) => api.create(url, { foo: 'bar' })],
+            ['put', (url) => api.put(url, { foo: 'bar' })],
+            ['delete', (url) => api.delete(url)],
+        ]
+
+        nonGetVerbs.forEach(([label, verb]) => {
+            it(`synthesizes a 401 for ${label} without hitting fetch in shared view`, async () => {
+                await expect(verb('/api/projects/2/insights/1/')).rejects.toEqual(
+                    expect.objectContaining({ status: 401 })
+                )
+
+                expect(fakeFetch).not.toHaveBeenCalled()
+            })
+        })
+
+        it('still issues GET requests in shared view', async () => {
+            await api.get('/api/projects/2/insights/1/')
+            expect(fakeFetch).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

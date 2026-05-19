@@ -15,10 +15,19 @@ interface RecordedFailure {
     status: number
 }
 
+interface RecordedRequest {
+    method: string
+    url: string
+}
+
 /**
  * Open a Page in the supplied context and record EVERY /api/* response with
  * status >= 400. The recording is unfiltered — what to allow vs flag is the
  * caller's job (see `expectNoTeamScopedApiLeaks` below).
+ *
+ * Also records every non-GET/HEAD /api/* request that was issued — these
+ * should never fire in a /shared/{token} context because the sharing-access
+ * token is read-only on the backend (`SharingAccessTokenAuthentication`).
  *
  * The expected use is to pass a fresh BrowserContext (created with empty
  * storage/cookies) to guarantee a logged-out browser, then assert against the
@@ -27,9 +36,11 @@ interface RecordedFailure {
 export async function openUnauthenticatedSharedPage(context: BrowserContext): Promise<{
     unauthPage: Page
     failedApiResponses: RecordedFailure[]
+    nonGetApiRequests: RecordedRequest[]
 }> {
     const unauthPage = await context.newPage()
     const failedApiResponses: RecordedFailure[] = []
+    const nonGetApiRequests: RecordedRequest[] = []
 
     unauthPage.on('response', (response) => {
         const url = response.url()
@@ -40,7 +51,16 @@ export async function openUnauthenticatedSharedPage(context: BrowserContext): Pr
         failedApiResponses.push({ method: response.request().method(), url, status })
     })
 
-    return { unauthPage, failedApiResponses }
+    unauthPage.on('request', (request) => {
+        const url = request.url()
+        const method = request.method()
+        if (!url.includes('/api/') || method === 'GET' || method === 'HEAD') {
+            return
+        }
+        nonGetApiRequests.push({ method, url })
+    })
+
+    return { unauthPage, failedApiResponses, nonGetApiRequests }
 }
 
 /**
@@ -61,6 +81,24 @@ export function expectNoTeamScopedApiLeaks(failedApiResponses: ReadonlyArray<Rec
     expect(leaked, `Unexpected team-scoped API failures in shared mode:\n${formatFailures(leaked)}`).toEqual([])
 }
 
+/**
+ * Assert that no non-GET/HEAD request was issued to /api/* while the shared
+ * page was rendering. The `handleFetch` short-circuit in `frontend/src/lib/api.ts`
+ * is supposed to synthesize a 401 *before* hitting the network for any
+ * mutation in shared/exporter views; if a request reaches Playwright's
+ * `request` listener it means the guard regressed.
+ */
+export function expectNoNonGetApiRequests(nonGetApiRequests: ReadonlyArray<RecordedRequest>): void {
+    expect(
+        nonGetApiRequests,
+        `Unexpected non-GET API requests in shared mode:\n${formatRequests(nonGetApiRequests)}`
+    ).toEqual([])
+}
+
 function formatFailures(failures: ReadonlyArray<RecordedFailure>): string {
     return failures.map(({ method, status, url }) => `  ${method} ${url} -> ${status}`).join('\n')
+}
+
+function formatRequests(requests: ReadonlyArray<RecordedRequest>): string {
+    return requests.map(({ method, url }) => `  ${method} ${url}`).join('\n')
 }

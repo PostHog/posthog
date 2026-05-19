@@ -6958,15 +6958,31 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+function buildSyntheticSharedViewResponse(): Response {
+    return new Response(JSON.stringify({ detail: 'Shared views may only issue read-only requests.' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+    })
+}
+
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()
 
     let response
     let error
-    try {
-        response = await fetcher()
-    } catch (e) {
-        error = e
+    // Hard guard: shared/exporter bundles render against a sharing-access-token that the
+    // backend (`SharingAccessTokenAuthentication`) accepts for GET/HEAD only. Any non-GET
+    // either omits the token (generic DRF 401) or trips the token's method check.
+    // Resolving with a synthetic 401 before the fetch keeps DRF off the request path and
+    // stops the cascade of captured exceptions on /shared/ URLs.
+    if (isSharedView() && method !== 'GET' && method !== 'HEAD') {
+        response = buildSyntheticSharedViewResponse()
+    } else {
+        try {
+            response = await fetcher()
+        } catch (e) {
+            error = e
+        }
     }
 
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)

@@ -39,6 +39,7 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -197,8 +198,14 @@ export function InsightMeta({
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
-    const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
-    const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
+    // Shared/exporter views render against a read-only sharing token, so any insight
+    // mutation triggered here would 401 — gate the affordances off rather than offer
+    // a control that can't work.
+    const isSharedExporterView = isSharedView()
+    const canToggleDisplayLabels =
+        isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight && !isSharedExporterView
+    const canToggleLegend =
+        isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight && !isSharedExporterView
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -306,16 +313,17 @@ export function InsightMeta({
         />
     ) : null
 
-    const onMetaSave = canEditInsight
-        ? (updates: { name?: string; description?: string }) => {
-              updateInsightDirect(insight, updates)
-              if (updates.description && !tile?.show_description && toggleShowDescription) {
-                  toggleShowDescription()
+    const onMetaSave =
+        canEditInsight && !isSharedExporterView
+            ? (updates: { name?: string; description?: string }) => {
+                  updateInsightDirect(insight, updates)
+                  if (updates.description && !tile?.show_description && toggleShowDescription) {
+                      toggleShowDescription()
+                  }
+                  const attribute = updates.name !== undefined ? 'name' : 'description'
+                  reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
               }
-              const attribute = updates.name !== undefined ? 'name' : 'description'
-              reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
-          }
-        : undefined
+            : undefined
 
     return (
         <>
