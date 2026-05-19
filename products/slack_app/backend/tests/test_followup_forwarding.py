@@ -317,10 +317,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         task = self.Task.objects.get(team=self.team)
-        # Initiator's message leads the description as the prompt
-        assert task.description.startswith("do something")
-        # Thread context is clearly delimited
-        assert "Attached Slack thread context" in task.description
+        # Context is framed up front so the initiator's prompt lands last and stays salient
+        assert task.description.startswith("Attached Slack thread context")
+        assert task.description.endswith("do something")
         # Other thread messages are included as context
         assert "We need to improve the Slack bot prompt." in task.description
         assert "we just need to inject those better" in task.description

@@ -38,12 +38,12 @@ def _build_posthog_code_task_description(
     thread_messages: list[dict[str, str]],
     initiator_ts: str | None,
 ) -> str:
-    """Build the task description so the initiator's @mention is the actionable prompt
-    and the surrounding Slack thread is clearly delimited context.
+    """Build the task description so the surrounding Slack thread is clearly delimited
+    context up front and the initiator's @mention is the actionable prompt at the end.
 
     Concatenating the whole thread as one blob made the agent waste turns figuring out
-    which line was the request vs. background. Splitting them up front means the agent
-    can treat the prompt as the task and the thread as supporting context.
+    which line was the request vs. background. Putting the prompt last — after the
+    framed context — anchors the agent on the actual ask just before it acts.
     """
     prompt = initiator_text.strip() or "Task from Slack"
 
@@ -52,7 +52,7 @@ def _build_posthog_code_task_description(
         msg_text = (msg.get("text") or "").strip()
         if not msg_text:
             continue
-        # Exclude the initiator's own message from the context block; it's the prompt above.
+        # Exclude the initiator's own message from the context block; it's the prompt below.
         # Fall back to a text match when ts is missing (older messages or stubbed inputs).
         if initiator_ts and msg.get("ts") == initiator_ts:
             continue
@@ -65,10 +65,10 @@ def _build_posthog_code_task_description(
 
     context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in context_messages)
     return (
-        f"{prompt}\n\n"
-        "---\n"
-        "Attached Slack thread context (chronological, oldest first; does not repeat the prompt above):\n"
-        f"{context_block}"
+        "Attached Slack thread context (chronological, oldest first; does not repeat the prompt below):\n"
+        f"{context_block}\n"
+        "---\n\n"
+        f"{prompt}"
     )
 
 
