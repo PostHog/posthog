@@ -22,7 +22,7 @@ import {
 } from '../ingestion/session_replay'
 import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer/consumer-v1'
-import { KafkaConsumerV2 } from '../kafka/consumer/consumer-v2'
+import { EachBatchResult, KafkaConsumerV2 } from '../kafka/consumer/consumer-v2'
 import { getBlockEncryptor } from '../session-replay/shared/crypto'
 import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
 import { getKeyStore } from '../session-replay/shared/keystore'
@@ -48,16 +48,6 @@ import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-
-/**
- * Result of processing a batch.
- *
- * `backgroundTask` is the post-batch flush promise — present iff `shouldFlush()` was true
- * at the end of the batch. Structurally compatible with `EachBatchResult` from
- * `KafkaConsumerV2`, so the value can be returned directly to v2 once the consumer swap
- * lands. Under the v1 consumer the caller must await it inline.
- */
-type ProcessBatchResult = { backgroundTask?: Promise<void> } | undefined
 
 /**
  * Configuration for SessionRecordingIngester.
@@ -268,7 +258,7 @@ export class SessionRecordingIngester {
         }
     }
 
-    public async handleEachBatch(messages: Message[]): Promise<ProcessBatchResult> {
+    public async handleEachBatch(messages: Message[]): Promise<EachBatchResult> {
         // v1's KafkaConsumer needs an explicit heartbeat to update its health watchdog.
         // v2 drives heartbeats automatically from its consume loop, so the call is unsafe
         // (no such method) AND unnecessary under v2.
@@ -306,7 +296,7 @@ export class SessionRecordingIngester {
         return undefined
     }
 
-    private async processBatchMessages(messages: Message[]): Promise<ProcessBatchResult> {
+    private async processBatchMessages(messages: Message[]): Promise<EachBatchResult> {
         messages.forEach((message) => {
             SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
         })
@@ -405,7 +395,14 @@ export class SessionRecordingIngester {
         const assignedPartitions = this.assignedTopicPartitions
         await this.kafkaConsumer.disconnect()
 
-        void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
+        // v1's disconnect() does NOT drive a REVOKE through the application, so we have
+        // to clean up buffered state manually here. v2's disconnect() emits the final
+        // REVOKE, which the lifecycle callback already handled before this line — calling
+        // onRevokePartitions again would double-cleanup (currently a no-op only because
+        // assignments() returns [] post-disconnect, but that's a fragile invariant).
+        if (this.kafkaConsumer instanceof KafkaConsumer) {
+            void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
+        }
 
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 

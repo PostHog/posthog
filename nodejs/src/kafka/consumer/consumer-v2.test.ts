@@ -619,7 +619,17 @@ describe('KafkaConsumerV2', () => {
     // === Partition lifecycle callbacks (Stage 1a) ===
 
     it('onPartitionsAssigned: called with the assigned partitions after incrementalAssign', async () => {
-        const onPartitionsAssigned = jest.fn().mockResolvedValue(undefined)
+        // Mirrors the revoke ordering snapshot: capture at-callback-time whether
+        // incrementalAssign has already fired. This catches a regression where the
+        // callback gets reordered to fire BEFORE incrementalAssign — bare
+        // toHaveBeenCalledWith on both mocks would silently pass.
+        const callbackAssignSnapshot: { wasCalled: boolean }[] = []
+        const onPartitionsAssigned = jest.fn().mockImplementation(() => {
+            callbackAssignSnapshot.push({
+                wasCalled: (mockRdKafka.incrementalAssign as jest.Mock).mock.calls.length > 0,
+            })
+            return Promise.resolve()
+        })
         consumer = new KafkaConsumerV2({
             groupId: 'test-group-assigned',
             topic: 'test-topic',
@@ -638,6 +648,8 @@ describe('KafkaConsumerV2', () => {
 
         expect(mockRdKafka.incrementalAssign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
         expect(onPartitionsAssigned).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+        // Callback observed incrementalAssign as already-fired — proves ordering.
+        expect(callbackAssignSnapshot).toEqual([{ wasCalled: true }])
     })
 
     it('onPartitionsAssigned: slow callback blocks the next consume()', async () => {
@@ -752,7 +764,7 @@ describe('KafkaConsumerV2', () => {
         fireRevoke()
         await delay(20)
 
-        expect(onPartitionsRevoked).toHaveBeenCalled()
+        expect(onPartitionsRevoked).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
         expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
 
         callbackGate.resolve()
@@ -775,7 +787,7 @@ describe('KafkaConsumerV2', () => {
         fireRevoke()
         await delay(20)
 
-        expect(onPartitionsRevoked).toHaveBeenCalled()
+        expect(onPartitionsRevoked).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
         expect(captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'revoke boom' }))
     })
@@ -812,6 +824,28 @@ describe('KafkaConsumerV2', () => {
 
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
         expect(captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'flush failed' }))
+    })
+
+    it('backgroundTask contract: backgroundTask exceeding backgroundTaskTimeoutMs skips offsetsStore', async () => {
+        // Force a short timeout so we don't wait the default 60s for the race to fire.
+        ;(consumer as any).backgroundTaskTimeoutMs = 30
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        // Never resolves — guaranteed to trip backgroundTaskTimeoutMs.
+        const stuck = triggerablePromise()
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], stuck.promise)
+
+        // Wait past the timeout.
+        await delay(60)
+
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+        expect(captureException).toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringMatching(/background_task_timeout_after_30ms/) })
+        )
+
+        // Resolve the gate so afterEach can clean up.
+        stuck.resolve()
     })
 })
 
