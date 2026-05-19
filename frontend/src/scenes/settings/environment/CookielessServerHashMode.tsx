@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -59,6 +61,11 @@ export function CookielessServerHashModeSetting(): JSX.Element {
 
     return (
         <>
+            <LemonBanner type="info" className="mb-4">
+                When Cookieless server hash mode is enabled, IP-based transformations like GeoIP enrichment and bot
+                detection will not enrich events. The IP is hashed into the distinct ID and stripped before
+                transformations run.
+            </LemonBanner>
             <LemonRadio value={setting} onChange={setSetting} options={optionsToShow} />
             <div className="mt-4">
                 <LemonButton
