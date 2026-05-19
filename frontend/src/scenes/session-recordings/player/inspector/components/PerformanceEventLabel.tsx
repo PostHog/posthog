@@ -1,5 +1,9 @@
+import { useValues } from 'kea'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { miniFiltersLogic } from '../miniFiltersLogic'
 
 export function PerformanceEventLabel({
     label,
@@ -10,6 +14,8 @@ export function PerformanceEventLabel({
     name: string | undefined
     label?: string | undefined
 }): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
+
     if (expanded) {
         return (
             <span className="flex-1 overflow-hidden">
@@ -26,7 +32,7 @@ export function PerformanceEventLabel({
     }
 
     return (
-        <Tooltip title={name} placement="top">
+        <Tooltip title={showLineTooltips ? name : undefined}>
             <span className="flex-1 overflow-hidden truncate">
                 {label}
                 {name}

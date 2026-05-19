@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
@@ -10,6 +11,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
+import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemLog } from '../playerInspectorLogic'
 
 export interface ItemLogProps {
@@ -29,12 +31,13 @@ const levelColors: Record<string, string> = {
 }
 
 export function ItemLog({ item, groupCount }: ItemLogProps): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
     const count = groupCount ?? 1
     const showBadge = count > 1
 
     return (
         <div className="w-full font-light flex items-center" data-attr="item-log">
-            <Tooltip title={item.data.body} placement="top">
+            <Tooltip title={showLineTooltips ? item.data.body : undefined}>
                 <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1 flex items-center gap-2">
                     <span
                         className={clsx(
