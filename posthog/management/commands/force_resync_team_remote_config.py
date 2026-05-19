@@ -68,7 +68,11 @@ class Command(BaseCommand):
         failed = 0
         for team in Team.objects.filter(id__in=target_ids):
             try:
-                remote_config, _ = RemoteConfig.objects.get_or_create(team=team)
+                try:
+                    remote_config = RemoteConfig.objects.get(team=team)
+                except RemoteConfig.DoesNotExist:
+                    # `config` is NOT NULL; sync() populates it before saving.
+                    remote_config = RemoteConfig(team=team)
                 remote_config.sync(force=True)
                 succeeded += 1
                 self.stdout.write(

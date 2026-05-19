@@ -588,7 +588,13 @@ class TeamAdmin(admin.ModelAdmin):
         # bailed out via the "no_changes" short-circuit, or a Celery task
         # silently dropped the update).
         try:
-            remote_config, _ = RemoteConfig.objects.get_or_create(team=team)
+            try:
+                remote_config = RemoteConfig.objects.get(team=team)
+            except RemoteConfig.DoesNotExist:
+                # `config` is NOT NULL, so we can't create+save here without a
+                # value. `sync()` populates `self.config` and saves itself, so
+                # an unsaved instance is the right shape to hand it.
+                remote_config = RemoteConfig(team=team)
             remote_config.sync(force=True)
             messages.success(
                 request,
