@@ -510,6 +510,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             shouldRunQuery,
         }),
         onRejectSuggestedQueryInput: true,
+        prettifyQuery: true,
         reportAIQueryPrompted: true,
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
@@ -848,6 +849,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             reportAIQueryPromptOpen: () => {
                 posthog.capture('ai_query_prompt_open')
+            },
+            prettifyQuery: () => {
+                // Route through Monaco's formatDocument so it shares the
+                // undo/redo, cursor restoration, and provider machinery used
+                // by Shift+Alt+F and the right-click "Format document" menu
+                // item. The actual formatting is performed by the
+                // `hogQLFormattingProvider` registered in initHogQLLanguage.
+                const editor = props.editor
+                if (!editor) {
+                    return
+                }
+                editor.focus()
+                editor.trigger('sql-editor-prettify-button', 'editor.action.formatDocument', null)
             },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor

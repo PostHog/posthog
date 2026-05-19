@@ -1,6 +1,6 @@
 import type { ASTNode } from '@posthog/hogql-parser'
 
-import { parseSelect } from './hogqlParserSingleton'
+import { type FormatResult, formatSelect, parseSelect } from './hogqlParserSingleton'
 
 export interface QueryRange {
     /** The SQL text of this individual statement */
@@ -122,6 +122,40 @@ export function splitQueries(input: string): QueryRange[] {
     }
 
     return ranges
+}
+
+/**
+ * Pretty-print a full editor document that may contain several `;`-separated
+ * statements. Each statement is formatted independently by the WASM formatter
+ * and the results are rejoined with `;` separators.
+ *
+ * All-or-nothing: if any statement isn't a well-formed SELECT, the whole
+ * document is left untouched (`ok: false`). This keeps offsets predictable —
+ * we never reformat statements 1 and 3 while leaving a broken statement 2 in
+ * place, shifting everything around it.
+ *
+ * The trailing `;` is preserved only if the original input had one; inter-
+ * statement separators are always re-emitted. Comments between statements are
+ * not preserved (a known limitation of the formatter).
+ */
+export async function formatQueries(input: string): Promise<FormatResult> {
+    const segments = splitQueries(input)
+    if (segments.length === 0) {
+        return { ok: false, error: 'empty input' }
+    }
+
+    const formatted: string[] = []
+    for (const segment of segments) {
+        const result = await formatSelect(segment.query)
+        if (!result.ok) {
+            return result
+        }
+        formatted.push(result.output)
+    }
+
+    const endsWithSemicolon = /;\s*$/.test(input)
+    const joined = formatted.join(';\n\n')
+    return { ok: true, output: endsWithSemicolon ? joined + ';' : joined }
 }
 
 /**

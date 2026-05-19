@@ -42,3 +42,12 @@ export async function parseStringLiteralText(input: string): Promise<string> {
     const parser = await getParser()
     return parser.parseStringLiteralText(input)
 }
+
+export type FormatResult = { ok: true; output: string } | { ok: false; error: string }
+
+/** Pretty-print a SELECT query. Returns the parsed FormatResult — the caller
+ *  is expected to leave the user's text alone when `ok` is false. */
+export async function formatSelect(input: string): Promise<FormatResult> {
+    const parser = await getParser()
+    return JSON.parse(parser.formatSelect(input)) as FormatResult
+}

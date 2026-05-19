@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconMagicWand, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -76,6 +76,7 @@ export function QueryWindow({
         activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
+        metadata,
     } = useValues(logic)
 
     const {
@@ -87,6 +88,7 @@ export function QueryWindow({
         setMetadataLoading,
         setSendRawQuery,
         openMaterializationModal,
+        prettifyQuery,
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
@@ -194,6 +196,7 @@ export function QueryWindow({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
+                        <PrettifyButton queryInput={queryInput} metadata={metadata} onClick={prettifyQuery} />
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
@@ -452,4 +455,39 @@ function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQ
     }
 
     return <ConnectionSelector tabId={tabId} />
+}
+
+function PrettifyButton({
+    queryInput,
+    metadata,
+    onClick,
+}: {
+    queryInput: string | null
+    metadata: { isValid?: boolean } | null
+    onClick: () => void
+}): JSX.Element {
+    const isEmpty = !queryInput || queryInput.trim().length === 0
+    // `isValid === false` is a definitive parse error from the metadata
+    // endpoint; treat anything else (undefined, true, no metadata yet) as
+    // "give it a try" — the formatter itself silently no-ops on parse failure.
+    const hasParseError = metadata?.isValid === false
+    const disabledReason = isEmpty
+        ? 'Nothing to format'
+        : hasParseError
+          ? "Can't format — query has syntax errors"
+          : undefined
+
+    return (
+        <LemonButton
+            data-attr="sql-editor-prettify-button"
+            type="secondary"
+            size="small"
+            icon={<IconMagicWand />}
+            onClick={onClick}
+            disabledReason={disabledReason}
+            tooltip="Reformat the query (Shift+Alt+F)"
+        >
+            Prettify
+        </LemonButton>
+    )
 }

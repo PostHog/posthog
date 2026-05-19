@@ -132,7 +132,39 @@ export interface HogQLParser {
      * ```
      */
     parseStringLiteralText(input: string): string
+
+    /**
+     * Pretty-print a SELECT statement (or selectSetStmt — including
+     * UNION/INTERSECT/EXCEPT). Best-effort formatter intended for one-shot
+     * reformatting (e.g. on paste), not as-you-type. Comments are not
+     * preserved in this version.
+     *
+     * Returns a JSON string with one of two shapes:
+     *   - `{"ok": true, "output": "<formatted SQL>"}` on success
+     *   - `{"ok": false, "error": "<message>"}` if the input is not a
+     *     well-formed select statement, or if the formatter hit an internal
+     *     error. Callers should leave the user's text unchanged when
+     *     `ok` is false.
+     *
+     * @param input - The SQL text to format
+     * @returns JSON string describing the outcome
+     *
+     * @example
+     * ```typescript
+     * const raw = parser.formatSelect('select a,b from events where x=1');
+     * const result: FormatResult = JSON.parse(raw);
+     * if (result.ok) {
+     *   console.log(result.output);
+     * }
+     * ```
+     */
+    formatSelect(input: string): string
 }
+
+/**
+ * Result of `parser.formatSelect()` after JSON.parse.
+ */
+export type FormatResult = { ok: true; output: string } | { ok: false; error: string }
 
 /**
  * Factory function to create a HogQL Parser instance

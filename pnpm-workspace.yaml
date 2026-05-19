@@ -1,6 +1,7 @@
 packages:
     - '.'
     - common/esbuilder
+    - common/hogql_parser
     - common/hogvm/typescript
     - common/plugin_transpiler
     - common/storybook

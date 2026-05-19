@@ -130,3 +130,27 @@ createHogQLParser().then((parser) => {
   const ast = JSON.parse(parser.parseExpr('1 + 2'))
 })
 ```
+
+## Formatter (`parser_format.cpp`)
+
+In addition to the JSON-AST parsing entry points, the WASM build exposes a
+pretty-printer for SELECT statements via `parser.formatSelect(input)`. It
+walks the ANTLR parse tree and emits indented, keyword-uppercased SQL.
+
+Phase-1 scope:
+
+- Top-level clauses (WITH/SELECT/FROM/JOIN/WHERE/GROUP BY/HAVING/QUALIFY/
+  WINDOW/ORDER BY/LIMIT/SETTINGS) on their own lines with consistent indent.
+- Each JOIN on its own line; ON/USING constraint indented one level further.
+- SELECT lists with more than three columns broken one-per-line.
+- Set operations (UNION/INTERSECT/EXCEPT) on their own lines.
+- Subqueries indented inside their parentheses.
+- Hog program statements and HogQLX tag elements are emitted verbatim from
+  the source slice — no structural reformatting in v1.
+- Comments are not preserved (the JSON AST path drops them, and the
+  formatter does not yet read the hidden token channel). Adding comment
+  preservation is a future iteration.
+
+The entry point is non-throwing: any parser error or internal exception is
+returned as `{ "ok": false, "error": "..." }`. Callers should leave the
+user's text unchanged when `ok` is false.

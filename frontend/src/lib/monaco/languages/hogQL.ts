@@ -3,6 +3,7 @@ import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLFormattingProvider } from 'lib/monaco/hogQLFormattingProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
@@ -878,5 +879,10 @@ export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguag
         monaco.languages.setMonarchTokensProvider(lang, language())
         monaco.languages.registerCompletionItemProvider(lang, hogQLAutocompleteProvider(lang))
         monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider())
+        if (lang === HogLanguage.hogQL) {
+            // Only the full hogQL dialect supports full SELECT formatting; the
+            // expression-only variants would always fail parse-as-select.
+            monaco.languages.registerDocumentFormattingEditProvider(lang, hogQLFormattingProvider())
+        }
     }
 }

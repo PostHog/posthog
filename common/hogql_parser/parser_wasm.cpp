@@ -19,6 +19,10 @@ using namespace emscripten;
 // Include the core parser implementation
 #include "parser_json.cpp"
 
+// Forward declaration of the formatter entry point (defined in
+// parser_format.cpp, compiled as part of the hogql_parser library).
+std::string format_hogql_select(const std::string& input);
+
 // ERROR HANDLING FOR WASM
 
 class HogQLErrorListener : public antlr4::BaseErrorListener {
@@ -239,6 +243,19 @@ string parse_string_literal_text_wasm(const string& input) {
   }
 }
 
+/**
+ * Pretty-print a SELECT statement. Returns a JSON string of either
+ *   {"ok": true, "output": "<formatted>"}
+ * or
+ *   {"ok": false, "error": "<message>"}
+ *
+ * Errors here are non-fatal — the JS caller is expected to leave the user's
+ * text alone when ok is false.
+ */
+string format_select_wasm(const string& input) {
+  return format_hogql_select(input);
+}
+
 // EMSCRIPTEN BINDINGS
 
 EMSCRIPTEN_BINDINGS(hogql_parser) {
@@ -248,4 +265,5 @@ EMSCRIPTEN_BINDINGS(hogql_parser) {
   emscripten::function("parseFullTemplateString", &parse_full_template_string);
   emscripten::function("parseProgram", &parse_program);
   emscripten::function("parseStringLiteralText", &parse_string_literal_text_wasm);
+  emscripten::function("formatSelect", &format_select_wasm);
 }

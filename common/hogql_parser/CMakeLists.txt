@@ -33,6 +33,7 @@ set(PARSER_SOURCES
     json.cpp
     error.cpp
     string.cpp
+    parser_format.cpp
 )
 
 add_library(
