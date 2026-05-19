@@ -2630,12 +2630,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        saved_survey = self.get_object()
+
         serializer = GenerateSurveyTranslationsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         survey = data.get("survey")
         if survey is None:
-            saved_survey = self.get_object()
             survey = {
                 "name": saved_survey.name,
                 "description": saved_survey.description,

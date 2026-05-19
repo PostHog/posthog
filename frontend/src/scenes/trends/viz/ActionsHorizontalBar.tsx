@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { formatAggregationAxisValueWithShareOfTotal } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -28,6 +30,7 @@ export function ActionsHorizontalBar({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps } = useValues(insightLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -94,6 +97,8 @@ export function ActionsHorizontalBar({
             tooltip={{
                 showHeader: false,
                 groupTypeLabel: context?.groupTypeLabel,
+                renderCount: (value: number): string =>
+                    formatAggregationAxisValueWithShareOfTotal(trendsFilter, value, total, baseCurrency),
             }}
             labelGroupType={labelGroupType}
             datasets={data}
