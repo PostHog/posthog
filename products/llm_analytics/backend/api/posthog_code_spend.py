@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 
 import structlog
 from drf_spectacular.utils import extend_schema
@@ -26,6 +27,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
+from posthog.rate_limit import (
+    PostHogCodeSpendBurstThrottle,
+    PostHogCodeSpendDailyThrottle,
+    PostHogCodeSpendSustainedThrottle,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -39,9 +45,15 @@ MIN_DAYS = 1
 MAX_DAYS = 90
 DEFAULT_DAYS = 30
 
+CACHE_TIMEOUT_SECONDS = 300
+
 
 def _internal_team_id() -> int:
     return settings.POSTHOG_CODE_ANALYTICS_TEAM_ID
+
+
+def _cache_key(distinct_id: str, days: int) -> str:
+    return f"posthog_code_spend:{distinct_id}:{days}"
 
 
 class _SpendQueryParamsSerializer(serializers.Serializer):
@@ -51,6 +63,11 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         max_value=MAX_DAYS,
         default=DEFAULT_DAYS,
         help_text=f"Lookback window in days for the spend analysis ({MIN_DAYS}-{MAX_DAYS}). Defaults to {DEFAULT_DAYS}.",
+    )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
 
 
@@ -375,6 +392,13 @@ class PostHogCodeSpendViewSet(viewsets.ViewSet):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_throttles(self):
+        return [
+            PostHogCodeSpendBurstThrottle(),
+            PostHogCodeSpendSustainedThrottle(),
+            PostHogCodeSpendDailyThrottle(),
+        ]
+
     @extend_schema(
         parameters=[_SpendQueryParamsSerializer],
         responses={
@@ -398,6 +422,15 @@ class PostHogCodeSpendViewSet(viewsets.ViewSet):
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         days = params.validated_data["days"]
+        refresh = params.validated_data["refresh"]
+
+        distinct_id = user.distinct_id or str(user.uuid)
+        cache_key = _cache_key(distinct_id, days)
+
+        if not refresh:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached, status=status.HTTP_200_OK)
 
         team_id = _internal_team_id()
         try:
@@ -414,5 +447,6 @@ class PostHogCodeSpendViewSet(viewsets.ViewSet):
             "top_traces": _fetch_top_traces(team, email, days),
         }
 
-        response_serializer = TokenSpendAnalysisResponseSerializer(payload)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
+        response_data = TokenSpendAnalysisResponseSerializer(payload).data
+        cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)
+        return Response(response_data, status=status.HTTP_200_OK)

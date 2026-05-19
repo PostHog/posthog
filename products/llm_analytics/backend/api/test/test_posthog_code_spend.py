@@ -199,3 +199,27 @@ class TestPostHogCodeSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # All 5 fetchers should pass `days=7` through to the query layer.
         assert mock_exec.call_count == 5
+
+    def test_second_call_serves_from_cache(self) -> None:
+        with patch("products.llm_analytics.backend.api.posthog_code_spend.execute_hogql_query") as mock_exec:
+            mock_exec.return_value.results = []
+            self.client.get("/api/llm_analytics/posthog_code_spend/")
+            first_call_count = mock_exec.call_count
+            self.client.get("/api/llm_analytics/posthog_code_spend/")
+            assert mock_exec.call_count == first_call_count
+
+    def test_refresh_bypasses_cache(self) -> None:
+        with patch("products.llm_analytics.backend.api.posthog_code_spend.execute_hogql_query") as mock_exec:
+            mock_exec.return_value.results = []
+            self.client.get("/api/llm_analytics/posthog_code_spend/")
+            first_call_count = mock_exec.call_count
+            self.client.get("/api/llm_analytics/posthog_code_spend/?refresh=true")
+            assert mock_exec.call_count == first_call_count * 2
+
+    def test_cache_key_includes_days(self) -> None:
+        with patch("products.llm_analytics.backend.api.posthog_code_spend.execute_hogql_query") as mock_exec:
+            mock_exec.return_value.results = []
+            self.client.get("/api/llm_analytics/posthog_code_spend/?days=7")
+            calls_after_first = mock_exec.call_count
+            self.client.get("/api/llm_analytics/posthog_code_spend/?days=30")
+            assert mock_exec.call_count == calls_after_first * 2
