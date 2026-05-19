@@ -21,6 +21,7 @@ import type {
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
+    PatchedAccountApi,
     PatchedGroupUsageMetricApi,
 } from './api.schemas'
 
@@ -82,6 +83,64 @@ export const accountsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(accountApi),
+    })
+}
+
+export const getAccountsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/accounts/${id}/`
+}
+
+export const accountsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AccountApi> => {
+    return apiMutator<AccountApi>(getAccountsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/accounts/${id}/`
+}
+
+export const accountsUpdate = async (
+    projectId: string,
+    id: string,
+    accountApi: NonReadonly<AccountApi>,
+    options?: RequestInit
+): Promise<AccountApi> => {
+    return apiMutator<AccountApi>(getAccountsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountApi),
+    })
+}
+
+export const getAccountsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/accounts/${id}/`
+}
+
+export const accountsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAccountApi?: NonReadonly<PatchedAccountApi>,
+    options?: RequestInit
+): Promise<AccountApi> => {
+    return apiMutator<AccountApi>(getAccountsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAccountApi),
+    })
+}
+
+export const getAccountsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/accounts/${id}/`
+}
+
+export const accountsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
