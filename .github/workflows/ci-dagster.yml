@@ -236,6 +236,11 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  # Retry transient image-pull failures (TLS handshake timeouts,
+                  # registry-1.docker.io / docker.redpanda.com flakes) so a single
+                  # blip doesn't sink the whole shard. Matches ci-backend/ci-nodejs/ci-rust.
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
 
