@@ -67,6 +67,14 @@ export interface JoinedIngestionPipelineConfig {
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
+    /**
+     * Maximum number of batches the BatchingPipeline will accept concurrently.
+     * Sourced from `INGESTION_WORKER_CONCURRENT_BATCHES` and MUST match the
+     * Rust consumer's per-worker `Semaphore` capacity — divergence causes
+     * either idle capacity (consumer under-limits) or HTTP 503s
+     * (`ingestion_api_batch_capacity_rejections_total`).
+     */
+    concurrentBatches: number
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -125,6 +133,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         splitAiEventsConfig,
         perDistinctIdOptions,
+        concurrentBatches,
     } = config
 
     const {
@@ -223,6 +232,9 @@ export function createJoinedIngestionPipeline<
                 .pipe(createFlushEventFiltersBatchAppMetricsStep()),
         // Batch stores (personsStore, groupStore) are singletons that don't support
         // concurrent batches yet — they accumulate state across events and flush once.
-        { concurrentBatches: 1 }
+        // The Rust consumer's per-worker Semaphore caps in-flight batches at the
+        // same value (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as
+        // HTTP 503s in `ingestion_api_batch_capacity_rejections_total`.
+        { concurrentBatches }
     )
 }

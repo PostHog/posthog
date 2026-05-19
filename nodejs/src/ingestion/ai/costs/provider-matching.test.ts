@@ -105,12 +105,12 @@ describe('resolveProviderAliases()', () => {
             expect(resolveProviderAliases('x-ai')).toBe('xai')
         })
 
-        it('resolves "grok-fast" to "xai-fast"', () => {
-            expect(resolveProviderAliases('grok-fast')).toBe('xai-fast')
+        it('resolves "grok-fast" to "xai"', () => {
+            expect(resolveProviderAliases('grok-fast')).toBe('xai')
         })
 
-        it('resolves "xai-turbo" to "xai-fast"', () => {
-            expect(resolveProviderAliases('xai-turbo')).toBe('xai-fast')
+        it('resolves "xai-turbo" to "xai"', () => {
+            expect(resolveProviderAliases('xai-turbo')).toBe('xai')
         })
     })
 

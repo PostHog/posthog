@@ -210,6 +210,76 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 
+        @parameterized.expand(
+            [
+                ("logical_not", "let x := !y", "U+0021"),
+                ("logical_not_in_condition", "if (!country) { return 1 }", "U+0021"),
+                ("logical_and", "let x := a && b", "U+0026"),
+                ("bitwise_and", "let x := a & b", "U+0026"),
+                ("stray_at_sign", "let x := a @ b", "U+0040"),
+                ("zero_width_space", "let x :=​y", "U+200B"),
+                ("zero_width_joiner", "let x := a‍b", "U+200D"),
+            ]
+        )
+        def test_unexpected_character_rejected(self, _name: str, program: str, code_point: str):
+            # A character no lexer rule matches — a JavaScript `!`, `&&`, a
+            # zero-width space, any stray byte — lexes as the catch-all
+            # UNEXPECTED_CHARACTER token. No parser rule references it, so
+            # the program fails loudly instead of the lexer silently
+            # dropping the character via error recovery and the rest
+            # parsing as a different, valid-looking program. The error
+            # names the offending character by Unicode code point — the
+            # only actionable signal when the character is invisible.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._program(program)
+            self.assertIn(code_point, str(caught.exception))
+
+        def test_zero_width_character_allowed_inside_string(self):
+            # The catch-all only fires outside string literals — a
+            # zero-width character is ordinary content within a string.
+            self._program("let x := 'a​b'")
+
+        @parameterized.expand(
+            [
+                ("not_equals", "a != b"),
+                ("not_regex", "a !~ b"),
+                ("concat", "a || b"),
+                ("nullish_coalesce", "a ?? b"),
+            ]
+        )
+        def test_multi_character_operators_still_parse(self, _name: str, expr: str):
+            # The catch-all is a last-resort fallback: maximal munch keeps
+            # genuine multi-character operators whose first byte would
+            # otherwise be unrecognized (`!=`, `!~`) intact.
+            self._expr(expr)
+
+        @parameterized.expand(
+            [
+                ("no_break_space", " "),
+                ("next_line", ""),
+                ("ogham_space_mark", " "),
+                ("en_space", " "),
+                ("line_separator", " "),
+                ("paragraph_separator", " "),
+                ("narrow_no_break_space", " "),
+                ("medium_mathematical_space", " "),
+                ("ideographic_space", "　"),
+            ]
+        )
+        def test_unicode_whitespace_separates_tokens(self, _name: str, space: str):
+            # A Unicode whitespace character — routinely pasted in from
+            # rich editors or documents — is genuine whitespace. It must
+            # keep separating tokens and produce the same AST as an
+            # ordinary space, NOT fall through to UNEXPECTED_CHARACTER and
+            # fail the parse. Checked both between statements and inside
+            # an expression.
+            self.assertEqual(self._program(f"let x :={space}1"), self._program("let x := 1"))
+            self.assertEqual(self._expr(f"1{space}+{space}2"), self._expr("1 + 2"))
+
+        def test_byte_order_mark_does_not_break_parse(self):
+            # A file saved with a leading UTF-8 byte-order mark still parses.
+            self.assertEqual(self._program("﻿let x := 1"), self._program("let x := 1"))
+
         def test_booleans(self):
             self.assertEqual(self._expr("true"), ast.Constant(value=True))
             self.assertEqual(self._expr("TRUE"), ast.Constant(value=True))
@@ -2273,6 +2343,12 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(parsed.limit, ast.Constant(value=3))
             self.assertEqual(parsed.offset, ast.Constant(value=5))
 
+            # A placeholder select body has no node to carry a set-level LIMIT/OFFSET, so both backends drop the clause.
+            placeholder = ast.Placeholder(expr=ast.Field(chain=["foo"]))
+            for query in ("{foo} offset 1", "{foo} limit 2", "{foo} limit 2 offset 3"):
+                with self.subTest(query=query):
+                    self.assertEqual(self._select(query), placeholder)
+
         def test_select_placeholders(self):
             self.assertEqual(
                 self._select("select 1 where 1 == {hogql_val_1}"),
@@ -3409,6 +3485,44 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ],
             )
             self.assertEqual(program, expected)
+
+        def test_program_exprstmt_routes_assignment_vs_expression(self):
+            # `:=` present yields a VariableAssignment for any expression target; otherwise an ExprStatement.
+            declarations = self._program("a := 1; o.a := 2; arr[1] := 3; (x) := 9; foo();").declarations
+            self.assertEqual(
+                [type(declaration).__name__ for declaration in declarations],
+                [
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "ExprStatement",
+                ],
+            )
+
+        def test_named_argument_in_call_not_treated_as_assignment(self):
+            # A named argument inside a call stays a NamedArgument; only a statement-level one is promoted.
+            call = self._expr("f(x := 1)")
+            # `assert isinstance` rather than `assertIsInstance` so mypy narrows the type.
+            assert isinstance(call, ast.Call)
+            assert isinstance(call.args[0], ast.NamedArgument)
+            self.assertEqual(call.args[0].name, "x")
+            declaration = self._program("f(x := 1);").declarations[0]
+            assert isinstance(declaration, ast.ExprStatement)
+
+        def test_parenthesized_named_arg_is_an_expression_statement(self):
+            # `(x := 9)` is a parenthesised named-argument expression, not a statement-level
+            # assignment; the fold does not unwrap parens, so both backends agree.
+            for code in ("(x := 9);", "((y := 2));"):
+                assert isinstance(self._program(code).declarations[0], ast.ExprStatement)
+
+        def test_promoted_assignment_target_carries_position(self):
+            # The Field synthesised for a bare-identifier assignment target carries the
+            # identifier's source position, matching a non-folded target.
+            assignment = parse_program("xyz := 1", backend=backend).declarations[0]
+            assert isinstance(assignment, ast.VariableAssignment)
+            assert assignment.left.start is not None
+            assert assignment.left.end is not None
 
         def test_program_variable_declarations_with_sql_expr(self):
             code = """

@@ -358,7 +358,7 @@ export function DefaultRoleSelector(): JSX.Element {
                 value={currentOrganization?.default_role_id || null}
                 onChange={(value) => {
                     guardAvailableFeature(
-                        AvailableFeature.ADVANCED_PERMISSIONS,
+                        AvailableFeature.ROLE_BASED_ACCESS,
                         updateOrganization.bind(null, { default_role_id: value })
                     )
                 }}

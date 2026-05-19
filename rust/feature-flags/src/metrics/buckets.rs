@@ -60,6 +60,16 @@ const INMEM_LOAD_BUCKETS_MS: &[f64] = &[
     0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 5000.0, 10000.0,
 ];
 
+// HyperCache S3 read. Network-bound: warm S3 reads sit in the 5-50ms
+// band, so the sub-ms buckets that `INMEM_LOAD_BUCKETS_MS` carries for
+// Redis would be permanently empty here. 1ms floor still captures
+// immediate errors (short-circuit before any network call) without
+// losing them in an unbounded `<le_inf>` bucket. 10s ceiling covers the
+// 3s `s3_timeout` plus headroom for the post-timeout emission.
+const S3_OP_BUCKETS_MS: &[f64] = &[
+    1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
+];
+
 /// Returns the bucket-override matrix for the feature-flags recorder.
 ///
 /// `Matcher::Suffix` is used for `_queue_time_ms` / `_pre_handler_time_ms`
@@ -105,6 +115,14 @@ pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
         (
             Matcher::Full("flags_definitions_inmem_load_ms".into()),
             INMEM_LOAD_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("posthog_hypercache_redis_op_ms".into()),
+            INMEM_LOAD_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("posthog_hypercache_s3_op_ms".into()),
+            S3_OP_BUCKETS_MS,
         ),
     ]
 }
