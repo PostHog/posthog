@@ -2311,34 +2311,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         return Response(list(uuids))
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "date_from",
-                OpenApiTypes.DATETIME,
-                required=False,
-                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
-            ),
-            OpenApiParameter(
-                "date_to",
-                OpenApiTypes.DATETIME,
-                required=False,
-                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
-            ),
-        ],
-        responses={
-            200: inline_serializer(
-                name="SurveyGlobalStatsResponse",
-                fields={
-                    "stats": serializers.DictField(
-                        help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
-                    ),
-                    "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
-                },
-            )
-        },
-    )
-    @extend_schema(operation_id="surveys_global_stats_retrieve")
-    @extend_schema(
         operation_id="surveys_question_labels",
         description=(
             "Return a slim list of question labels for the team's surveys. Used by the frontend to resolve "
@@ -2375,7 +2347,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     )
     @action(methods=["GET"], detail=False, url_path="question_labels", required_scopes=["survey:read"])
     def question_labels(self, request: request.Request, **kwargs) -> Response:
-        queryset = self.safely_get_queryset(self.get_queryset()).only("id", "name", "questions")
+        # Custom (non-`list`) actions skip the routing layer's automatic access-level filter,
+        # so apply it explicitly here — otherwise a user with access to only one survey would
+        # receive labels for every survey in the team.
+        queryset = self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).only(
+            "id", "name", "questions"
+        )
         labels: list[dict[str, Any]] = []
         for survey in queryset.iterator(chunk_size=200):
             questions = survey.questions or []
@@ -2398,6 +2375,34 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 )
         return Response({"labels": labels})
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATETIME,
+                required=False,
+                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATETIME,
+                required=False,
+                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="SurveyGlobalStatsResponse",
+                fields={
+                    "stats": serializers.DictField(
+                        help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
+                    ),
+                    "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
+                },
+            )
+        },
+    )
+    @extend_schema(operation_id="surveys_global_stats_retrieve")
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
         """Get aggregated response statistics across all surveys.
