@@ -16,6 +16,7 @@ from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 from django.utils.text import slugify
 
+import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
@@ -61,6 +62,22 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+
+PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
+
+
+def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
+    distinct_id = user.distinct_id or str(user.uuid)
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    return posthoganalytics.feature_enabled(
+        PROMPT_EXPERIMENTS_FEATURE_FLAG,
+        distinct_id,
+        groups={"organization": organization_id, "project": project_id},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
 
 
 def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
@@ -480,6 +497,9 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
+        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
+            return Response({"detail": "Not found."}, status=404)
+
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -556,6 +576,9 @@ class EnterpriseExperimentsViewSet(
     )
     def prompt_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the LLM metric templates that can be passed to `create_from_prompt`."""
+        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
+            return Response({"detail": "Not found."}, status=404)
+
         return Response(list_templates())
 
     @extend_schema(
