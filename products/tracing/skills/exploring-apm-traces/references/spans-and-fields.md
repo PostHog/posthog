@@ -1,6 +1,6 @@
 # APM span field reference
 
-Fields returned by `apm-trace-get` and `query-apm-spans`. Backing column is `posthog.trace_spans`.
+Fields returned by `apm-trace-get` and `query-apm-spans`.
 
 ## Span fields
 

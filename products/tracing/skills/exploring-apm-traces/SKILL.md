@@ -15,14 +15,15 @@ PostHog captures distributed traces from OpenTelemetry. Each trace is a tree of 
 
 ## Available tools
 
-| Tool                                | Purpose                                       |
-| ----------------------------------- | --------------------------------------------- |
-| `posthog:query-apm-spans`           | Search and filter spans (compact list view)   |
-| `posthog:apm-trace-get`             | Get the full span list for one hex `trace_id` |
-| `posthog:apm-services-list`         | List distinct service names                   |
-| `posthog:apm-attributes-list`       | List span or resource attribute keys          |
-| `posthog:apm-attribute-values-list` | List values for a specific attribute key      |
-| `posthog:execute-sql`               | Ad-hoc HogQL against `posthog.trace_spans`    |
+| Tool                                | Purpose                                           |
+| ----------------------------------- | ------------------------------------------------- |
+| `posthog:query-apm-spans`           | Search and filter spans (compact list view)       |
+| `posthog:apm-trace-get`             | Get the full span list for one hex `trace_id`     |
+| `posthog:apm-spans-aggregate`       | Per-operation aggregates (count, p50/p95, errors) |
+| `posthog:apm-spans-tree`            | Call-tree aggregates per `(parent, child)` edge   |
+| `posthog:apm-services-list`         | List distinct service names                       |
+| `posthog:apm-attributes-list`       | List span or resource attribute keys              |
+| `posthog:apm-attribute-values-list` | List values for a specific attribute key          |
 
 See [references/spans-and-fields.md](./references/spans-and-fields.md) for the response schema and the `kind`/`status_code` enums.
 
@@ -116,7 +117,7 @@ To rebuild the tree:
 The trace payload **does not contain attributes** — only the span's built-in fields. To filter or search by attributes:
 
 1. Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys and values.
-2. Re-issue `query-apm-spans` with a `filterGroup` entry of type `span_attribute` or `span_resource_attribute` (see [example-apm-trace.md](./references/example-apm-trace.md) for HogQL templates).
+2. Re-issue `query-apm-spans` with a `filterGroup` entry of type `span_attribute` or `span_resource_attribute`.
 
 ## Constructing UI links
 
@@ -210,4 +211,4 @@ results (array of span dicts)
 - Always include the `_posthogUrl` in your response so the user can click through.
 - Attributes are not in the `apm-trace-get` payload — use `apm-attribute-values-list` for those.
 - `is_root_span` is the cheap way to find the trace entry — don't string-match `00000000…`.
-- For aggregates the MCP tools don't cover (p95 by service, joining `trace_spans` to `trace_attributes`), see [references/example-apm-trace.md](./references/example-apm-trace.md).
+- For aggregates (p95 by operation, slowest children of a span), use `apm-spans-aggregate` for a flat view or `apm-spans-tree` for parent→child edges — don't reach for SQL.
