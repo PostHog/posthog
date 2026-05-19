@@ -1599,6 +1599,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: sourceQueryToSave,
                     saved: true,
+                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -1698,10 +1699,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 const insightName = values.activeTab?.name
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
+                const dashboardIdForRequest = values.dashboardId
+                const existingDashboards = values.editingInsight.dashboards ?? []
+                const dashboardsForRequest: number[] | undefined =
+                    dashboardIdForRequest != null && !existingDashboards.includes(dashboardIdForRequest)
+                        ? [...existingDashboards, dashboardIdForRequest]
+                        : undefined
 
                 const insightRequest: Partial<QueryBasedInsightModel> = {
                     name: insightName ?? values.editingInsight.name,
                     query: currentVisualizationQuery,
+                    ...(dashboardsForRequest ? { dashboards: dashboardsForRequest } : {}),
                 }
 
                 let savedInsight: QueryBasedInsightModel

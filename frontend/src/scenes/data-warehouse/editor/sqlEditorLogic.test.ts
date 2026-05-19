@@ -1274,4 +1274,165 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
     })
+
+    describe('dashboard query param attaches insight to dashboard on save', () => {
+        const DASHBOARD_ID = 42
+
+        beforeEach(() => {
+            // Some tests in this describe push to `/dashboard/...` on success; reset the URL so
+            // the next test starts from the SQL editor route.
+            window.history.replaceState({}, '', urls.sqlEditor())
+        })
+
+        it('passes dashboards array to insightsApi.create when saving a new SQL insight from the dashboard flow', async () => {
+            const createdInsightBodies: any[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/insights/': async (req) => {
+                        const body = await req.json()
+                        createdInsightBodies.push(body)
+                        return [
+                            200,
+                            {
+                                ...body,
+                                id: 99,
+                                short_id: 'sql123' as InsightShortId,
+                                dashboards: body.dashboards ?? [],
+                                dashboard_tiles: (body.dashboards ?? []).map((dashboardId: number) => ({
+                                    id: 1,
+                                    dashboard_id: dashboardId,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { dashboard: String(DASHBOARD_ID) })
+            await expectLogic(logic).toDispatchActions(['setDashboardId', 'createTab', 'updateTab']).toMatchValues({
+                dashboardId: DASHBOARD_ID,
+            })
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT count() FROM events',
+                },
+                display: ChartDisplayType.ActionsLineGraph,
+            })
+
+            logic.actions.saveAsInsightSubmit('My SQL insight')
+            await expectLogic(logic).toDispatchActions(['saveAsInsightSubmit'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(createdInsightBodies).toHaveLength(1)
+            expect(createdInsightBodies[0]).toMatchObject({
+                name: 'My SQL insight',
+                saved: true,
+                dashboards: [DASHBOARD_ID],
+            })
+        })
+
+        it('does not pass dashboards array when saving a new SQL insight without a dashboard query param', async () => {
+            const createdInsightBodies: any[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/insights/': async (req) => {
+                        const body = await req.json()
+                        createdInsightBodies.push(body)
+                        return [
+                            200,
+                            {
+                                ...body,
+                                id: 99,
+                                short_id: 'sql456' as InsightShortId,
+                                dashboards: [],
+                                dashboard_tiles: [],
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT count() FROM events',
+                },
+                display: ChartDisplayType.ActionsLineGraph,
+            })
+
+            logic.actions.saveAsInsightSubmit('Standalone insight')
+            await expectLogic(logic).toDispatchActions(['saveAsInsightSubmit'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(createdInsightBodies).toHaveLength(1)
+            expect(createdInsightBodies[0]).not.toHaveProperty('dashboards')
+        })
+
+        it('passes dashboards array to insightsApi.update when updating an existing SQL insight from the dashboard flow', async () => {
+            const updatedInsightBodies: any[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/insights/:id': async (req) => {
+                        const body = await req.json()
+                        updatedInsightBodies.push(body)
+                        return [
+                            200,
+                            {
+                                ...MOCK_INSIGHT,
+                                ...body,
+                                dashboards: body.dashboards ?? MOCK_INSIGHT.dashboards,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(
+                urls.sqlEditor(),
+                { open_insight: MOCK_INSIGHT_SHORT_ID, dashboard: String(DASHBOARD_ID) },
+                undefined
+            )
+
+            await expectLogic(logic)
+                .toDispatchActions(['setDashboardId', 'editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    dashboardId: DASHBOARD_ID,
+                    editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }),
+                })
+
+            logic.actions.updateInsight()
+            await expectLogic(logic).toDispatchActions(['updateInsight'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(updatedInsightBodies).toHaveLength(1)
+            expect(updatedInsightBodies[0]).toMatchObject({
+                dashboards: [DASHBOARD_ID],
+            })
+        })
+    })
 })
