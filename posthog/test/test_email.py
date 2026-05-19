@@ -325,7 +325,7 @@ class TestEmail(BaseTest):
 
     def test_all_http_templates_are_registered_in_customer_io_map(self) -> None:
         # Every EmailMessage(use_http=True, template_name="X", ...) call in
-        # posthog/tasks/email.py needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
+        # production code under posthog/ needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
         # The Customer.io HTTP sender raises "Unknown template name" if it
         # isn't, and the Celery task wrapper swallows the exception via
         # capture_exception. Without this test, a new transactional email
@@ -334,31 +334,40 @@ class TestEmail(BaseTest):
         import ast
         from pathlib import Path
 
-        import posthog.tasks.email as email_tasks
+        import posthog as posthog_pkg
 
-        source = Path(email_tasks.__file__).read_text()
-        tree = ast.parse(source)
+        posthog_root = Path(posthog_pkg.__file__).parent
+        sources = sorted(
+            p
+            for p in posthog_root.rglob("*.py")
+            if "/test/" not in str(p) and "/tests/" not in str(p) and not p.name.startswith("test_")
+        )
 
-        missing: list[str] = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+        missing: dict[str, str] = {}  # template_name -> first source path that uses it
+        for source_path in sources:
+            try:
+                tree = ast.parse(source_path.read_text())
+            except SyntaxError:
                 continue
-            if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
-                continue
-            kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
-            use_http = kwargs.get("use_http")
-            if not (isinstance(use_http, ast.Constant) and use_http.value is True):
-                continue
-            template_name = kwargs.get("template_name")
-            if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
-                if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
-                    missing.append(template_name.value)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
+                    continue
+                kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+                use_http = kwargs.get("use_http")
+                if not (isinstance(use_http, ast.Constant) and use_http.value is True):
+                    continue
+                template_name = kwargs.get("template_name")
+                if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
+                    if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
+                        missing.setdefault(template_name.value, str(source_path.relative_to(posthog_root.parent)))
 
         self.assertEqual(
-            sorted(set(missing)),
-            [],
-            "These template_name values use use_http=True in posthog/tasks/email.py but are "
-            "missing from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry "
-            "pointing to the Customer.io transactional message ID, otherwise the sender will "
-            "raise 'Unknown template name' at runtime and the Celery task will swallow it.",
+            missing,
+            {},
+            "These template_name values use use_http=True in production code but are missing "
+            "from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
+            "the Customer.io transactional message ID, otherwise the sender will raise "
+            "'Unknown template name' at runtime and capture_exception will swallow it.",
         )
