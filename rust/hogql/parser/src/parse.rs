@@ -635,10 +635,15 @@ pub(crate) fn kw_allowed_as_implicit_alias(kw: Kw) -> bool {
 
 /// Keywords admissible wherever the grammar's `identifier` rule
 /// applies — `identifier: IDENTIFIER | QUOTED_IDENTIFIER | interval |
-/// keyword`. The `keyword` rule covers every keyword except the
-/// literal keywords (TRUE / FALSE / NULL / INF / NAN) and the hard
-/// set-op introducers (INTERSECT / EXCEPT). `interval` adds the unit
-/// keywords, which are never in the excluded set anyway.
+/// keyword`. The `keyword` rule omits:
+///   - the literal keywords TRUE / FALSE / NULL / INF / NAN,
+///   - the hard set-op introducers INTERSECT / EXCEPT,
+///   - the Hog-statement keywords FN / FUN / LET / WHILE / THROW / TRY
+///     / CATCH / FINALLY — these head a `statement` and are NOT in the
+///     `keyword` rule, so they are not valid identifiers / Field names
+///     (cpp rejects `fn`, `let`, … in expression position).
+/// `interval` adds the unit keywords, which are never in the omitted
+/// set anyway.
 ///
 /// Unlike `kw_acts_as_ident_in_primary` this does NOT also exclude the
 /// special-form heads (CASE / CAST / SELECT / LAMBDA / INTERVAL / NOT):
@@ -648,7 +653,21 @@ pub(crate) fn kw_allowed_as_implicit_alias(kw: Kw) -> bool {
 pub(crate) fn kw_valid_as_identifier(kw: Kw) -> bool {
     !matches!(
         kw,
-        Kw::True | Kw::False | Kw::Null | Kw::Inf | Kw::Nan | Kw::Intersect | Kw::Except
+        Kw::True
+            | Kw::False
+            | Kw::Null
+            | Kw::Inf
+            | Kw::Nan
+            | Kw::Intersect
+            | Kw::Except
+            | Kw::Fn
+            | Kw::Fun
+            | Kw::Let
+            | Kw::While
+            | Kw::Throw
+            | Kw::Try
+            | Kw::Catch
+            | Kw::Finally
     )
 }
 
@@ -675,6 +694,12 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
         // diverging from cpp which uses them only as set-op
         // introducers.
         | Kw::Intersect | Kw::Except
+        // Hog-statement keywords — also OMITTED from the `keyword`
+        // rule, so they are not Field names / call heads in an
+        // expression (`fn`, `let`, `while`, … are rejected by cpp in
+        // expression position).
+        | Kw::Fn | Kw::Fun | Kw::Let | Kw::While
+        | Kw::Throw | Kw::Try | Kw::Catch | Kw::Finally
     )
 }
 

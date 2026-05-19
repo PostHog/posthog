@@ -1146,6 +1146,18 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(ExposedHogQLError):
                 self._select("select from foo")
 
+        @parameterized.expand([["fn"], ["fun"], ["let"], ["while"], ["throw"], ["try"], ["catch"], ["finally"]])
+        def test_statement_keywords_are_not_expression_identifiers(self, kw: str):
+            # The Hog-statement keywords are omitted from the grammar's
+            # `keyword` rule, so they are not valid `identifier`s — they
+            # cannot stand as a Field or call head in expression
+            # position (unlike `if` / `for` / `return`, which the
+            # `keyword` rule does include).
+            with self.assertRaises(ExposedHogQLError):
+                self._expr(kw)
+            with self.assertRaises(ExposedHogQLError):
+                self._expr(f"{kw}(1)")
+
         def test_select_trailing_comma_before_from(self):
             self.assertEqual(
                 self._select(
