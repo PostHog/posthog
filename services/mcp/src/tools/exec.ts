@@ -21,7 +21,7 @@ type ExecSchema = ReturnType<typeof makeExecSchema>
 // pre-training. Phrased as an instruction, not a description, because models
 // observably treat declarative notes as advisory.
 const SCHEMA_DRILLDOWN_DIRECTIVE =
-    'SUMMARIZED - DO NOT GUESS. For any field you plan to populate that has a `hint`, run the exact `schema` command in that hint. Keep drilling until the needed path has neither a `note` nor a `hint`. Do not infer shape from names, sibling tools, or prior knowledge.'
+    'SUMMARIZED - DO NOT GUESS. For any field you plan to populate that has a `hint`, you must run the exact `schema` command in that hint. Keep drilling until the needed path has neither a `note` nor a `hint`. Do not infer shape from names, sibling tools, or prior knowledge.'
 
 export interface ExecInnerCallProperties {
     duration_ms: number
