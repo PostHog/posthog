@@ -1539,10 +1539,11 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  # --timeout=400 caps a single hung phase at ~6m40s (largest observed setup
-                  # in a green run is ~317s; 400s leaves a 25% buffer). --reruns 1 keeps a
-                  # single retry for genuine flakes but stops retrying hangs three times.
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=400 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  # --timeout is unchanged at 600s; some real Temporal setups have been
+                  # observed up to ~587s on the slowest shard, so 400s was too tight.
+                  # --reruns 1 (down from 2) keeps a single retry for genuine flakes but
+                  # halves the rerun cost relative to before.
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
