@@ -54,13 +54,25 @@ export function getCoreFilterDefinition(
             }
         }
     } else if (value.startsWith('$survey_response_')) {
-        const surveyIndex = value.replace(/^\$survey_response_/, '')
-        if (surveyIndex) {
-            const index = Number(surveyIndex) + 1
-            const suffix = index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+        const suffix = value.replace(/^\$survey_response_/, '')
+        if (suffix) {
+            const parsedIndex = Number(suffix)
+            if (Number.isInteger(parsedIndex) && parsedIndex >= 0) {
+                const index = parsedIndex + 1
+                const ordinal = index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+                return {
+                    label: `Survey response for ${index}${ordinal} question`,
+                    description: `The response value for the ${index}${ordinal} question in the survey.`,
+                }
+            }
+            // Modern format `$survey_response_<question-uuid>`: we can't derive the
+            // question's position without loading the survey, so emit a generic label.
+            // `PropertyKeyInfo` overlays the actual question text via
+            // `surveyQuestionLabelsLogic` when the surveys list is available.
+            const shortId = suffix.slice(0, 8)
             return {
-                label: `Survey response for ${index}${suffix} question`,
-                description: `The response value for the ${index}${suffix} question in the survey.`,
+                label: `Survey response (${shortId}…)`,
+                description: `Response for survey question with ID "${suffix}".`,
             }
         }
     } else if (value.startsWith('$feature/')) {

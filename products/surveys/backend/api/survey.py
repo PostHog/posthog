@@ -2338,6 +2338,66 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         },
     )
     @extend_schema(operation_id="surveys_global_stats_retrieve")
+    @extend_schema(
+        operation_id="surveys_question_labels",
+        description=(
+            "Return a slim list of question labels for the team's surveys. Used by the frontend to resolve "
+            "`$survey_response_<question_id>` property keys into human-readable question text without "
+            "loading the full survey payload."
+        ),
+        responses={
+            200: inline_serializer(
+                name="SurveyQuestionLabelsResponse",
+                fields={
+                    "labels": serializers.ListField(
+                        child=inline_serializer(
+                            name="SurveyQuestionLabel",
+                            fields={
+                                "question_id": serializers.CharField(help_text="UUID assigned to the survey question."),
+                                "question_text": serializers.CharField(
+                                    help_text="Untranslated question text as configured by the survey author.",
+                                    allow_blank=True,
+                                ),
+                                "question_index": serializers.IntegerField(
+                                    help_text="Zero-based index of the question within the survey."
+                                ),
+                                "survey_id": serializers.CharField(
+                                    help_text="UUID of the survey this question belongs to."
+                                ),
+                                "survey_name": serializers.CharField(help_text="Display name of the survey."),
+                            },
+                        ),
+                        help_text="One entry per question that has an ID assigned, across all the team's surveys.",
+                    ),
+                },
+            ),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="question_labels", required_scopes=["survey:read"])
+    def question_labels(self, request: request.Request, **kwargs) -> Response:
+        queryset = self.safely_get_queryset(self.get_queryset()).only("id", "name", "questions")
+        labels: list[dict[str, Any]] = []
+        for survey in queryset.iterator(chunk_size=200):
+            questions = survey.questions or []
+            if not isinstance(questions, list):
+                continue
+            for index, question in enumerate(questions):
+                if not isinstance(question, dict):
+                    continue
+                question_id = question.get("id")
+                if not question_id:
+                    continue
+                labels.append(
+                    {
+                        "question_id": question_id,
+                        "question_text": question.get("question") or "",
+                        "question_index": index,
+                        "survey_id": str(survey.id),
+                        "survey_name": survey.name,
+                    }
+                )
+        return Response({"labels": labels})
+
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
         """Get aggregated response statistics across all surveys.
