@@ -167,6 +167,19 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(experiment.name, "My custom name")
         self.assertEqual(experiment.feature_flag.key, "my-custom-key")
 
+    def test_400_when_feature_flag_key_already_exists(self) -> None:
+        # Pre-create a flag with the key the caller will try to claim. Reusing it would skip
+        # the payload-writing path in ExperimentService and yield a broken experiment.
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-key", name="Existing")
+
+        response = self._post(feature_flag_key="taken-key")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("feature_flag_key", str(response.json()))
+        self.assertFalse(
+            Experiment.objects.filter(team_id=self.team.id, feature_flag__key="taken-key").exists(),
+        )
+
     def test_default_name_includes_versions_and_templates(self) -> None:
         response = self._post(versions=[2, 4], templates=["latency", "cost"])
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)

@@ -20,6 +20,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -581,5 +582,20 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         missing = [v for v in versions if v not in found]
         if missing:
             raise ValidationError({"versions": f"Versions not found for prompt {prompt_name!r}: {missing}"})
+
+        # Reusing an existing flag would link the experiment to a flag whose payloads do not
+        # encode {prompt_name, prompt_version}, leaving the experiment created but unusable
+        # by the SDK (flags.get_flag_payload returns None). Reject explicit collisions so the
+        # caller can pick a different key; an omitted key falls through to slug auto-resolution.
+        feature_flag_key = attrs.get("feature_flag_key")
+        if feature_flag_key and FeatureFlag.objects.filter(team_id=team.id, key=feature_flag_key).exists():
+            raise ValidationError(
+                {
+                    "feature_flag_key": (
+                        f"Feature flag {feature_flag_key!r} already exists for this team. "
+                        "Pick a different key, or omit this field to auto-generate one."
+                    )
+                }
+            )
 
         return attrs
