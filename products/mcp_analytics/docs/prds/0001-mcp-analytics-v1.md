@@ -21,7 +21,7 @@ Ship a focused product surface — **MCP analytics** — that turns raw MCP tool
 
 ## Non-goals
 
-- Replacing LLM analytics. Generation-level traces, prompt/response inspection, and cost belong in `products/llm_analytics/`. MCP analytics is about the *tool-call protocol layer* on top of that.
+- Replacing LLM analytics. Generation-level traces, prompt/response inspection, and cost belong in `products/llm_analytics/`. MCP analytics is about the _tool-call protocol layer_ on top of that.
 - Building a generic agent observability framework. We optimise for PostHog's own MCP surface and external MCP servers built on `posthog-js`-style instrumentation.
 - Replacing product analytics insights. Where a query is "$pageview by country", users should keep using Trends.
 
@@ -29,13 +29,13 @@ Ship a focused product surface — **MCP analytics** — that turns raw MCP tool
 
 Mounted by [`products/mcp_analytics/manifest.tsx`](../../manifest.tsx) under `/mcp-analytics/*`:
 
-| Route | Purpose |
-| --- | --- |
-| `/mcp-analytics/dashboard` | Overview of MCP activity — sessions, tool calls, error rate, top tools, top clients. Built from dashboard templates in [`backend/dashboard_templates.py`](../../backend/dashboard_templates.py). |
-| `/mcp-analytics/sessions` | List of conversations (one row per `$mcp_conversation_id`) with duration, tools used, who the user was, and the inferred intent. |
-| `/mcp-analytics/tool-quality` | Per-tool quality view — call count, error rate, p50/p95 duration, top callers — across all tools. |
-| `/mcp-analytics/tool-quality/:toolName` | Drill-down for a single tool, including recent calls and recent failures. |
-| `/mcp-analytics/intent-clustering` | Aggregated view of *what users are trying to do*: clusters of similar intents with sample sessions and a per-cluster journey Sankey. |
+| Route                                   | Purpose                                                                                                                                                                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/mcp-analytics/dashboard`              | Overview of MCP activity — sessions, tool calls, error rate, top tools, top clients. Built from dashboard templates in [`backend/dashboard_templates.py`](../../backend/dashboard_templates.py). |
+| `/mcp-analytics/sessions`               | List of conversations (one row per `$mcp_conversation_id`) with duration, tools used, who the user was, and the inferred intent.                                                                 |
+| `/mcp-analytics/tool-quality`           | Per-tool quality view — call count, error rate, p50/p95 duration, top callers — across all tools.                                                                                                |
+| `/mcp-analytics/tool-quality/:toolName` | Drill-down for a single tool, including recent calls and recent failures.                                                                                                                        |
+| `/mcp-analytics/intent-clustering`      | Aggregated view of _what users are trying to do_: clusters of similar intents with sample sessions and a per-cluster journey Sankey.                                                             |
 
 ## Surfaces (explicitly out of scope for v1)
 
@@ -48,7 +48,7 @@ Mounted by [`products/mcp_analytics/manifest.tsx`](../../manifest.tsx) under `/m
 1. **As an MCP server operator,** I want to see at a glance whether my MCP tools are healthy this week (volume up/down, error rate, p95 latency), so I can decide whether to dig deeper. — Dashboard.
 2. **As a product engineer,** I want to inspect a single conversation — what the user was trying to do, what tools the agent called, where it failed — so I can debug a complaint or learn from a long session. — Sessions list → recording link → linked LLM trace.
 3. **As a product engineer,** I want a per-tool view to see which of my MCP tools are failing or slow, and who is hitting the failures. — Tool quality.
-4. **As a PM/research engineer,** I want to see *what users are using MCP for* (categories of intent, not raw tool counts), so I can prioritise new tools and improve docs for the requests we keep missing. — Intent clustering.
+4. **As a PM/research engineer,** I want to see _what users are using MCP for_ (categories of intent, not raw tool counts), so I can prioritise new tools and improve docs for the requests we keep missing. — Intent clustering.
 5. **As a user of an MCP tool,** I want to file feedback or a missing-capability report from inside the agent, with enough context attached that the team can act on it. — Feedback submission API ([`MCPAnalyticsSubmission`](../../backend/models.py)).
 
 ## Data model

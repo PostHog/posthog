@@ -43,7 +43,7 @@ Persist clusters in a Postgres table — [`MCPIntentClusterSnapshot`](../../back
 
 **Negative**
 
-- We are storing a denormalised JSON blob. If we ever want to query *across* clusters (e.g. "find teams whose top cluster mentions checkout"), we need to scan and parse, not index. Acceptable: cross-team analysis is not a v1 use case.
+- We are storing a denormalised JSON blob. If we ever want to query _across_ clusters (e.g. "find teams whose top cluster mentions checkout"), we need to scan and parse, not index. Acceptable: cross-team analysis is not a v1 use case.
 - The `OneToOneField` PK means one snapshot per team. If we want side-by-side snapshots (e.g. last week vs this week, A/B-style), we will need a different schema. Acceptable: not a v1 need.
 - Celery is the runner. A worker outage means no recomputes until it recovers. The previous snapshot remains readable, so the surface degrades to "stale" rather than "broken".
 

@@ -8,7 +8,7 @@
 
 ## Context
 
-The intent-clustering surface needs a single short text per session that describes *what the user was trying to do*.
+The intent-clustering surface needs a single short text per session that describes _what the user was trying to do_.
 "Tool name" alone is not informative — `query_run` covers everything from "show me yesterday's signups" to "find a churn cohort". The cluster view exists precisely because the raw tool stream isn't enough.
 
 Two questions:
@@ -44,6 +44,6 @@ We want a contract between the two that lets us upgrade the source without chang
 
 ## Alternatives considered
 
-- **Cluster on tool sequences only.** Rejected. The Sankey-style per-cluster journey is informative *given* a cluster, but tool sequences alone do not separate "investigating churn" from "checking yesterday's signups" when both call `query_run` followed by `insight_get`.
+- **Cluster on tool sequences only.** Rejected. The Sankey-style per-cluster journey is informative _given_ a cluster, but tool sequences alone do not separate "investigating churn" from "checking yesterday's signups" when both call `query_run` followed by `insight_get`.
 - **Cluster on raw event property bags.** Rejected. Property bags are noisy, high-cardinality, and would need an explicit feature-engineering step. The intent text + embedding pipeline gets us a working v1 without any of that.
 - **Skip the `fetch_intent_corpus` indirection and read `$mcp_intent` directly inside the Celery task.** Rejected — the explicit boundary is the entire point. The clustering pipeline is the part we want to be able to test against a hand-crafted corpus without standing up an embedding service or ClickHouse, and the planned source-of-truth swap is much safer with a single seam.
