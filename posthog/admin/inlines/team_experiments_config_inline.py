@@ -20,6 +20,7 @@ class TeamExperimentsConfigInline(admin.StackedInline):
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
                     "funnel_steps_data_disabled",
+                    "default_cuped_enabled",
                 ],
             },
         ),

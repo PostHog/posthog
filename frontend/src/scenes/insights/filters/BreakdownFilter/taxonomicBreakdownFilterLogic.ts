@@ -168,12 +168,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 isTrends,
                 isSingleSeriesDefinition
             ): string | null => {
-                // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
-                if (
-                    isMultipleBreakdownsEnabled &&
-                    !hasDataWarehouseSeries &&
-                    (!breakdown_type || isMultipleBreakdownType(breakdown_type))
-                ) {
+                if (isMultipleBreakdownsEnabled && (!breakdown_type || isMultipleBreakdownType(breakdown_type))) {
                     if (!!breakdowns && breakdowns.length >= MAX_TRENDS_BREAKDOWNS) {
                         return `You can break down trends by up to ${MAX_TRENDS_BREAKDOWNS} properties. Remove one to add another.`
                     }
