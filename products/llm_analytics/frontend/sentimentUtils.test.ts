@@ -104,10 +104,24 @@ describe('sentimentUtils', () => {
             // text via `_extract_content_text`, frontend must agree.
             ['text block without type', [{ text: 'naked text' }], 'naked text'],
             // Anthropic tool_result blocks carry the result under `content`, not `text`.
+            // The SDK most commonly emits `content` as either a bare string or a list of
+            // typed sub-blocks, and the recursion path in `extractContentText` has to handle
+            // both so the renderer agrees with the backend classifier.
             [
-                'tool_result-style block uses content fallback',
+                'tool_result-style block with string content uses content fallback',
                 [{ type: 'tool_result', tool_use_id: 'X', content: 'fallback text' }],
                 'fallback text',
+            ],
+            [
+                'tool_result-style block with array content recurses into sub-blocks',
+                [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'X',
+                        content: [{ type: 'text', text: 'nested result' }],
+                    },
+                ],
+                'nested result',
             ],
             // Multiple blocks join with a space.
             [
