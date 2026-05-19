@@ -497,6 +497,7 @@ export type AssistantTool =
     | 'search_llm_traces'
     | 'run_hog_eval_test'
     | 'diagnose_proxy'
+    | 'web_analytics_doctor'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
