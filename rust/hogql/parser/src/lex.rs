@@ -795,8 +795,43 @@ impl<'a> Lexer<'a> {
             match self.peek_byte(1) {
                 Some(b'x') | Some(b'X') => {
                     self.pos += 2;
+                    let prefix_end = self.pos;
                     while self.peek_byte(0).is_some_and(|b| b.is_ascii_hexdigit()) {
                         self.pos += 1;
+                    }
+                    let int_end = self.pos;
+                    // Try to extend to a FLOATING_LITERAL hex-float —
+                    //   `HEX (DOT HEX*)? P [+-]? DEC+`. `p`/`P` is the
+                    // only marker per grammar; `e`/`E` stays a hex
+                    // digit. Requires at least one hex digit in the
+                    // mantissa (per `HEXADECIMAL_LITERAL: '0' X HEX+`),
+                    // so `0x.8p3` is *not* a hex-float — it stays a
+                    // bare `0x` token the parser then rejects. If the
+                    // suffix doesn't match cleanly we leave self.pos
+                    // at int_end (never commit the `.` / `p` probes).
+                    if int_end > prefix_end {
+                        let mut probe = 0usize;
+                        if self.peek_byte(probe) == Some(b'.') {
+                            probe += 1;
+                            while self.peek_byte(probe).is_some_and(|b| b.is_ascii_hexdigit()) {
+                                probe += 1;
+                            }
+                        }
+                        if matches!(self.peek_byte(probe), Some(b'p') | Some(b'P')) {
+                            let mut exp_probe = probe + 1;
+                            if matches!(self.peek_byte(exp_probe), Some(b'+') | Some(b'-')) {
+                                exp_probe += 1;
+                            }
+                            if self
+                                .peek_byte(exp_probe)
+                                .is_some_and(|b| b.is_ascii_digit())
+                            {
+                                self.pos += exp_probe;
+                                while self.peek_byte(0).is_some_and(|b| b.is_ascii_digit()) {
+                                    self.pos += 1;
+                                }
+                            }
+                        }
                     }
                     return TokenKind::Number;
                 }

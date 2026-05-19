@@ -2905,6 +2905,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value"] = static_cast<int64_t>(magnitude);
       }
       return json;
+    } else if (is_hex && ctx->floatingLiteral() != nullptr) {
+      // Hex-float literal — the FLOATING_LITERAL alt with hex content
+      // (`0x1p4`, `0x1.8p3`, etc.). The grammar uses strict C99
+      // `p`/`P` only as the exponent marker, so stod parses the text
+      // directly. (Without this branch the integer path's stoll would
+      // read only the leading hex digits and silently drop the
+      // exponent.)
+      json["value"] = Json(stod(text));
+      return json;
     } else {
       try {
         // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.

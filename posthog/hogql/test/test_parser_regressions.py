@@ -577,6 +577,124 @@ class TestParserRegressions(BaseTest):
             self.assertIsInstance(node, ast.Constant, msg=src)
             self.assertEqual(node.value, val, msg=src)
 
+    def test_hex_integer_literal_baseline(self):
+        # Pins existing hex integer behaviour so the hex-float lexer
+        # changes can't accidentally regress plain `0x…` parsing. `e`
+        # and `E` are hex digits in this context (not exponent markers
+        # — that only kicks in when a `[+-]?<dec>+` exponent suffix
+        # follows them).
+        cases = {
+            "0x0": 0,
+            "0x1": 1,
+            "0xff": 255,
+            "0xFF": 255,
+            "0XFF": 255,
+            "0xe": 14,  # `e` alone is a hex digit, not an exp marker
+            "0xE": 14,
+            "0x1e": 30,
+            "0x1E": 30,
+            "0x1e5": 485,  # three hex digits, NOT a float
+            "0xabc": 2748,
+            "0xABC": 2748,
+            "0xfe": 254,
+            "0xae": 174,
+            # signed
+            "-0x1": -1,
+            "+0xff": 255,
+            "-0xff": -255,
+            # lossless past i64 (preserved by the recent lossless-int fix)
+            "0xFFFFFFFFFFFFFFFF": 18446744073709551615,
+            "0xFFFFFFFFFFFFFFFFFF": 4722366482869645213695,
+        }
+        for src, expected in cases.items():
+            for backend in _BACKENDS:
+                node = parse_expr(src, backend=backend)
+                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
+                self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
+
+    def test_hex_float_literal_c99(self):
+        # `FLOATING_LITERAL` for hex-floats: strict C99 `HEX P [+-]? DEC+`
+        # and `HEX DOT HEX* P [+-]? DEC+`. `p`/`P` is the *only* hex-float
+        # exponent marker — `e`/`E` is always a hex digit in this
+        # context. cpp used to route hex through `stoll` and return only
+        # the leading hex integer; rust and python rejected entirely.
+        cases = {
+            # P-marker, no fraction
+            "0x1p4": float.fromhex("0x1p4"),  # 16.0
+            "0x1p+4": float.fromhex("0x1p+4"),  # 16.0
+            "0x1p-4": float.fromhex("0x1p-4"),  # 0.0625
+            "0xAp1": float.fromhex("0xap1"),  # 20.0
+            "0xap1": float.fromhex("0xap1"),  # 20.0
+            "0x0p0": float.fromhex("0x0p0"),  # 0.0
+            "0xffp10": float.fromhex("0xffp10"),  # 261120.0
+            # P-marker, with fraction
+            "0x1.8p3": float.fromhex("0x1.8p3"),  # 12.0
+            "0x1.0p3": float.fromhex("0x1.0p3"),  # 8.0
+            "0xab.cdp4": float.fromhex("0xab.cdp4"),
+            "0xff.fp-4": float.fromhex("0xff.fp-4"),
+            # `e`/`E` is a hex digit even when adjacent to `p`. `0xep1`
+            # is hex mantissa `0xe` (14) + `p1` exponent → 28.0.
+            "0xep1": float.fromhex("0xep1"),  # 28.0
+            "0xEp1": float.fromhex("0xep1"),
+            "0xeep1": float.fromhex("0xeep1"),  # 476.0
+            # Signed
+            "-0x1p4": -float.fromhex("0x1p4"),  # -16.0
+            "+0x1p4": float.fromhex("0x1p4"),  # 16.0
+        }
+        for src, expected in cases.items():
+            for backend in _BACKENDS:
+                node = parse_expr(src, backend=backend)
+                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
+                self.assertIsInstance(node.value, float, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
+
+    def test_hex_e_is_hex_digit_not_exponent_marker(self):
+        # `e`/`E` after a hex digit run does NOT act as a hex-float
+        # exponent marker. `0x1e+4` is the hex integer `0x1e` (=30)
+        # followed by an arithmetic `+4`, NOT the hex-float
+        # `0x1 × 2^4` = 16. Only `p`/`P` marks a hex-float exponent;
+        # this matches strict C99 and ClickHouse runtime semantics.
+        for src, op, lhs, rhs in (
+            ("0x1e+4", "+", 30, 4),
+            ("0x1e-4", "-", 30, 4),
+            ("0x1E+4", "+", 30, 4),
+            ("0xe+5", "+", 14, 5),
+            ("0xff-1", "-", 255, 1),
+        ):
+            for backend in _BACKENDS:
+                node = parse_expr(src, backend=backend)
+                self.assertIsInstance(node, ast.ArithmeticOperation, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.op, op, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
+
+    def test_hex_float_in_expression_context(self):
+        # A hex-float literal participates in surrounding expressions
+        # like any other Constant. Pins that the lexer recognises the
+        # whole hex-float as one token.
+        for src, op, lhs, rhs in (
+            ("0x1p4 + 1", "+", float.fromhex("0x1p4"), 1),
+            ("1 + 0x1p4", "+", 1, float.fromhex("0x1p4")),
+            ("0x1p4 * 2", "*", float.fromhex("0x1p4"), 2),
+        ):
+            for backend in _BACKENDS:
+                node = parse_expr(src, backend=backend)
+                self.assertIsInstance(node, ast.ArithmeticOperation, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.op, op, msg=f"{backend}: {src!r}")
+                self.assertIsInstance(node.left, ast.Constant, msg=f"{backend}: {src!r}")
+                self.assertIsInstance(node.right, ast.Constant, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
+
+    def test_hex_float_no_integer_part_rejected(self):
+        # `0x.8p3` lacks a HEX_DIGIT+ before the dot — invalid per
+        # both the FLOATING_LITERAL and HEXADECIMAL_LITERAL grammar.
+        # All three backends must reject.
+        for backend in _BACKENDS:
+            with self.assertRaises(ExposedHogQLError, msg=f"{backend}: '0x.8p3'"):
+                parse_expr("0x.8p3", backend=backend)
+
     def test_window_frame_bound_low_precedence_value(self):
         # A window frame bound's value is a full `columnExpr`, so it
         # admits comparison / AND / OR operators. The Rust parser

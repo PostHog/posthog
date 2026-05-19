@@ -162,8 +162,11 @@ QUOTED_IDENTIFIER
     | QUOTE_DOUBLE ( ~([\\"]) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_DOUBLE | (QUOTE_DOUBLE QUOTE_DOUBLE) )* QUOTE_DOUBLE
     ;
 FLOATING_LITERAL
-    : HEXADECIMAL_LITERAL DOT HEX_DIGIT* (P | E) (PLUS | DASH)? DEC_DIGIT+
-    | HEXADECIMAL_LITERAL (P | E) (PLUS | DASH)? DEC_DIGIT+
+    // Hex-float: strict C99 — `p`/`P` only. `e`/`E` stays a hex digit
+    // in this context, so `0x1e5` is the hex integer 485 (not a float)
+    // and `0x1e+4` is `0x1e` (=30) followed by an arithmetic `+4`.
+    : HEXADECIMAL_LITERAL DOT HEX_DIGIT* P (PLUS | DASH)? DEC_DIGIT+
+    | HEXADECIMAL_LITERAL P (PLUS | DASH)? DEC_DIGIT+
     | DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS | DASH)? DEC_DIGIT+
     | DOT DECIMAL_LITERAL E (PLUS | DASH)? DEC_DIGIT+
     | DECIMAL_LITERAL E (PLUS | DASH)? DEC_DIGIT+

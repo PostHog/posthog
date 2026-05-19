@@ -2010,6 +2010,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             abs_text = abs_text[1:]
         # Hex before the float guard: hex digits include 'e', so "0xfe" would route through float().
         if abs_text.startswith("0x"):
+            # Hex-float? FLOATING_LITERAL uses strict C99 `p`/`P` only
+            # as the exponent marker — `e`/`E` is always a hex digit
+            # in this context, so the presence of `p` is the entire
+            # detection. `float.fromhex` accepts the same syntax.
+            if "p" in abs_text:
+                return ast.Constant(value=sign * float.fromhex(abs_text))
             return ast.Constant(value=sign * int(abs_text, 16))
         # `0b…` (BINARY_LITERAL): ClickHouse caps binary literals at 64 bits — magnitude
         # must fit UInt64 (positive) or Int64 (negative); wider literals are rejected.

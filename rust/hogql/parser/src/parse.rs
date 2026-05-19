@@ -447,6 +447,35 @@ pub(crate) struct Checkpoint {
 // Lexeme helpers (number / string / identifier text decoding)
 // ============================================================================
 
+/// Parse the post-`0x` text of a strict-C99 hex-float literal to f64:
+/// `<hex>+(.<hex>*)?p[+-]?<dec>+`. Rust's f64 `FromStr` doesn't accept
+/// a `0x` prefix, so accumulate the mantissa from the hex digits and
+/// scale by `2^exp`. Bounded-precision when the mantissa overflows
+/// f64 (matches what `strtod` would do anyway).
+fn parse_hex_float_value(rest: &str) -> f64 {
+    let p_idx = rest
+        .bytes()
+        .position(|b| b == b'p' || b == b'P')
+        .expect("caller guarantees a p/P marker is present");
+    let mantissa = &rest[..p_idx];
+    let exp_str = &rest[p_idx + 1..];
+    let (int_part, frac_part) = match mantissa.find('.') {
+        Some(i) => (&mantissa[..i], &mantissa[i + 1..]),
+        None => (mantissa, ""),
+    };
+    let mut m = 0.0_f64;
+    for c in int_part.chars() {
+        m = m * 16.0 + f64::from(c.to_digit(16).unwrap_or(0));
+    }
+    let mut scale = 1.0_f64 / 16.0;
+    for c in frac_part.chars() {
+        m += f64::from(c.to_digit(16).unwrap_or(0)) * scale;
+        scale /= 16.0;
+    }
+    let exp: i32 = exp_str.parse().unwrap_or(0);
+    m * 2.0_f64.powi(exp)
+}
+
 /// Emit a finite float as a numeric Constant, or `±Infinity` / `NaN`
 /// when the value isn't finite — mirrors cpp's `stod` result (and its
 /// `out_of_range` → `±Infinity` fallthrough).
@@ -468,12 +497,19 @@ fn emit_float_constant(f: f64) -> Value {
 }
 
 pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, ParseError> {
-    // Hex — an integer when it fits i64. Beyond that the literal is
-    // kept lossless: `serde_json::Value` can't hold an integer wider
-    // than `u64`, so the full `0x…` text is carried as a digit string
-    // (`value_type: "number"`) and the deserialiser rebuilds an exact
-    // arbitrary-precision Python `int`.
+    // Hex literal — `0x…`. Three cases:
+    //   - Contains `p`/`P`: hex-float (`FLOATING_LITERAL` strict C99
+    //     `HEX (DOT HEX*)? P [+-]? DEC+`). Parse to f64 — Rust's f64
+    //     `FromStr` doesn't accept a `0x` prefix, so hand-roll it.
+    //   - Fits i64: native int.
+    //   - Beyond i64: lossless via the `value_type: "number"` digit
+    //     string envelope (serde_json::Value can't hold an arbitrary
+    //     bigint as a native JSON number).
     if let Some(rest) = src.strip_prefix("0x").or_else(|| src.strip_prefix("0X")) {
+        if rest.bytes().any(|b| b == b'p' || b == b'P') {
+            let f = parse_hex_float_value(rest);
+            return Ok(emit_float_constant(if negative { -f } else { f }));
+        }
         let signed = if negative {
             format!("-{rest}")
         } else {
