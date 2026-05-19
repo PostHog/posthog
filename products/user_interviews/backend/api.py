@@ -1049,7 +1049,6 @@ class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "create",
         "update",
         "partial_update",
-        "patch",
         "destroy",
         "bulk_create",
     ]
@@ -1112,11 +1111,11 @@ class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if item["interviewee_identifier"] not in existing
         ]
 
-        IntervieweeContext.objects.bulk_create(new_rows, ignore_conflicts=True)
+        inserted = IntervieweeContext.objects.bulk_create(new_rows, ignore_conflicts=True)
 
         response_payload = {
-            "inserted_count": len(new_rows),
-            "skipped_count": len(existing),
+            "inserted_count": len(inserted),
+            "skipped_count": len(existing) + (len(new_rows) - len(inserted)),
             "skipped_identifiers": sorted(existing),
         }
         return response.Response(BulkIntervieweeContextResponseSerializer(response_payload).data)

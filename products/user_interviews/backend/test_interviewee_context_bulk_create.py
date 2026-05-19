@@ -82,6 +82,23 @@ class TestIntervieweeContextBulkCreate(_FeatureFlagEnabledMixin):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
 
+    def test_bulk_create_rejects_topic_belonging_to_another_team(self):
+        other_team = self.organization.teams.create(name="other-team")
+        other_topic = UserInterviewTopic.objects.create(
+            team=other_team,
+            created_by=self.user,
+            topic="other team topic",
+        )
+
+        response = self.client.post(
+            self._bulk_url(str(other_topic.id)),
+            {"items": [self._item("a@b.com")]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert IntervieweeContext.objects.filter(topic=other_topic).count() == 0
+
     @parameterized.expand(
         [
             ("empty_items", {"items": []}),
