@@ -6,7 +6,12 @@ use crate::{
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{
+        endpoints::EndpointCommand,
+        query::command::QueryCommand,
+        schema::{self, LocalSchemaCommand},
+        tasks::TaskCommand,
+    },
     invocation_context::{context, init_context, INVOCATION_CONTEXT},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
@@ -44,6 +49,12 @@ pub enum Commands {
     Exp {
         #[command(subcommand)]
         cmd: ExpCommand,
+    },
+
+    /// Manage a local PostHog tracking plan as code
+    Schema {
+        #[command(subcommand)]
+        cmd: LocalSchemaCommand,
     },
 
     #[command(about = "Upload a directory of bundled chunks to PostHog")]
@@ -163,13 +174,16 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
-        if !matches!(
-            self.command,
+        let requires_context = match &self.command {
             Commands::Login
-                | Commands::SymbolSets {
-                    cmd: SymbolSetsSubcommand::Extract(_)
-                }
-        ) {
+            | Commands::SymbolSets {
+                cmd: SymbolSetsSubcommand::Extract(_),
+            } => false,
+            Commands::Schema { cmd } => cmd.requires_context(),
+            _ => true,
+        };
+
+        if requires_context {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,
@@ -231,6 +245,9 @@ impl Cli {
                     crate::download::extract(&args)?;
                 }
             },
+            Commands::Schema { cmd } => {
+                schema::run_local(cmd)?;
+            }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
@@ -282,5 +299,52 @@ impl Cli {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schema_command_requires_context(args: &[&str]) -> bool {
+        let cli = Cli::try_parse_from(std::iter::once("posthog-cli").chain(args.iter().copied()))
+            .expect("schema command should parse");
+
+        match cli.command {
+            Commands::Schema { cmd } => cmd.requires_context(),
+            _ => panic!("expected top-level schema command"),
+        }
+    }
+
+    #[test]
+    fn local_schema_commands_do_not_require_posthog_context() {
+        for args in [
+            &["schema", "init"][..],
+            &["schema", "validate"][..],
+            &["schema", "generate", "--lang", "typescript"][..],
+            &["schema", "generate", "--lang", "golang"][..],
+            &["schema", "generate", "--lang", "python"][..],
+            &["schema", "diff"][..],
+            &["schema", "detect"][..],
+        ] {
+            assert!(
+                !schema_command_requires_context(args),
+                "{args:?} should not require PostHog context"
+            );
+        }
+    }
+
+    #[test]
+    fn remote_schema_commands_require_posthog_context() {
+        for args in [
+            &["schema", "push"][..],
+            &["schema", "push", "--dry-run"][..],
+            &["schema", "diff", "--posthog"][..],
+        ] {
+            assert!(
+                schema_command_requires_context(args),
+                "{args:?} should require PostHog context"
+            );
+        }
     }
 }
