@@ -21,6 +21,7 @@ class SignalSourceConfig(UUIDModel):
         ZENDESK = "zendesk", "Zendesk"
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        WEB_ANALYTICS = "web_analytics", "Web analytics"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -30,6 +31,8 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_CREATED = "issue_created", "Issue created"
         ISSUE_REOPENED = "issue_reopened", "Issue reopened"
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        WEB_VITALS_THRESHOLD_CROSSING = "web_vitals_threshold_crossing", "Web vitals threshold crossing"
+        WEB_VITALS_REGRESSION = "web_vitals_regression", "Web vitals regression"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)

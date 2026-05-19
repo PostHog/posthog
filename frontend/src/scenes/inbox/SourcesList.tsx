@@ -6,6 +6,7 @@ import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconSlack } from 'lib/lemon-ui/icons'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -145,11 +146,13 @@ export function SourcesList(): JSX.Element {
         linearIssuesConfig,
         zendeskTicketsConfig,
         errorTrackingIsFullyEnabled,
+        webVitalsIsFullyEnabled,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isErrorTrackingToggling,
+        isWebVitalsToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -157,7 +160,10 @@ export function SourcesList(): JSX.Element {
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
+        toggleWebVitals,
     } = useActions(signalSourcesLogic)
+
+    const webVitalsSignalFlagEnabled = useFeatureFlag('WEB_VITALS_SIGNAL_SOURCE')
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
     const hasNonEmptyFilters = isNonEmptyFilters(recordingFilters)
@@ -204,6 +210,22 @@ export function SourcesList(): JSX.Element {
                 loading={isErrorTrackingToggling}
                 onToggle={() => toggleErrorTracking()}
             />
+
+            {webVitalsSignalFlagEnabled && (
+                <Source
+                    icon={
+                        <div className="flex *:text-xl group/colorful-product-icons colorful-product-icons-true">
+                            {iconForType('web_analytics')}
+                        </div>
+                    }
+                    title="PostHog Web vitals"
+                    description="Threshold crossings and sustained regressions on LCP, INP, CLS, FCP → Signals"
+                    variant="available"
+                    checked={webVitalsIsFullyEnabled}
+                    loading={isWebVitalsToggling}
+                    onToggle={() => toggleWebVitals()}
+                />
+            )}
 
             <Source
                 icon={<img className="size-5" src={iconZendesk} />}

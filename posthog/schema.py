@@ -4517,6 +4517,7 @@ class SignalSourceProduct(StrEnum):
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
+    WEB_ANALYTICS = "web_analytics"
 
 
 class SignalSourceType(StrEnum):
@@ -4530,6 +4531,8 @@ class SignalSourceType(StrEnum):
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
+    WEB_VITALS_THRESHOLD_CROSSING = "web_vitals_threshold_crossing"
+    WEB_VITALS_REGRESSION = "web_vitals_regression"
 
 
 class SimilarIssue(BaseModel):
@@ -5163,6 +5166,19 @@ class WebTrendsMetric(StrEnum):
     TOTAL_SESSIONS = "TotalSessions"
 
 
+class WebVitalsBand(StrEnum):
+    GOOD = "good"
+    NEEDS_IMPROVEMENTS = "needs_improvements"
+    POOR = "poor"
+
+
+class WebVitalsDeviceClass(StrEnum):
+    DESKTOP = "Desktop"
+    MOBILE = "Mobile"
+    TABLET = "Tablet"
+    UNKNOWN = "unknown"
+
+
 class WebVitalsMetric(StrEnum):
     INP = "INP"
     LCP = "LCP"
@@ -5174,6 +5190,13 @@ class WebVitalsMetricBand(StrEnum):
     GOOD = "good"
     NEEDS_IMPROVEMENTS = "needs_improvements"
     POOR = "poor"
+
+
+class WebVitalsMetricName(StrEnum):
+    LCP = "LCP"
+    INP = "INP"
+    CLS = "CLS"
+    FCP = "FCP"
 
 
 class WebVitalsPathBreakdownResultItem(BaseModel):
@@ -5188,6 +5211,62 @@ class WebVitalsPercentile(StrEnum):
     P75 = "p75"
     P90 = "p90"
     P99 = "p99"
+
+
+class WebVitalsRegressionSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline_p75: float
+    baseline_sample_count: float
+    baseline_window_days: float
+    current_p75: float
+    device_class: WebVitalsDeviceClass
+    metric: WebVitalsMetricName
+    pct_change: float
+    route: str
+    sample_count: float
+    window_hours: float
+
+
+class WebVitalsRegressionSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: WebVitalsRegressionSignalExtra
+    source_id: str
+    source_product: Literal["web_analytics"] = "web_analytics"
+    source_type: Literal["web_vitals_regression"] = "web_vitals_regression"
+    weight: float
+
+
+class WebVitalsThresholdCrossingSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    device_class: WebVitalsDeviceClass
+    good_threshold: float
+    metric: WebVitalsMetricName
+    p75_value: float
+    poor_threshold: float
+    previous_band: WebVitalsBand | None = None
+    route: str
+    sample_count: float
+    threshold_band: WebVitalsBand
+    window_hours: float
+
+
+class WebVitalsThresholdCrossingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: WebVitalsThresholdCrossingSignalExtra
+    source_id: str
+    source_product: Literal["web_analytics"] = "web_analytics"
+    source_type: Literal["web_vitals_threshold_crossing"] = "web_vitals_threshold_crossing"
+    weight: float
 
 
 class WebsiteBrowsingHistoryProdInterest(StrEnum):
@@ -8405,6 +8484,8 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | WebVitalsThresholdCrossingSignalInput
+        | WebVitalsRegressionSignalInput
     ]
 ):
     root: (
@@ -8417,6 +8498,8 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | WebVitalsThresholdCrossingSignalInput
+        | WebVitalsRegressionSignalInput
     )
 
 

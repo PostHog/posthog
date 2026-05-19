@@ -76,6 +76,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.web_analytics.backend.temporal.web_vitals_signal.types import WebVitalsFanOutInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -384,6 +385,35 @@ async def create_wa_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_wa_web_vitals_signal_schedule(client: Client):
+    """Hourly schedule for the web-vitals signals fan-out workflow.
+
+    Per evaluation: threshold-band transitions over 24h + sustained-regression detection
+    over 2h vs a 7d baseline. Production scheduler omits inputs so the workflow uses
+    `workflow.now()` and the activity-resolved opted-in team list.
+    """
+    web_vitals_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "web-vitals-signals",
+            WebVitalsFanOutInput(),
+            id="wa-web-vitals-signals-schedule",
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+    )
+
+    if await a_schedule_exists(client, "wa-web-vitals-signals-schedule"):
+        await a_update_schedule(client, "wa-web-vitals-signals-schedule", web_vitals_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "wa-web-vitals-signals-schedule",
+            web_vitals_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_ducklake_compaction_schedule(client: Client):
     """Create or update the schedule for the DuckLake compaction workflow.
 
@@ -602,6 +632,7 @@ schedules = [
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
     create_wa_weekly_digest_schedule,
+    create_wa_web_vitals_signal_schedule,
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,

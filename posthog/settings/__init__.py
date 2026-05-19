@@ -123,6 +123,28 @@ HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXEC
 
 QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
+# Web vitals → signals emission. Ops kill switch + per-team daily cap + detection-window
+# tuning knobs. Defaults are conservative: ≥200 samples per (route × device) bucket, ≥30%
+# delta or ≥50ms absolute over a 7-day baseline before a regression fires.
+WEB_VITALS_SIGNAL_EMISSION_ENABLED: bool = get_from_env(
+    "WEB_VITALS_SIGNAL_EMISSION_ENABLED", True, type_cast=str_to_bool
+)
+WEB_VITALS_SIGNAL_DAILY_CAP_PER_TEAM: int = get_from_env("WEB_VITALS_SIGNAL_DAILY_CAP_PER_TEAM", 500, type_cast=int)
+WEB_VITALS_SIGNAL_MIN_SAMPLES: int = get_from_env("WEB_VITALS_SIGNAL_MIN_SAMPLES", 200, type_cast=int)
+WEB_VITALS_SIGNAL_REGRESSION_PCT_THRESHOLD: int = get_from_env(
+    "WEB_VITALS_SIGNAL_REGRESSION_PCT_THRESHOLD", 30, type_cast=int
+)
+WEB_VITALS_SIGNAL_REGRESSION_ABS_THRESHOLD_MS: int = get_from_env(
+    "WEB_VITALS_SIGNAL_REGRESSION_ABS_THRESHOLD_MS", 50, type_cast=int
+)
+WEB_VITALS_SIGNAL_BASELINE_WINDOW_DAYS: int = get_from_env("WEB_VITALS_SIGNAL_BASELINE_WINDOW_DAYS", 7, type_cast=int)
+WEB_VITALS_SIGNAL_REGRESSION_WINDOW_HOURS: int = get_from_env(
+    "WEB_VITALS_SIGNAL_REGRESSION_WINDOW_HOURS", 2, type_cast=int
+)
+WEB_VITALS_SIGNAL_THRESHOLD_WINDOW_HOURS: int = get_from_env(
+    "WEB_VITALS_SIGNAL_THRESHOLD_WINDOW_HOURS", 24, type_cast=int
+)
+
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403

@@ -11,6 +11,7 @@ export enum SignalSourceProduct {
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
     ENDPOINTS = 'endpoints',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 export enum SignalSourceType {
@@ -24,6 +25,8 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    WEB_VITALS_THRESHOLD_CROSSING = 'web_vitals_threshold_crossing',
+    WEB_VITALS_REGRESSION = 'web_vitals_regression',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -259,6 +262,58 @@ export interface EndpointExecutionFailedSignalInput {
     extra: EndpointExecutionFailedSignalExtra
 }
 
+// Web vitals — threshold crossing (slow-burn band transition over a 24h window)
+
+export type WebVitalsMetricName = 'LCP' | 'INP' | 'CLS' | 'FCP'
+export type WebVitalsBand = 'good' | 'needs_improvements' | 'poor'
+export type WebVitalsDeviceClass = 'Desktop' | 'Mobile' | 'Tablet' | 'unknown'
+
+export interface WebVitalsThresholdCrossingSignalExtra {
+    metric: WebVitalsMetricName
+    route: string
+    device_class: WebVitalsDeviceClass
+    p75_value: number
+    threshold_band: WebVitalsBand
+    previous_band: WebVitalsBand | null
+    sample_count: number
+    window_hours: number
+    good_threshold: number
+    poor_threshold: number
+}
+
+export interface WebVitalsThresholdCrossingSignalInput {
+    source_type: 'web_vitals_threshold_crossing'
+    source_product: 'web_analytics'
+    source_id: string
+    description: string
+    weight: number
+    extra: WebVitalsThresholdCrossingSignalExtra
+}
+
+// Web vitals — sustained regression (fast-burn relative-to-baseline detector)
+
+export interface WebVitalsRegressionSignalExtra {
+    metric: WebVitalsMetricName
+    route: string
+    device_class: WebVitalsDeviceClass
+    current_p75: number
+    baseline_p75: number
+    pct_change: number
+    sample_count: number
+    baseline_sample_count: number
+    window_hours: number
+    baseline_window_days: number
+}
+
+export interface WebVitalsRegressionSignalInput {
+    source_type: 'web_vitals_regression'
+    source_product: 'web_analytics'
+    source_id: string
+    description: string
+    weight: number
+    extra: WebVitalsRegressionSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -297,3 +352,5 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | WebVitalsThresholdCrossingSignalInput
+    | WebVitalsRegressionSignalInput
