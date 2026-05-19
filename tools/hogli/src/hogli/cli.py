@@ -282,6 +282,7 @@ def run_with_env(command: tuple[str, ...]) -> None:
         hogli run pytest posthog/api/
     """
     env_dev = REPO_ROOT / ".env.development"
+    env_services = REPO_ROOT / ".env.services"
     env_local = REPO_ROOT / ".env.local"
 
     has_op_refs = env_local.exists() and "op://" in env_local.read_text()
@@ -291,13 +292,15 @@ def run_with_env(command: tuple[str, ...]) -> None:
             click.echo("⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found", err=True)
             click.echo("   Install: brew install 1password-cli", err=True)
             raise SystemExit(1)
-        # Load .env.development first (only if not already set in shell).
-        # op run then layers .env.local on top — overriding .env.development but not shell.
+        # Load .env.development and .env.services first (only if not already set in shell).
+        # op run then layers .env.local on top — overriding our files but not shell.
         _load_env_file(env_dev, only_if_unset=True)
+        _load_env_file(env_services, only_if_unset=True)
         os.execvp("op", ["op", "run", f"--env-file={env_local}", "--", *command])
     else:
         _load_env_file(env_local, only_if_unset=True)
         _load_env_file(env_dev, only_if_unset=True)
+        _load_env_file(env_services, only_if_unset=True)
         os.execvp(command[0], list(command))
 
 
