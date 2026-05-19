@@ -12817,6 +12817,16 @@ class ChartSettings(BaseModel):
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
     rightYAxisSettings: YAxisSettings | None = None
+    seriesBreakdownColorOverrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-breakdown-value color overrides for the series-breakdown column. Keyed"
+            ' by the raw breakdown value as a string. The literal "__null__" is used as'
+            " the key for null / undefined values. Hex color string (matches `color` on"
+            " yAxis series display settings). When multiple Y series exist, rows for"
+            " the same breakdown value share the override."
+        ),
+    )
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None
