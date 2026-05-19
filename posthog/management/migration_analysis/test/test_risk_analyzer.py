@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
+from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy
 
 
 def create_mock_operation(op_class, **kwargs):
@@ -1910,3 +1911,44 @@ class TestConcurrentIndexIdempotencyPolicy:
         op.__class__.__name__ = "AddIndexConcurrently"
         risk = self._analyze([op], app_label="some_third_party_app")
         assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_reverse_sql_blocked(self):
+        """Forward SQL is idempotent but reverse_sql is bare DROP. Rollback runs through the same retry loop, so a non-idempotent reverse re-opens the stuck-migration class."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            reverse_sql="DROP INDEX CONCURRENTLY idx_foo;",
+        )
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v and "reverse_sql" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_runsql_inside_nested_separate_database_and_state_blocked(self):
+        """SeparateDatabaseAndState can nest; descent must reach inner ops at any depth."""
+        inner_db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        inner_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_db_op]
+        )
+        outer_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_sep]
+        )
+        risk = self._analyze([outer_sep])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_policy_in_isolation_catches_nested_sdas(self):
+        """Calling the policy directly proves it stands on its own, independent of sibling policies firing on the same migration."""
+        inner_db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        inner_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_db_op]
+        )
+        outer_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_sep]
+        )
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.operations = [outer_sep]
+
+        violations = ConcurrentIndexIdempotencyPolicy().check_migration(mock_migration)
+
+        assert any("non-idempotent" in v for v in violations)
