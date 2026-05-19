@@ -40,16 +40,16 @@ function formatExpiryShort(expiresAt: string | null | undefined): string {
     return `${Math.round(days / 7)}w left`
 }
 
-function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): string {
+function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): JSX.Element {
+    // One <div> per line so the tooltip renders multi-line — the default
+    // Tooltip container has `white-space: normal`, which would collapse `\n`.
     const lines: string[] = []
     if (quarantine.reason) {
         lines.push(quarantine.reason)
     }
-    if (quarantine.expires_at) {
-        lines.push(`Expires ${dayjs(quarantine.expires_at).format('MMM D, YYYY')}`)
-    } else {
-        lines.push('No expiry set')
-    }
+    lines.push(
+        quarantine.expires_at ? `Expires ${dayjs(quarantine.expires_at).format('MMM D, YYYY')}` : 'No expiry set'
+    )
     if (quarantine.created_by) {
         const name = quarantine.created_by.first_name || quarantine.created_by.email
         lines.push(`By ${name} · ${dayjs(quarantine.created_at).fromNow()}`)
@@ -58,7 +58,13 @@ function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): strin
         const prSuffix = quarantine.source_run.pr_number ? ` · PR #${quarantine.source_run.pr_number}` : ''
         lines.push(`From ${quarantine.source_run.commit_sha.slice(0, 8)} on ${quarantine.source_run.branch}${prSuffix}`)
     }
-    return lines.join('\n')
+    return (
+        <>
+            {lines.map((line, i) => (
+                <div key={i}>{line}</div>
+            ))}
+        </>
+    )
 }
 
 // Anything below this rounds to "0.0%" via the formatter above, which would
@@ -112,7 +118,7 @@ export function SnapshotCard({
     // Tooltip body is only consumed on hover — compute once per render of
     // a quarantined card, not on every mouse-enter, and avoid building it
     // at all for non-quarantined cards (most cards in a typical grid).
-    const quarantineTooltip = useMemo(() => (quarantine ? buildQuarantineTooltip(quarantine) : ''), [quarantine])
+    const quarantineTooltip = useMemo(() => (quarantine ? buildQuarantineTooltip(quarantine) : null), [quarantine])
 
     return (
         <Link

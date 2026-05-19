@@ -113,10 +113,15 @@ export function QuarantineAction({
     const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(computeDefaultExpiry(initialExpiresAt))
 
     // Re-prefill if the parent swaps which entry we're acting on mid-session.
+    // Skip while the modal is open so a background refresh of the underlying
+    // entry can't silently trample the user's in-progress edits.
     useEffect(() => {
+        if (isOpen) {
+            return
+        }
         setReason(initialReason ?? '')
         setExpiresAt(computeDefaultExpiry(initialExpiresAt))
-    }, [initialReason, initialExpiresAt])
+    }, [initialReason, initialExpiresAt, isOpen])
 
     const sibling = getThemeSibling(identifier)
 

@@ -517,8 +517,9 @@ def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:
 def _quarantine_common_fields(
     q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None
 ) -> tuple[contracts.UserBasicInfo | None, contracts.QuarantineSourceRun | None]:
-    """Fields shared by both quarantine DTOs. Callers must preload `source_run`
-    via `select_related` — both call sites do."""
+    """Fields shared by both quarantine DTOs. Callers must ensure `q.source_run`
+    is preloaded — list/overview use `select_related`, and the create path
+    attaches the resolved Run directly — so accessing it never lazy-loads."""
     created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
     return created_by, _to_quarantine_source_run(q.source_run)
 
