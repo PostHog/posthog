@@ -54,8 +54,8 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
-    // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
-    #[envconfig(default = "4")]
+    // Maximum number of client connections from Cymbal to PgBouncer.
+    #[envconfig(default = "50")]
     pub max_pg_connections: u32,
 
     // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default

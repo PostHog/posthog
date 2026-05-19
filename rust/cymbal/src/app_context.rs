@@ -2,7 +2,10 @@ use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::HealthRegistry;
 use rdkafka::producer::FutureProducer;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    PgPool,
+};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
@@ -47,7 +50,13 @@ pub struct AppContext {
 impl AppContext {
     pub async fn from_config(config: &Config) -> Result<Self, UnhandledError> {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let posthog_pool = options.connect(&config.database_url).await?;
+        let connect_options: PgConnectOptions = config.database_url.parse()?;
+        let connect_options = connect_options
+            // PgBouncer in transaction-pooling mode cannot safely reuse SQLx's
+            // named prepared statements across backend connections.
+            .statement_cache_capacity(0)
+            .application_name("cymbal");
+        let posthog_pool = options.connect_with(connect_options).await?;
 
         let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
         let s3_client = S3Client::new(s3_client);
