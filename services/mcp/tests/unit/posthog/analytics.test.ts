@@ -4,21 +4,72 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { track } from '@posthog/mcp-analytics'
 
-import { initPostHogMcpAnalytics, type PostHogMcpAnalyticsIdentityProvider } from '@/lib/posthog-mcp-analytics'
+import { buildMCPAnalyticsGroups, buildMCPContextProperties, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
+import { initMcpAnalytics, type IdentityProvider } from '@/lib/posthog/analytics'
 
 const TEST_API_KEY = 'test-api-key'
 const TEST_HOST = 'https://test.posthog.com'
 
-describe('initPostHogMcpAnalytics', () => {
+describe('buildMCPAnalyticsGroups', () => {
+    it.each<[string, MCPAnalyticsContext, Record<string, string>]>([
+        [
+            'full context uses UUID as the project group key',
+            { organizationId: 'org-1', projectId: '123', projectUuid: 'project-uuid-123' },
+            { organization: 'org-1', project: 'project-uuid-123' },
+        ],
+        ['organization only', { organizationId: 'org-1' }, { organization: 'org-1' }],
+        ['project UUID only', { projectUuid: 'project-uuid-123' }, { project: 'project-uuid-123' }],
+        ['ignores projectId when projectUuid is absent', { projectId: '123' }, {}],
+        ['empty context', {}, {}],
+    ])('%s', (_, input, expected) => {
+        expect(buildMCPAnalyticsGroups(input)).toEqual(expected)
+    })
+})
+
+describe('buildMCPContextProperties', () => {
+    it.each<[string, MCPAnalyticsContext, { prefix?: string } | undefined, Record<string, string>]>([
+        [
+            'full context → snake_case properties',
+            {
+                organizationId: 'org-1',
+                projectId: '123',
+                projectUuid: 'project-uuid-123',
+                projectName: 'My Project',
+            },
+            undefined,
+            {
+                organization_id: 'org-1',
+                project_id: '123',
+                project_uuid: 'project-uuid-123',
+                project_name: 'My Project',
+            },
+        ],
+        [
+            'prefix applies to every key (used for previous_* on context-switch events)',
+            { organizationId: 'org-1', projectUuid: 'project-uuid-123' },
+            { prefix: 'previous_' },
+            { previous_organization_id: 'org-1', previous_project_uuid: 'project-uuid-123' },
+        ],
+        ['empty context yields empty object', {}, undefined, {}],
+        [
+            'partial context omits absent keys rather than emitting undefined',
+            { organizationId: 'org-1' },
+            undefined,
+            { organization_id: 'org-1' },
+        ],
+    ])('%s', (_, input, options, expected) => {
+        expect(buildMCPContextProperties(input, options)).toEqual(expected)
+    })
+})
+
+describe('initMcpAnalytics', () => {
     beforeEach(() => {
         vi.mocked(track).mockClear()
         env.POSTHOG_ANALYTICS_API_KEY = TEST_API_KEY
         env.POSTHOG_ANALYTICS_HOST = TEST_HOST
     })
 
-    function createMockIdentity(
-        overrides: Partial<PostHogMcpAnalyticsIdentityProvider> = {}
-    ): PostHogMcpAnalyticsIdentityProvider {
+    function createMockIdentity(overrides: Partial<IdentityProvider> = {}): IdentityProvider {
         return {
             getDistinctId: vi.fn().mockResolvedValue('user-123'),
             getSessionUuid: vi.fn().mockResolvedValue('session-uuid-456'),
@@ -46,13 +97,13 @@ describe('initPostHogMcpAnalytics', () => {
     }
 
     function getTrackOptions(): {
-        identify: () => Promise<unknown>
+        identify: { userId: string }
         eventTags: () => Promise<Record<string, string>>
         eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
     } {
         const call = vi.mocked(track).mock.calls[0]!
         return call[1] as {
-            identify: () => Promise<unknown>
+            identify: { userId: string }
             eventTags: () => Promise<Record<string, string>>
             eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
         }
@@ -62,39 +113,29 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        const result = await initPostHogMcpAnalytics(server, identity)
+        const result = await initMcpAnalytics(server, identity)
 
         expect(track).toHaveBeenCalledWith(
             server,
             expect.objectContaining({
-                apiKey: TEST_API_KEY,
+                posthogClient: expect.any(Object),
                 context: false,
                 enableAITracing: true,
                 enableTracing: true,
-                host: TEST_HOST,
-                identify: expect.any(Function),
+                identify: expect.objectContaining({ userId: expect.any(String) }),
                 eventTags: expect.any(Function),
                 eventProperties: expect.any(Function),
-                posthogOptions: {
-                    flushAt: 1,
-                    flushInterval: 0,
-                    host: TEST_HOST,
-                },
                 reportMissing: false,
             })
         )
-        expect(result).toMatchObject({
-            action: 'initialized',
-            contextEnabled: false,
-            reportMissingEnabled: false,
-        })
+        expect(result).toMatchObject({ action: 'initialized' })
     })
 
     it('enables required context only when explicitly requested', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        const result = await initPostHogMcpAnalytics(server, identity, {
+        const result = await initMcpAnalytics(server, identity, {
             contextEnabled: true,
             reportMissingEnabled: false,
         })
@@ -107,18 +148,14 @@ describe('initPostHogMcpAnalytics', () => {
                 reportMissing: false,
             })
         )
-        expect(result).toMatchObject({
-            action: 'initialized',
-            contextEnabled: true,
-            reportMissingEnabled: false,
-        })
+        expect(result).toMatchObject({ action: 'initialized' })
     })
 
     it('enables get_more_tools (reportMissing) only when explicitly requested', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        const result = await initPostHogMcpAnalytics(server, identity, {
+        const result = await initMcpAnalytics(server, identity, {
             contextEnabled: false,
             reportMissingEnabled: true,
         })
@@ -129,10 +166,7 @@ describe('initPostHogMcpAnalytics', () => {
                 reportMissing: true,
             })
         )
-        expect(result).toMatchObject({
-            action: 'initialized',
-            reportMissingEnabled: true,
-        })
+        expect(result).toMatchObject({ action: 'initialized' })
     })
 
     it.each(['POSTHOG_ANALYTICS_API_KEY', 'POSTHOG_ANALYTICS_HOST'] as const)(
@@ -142,7 +176,7 @@ describe('initPostHogMcpAnalytics', () => {
             const server = new McpServer({ name: 'test', version: '1.0.0' })
             const identity = createMockIdentity()
 
-            const result = await initPostHogMcpAnalytics(server, identity)
+            const result = await initMcpAnalytics(server, identity)
 
             expect(track).not.toHaveBeenCalled()
             expect(result).toMatchObject({ action: 'skipped', reason: 'missing_config' })
@@ -153,16 +187,16 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity)
+        await initMcpAnalytics(server, identity)
 
-        expect(await getTrackOptions().identify()).toEqual({ userId: 'user-123' })
+        expect(getTrackOptions().identify).toEqual({ userId: 'user-123' })
     })
 
     it('eventTags callback returns $session_id and $ai_session_id when available', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity)
+        await initMcpAnalytics(server, identity)
 
         expect(await getTrackOptions().eventTags()).toEqual({
             $session_id: 'session-uuid-456',
@@ -176,7 +210,7 @@ describe('initPostHogMcpAnalytics', () => {
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
         })
 
-        await initPostHogMcpAnalytics(server, identity)
+        await initMcpAnalytics(server, identity)
 
         expect(await getTrackOptions().eventTags()).toEqual({})
     })
@@ -185,7 +219,7 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity)
+        await initMcpAnalytics(server, identity)
 
         expect(await getTrackOptions().eventProperties()).toEqual({
             $ai_product: 'mcp',
@@ -239,7 +273,7 @@ describe('initPostHogMcpAnalytics', () => {
         const identity = createMockIdentity()
         const resolveExecInnerToolCall = vi.fn().mockReturnValue(resolverReturn)
 
-        await initPostHogMcpAnalytics(server, identity, {
+        await initMcpAnalytics(server, identity, {
             contextEnabled: false,
             reportMissingEnabled: false,
             resolveExecInnerToolCall,
@@ -263,7 +297,7 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity)
+        await initMcpAnalytics(server, identity)
 
         const properties = await getTrackOptions().eventProperties({
             params: { name: 'exec', arguments: { command: 'call execute-sql {}' } },
@@ -278,7 +312,7 @@ describe('initPostHogMcpAnalytics', () => {
         const identity = createMockIdentity()
         const execInnerToolNames = ['execute-sql', 'feature-flag-get-all', 'insight-get']
 
-        await initPostHogMcpAnalytics(server, identity, {
+        await initMcpAnalytics(server, identity, {
             contextEnabled: false,
             reportMissingEnabled: false,
             execInnerToolNames,
@@ -296,13 +330,16 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity, {
+        await initMcpAnalytics(server, identity, {
             contextEnabled: false,
             reportMissingEnabled: false,
             execInnerToolNames: ['execute-sql'],
         })
 
-        const callRequest = { method: 'tools/call', params: { name: 'exec', arguments: { command: 'call execute-sql {}' } } }
+        const callRequest = {
+            method: 'tools/call',
+            params: { name: 'exec', arguments: { command: 'call execute-sql {}' } },
+        }
         const properties = await getTrackOptions().eventProperties(callRequest)
 
         expect(properties).not.toHaveProperty('$mcp_exec_inner_tool_names')
@@ -312,7 +349,7 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity, {
+        await initMcpAnalytics(server, identity, {
             contextEnabled: false,
             reportMissingEnabled: false,
             execInnerToolNames: [],
@@ -329,7 +366,7 @@ describe('initPostHogMcpAnalytics', () => {
             getAnalyticsContext: vi.fn().mockResolvedValue(undefined),
         })
 
-        await initPostHogMcpAnalytics(server, identity)
+        await initMcpAnalytics(server, identity)
 
         const properties = await getTrackOptions().eventProperties()
         expect(properties.$groups).toBeUndefined()
@@ -345,7 +382,7 @@ describe('initPostHogMcpAnalytics', () => {
             throw new Error('PostHog MCP analytics init failed')
         })
 
-        await expect(initPostHogMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
+        await expect(initMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
     })
 
     it('swallows errors if analytics identity resolution throws', async () => {
@@ -354,7 +391,7 @@ describe('initPostHogMcpAnalytics', () => {
             getDistinctId: vi.fn().mockRejectedValue(new Error('identity unavailable')),
         })
 
-        await expect(initPostHogMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
+        await expect(initMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
         expect(track).not.toHaveBeenCalled()
     })
 })

@@ -51,7 +51,6 @@ export async function startCfHarness(env: IntegrationEnv): Promise<IntegrationHa
             POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: '',
             POSTHOG_UI_APPS_TOKEN: '',
             INKEEP_API_KEY: '',
-            MCP_CAT_PROJECT_ID: '',
         },
         experimental: {
             disableExperimentalWarning: true,

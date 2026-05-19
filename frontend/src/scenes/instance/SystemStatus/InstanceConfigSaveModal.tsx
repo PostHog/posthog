@@ -11,7 +11,7 @@ import { RenderMetricValue } from './RenderMetricValue'
 import { systemStatusLogic } from './systemStatusLogic'
 
 interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
-    oldValue?: boolean | string | number | null
+    oldValue?: boolean | string | number | number[] | null
     metricKey: string
     isSecret?: boolean
 }

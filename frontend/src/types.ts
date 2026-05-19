@@ -4901,8 +4901,8 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number | null
-    value_type: 'bool' | 'str' | 'int'
+    value: boolean | string | number | number[] | null
+    value_type: 'bool' | 'str' | 'int' | 'list[int]'
     description?: string
     editable: boolean
     is_secret: boolean
