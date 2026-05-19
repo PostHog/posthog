@@ -77,7 +77,11 @@ def _deserialize_node(data: Any) -> Any:
         message = data.get("message", "Unknown error")
         start = data.get("start") or {}
         end = data.get("end") or {}
-        if error_type == "SyntaxError" and "reserved keyword" in message:
+        # A parser that tags an error `SyntaxError` means a malformed
+        # query — surface it as `SyntaxError` (a subclass of
+        # `ExposedHogQLError`) so callers can distinguish it, matching
+        # what the C++ parser raises natively.
+        if error_type == "SyntaxError":
             raise HogQLSyntaxError(message, start=start.get("offset"), end=end.get("offset"))
         raise ExposedHogQLError(message, start=start.get("offset"), end=end.get("offset"))
 

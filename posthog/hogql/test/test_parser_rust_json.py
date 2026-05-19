@@ -8,15 +8,14 @@ parser does not yet match the C++ reference on.
 
 from ._test_parser import parser_test_factory
 
-# Cases the Rust parser does not yet match C++ on — known divergences
-# from a full suite run, tracked for follow-up:
-#   - lt_vs_tags_and_comments: HogQLX `<` tag-vs-operator disambiguation
-#   - pop_empty_stack: a deserialization crash on a malformed-stack input
-#   - promoted_assignment_target_carries_position: assignment-LHS source
-#     positions under the master `exprStmt`-fold grammar
+# Cases the Rust parser does not yet match C++ on, tracked for follow-up:
+#   - promoted_assignment_target_carries_position: the Rust parser does
+#     not yet emit per-node source positions (`start` / `end`) at all —
+#     every node comes back position-less. The shared suite tolerates
+#     this via `clear_locations`, but this test inspects raw positions.
+#     Closing it means threading byte offsets through the whole emit
+#     layer — a feature in its own right, not a local fix.
 _DEFERRED_EXACT: set[str] = {
-    "test_lt_vs_tags_and_comments",
-    "test_pop_empty_stack",
     "test_promoted_assignment_target_carries_position",
 }
 
