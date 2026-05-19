@@ -578,7 +578,6 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                             isConfirmation={isConfirmationSelected}
                             viewport={viewport}
                             onViewportChange={setViewport}
-                            onOpenBranching={() => setShowFlowModal(true)}
                             onRemoveConfirmation={removeConfirmationScreen}
                         />
                     </div>

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGitBranch, IconPhone, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconPhone, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconMonitor } from 'lib/lemon-ui/icons'
@@ -21,7 +21,6 @@ interface HostedSurveySettingsPanelProps {
     isConfirmation: boolean
     viewport: 'desktop' | 'mobile'
     onViewportChange: (viewport: 'desktop' | 'mobile') => void
-    onOpenBranching: () => void
     onRemoveConfirmation: () => void
 }
 
@@ -43,10 +42,9 @@ export function HostedSurveySettingsPanel({
     isConfirmation,
     viewport,
     onViewportChange,
-    onOpenBranching,
     onRemoveConfirmation,
 }: HostedSurveySettingsPanelProps): JSX.Element {
-    const { survey, hasBranchingLogic } = useValues(surveyLogic)
+    const { survey } = useValues(surveyLogic)
     const { setSurveyValue, setDefaultForQuestionType, resetBranchingForQuestion, setMultipleSurveyQuestion } =
         useActions(surveyLogic)
 
@@ -189,18 +187,6 @@ export function HostedSurveySettingsPanel({
                             }}
                         />
                     )}
-
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconGitBranch />}
-                        onClick={onOpenBranching}
-                        disabledReason={
-                            survey.questions.length < 2 ? 'Branching needs at least two questions' : undefined
-                        }
-                    >
-                        {hasBranchingLogic ? 'Edit branching' : 'Add branching'}
-                    </LemonButton>
                 </>
             ) : null}
 
