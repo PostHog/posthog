@@ -1554,3 +1554,23 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert response.status_code == 200
         self.schema.refresh_from_db()
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
+    def test_post_returns_method_not_allowed(self):
+        # Schemas are bulk-created server-side by the source create flow; the public
+        # POST endpoint is not supported. Previously, sending writable non-model fields
+        # (sync_frequency, primary_key_columns, etc.) crashed with a 500 TypeError when
+        # DRF forwarded them to ExternalDataSchema.objects.create().
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/",
+            {
+                "name": "NewSchema",
+                "sync_frequency": "24hour",
+                "sync_time_of_day": "00:00:00",
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["id"],
+                "cdc_table_mode": "consolidated",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED

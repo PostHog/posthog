@@ -6,7 +6,7 @@ from typing import Any, Optional
 import structlog
 import temporalio
 from drf_spectacular.utils import extend_schema
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import filters, mixins, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -533,10 +533,18 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=["data_warehouse"])
-class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    # POST is not supported: schemas are bulk-created by the source create flow, which
+    # owns the FKs, schedules, CDC publication setup, and table provisioning.
     scope_object = "external_data_source"
     scope_object_write_actions = [
-        "create",
         "update",
         "partial_update",
         "patch",
