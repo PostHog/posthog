@@ -12819,7 +12819,7 @@ class ChartSettings(BaseModel):
     leftYAxisSettings: YAxisSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
-        description="Per-breakdown-value color customizations. Keyed by the raw breakdown column value.",
+        description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
     )
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None

@@ -6,8 +6,12 @@ import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
 
-/** Sentinel used to key result customizations for null / undefined breakdown values. */
-export const BREAKDOWN_NULL_KEY = '__null__'
+/**
+ * Sentinel used to key result customizations for null / undefined breakdown values.
+ * Mirrors `BREAKDOWN_NULL_STRING_LABEL` from `scenes/insights/utils` to keep the
+ * collision-resistance contract consistent with trends/funnels breakdowns.
+ */
+export const BREAKDOWN_NULL_KEY = '$$_posthog_breakdown_null_$$'
 
 export const getBreakdownValueKey = (value: unknown): string =>
     value === null || value === undefined ? BREAKDOWN_NULL_KEY : String(value)
