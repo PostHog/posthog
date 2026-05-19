@@ -5,6 +5,7 @@ from typing import Any
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.pganalyze.queries import ISSUES_QUERY, SERVERS_QUERY
@@ -18,6 +19,20 @@ from posthog.temporal.data_imports.sources.pganalyze.settings import (
 
 class PgAnalyzeRetryableError(Exception):
     pass
+
+
+def _resolve_api_url(api_url: str | None) -> str:
+    """Resolve the optional user-supplied api_url to a validated URL.
+
+    Why: api_url is a free-text input on the source config, so without validation any
+    authenticated user could point pganalyze sync at internal-network targets (cloud
+    metadata services, private IPs, RFC1918 hosts) and use PostHog as an SSRF gadget.
+    """
+    candidate = (api_url or "").strip() or PGANALYZE_API_URL
+    allowed, reason = is_url_allowed(candidate)
+    if not allowed:
+        raise ValueError(f"pganalyze API URL is not allowed: {reason}")
+    return candidate
 
 
 def _build_session(api_key: str):
@@ -131,7 +146,7 @@ def pganalyze_source(
     if endpoint_config is None:
         raise ValueError(f"Unknown pganalyze endpoint: {endpoint_name}")
 
-    resolved_api_url = api_url or PGANALYZE_API_URL
+    resolved_api_url = _resolve_api_url(api_url)
 
     def get_rows() -> Iterator[dict[str, Any]]:
         session = _build_session(api_key)
@@ -163,10 +178,15 @@ def pganalyze_source(
 
 def validate_credentials(api_key: str, organization_slug: str, api_url: str | None) -> tuple[bool, str | None]:
     try:
+        resolved_api_url = _resolve_api_url(api_url)
+    except ValueError as e:
+        return False, str(e)
+
+    try:
         session = _build_session(api_key)
         try:
             response = session.post(
-                api_url or PGANALYZE_API_URL,
+                resolved_api_url,
                 json={
                     "query": SERVERS_QUERY,
                     "variables": {"organizationSlug": organization_slug},

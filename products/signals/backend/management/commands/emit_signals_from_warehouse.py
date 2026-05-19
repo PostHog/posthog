@@ -61,7 +61,10 @@ class Command(BaseCommand):
     help = (
         "Re-emit signals for a team from rows already synced into the data warehouse, "
         "without re-running the upstream sync. Fires the same EmitDataImportSignalsWorkflow "
-        "the data-import job normally chains as a child after a sync completes."
+        "the data-import job normally chains as a child after a sync completes. "
+        "Use this (rather than emit_signals_from_fixture) when you want to exercise the "
+        "warehouse fetcher + workflow path against real synced rows — fixtures bypass "
+        "both the fetcher and the workflow, so they don't catch HogQL or table-shape regressions."
     )
 
     def add_arguments(self, parser):
@@ -77,8 +80,11 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help=(
-                "Optional ISO timestamp. Records with partition_field > this value are emitted. "
-                "Default: None — full re-emit of every row currently in the warehouse table."
+                "Optional ISO timestamp (e.g. 2026-01-01T00:00:00+00:00). Records with "
+                "partition_field > this value are emitted. Default: None — falls back to "
+                "the registered config's first_sync_lookback_days window, capped at "
+                "config.max_records. Pass an old timestamp like 1970-01-01T00:00:00+00:00 "
+                "to force a full re-emit of every row in the warehouse table."
             ),
         )
 
@@ -86,6 +92,13 @@ class Command(BaseCommand):
         team_id = options["team_id"]
         source_type, schema_name = _SOURCES[options["type"]]
         last_synced_at = options["last_synced_at"]
+        if last_synced_at is not None:
+            try:
+                dt.datetime.fromisoformat(last_synced_at)
+            except ValueError as err:
+                raise CommandError(
+                    f"--last-synced-at must be an ISO 8601 timestamp (got {last_synced_at!r}): {err}"
+                ) from err
 
         try:
             team = Team.objects.get(id=team_id)
