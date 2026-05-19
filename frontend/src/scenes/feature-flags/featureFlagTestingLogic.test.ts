@@ -230,6 +230,14 @@ describe('featureFlagTestingLogic', () => {
                 },
             },
             {
+                description: 'person not found error with timestamp (rewritten error message)',
+                input: 'Person not found. This person may not have existed at the selected timestamp.',
+                expected: {
+                    message: 'Person not found. This person may not have existed at the selected timestamp.',
+                    helpText: 'Try selecting a different person or removing the timestamp to test with current data.',
+                },
+            },
+            {
                 description: 'generic error without helpText',
                 input: 'Some generic API error',
                 expected: {

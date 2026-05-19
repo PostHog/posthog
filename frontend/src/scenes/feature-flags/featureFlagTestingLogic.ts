@@ -248,11 +248,11 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 if (error.toLowerCase().includes('build person properties')) {
                     helpText =
                         'Try a more recent timestamp when this person was active, remove the timestamp to test with current person properties, or select a different person who was active at that time.'
+                } else if (error.toLowerCase().includes('person') && error.toLowerCase().includes('not found')) {
+                    helpText = 'Try selecting a different person or removing the timestamp to test with current data.'
                 } else if (error.toLowerCase().includes('timestamp')) {
                     helpText =
                         'When using historical timestamps, the person must have existed at that time and had the necessary properties for evaluation.'
-                } else if (error.toLowerCase().includes('person') && error.toLowerCase().includes('not found')) {
-                    helpText = 'Try selecting a different person or removing the timestamp to test with current data.'
                 }
 
                 return {
