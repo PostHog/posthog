@@ -50,6 +50,7 @@ jobs:
 
                     echo "--- Node packages ---"
                     pnpm --filter=@posthog/frontend exec tsc --version
+                    pnpm --filter=@posthog/frontend exec tsgo --version
                   '
 
             - name: Check lockfile consistency

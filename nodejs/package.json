@@ -21,6 +21,7 @@
         "typescript:compile": "tsc -b && tsc-alias",
         "typescript:compile-cleanup": "[ -d dist/src ] && mv dist/src/* dist/ || true",
         "typescript:check": "tsc --noEmit -p .",
+        "typescript:check:tsgo": "tsgo --noEmit -p .",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
         "format": "prettier --write .",
