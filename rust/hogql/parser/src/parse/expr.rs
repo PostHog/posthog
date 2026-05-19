@@ -2897,6 +2897,27 @@ impl<'a> Parser<'a> {
             // continue arithmetic and the clause keyword stays a
             // clause (`qualify * ?. q`).
             _ if is_pure_infix_op(p3) => false,
+            // A clause-starting keyword after `*` also can't be a
+            // multiplication RHS — it's the next clause beginning, and
+            // the `*` here is a bare-asterisk clause body
+            // (`where * limit 1`, `having * with totals`, …).
+            TokenKind::Keyword(
+                Kw::From
+                | Kw::Where
+                | Kw::Prewhere
+                | Kw::Having
+                | Kw::Qualify
+                | Kw::Window
+                | Kw::Limit
+                | Kw::Offset
+                | Kw::Group
+                | Kw::Order
+                | Kw::Union
+                | Kw::Intersect
+                | Kw::Except
+                | Kw::Settings
+                | Kw::With,
+            ) => false,
             _ => true,
         }
     }
