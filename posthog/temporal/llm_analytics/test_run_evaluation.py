@@ -511,6 +511,152 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_skips_meta_summarization_events(self, setup_data):
+        """Meta-summarization events carry another conversation as their `$ai_input`. The judge
+        cannot distinguish sentiment expressed *by* the user from sentiment merely present
+        *inside* the transcript being summarized, so it must short-circuit instead of grading
+        the embedded transcript and emitting noisy frustration / toxicity signals."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Did the user express frustration?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "ai_product": "llma_summarization",
+                "$ai_model": "gpt-4.1-nano",
+                "$ai_input": [
+                    {"role": "user", "content": "Summarize the following conversation"},
+                    {"role": "user", "content": "user: fuck off\nassistant: that's not nice"},
+                ],
+                "$ai_output_choices": [{"role": "assistant", "content": "Heated exchange."}],
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client_class.assert_not_called()
+
+        assert result["verdict"] is False
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "meta_summarization_event"
+        assert result["allows_na"] is False
+        assert result["input_tokens"] == 0
+        assert result["output_tokens"] == 0
+        assert result["total_tokens"] == 0
+        assert "summarizes" in result["reasoning"].lower()
+        # Skip path must omit `model` / `provider` so downstream `.get(..., DEFAULT_JUDGE_MODEL)`
+        # defaults don't attribute the phantom call to a model that never ran.
+        assert "model" not in result
+        assert "provider" not in result
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_skips_meta_summarization_with_allows_na(self, setup_data):
+        """With N/A allowed, the meta-summarization skip should mark the result inapplicable
+        rather than collapse to verdict=false — mirroring the errored-trace skip behavior."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Did the user express frustration?"},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "ai_product": "llma_summarization",
+                "$ai_input": [{"role": "user", "content": "Summarize this trace"}],
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client_class.assert_not_called()
+
+        assert result["verdict"] is None
+        assert result["applicable"] is False
+        assert result["allows_na"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "meta_summarization_event"
+
+    @pytest.mark.parametrize(
+        "ai_product",
+        [
+            pytest.param(None, id="missing"),
+            pytest.param("wizard", id="unrelated_product"),
+            pytest.param("llma_eval_summary", id="eval_summary_not_skipped"),
+        ],
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_does_not_skip_non_meta_products(self, ai_product: str | None, setup_data):
+        """Sanity check: events with a non-meta `ai_product` (or none at all) still flow
+        through to the judge. Today only `llma_summarization` carries a verbatim transcript
+        of another exchange as its input."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response relevant?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        props: dict[str, Any] = {
+            "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+        }
+        if ai_product is not None:
+            props["ai_product"] = ai_product
+
+        event_data = create_mock_event_data(team.id, properties=props)
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Correct")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client.complete.assert_called_once()
+
+        assert result["verdict"] is True
+        assert result.get("skipped") is not True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
     async def test_emit_evaluation_event_activity_allows_na_applicable(self, setup_data):
         """Test emitting evaluation event for applicable allows_na result"""
         evaluation_obj = setup_data["evaluation"]

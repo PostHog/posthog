@@ -499,6 +499,53 @@ def _is_errored_trace(properties: dict[str, Any]) -> bool:
     return False
 
 
+# `ai_product` values whose `$ai_input` is itself a transcript of another LLM exchange the
+# model has been asked to summarize. The judge cannot tell apart sentiment a user expressed
+# *to* the model from sentiment merely embedded *inside* a transcript the model is processing,
+# so judges trained on user-frustration / toxicity / NSFW criteria misfire on this traffic
+# (e.g. AI-companion roleplay being summarized). Treat these as out of scope for online judging.
+META_SUMMARIZATION_AI_PRODUCTS = frozenset({"llma_summarization"})
+
+
+def _is_meta_summarization_event(properties: dict[str, Any]) -> bool:
+    """Return True when the event is a meta-summarizer over another trace.
+
+    Today this is gated on `ai_product`, which the LLM gateway stamps on `$ai_generation`
+    events (see `services/llm-gateway/src/llm_gateway/callbacks/posthog.py`). If we add other
+    signals in future (e.g. a dedicated `$ai_is_meta` flag), extend this helper rather than
+    inlining the check at call sites.
+    """
+    return properties.get("ai_product") in META_SUMMARIZATION_AI_PRODUCTS
+
+
+def _build_meta_summarization_result(allows_na: bool) -> LLMJudgeResult:
+    """Result returned when the target event is a meta-summarizer over another trace.
+
+    Mirrors `_build_errored_trace_result`: omits `model` / `provider` so downstream cost
+    attribution doesn't credit phantom calls, and surfaces the skip reason so the workflow
+    and the emitted `$ai_evaluation` event can distinguish it from other skip paths.
+    """
+    reasoning = (
+        "Target event summarizes another trace; judge skipped to avoid grading transcript "
+        "content as if it were user input."
+    )
+    result: LLMJudgeResult = {
+        "verdict": None if allows_na else False,
+        "reasoning": reasoning,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": False,
+        "key_id": None,
+        "allows_na": allows_na,
+        "skipped": True,
+        "skip_reason": "meta_summarization_event",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
 def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
     """Result returned when the source trace errored — skips the LLM call entirely.
 
@@ -571,6 +618,9 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
         # Visibility for skipped evaluations comes from the workflow-level SKIPPED status emitted
         # by the metrics interceptor; there is no error to record here.
         return _build_errored_trace_result(allows_na)
+
+    if _is_meta_summarization_event(properties):
+        return _build_meta_summarization_result(allows_na)
 
     # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
