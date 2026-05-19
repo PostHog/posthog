@@ -17,7 +17,7 @@ from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_program, parse_select
 from posthog.hogql.visitor import clear_locations
 
 _BACKENDS = ("cpp-json", "rust-json", "python")
@@ -112,6 +112,27 @@ class TestParserRegressions(BaseTest):
             oracle = clear_locations(parse_select(src, backend="cpp-json"))
             for backend in ("rust-json", "python"):
                 got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_assignment_lhs_is_any_expression(self):
+        # `exprStmt: expression (COLONEQUALS expression)?` puts no
+        # target restriction on the `:=` left-hand side — cpp builds a
+        # `VariableAssignment` for any `<expr> := <expr>`. The Rust
+        # parser rejected non-place LHSs ("cannot assign to this
+        # expression"); a rejected `:=` body inside a `for` then made
+        # the whole `for` fail and mis-report "unexpected Let".
+        cases = (
+            "1 := 1",
+            "[] := 1",
+            "{} := 1",
+            "'s' := 1",
+            "return 1 := 1",
+            "for (let m in 488614) 1 := 1",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
     def test_decoration_after_pivot(self):

@@ -178,13 +178,12 @@ impl<'a> Parser<'a> {
         if peek_starts_return_expr(self.peek()) {
             let cp = self.checkpoint();
             match self.parse_stmt_rhs_expr() {
-                Ok(expr)
-                    if self.peek() == TokenKind::ColonEquals && is_assignment_target(&expr) =>
-                {
-                    // `return <target> := …` — taking the expression
+                Ok(_) if self.peek() == TokenKind::ColonEquals => {
+                    // `return <expr> := …` — taking the expression
                     // would strand the `:=`. cpp's ALL(*) makes the
-                    // `return` bare so `<target> := …` opens the next
-                    // statement (a varAssignment).
+                    // `return` bare so `<expr> := …` opens the next
+                    // statement (a varAssignment). The `:=` LHS is any
+                    // expression — cpp does no target validation.
                     self.restore(cp)?;
                     obj.insert("expr".into(), Value::Null);
                 }
@@ -365,9 +364,6 @@ impl<'a> Parser<'a> {
         // (`columns('x') (y) := z` is `columns('x')` then `(y) := z`).
         let expr = self.parse_stmt_rhs_expr()?;
         if self.eat(TokenKind::ColonEquals)? {
-            if !is_assignment_target(&expr) {
-                return Err(self.err("cannot assign to this expression"));
-            }
             let right = self.parse_stmt_rhs_expr()?;
             return Ok(json!({
                 "node": "VariableAssignment",
@@ -622,9 +618,6 @@ impl<'a> Parser<'a> {
         // (`columns('x') (y) := z` is `columns('x')` then `(y) := z`).
         let expr = self.parse_stmt_rhs_expr()?;
         if self.eat(TokenKind::ColonEquals)? {
-            if !is_assignment_target(&expr) {
-                return Err(self.err("cannot assign to this expression"));
-            }
             let right = self.parse_stmt_rhs_expr()?;
             // `varAssignment` has no trailing `SEMICOLON?` in the
             // grammar (unlike `exprStmt`) — a `;` after it is a
@@ -715,29 +708,4 @@ fn peek_starts_return_expr(tok: TokenKind) -> bool {
                     | Kw::Finally
             )
     )
-}
-
-/// Is `v` a valid `varAssignment` left-hand side? The grammar's
-/// `assignmentTarget` rule restricts the LHS of `:=` to an
-/// identifier-led place: an identifier chain, a `.`-property /
-/// `.`-tuple access, or a `[]`-subscript, optionally parenthesised
-/// (parens are stripped during parsing, so they leave no node).
-/// `true` / `false` reach this as boolean `Constant`s because the
-/// grammar's `columnIdentifier` lowers them; a `{…}` placeholder is
-/// also identifier-shaped. Anything else (operator expression, call,
-/// numeric / string literal, spread, dict) is not assignable — cpp's
-/// parser rejects it at parse time, so we must too.
-fn is_assignment_target(v: &Value) -> bool {
-    let nullish = v.get("nullish").and_then(Value::as_bool).unwrap_or(false);
-    match v.get("node").and_then(Value::as_str) {
-        Some("Field") | Some("Placeholder") => true,
-        Some("Constant") => v.get("value").map(Value::is_boolean).unwrap_or(false),
-        Some("ArrayAccess") => {
-            !nullish && v.get("array").map(is_assignment_target).unwrap_or(false)
-        }
-        Some("TupleAccess") => {
-            !nullish && v.get("tuple").map(is_assignment_target).unwrap_or(false)
-        }
-        _ => false,
-    }
 }
