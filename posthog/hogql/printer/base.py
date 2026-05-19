@@ -20,7 +20,7 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
+from posthog.hogql.database.models import DatabaseField, FunctionCallTable, StructDatabaseField, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
@@ -1332,6 +1332,16 @@ class BasePrinter(Visitor[str]):
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
+
+        # Struct columns (e.g. Parquet structs surfaced via the data warehouse) are backed by
+        # a ClickHouse Tuple, not a JSON string. Dot notation against them must use
+        # tupleElement(); JSONExtractRaw rejects Tuple arguments at runtime. Closes #58480.
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StructDatabaseField):
+            expr = self.visit(type.field_type)
+            for link in type.chain:
+                expr = f"tupleElement({expr}, {self.context.add_value(str(link))})"
+            return expr
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:

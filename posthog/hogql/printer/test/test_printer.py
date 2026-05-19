@@ -3987,6 +3987,45 @@ class TestPrinter(BaseTest):
         result = self._expr(expr)
         self.assertNotIn("$session_id_uuid", result)
 
+    def test_data_warehouse_struct_dot_notation_emits_tuple_element(self):
+        """Regression test for #58480.
+
+        Parquet struct columns surface in HogQL as ``StructDatabaseField``
+        backed by a ClickHouse ``Tuple(...)`` column. Dot notation on these
+        columns must emit ``tupleElement(col, 'field')`` rather than the
+        ``JSONExtractRaw(col, 'field')`` chain used for JSON-string columns,
+        because ClickHouse rejects ``JSONExtractRaw`` on a ``Tuple``
+        argument with ``illegal type: Tuple(...)``.
+        """
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="key", access_secret="secret"
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="members",
+            format="Parquet",
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={
+                "membership": {
+                    "clickhouse": "Tuple(type String, tier String)",
+                    "hogql": "StructDatabaseField",
+                    "valid": True,
+                    "fields": {
+                        "type": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
+                    },
+                }
+            },
+        )
+
+        printed = self._select("SELECT membership.type, membership.tier FROM members")
+
+        # The bug: JSONExtractRaw is emitted against the Tuple column, which ClickHouse rejects.
+        self.assertNotIn("JSONExtractRaw(members.membership", printed)
+        # The fix: tupleElement is the canonical ClickHouse accessor for Tuple fields.
+        self.assertIn("tupleElement(members.membership", printed)
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
