@@ -135,11 +135,24 @@ impl<'a> Parser<'a> {
             // arm rejects unless it actually found `:=`, so `{}` falls
             // through to the Block arm, and `{1: 2}` (whose body isn't
             // a valid `declaration*`) falls through to the exprStmt arm.
-            TokenKind::LBrace => self.try_alt(&[
-                &Self::parse_brace_lvalue_assignment,
-                &Self::parse_block,
-                &Self::parse_expr_or_assignment_stmt,
-            ]),
+            TokenKind::LBrace => {
+                // cpp's ANTLR ALL(*) prefers the exprStmt alt when a
+                // postfix `(` or `.` follows the matching `}` — `{1}()`
+                // and `{1}.x` are `Placeholder(1)` extended by a
+                // postfix call / property access, not a Block followed
+                // by stray tokens. Other postfixes (`[…]`, `+`, …) keep
+                // the Block interpretation, matching cpp. Probe the
+                // matching `}` to decide.
+                if self.brace_followed_by_postfix_call_or_dot() {
+                    self.parse_expr_or_assignment_stmt()
+                } else {
+                    self.try_alt(&[
+                        &Self::parse_brace_lvalue_assignment,
+                        &Self::parse_block,
+                        &Self::parse_expr_or_assignment_stmt,
+                    ])
+                }
+            }
             // `emptyStmt: SEMICOLON` — a bare `;` as a statement.
             // cpp's `VISIT(EmptyStmt)` emits `ExprStatement(expr=null)`.
             // Reached when a statement *slot* holds `;` — e.g. a
@@ -543,6 +556,33 @@ impl<'a> Parser<'a> {
             "catches": catches,
             "finally_stmt": finally_stmt.unwrap_or(Value::Null),
         }))
+    }
+
+    /// `self.peek()` is `{` — scan to its matching `}` and report
+    /// whether the next token is `(` or `.`. Used at statement start
+    /// to choose between the Block alt (`{ decls }`) and the exprStmt
+    /// alt (`{expr} <postfix>`) — cpp's ANTLR prefers exprStmt for the
+    /// two postfixes that can extend a placeholder expression but
+    /// keeps Block for everything else.
+    fn brace_followed_by_postfix_call_or_dot(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 1;
+        while depth > 0 {
+            let tok = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            match tok.kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+        matches!(
+            probe.next_token().map(|t| t.kind),
+            Ok(TokenKind::LParen | TokenKind::Dot)
+        )
     }
 
     pub(crate) fn parse_block(&mut self) -> Result<Value, ParseError> {
