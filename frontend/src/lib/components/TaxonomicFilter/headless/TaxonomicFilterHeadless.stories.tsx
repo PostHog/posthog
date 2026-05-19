@@ -91,6 +91,17 @@ export const Properties: Story = {
             },
         },
     },
+    play: async ({ canvasElement }) => {
+        const start = Date.now()
+        while (Date.now() - start < 8000) {
+            const row = canvasElement.ownerDocument.querySelector('[data-attr="taxonomic-row-event_properties-0"]')
+            if (row && (row as HTMLElement).offsetHeight > 0) {
+                return
+            }
+            await new Promise((r) => setTimeout(r, 100))
+        }
+        throw new Error('Timed out waiting for taxonomic row to appear')
+    },
 }
 
 export const SuggestedFiltersWithRecents: Story = {
