@@ -69,7 +69,7 @@ describe('featureFlagTestingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.testFlagEvaluationSuccess(mockResult)
+                logic.actions.testFlagEvaluationSuccess(mockResult as FeatureFlagTestEvaluationResponseApi)
             }).toMatchValues({
                 enrichedConditions: [
                     expect.objectContaining({
@@ -127,7 +127,7 @@ describe('featureFlagTestingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.testFlagEvaluationSuccess(mockResult)
+                logic.actions.testFlagEvaluationSuccess(mockResult as FeatureFlagTestEvaluationResponseApi)
             }).toMatchValues({
                 enrichedConditions: [
                     expect.objectContaining({
@@ -177,7 +177,7 @@ describe('featureFlagTestingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.testFlagEvaluationSuccess(mockResult)
+                logic.actions.testFlagEvaluationSuccess(mockResult as FeatureFlagTestEvaluationResponseApi)
             }).toMatchValues({
                 enrichedConditions: [
                     expect.objectContaining({
