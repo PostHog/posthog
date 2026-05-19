@@ -1500,7 +1500,8 @@ fn generate_typescript(plan: &TrackingPlan) -> String {
     for (event_name, event) in &plan.events {
         out.push_str(&format!(
             "  /** {} */\n  '{}': {{\n",
-            event.description, event_name
+            ts_doc_comment(&event.description),
+            event_name
         ));
         for (prop_name, prop) in all_event_properties(plan, event) {
             let optional = if prop.required { "" } else { "?" };
@@ -1517,6 +1518,14 @@ fn generate_typescript(plan: &TrackingPlan) -> String {
     out.push_str("export function captureTyped<E extends PostHogEventName>(posthog: { capture: (event: E, properties: PostHogEventProperties[E]) => void }, event: E, properties: PostHogEventProperties[E]): void {\n");
     out.push_str("  posthog.capture(event, properties)\n}\n");
     out
+}
+
+fn ts_doc_comment(value: &str) -> String {
+    value
+        .replace("*/", "*\\/")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn generate_go(plan: &TrackingPlan, package_name: &str) -> String {
@@ -1840,6 +1849,18 @@ mod local_schema_tests {
         assert!(py.contains("PostHogEventName = Literal"));
         assert!(py.contains("class UserSignedUpProperties"));
         assert!(py.contains("signup_method: str"));
+    }
+
+    #[test]
+    fn escapes_typescript_doc_comments() {
+        let mut plan = starter_plan(Baseline::ActivationRevenue, "snake_case_past_tense");
+        plan.events.get_mut("user_signed_up").unwrap().description =
+            "Safe text */\nexport const injected = true\n/**".to_string();
+
+        let ts = generate_typescript(&plan);
+
+        assert!(ts.contains("Safe text *\\/ export const injected = true /**"));
+        assert!(!ts.contains("*/\nexport const injected"));
     }
 
     #[test]
