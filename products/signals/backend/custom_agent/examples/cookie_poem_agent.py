@@ -9,18 +9,23 @@ Run it::
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from posthog.models import Team
 
 from products.signals.backend.custom_agent import NO_REPO, CustomAgentRunHandle, CustomSignalAgent
-from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
+from products.signals.backend.report_generation.research import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
+    PriorityAssessment,
+)
 
 DEFAULT_PROMPT = "Write a short poem about freshly baked chocolate chip cookies on a quiet afternoon."
 
 
 class CookiePoem(BaseModel):
-    title: str
+    title: str = Field(max_length=96)
     body: str
 
 
@@ -33,8 +38,19 @@ class CookiePoemAgent(CustomSignalAgent):
         poem = await self.send("Write a short poem about cookies.", CookiePoem)
         self.register_title(poem.title)
         self.register_description(poem.body)
-        self.register_actionability(ActionabilityChoice.IMMEDIATELY_ACTIONABLE)
-        self.register_priority(Priority.P0)
+        self.register_actionability(
+            ActionabilityAssessment(
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                explanation="Cookie poems are immediately bakeable.",
+                already_addressed=False,
+            )
+        )
+        self.register_priority(
+            PriorityAssessment(
+                priority=Priority.P0,
+                explanation="Cookies are top priority.",
+            )
+        )
         self.register_assignees([])
 
 

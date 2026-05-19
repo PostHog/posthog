@@ -4,14 +4,13 @@ import json
 import uuid
 import logging
 import importlib
-from collections.abc import Sequence
 from datetime import timedelta
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -25,20 +24,19 @@ from products.signals.backend.custom_agent.schemas import (
     CustomAgentIdentifierError,
     CustomAgentRunHandle,
     CustomAgentWorkflowInput,
-    coerce_assignees,
+    ResolvedCustomAgentRepository,
     validate_identifier,
     validate_run_id,
 )
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
-    Priority,
     PriorityAssessment,
 )
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
-    resolve_user_id_for_team,
 )
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, extract_json_from_text
@@ -47,6 +45,9 @@ from products.tasks.backend.services.custom_prompt_multi_turn_runner import Mult
 logger = logging.getLogger(__name__)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+NO_REPO = "__custom_signal_agent_no_repo__"
+"""Sentinel passed as ``repository`` to skip selection and run without a subject repo."""
 
 
 class CustomAgentValidationError(RuntimeError):
@@ -66,12 +67,31 @@ class CustomAgentValidationError(RuntimeError):
         return str(self.error)
 
 
-class DuplicateComponentRegistrationError(ValueError):
-    """Raised when a report component is registered twice without overwrite=True."""
-
-
 class MissingReportComponentError(RuntimeError):
     """Raised when final report components are still incomplete after default resolution."""
+
+
+class _TitleResolution(BaseModel):
+    title: str = Field(
+        description="A concise PR-style Code Inbox report title scoped to one concrete concern. Max length 96 characters",
+        max_length=255,
+    )
+
+
+class _DescriptionResolution(BaseModel):
+    description: str = Field(
+        description=(
+            "Final Code Inbox report summary/description. Include what happened, evidence/root cause, "
+            "and a concrete resolution path when actionable."
+        )
+    )
+
+
+class _AssigneesResolution(BaseModel):
+    assignees: list[CustomAgentAssignee] = Field(
+        default_factory=list,
+        description="Suggested GitHub assignees/reviewers. Return [] when no clear owner is supported by evidence.",
+    )
 
 
 class CustomSignalAgent:
@@ -131,10 +151,14 @@ class CustomSignalAgent:
     -----------------
 
     Any component you do not register (title, description, actionability,
-    priority, assignees) is filled in by
-    :py:mod:`products.signals.backend.custom_agent.default_resolvers` after
-    :py:meth:`run` returns. ``not_actionable`` reports skip priority resolution
-    by default. To skip all default resolution, register all fields manually.
+    priority, assignees) is filled in by the corresponding
+    :py:meth:`resolve_title` / :py:meth:`resolve_description` /
+    :py:meth:`resolve_actionability` / :py:meth:`resolve_priority` /
+    :py:meth:`resolve_assignees` method after :py:meth:`run` returns.
+    ``not_actionable`` reports skip priority resolution by default. Each
+    resolver has a paired ``resolve_*_prompt()`` method you can override to
+    tweak the prompt body without rewriting the whole resolver. To skip all
+    default resolution, register all fields manually in :py:meth:`run`.
 
     Repository modes
     ----------------
@@ -164,7 +188,10 @@ class CustomSignalAgent:
     - ``continue_without_repository``: when ``True``, the workflow will keep
       running even if free-form repo selection returned no repository. Default
       ``False``; ``NO_REPO`` callers do not need this flag.
-    - ``max_title_length``: maximum length enforced by :py:meth:`register_title`.
+    - ``max_title_length``: hard cap enforced by :py:meth:`register_title`. The
+      schema given to the LLM by :py:meth:`resolve_title` uses a tighter soft
+      limit (96); this attribute is the backstop for when the model ignores
+      the soft limit.
     """
 
     default_validation_retries = 3
@@ -176,9 +203,9 @@ class CustomSignalAgent:
         *,
         team: Team,
         initial_prompt: str,
-        repository: str | None,
         run_id: str,
-        user_id: int | None = None,
+        user_id: int,
+        repository: str | None,
         model: str | None = None,
     ) -> None:
         if not initial_prompt.strip():
@@ -188,7 +215,7 @@ class CustomSignalAgent:
         self.initial_prompt: str = initial_prompt
         self.repository: str | None = repository.lower() if repository else None
         self.run_id: str = run_id
-        self._user_id: int | None = user_id  # resolved lazily in _send_raw if None
+        self.user_id: int = user_id
         self.model: str | None = model
         self._session: MultiTurnSession | None = None
         self._title: str | None = None
@@ -228,6 +255,80 @@ class CustomSignalAgent:
         if getattr(module, class_name, None) is not cls:
             raise RuntimeError(f"Custom signal agent path {module_name}.{class_name} does not import this class")
         return f"{module_name}.{class_name}"
+
+    @staticmethod
+    def _normalize_repository(repository: str) -> str:
+        normalized = repository.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise ValueError("repository must be in 'owner/repo' format")
+        return normalized
+
+    @classmethod
+    def repository_request_section(cls, initial_prompt: str) -> str:
+        """Markdown block (header + body) describing the request to the repo selector.
+
+        Override to customize the prompt section fed into
+        :func:`select_repository_for_team` without rewriting :meth:`resolve_repository`.
+        """
+        return f"## Custom agent request\n\n{initial_prompt.strip()}"
+
+    @classmethod
+    async def resolve_repository(
+        cls,
+        *,
+        team_id: int,
+        user_id: int,
+        initial_prompt: str,
+        repository: str | None,
+        sandbox_environment_id: str | None = None,
+    ) -> ResolvedCustomAgentRepository:
+        """Resolve the subject repository for this run.
+
+        Default behavior:
+
+        - ``NO_REPO`` → ``mode="no_repo"``, no subject repo, no clone.
+        - ``"owner/repo"`` → ``mode="explicit"``, normalized lowercased.
+        - ``None`` → ``mode="selected"``, free-form selection from
+          :func:`select_repository_for_team` using
+          :meth:`repository_request_section` for the prompt body.
+
+        Override for completely custom selection logic (e.g. always default to a
+        specific repo, or to short-circuit the LLM call).
+        """
+        if repository == NO_REPO:
+            return ResolvedCustomAgentRepository(
+                mode="no_repo",
+                repo_selection=RepoSelectionResult(
+                    repository=None,
+                    reason="NO_REPO provided by caller; running without a subject repository.",
+                ),
+                selected_repository=None,
+            )
+
+        if repository is not None:
+            normalized = cls._normalize_repository(repository)
+            return ResolvedCustomAgentRepository(
+                mode="explicit",
+                repo_selection=RepoSelectionResult(
+                    repository=normalized,
+                    reason="Repository provided by caller.",
+                ),
+                selected_repository=normalized,
+            )
+
+        selected = await select_repository_for_team(
+            team_id=team_id,
+            user_id=user_id,
+            request_section=cls.repository_request_section(initial_prompt),
+            step_name="custom_agent_repo_selection",
+            sandbox_environment_id=sandbox_environment_id,
+        )
+        return ResolvedCustomAgentRepository(
+            mode="selected",
+            repo_selection=selected,
+            selected_repository=selected.repository,
+        )
 
     @classmethod
     async def arun_agent(
@@ -357,75 +458,22 @@ class CustomSignalAgent:
                     label=f"{turn_label}_validation_retry",
                 )
 
-    def register_title(self, title: str, *, overwrite: bool = False) -> None:
-        self._ensure_can_register("title", self._title is not None, overwrite)
-        normalized = title.strip()
-        if not normalized:
-            raise ValueError("title must not be empty")
-        if len(normalized) > self.max_title_length:
+    def register_title(self, title: str) -> None:
+        if len(title) > self.max_title_length:
             raise ValueError(f"title must be <= {self.max_title_length} characters")
-        self._title = normalized
+        self._title = title
 
-    def register_description(self, description: str, *, overwrite: bool = False) -> None:
-        self._ensure_can_register("description", self._description is not None, overwrite)
-        normalized = description.strip()
-        if not normalized:
-            raise ValueError("description must not be empty")
-        self._description = normalized
+    def register_description(self, description: str) -> None:
+        self._description = description
 
-    def register_assignees(
-        self,
-        assignees: Sequence[CustomAgentAssignee | str | dict[str, Any]],
-        *,
-        overwrite: bool = False,
-    ) -> None:
-        self._ensure_can_register("assignees", self._assignees is not None, overwrite)
-        self._assignees = coerce_assignees(assignees)
+    def register_assignees(self, assignees: list[CustomAgentAssignee]) -> None:
+        self._assignees = list(assignees)
 
-    def register_actionability(
-        self,
-        actionability: ActionabilityAssessment | ActionabilityChoice | str,
-        *,
-        explanation: str | None = None,
-        already_addressed: bool = False,
-        overwrite: bool = False,
-    ) -> None:
-        self._ensure_can_register("actionability", self._actionability is not None, overwrite)
-        if isinstance(actionability, ActionabilityAssessment):
-            if explanation is not None or already_addressed:
-                actionability = actionability.model_copy(
-                    update={
-                        **({"explanation": explanation} if explanation is not None else {}),
-                        **({"already_addressed": already_addressed} if already_addressed else {}),
-                    }
-                )
-            self._actionability = actionability
-            return
-        choice = ActionabilityChoice(actionability)
-        self._actionability = ActionabilityAssessment(
-            actionability=choice,
-            explanation=explanation or f"Custom agent marked this report as {choice.value}.",
-            already_addressed=already_addressed,
-        )
+    def register_actionability(self, actionability: ActionabilityAssessment) -> None:
+        self._actionability = actionability
 
-    def register_priority(
-        self,
-        priority: PriorityAssessment | Priority | str,
-        *,
-        explanation: str | None = None,
-        overwrite: bool = False,
-    ) -> None:
-        self._ensure_can_register("priority", self._priority is not None, overwrite)
-        if isinstance(priority, PriorityAssessment):
-            if explanation is not None:
-                priority = priority.model_copy(update={"explanation": explanation})
-            self._priority = priority
-            return
-        priority_value = Priority(priority)
-        self._priority = PriorityAssessment(
-            priority=priority_value,
-            explanation=explanation or f"Custom agent assigned priority {priority_value.value}.",
-        )
+    def register_priority(self, priority: PriorityAssessment) -> None:
+        self._priority = priority
 
     async def resolve_missing_report_components(self) -> None:
         if self._title is None:
@@ -434,38 +482,114 @@ class CustomSignalAgent:
             await self.resolve_description()
         if self._actionability is None:
             await self.resolve_actionability()
-        if self._actionability and self._actionability.actionability == ActionabilityChoice.NOT_ACTIONABLE:
-            if self._priority is None:
-                self._priority = None
-        elif self._priority is None:
+        if self._priority is None and not (
+            self._actionability and self._actionability.actionability == ActionabilityChoice.NOT_ACTIONABLE
+        ):
             await self.resolve_priority()
         if self._assignees is None:
             await self.resolve_assignees()
 
-    async def resolve_title(self) -> None:
-        from products.signals.backend.custom_agent.default_resolvers import resolve_title
+    def resolve_title_prompt(self) -> str:
+        return """Create the final report title.
 
-        await resolve_title(self)
+Rules:
+- Scope it to one concrete product/code concern.
+- Prefer PR-style phrasing.
+- Keep it short enough for Code Inbox list views.
+- Do not include priority, assignee, or repository metadata in the title."""
+
+    async def resolve_title(self) -> None:
+        result = await self.send(
+            self._final_prompt(self.resolve_title_prompt()),
+            _TitleResolution,
+            label="resolve_title",
+        )
+        self.register_title(result.title)
+
+    def resolve_description_prompt(self) -> str:
+        return """Create the final Code Inbox report description.
+
+Use this structure when it fits:
+- One-sentence tl;dr explaining why this matters.
+- **What's happening:** concrete evidence from the work you just did.
+- **Root cause:** the best-supported technical explanation.
+- **How to resolve:** a concrete next action, unless the report is not actionable.
+
+Be specific. Do not invent evidence."""
 
     async def resolve_description(self) -> None:
-        from products.signals.backend.custom_agent.default_resolvers import resolve_description
+        result = await self.send(
+            self._final_prompt(self.resolve_description_prompt()),
+            _DescriptionResolution,
+            label="resolve_description",
+        )
+        self.register_description(result.description)
 
-        await resolve_description(self)
+    def resolve_actionability_prompt(self) -> str:
+        return """Assess the final report actionability.
+
+Use one of:
+- `immediately_actionable`: a developer can act now with enough context.
+- `requires_human_input`: a developer/user must choose missing scope or provide information first.
+- `not_actionable`: no code/product action should be taken from this report.
+
+Ground the explanation in the investigation so far."""
 
     async def resolve_actionability(self) -> None:
-        from products.signals.backend.custom_agent.default_resolvers import resolve_actionability
+        result = await self.send(
+            self._final_prompt(self.resolve_actionability_prompt()),
+            ActionabilityAssessment,
+            label="resolve_actionability",
+        )
+        self.register_actionability(result)
 
-        await resolve_actionability(self)
+    def resolve_priority_prompt(self) -> str:
+        return """Assign a final priority for this actionable report.
+
+Priority guide:
+- P0: critical production breakage, data loss, security, or core flow broken.
+- P1: significant user-facing impact or strong regression evidence.
+- P2: clear improvement/fix with contained scope.
+- P3: useful but lower urgency.
+- P4: minor cleanup or speculative benefit.
+
+Explain the impact/scope, not just the implementation size."""
 
     async def resolve_priority(self) -> None:
-        from products.signals.backend.custom_agent.default_resolvers import resolve_priority
+        result = await self.send(
+            self._final_prompt(self.resolve_priority_prompt()),
+            PriorityAssessment,
+            label="resolve_priority",
+        )
+        self.register_priority(result)
 
-        await resolve_priority(self)
+    def resolve_assignees_prompt(self) -> str:
+        return """Suggest GitHub assignees/reviewers for this report.
+
+Rules:
+- Use GitHub logins only.
+- Prefer owners/authors supported by code paths, blame/commit evidence, or obvious domain ownership.
+- Return an empty list when no clear assignee is supported.
+- Do not include placeholder users."""
 
     async def resolve_assignees(self) -> None:
-        from products.signals.backend.custom_agent.default_resolvers import resolve_assignees
+        result = await self.send(
+            self._final_prompt(self.resolve_assignees_prompt()),
+            _AssigneesResolution,
+            label="resolve_assignees",
+        )
+        self.register_assignees(result.assignees)
 
-        await resolve_assignees(self)
+    def _final_prompt(self, body: str) -> str:
+        return "\n\n".join(
+            part
+            for part in [
+                self.consume_finalization_context(),
+                self.current_report_context(),
+                body.strip(),
+            ]
+            if part.strip()
+        )
 
     def final_report(self) -> CustomAgentFinalReport:
         missing = []
@@ -587,10 +711,6 @@ Return only a JSON object matching this schema. Do not include markdown fences o
 
     async def _send_raw(self, prompt: str, *, label: str) -> str:
         if self._session is None:
-            if self._user_id is None:
-                self._user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(
-                    self.team_id
-                )
             sandbox_environment_id = await database_sync_to_async(
                 get_or_create_signals_sandbox_env, thread_sensitive=False
             )(
@@ -600,7 +720,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
             )
             context = CustomPromptSandboxContext(
                 team_id=self.team_id,
-                user_id=self._user_id,
+                user_id=self.user_id,
                 repository=self.repository,
                 sandbox_environment_id=sandbox_environment_id,
                 posthog_mcp_scopes="read_only",
@@ -621,10 +741,3 @@ Return only a JSON object matching this schema. Do not include markdown fences o
     def _parse_and_validate(text: str, output_model: type[_ModelT], *, label: str) -> _ModelT:
         json_data = extract_json_from_text(text=text, label=label)
         return output_model.model_validate(json_data)
-
-    @staticmethod
-    def _ensure_can_register(component: str, already_registered: bool, overwrite: bool) -> None:
-        if already_registered and not overwrite:
-            raise DuplicateComponentRegistrationError(
-                f"{component} is already registered. Pass overwrite=True to replace it."
-            )

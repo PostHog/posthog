@@ -15,14 +15,11 @@ from posthog.temporal.common.scoped import scoped_temporal
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.custom_agent.loader import import_agent_class, validate_agent_class_identity
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
-from products.signals.backend.custom_agent.repo_selection import (
-    ResolvedCustomAgentRepository,
-    resolve_custom_agent_repository,
-)
 from products.signals.backend.custom_agent.schemas import (
     CustomAgentFinalReport,
     CustomAgentWorkflowInput,
     CustomAgentWorkflowOutput,
+    ResolvedCustomAgentRepository,
 )
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import (
@@ -109,7 +106,7 @@ async def run_custom_signal_agent_activity(inputs: CustomAgentWorkflowInput) -> 
                     allowed_domains=GITHUB_ONLY_DOMAINS,
                 )
 
-            resolved_repo: ResolvedCustomAgentRepository = await resolve_custom_agent_repository(
+            resolved_repo: ResolvedCustomAgentRepository = await agent_class.resolve_repository(
                 team_id=inputs.team_id,
                 user_id=user_id,
                 initial_prompt=inputs.initial_prompt,

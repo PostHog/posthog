@@ -2,37 +2,16 @@ from __future__ import annotations
 
 import inspect
 import importlib
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from products.signals.backend.custom_agent.schemas import validate_identifier
 
 if TYPE_CHECKING:
     from products.signals.backend.custom_agent.base import CustomSignalAgent
 
-_AgentT = TypeVar("_AgentT", bound="CustomSignalAgent")
-
 
 class CustomAgentLoadError(RuntimeError):
     """Raised when a custom signal agent class cannot be imported or validated."""
-
-
-def import_path_for_agent_class(agent_class: type[_AgentT]) -> str:
-    """Return the import path persisted in Temporal input for a top-level agent class."""
-    module = agent_class.__module__
-    qualname = agent_class.__qualname__
-    if module == "__main__":
-        raise CustomAgentLoadError("Custom signal agents must live in an importable module, not __main__")
-    if "." in qualname:
-        raise CustomAgentLoadError(
-            f"Custom signal agent {module}.{qualname} is nested/local. Define it as a top-level class."
-        )
-    path = f"{module}.{qualname}"
-    loaded = import_agent_class(path)
-    if loaded is not agent_class:
-        raise CustomAgentLoadError(
-            f"Custom signal agent path {path!r} imported {loaded!r}, not the class being started"
-        )
-    return path
 
 
 def import_agent_class(agent_path: str) -> type[CustomSignalAgent]:

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from products.signals.backend.report_generation.research import ActionabilityAssessment, PriorityAssessment
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+
+RepositoryMode = Literal["explicit", "no_repo", "selected"]
 
 _IDENTIFIER_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -41,10 +42,6 @@ def validate_run_id(value: str) -> str:
     return validate_identifier_part(value, field_name="id")
 
 
-class CustomAgentRepositorySelectionResult(RepoSelectionResult):
-    """Repository selection result for custom signal agents."""
-
-
 class CustomAgentAssignee(BaseModel):
     github_login: str = Field(description="GitHub username/login to suggest as reviewer or assignee.")
     github_name: str | None = Field(default=None, description="Optional display name from GitHub.")
@@ -60,26 +57,6 @@ class CustomAgentAssignee(BaseModel):
         if not normalized:
             raise ValueError("github_login must not be empty")
         return normalized
-
-
-def coerce_assignees(assignees: Sequence[CustomAgentAssignee | str | dict[str, Any]]) -> list[CustomAgentAssignee]:
-    """Normalize assignee input, deduping by lowercased GitHub login while preserving order."""
-    normalized: list[CustomAgentAssignee] = []
-    seen: set[str] = set()
-    for assignee in assignees:
-        if isinstance(assignee, CustomAgentAssignee):
-            parsed = assignee
-        elif isinstance(assignee, str):
-            parsed = CustomAgentAssignee(github_login=assignee)
-        elif isinstance(assignee, dict):
-            parsed = CustomAgentAssignee.model_validate(assignee)
-        else:
-            raise TypeError(f"Unsupported assignee type: {type(assignee).__name__}")
-        if parsed.github_login in seen:
-            continue
-        seen.add(parsed.github_login)
-        normalized.append(parsed)
-    return normalized
 
 
 @dataclass(frozen=True)
@@ -107,10 +84,17 @@ class CustomAgentWorkflowInput:
 
 @dataclass
 class CustomAgentWorkflowOutput:
-    report_id: str | None
     status: str
+    report_id: str | None
     repository: str | None
     task_id: str | None
+
+
+@dataclass(frozen=True)
+class ResolvedCustomAgentRepository:
+    mode: RepositoryMode
+    repo_selection: RepoSelectionResult
+    selected_repository: str | None
 
 
 @dataclass(frozen=True)
@@ -118,5 +102,5 @@ class CustomAgentFinalReport:
     title: str
     description: str
     actionability: ActionabilityAssessment
-    priority: PriorityAssessment | None
     assignees: list[CustomAgentAssignee]
+    priority: PriorityAssessment | None

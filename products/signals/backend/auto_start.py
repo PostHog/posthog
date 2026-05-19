@@ -123,8 +123,8 @@ async def maybe_autostart_implementation_task(
     title: str,
     summary: str,
     actionability: ActionabilityAssessment,
-    priority: PriorityAssessment | None,
     reviewers_content: list[ReviewerContent],
+    priority: PriorityAssessment | None,
 ) -> None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
