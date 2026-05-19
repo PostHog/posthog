@@ -1533,6 +1533,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  PGDATABASE: 'test_posthog'
                   PGPASSWORD: 'posthog'
               run: |
                   # Create test databases if they don't exist (--reuse-db expects them)
