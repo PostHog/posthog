@@ -3,7 +3,7 @@ import re
 import json
 from datetime import UTC, datetime
 from typing import Any, cast
-from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
@@ -92,102 +92,6 @@ GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
 def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
-
-
-GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS = 60 * 5
-
-
-def _parse_github_authorize_state_param(state_raw: str | None) -> tuple[str | None, str | None]:
-    if not state_raw:
-        return None, None
-    parsed = dict(parse_qsl(state_raw))
-    if "token" in parsed:
-        return parsed.get("token"), parsed.get("next")
-    return state_raw, None
-
-
-def _github_authorize_state_cache_key(user_id: int) -> str:
-    return f"github_state:{user_id}"
-
-
-def _set_github_project_id_cookie(response: HttpResponse, team_id: int) -> None:
-    response.set_cookie("ph_github_project_id", str(team_id), max_age=GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS)
-
-
-def _github_installation_id_q(installation_id: str | int) -> Q:
-    return Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
-
-
-def _store_github_authorize_state(user_id: int, token: str, next_url: str) -> None:
-    cache.set(
-        _github_authorize_state_cache_key(user_id),
-        {"token": token, "next": next_url},
-        timeout=GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS,
-    )
-
-
-def _github_integration_for_installation(team_id: int, installation_id: str) -> Integration | None:
-    return (
-        Integration.objects.filter(team_id=team_id, kind="github")
-        .filter(_github_installation_id_q(installation_id))
-        .first()
-    )
-
-
-def _consume_github_authorize_state(request: Request, state_raw: str | None) -> tuple[str, str]:
-    """Validate the GitHub App install callback against server-side authorize state.
-
-    GitHub's Setup URL redirect sometimes omits the ``state`` query param (notably on
-    ``setup_action=update``). When that happens we still accept the callback if this user
-    recently started ``integrations/authorize?kind=github`` and the session is authenticated.
-    """
-    cache_key = _github_authorize_state_cache_key(request.user.id)
-    cached = cache.get(cache_key)
-    if cached is None:
-        raise ValidationError("Invalid or expired state token")
-
-    if isinstance(cached, dict):
-        expected_token = str(cached.get("token") or "")
-        cached_next = str(cached.get("next") or "")
-    else:
-        expected_token = str(cached)
-        cached_next = ""
-
-    param_token, param_next = _parse_github_authorize_state_param(state_raw)
-    if param_token is not None and param_token != expected_token:
-        raise ValidationError("Invalid or expired state token")
-
-    cache.delete(cache_key)
-    return expected_token, param_next or cached_next
-
-
-def _github_finish_setup_update_response(
-    viewset: "IntegrationViewSet",
-    request: Request,
-    existing: Integration,
-    installation_id: str,
-    state_raw: str | None,
-) -> Response:
-    """User changed repo access on GitHub for an installation this team already has linked."""
-    next_url = f"/project/{viewset.team_id}/settings/project-integrations"
-    cache_key = _github_authorize_state_cache_key(request.user.id)
-    if cache.get(cache_key) is not None:
-        _, next_url = _consume_github_authorize_state(request, state_raw)
-
-    try:
-        GitHubIntegration(existing).sync_repository_cache(
-            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
-        )
-    except Exception:
-        logger.warning("github_finish_setup: repo refresh after update failed", exc_info=True)
-
-    return Response(
-        {
-            "integration": viewset.get_serializer(existing).data,
-            "next": next_url,
-            "installation_id": installation_id,
-        }
-    )
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -440,7 +344,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if not code:
                 raise ValidationError("An OAuth code must be provided")
 
-            _consume_github_authorize_state(request, state)
+            cache_key = f"github_state:{request.user.id}"
+            expected_state = cache.get(cache_key)
+            if not expected_state or expected_state != state:
+                raise ValidationError("Invalid or expired state token")
+            cache.delete(cache_key)
 
             # Exchange the OAuth code for the user's access token and identity.
             # This requires GITHUB_APP_CLIENT_SECRET to be configured.
@@ -713,58 +621,6 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
-    next = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
-    )
-
-
-class GitHubFinishSetupRequestSerializer(serializers.Serializer):
-    installation_id = serializers.CharField(help_text="GitHub App installation id from the setup callback.")
-    code = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="User authorization code from GitHub (omitted when setup_action=update).",
-    )
-    setup_action = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="GitHub setup action (install or update).",
-    )
-    state = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Opaque state from GitHub (may be omitted on setup_action=update).",
-    )
-
-
-class GitHubFinishSetupResponseSerializer(serializers.Serializer):
-    integration = IntegrationSerializer(required=False)
-    next = serializers.CharField(help_text="Relative URL to redirect the browser to after setup.")
-    installation_id = serializers.CharField()
-    oauth_url = serializers.CharField(
-        required=False,
-        help_text="When set, the client should redirect the user through GitHub User OAuth before retrying.",
-    )
-
-
-def _connect_from_for_next(next_url: str) -> str | None:
-    connect_from = dict(parse_qsl(urlparse(next_url).query)).get("connect_from")
-    return connect_from if connect_from == "posthog_code" else None
-
-
-def _github_finish_setup_error_code(exc: ValidationError) -> str | None:
-    codes = exc.get_codes()
-    if isinstance(codes, str):
-        return codes
-    return getattr(exc, "default_code", None)
-
-
 @extend_schema(tags=["integrations"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -794,8 +650,6 @@ class IntegrationViewSet(
         "refresh_github_repos",
         "github_link_existing",
         "github_oauth_authorize",
-        "github_finish_setup",
-        "github_prepare_callback",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -850,10 +704,13 @@ class IntegrationViewSet(
             query_params = urlencode({"state": urlencode({"next": next, "token": token})})
             app_slug = get_instance_setting("GITHUB_APP_SLUG")
             installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
-            _store_github_authorize_state(request.user.id, token, next)
             response = redirect(installation_url)
             # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
-            _set_github_project_id_cookie(response, self.team_id)
+            response.set_cookie("ph_github_state", token, max_age=60 * 5)
+            # Store server-side so the backend can enforce that the same user who
+            # initiated the flow is the one completing it (not just cookie-validated).
+            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
+
             return response
 
         raise ValidationError("Kind not supported")
@@ -1253,7 +1110,12 @@ class IntegrationViewSet(
 
         # installation_id is stored in JSONB and historically written as either a
         # string or a number, so match both representations.
-        installation_id_match = _github_installation_id_q(installation_id_param) if installation_id_param else None
+        installation_id_match = (
+            Q(config__installation_id=str(installation_id_param))
+            | Q(config__installation_id=int(installation_id_param))
+            if installation_id_param
+            else None
+        )
 
         if source_team_id:
             try:
@@ -1341,134 +1203,12 @@ class IntegrationViewSet(
 
         return Response(self.get_serializer(instance).data)
 
-    @extend_schema(
-        request=GitHubFinishSetupRequestSerializer,
-        responses={200: GitHubFinishSetupResponseSerializer},
-    )
-    @action(methods=["POST"], detail=False, url_path="github/finish_setup")
-    def github_finish_setup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Complete a GitHub App setup callback using server-side authorize state.
-
-        Used when GitHub's Setup URL redirect omits ``state`` (common for ``setup_action=update``)
-        or when the browser cannot recover project context (e.g. PostHog Code system browser).
-        """
-        serializer = GitHubFinishSetupRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        installation_id = data["installation_id"]
-        if not re.fullmatch(r"\d{1,20}", str(installation_id)):
-            raise ValidationError("Invalid installation_id")
-
-        state_raw = data.get("state") or None
-        setup_action = data.get("setup_action") or ""
-        installation_id_str = str(installation_id)
-
-        if setup_action == "update":
-            existing = _github_integration_for_installation(self.team_id, installation_id_str)
-            if existing is not None:
-                return _github_finish_setup_update_response(self, request, existing, installation_id_str, state_raw)
-
-        state_token, next_url = _consume_github_authorize_state(request, state_raw)
-
-        code = data.get("code") or None
-        is_already_installed = setup_action == "update" or not code
-        connect_from = _connect_from_for_next(next_url)
-
-        if is_already_installed:
-            prior_data = getattr(request, "_full_data", None)
-            request._full_data = {"installation_id": str(installation_id)}
-            try:
-                link_response = self.github_link_existing(request, *args, **kwargs)
-            except ValidationError as exc:
-                error_code = _github_finish_setup_error_code(exc)
-                if error_code not in (
-                    GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
-                    GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                ):
-                    raise
-                oauth_request_data: dict[str, Any] = {
-                    "installation_id": str(installation_id),
-                    "next": next_url,
-                }
-                if connect_from:
-                    oauth_request_data["connect_from"] = connect_from
-                request._full_data = oauth_request_data
-                oauth_response = self.github_oauth_authorize(request, *args, **kwargs)
-                return Response(
-                    {
-                        "next": next_url,
-                        "installation_id": str(installation_id),
-                        "oauth_url": oauth_response.data["oauth_url"],
-                    }
-                )
-            finally:
-                if prior_data is not None:
-                    request._full_data = prior_data
-
-            integration_data = link_response.data
-            return Response(
-                {
-                    "integration": integration_data,
-                    "next": next_url,
-                    "installation_id": str(installation_id),
-                }
-            )
-
-        _store_github_authorize_state(request.user.id, state_token, next_url)
-        prior_data = getattr(request, "_full_data", None)
-        request._full_data = {
-            "kind": "github",
-            "config": {
-                "installation_id": str(installation_id),
-                "state": state_token,
-                "code": code,
-            },
-        }
-        try:
-            create_response = self.create(request, *args, **kwargs)
-        finally:
-            if prior_data is not None:
-                request._full_data = prior_data
-
-        return Response(
-            {
-                "integration": create_response.data,
-                "next": next_url,
-                "installation_id": str(installation_id),
-            }
-        )
-
-    @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
-    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
-    def github_prepare_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Seed GitHub setup callback state without redirecting to GitHub.
-
-        Used when the user opens an existing installation's settings on github.com (e.g. PostHog
-        Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
-        """
-        serializer = GitHubPrepareCallbackRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        next_url = str(serializer.validated_data.get("next") or "")
-        if next_url and not is_relative_url(next_url):
-            raise ValidationError("next must be a relative path starting with /")
-
-        token = os.urandom(33).hex()
-        _store_github_authorize_state(request.user.id, token, next_url)
-        response = Response(status=204)
-        _set_github_project_id_cookie(response, self.team_id)
-        return response
-
     @action(methods=["POST"], detail=False, url_path="github/oauth_authorize")
     def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""
         installation_id = request.data.get("installation_id")
         next_url = str(request.data.get("next") or "")
-        connect_from = (
-            request.data.get("connect_from")
-            if request.data.get("connect_from") == "posthog_code"
-            else _connect_from_for_next(next_url)
-        )
+        connect_from = request.data.get("connect_from") if request.data.get("connect_from") == "posthog_code" else None
 
         if not installation_id:
             raise ValidationError("installation_id is required")

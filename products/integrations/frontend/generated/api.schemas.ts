@@ -316,40 +316,6 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
-export interface GitHubFinishSetupRequestApi {
-    /** GitHub App installation id from the setup callback. */
-    installation_id: string
-    /**
-     * User authorization code from GitHub (omitted when setup_action=update).
-     * @nullable
-     */
-    code?: string | null
-    /**
-     * GitHub setup action (install or update).
-     * @nullable
-     */
-    setup_action?: string | null
-    /**
-     * Opaque state from GitHub (may be omitted on setup_action=update).
-     * @nullable
-     */
-    state?: string | null
-}
-
-export interface GitHubFinishSetupResponseApi {
-    integration?: IntegrationConfigApi
-    /** Relative URL to redirect the browser to after setup. */
-    next: string
-    installation_id: string
-    /** When set, the client should redirect the user through GitHub User OAuth before retrying. */
-    oauth_url?: string
-}
-
-export interface GitHubPrepareCallbackRequestApi {
-    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
-    next?: string
-}
-
 export interface UserGitHubAccountApi {
     /**
      * GitHub account type for the installation (e.g. User or Organization).

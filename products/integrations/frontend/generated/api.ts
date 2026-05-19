@@ -10,9 +10,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
-    GitHubFinishSetupRequestApi,
-    GitHubFinishSetupResponseApi,
-    GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     IntegrationConfigApi,
@@ -636,29 +633,6 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
-export const getIntegrationsGithubFinishSetupCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/github/finish_setup/`
-}
-
-/**
- * Complete a GitHub App setup callback using server-side authorize state.
-
-Used when GitHub's Setup URL redirect omits ``state`` (common for ``setup_action=update``)
-or when the browser cannot recover project context (e.g. PostHog Code system browser).
- */
-export const integrationsGithubFinishSetupCreate = async (
-    projectId: string,
-    gitHubFinishSetupRequestApi: GitHubFinishSetupRequestApi,
-    options?: RequestInit
-): Promise<GitHubFinishSetupResponseApi> => {
-    return apiMutator<GitHubFinishSetupResponseApi>(getIntegrationsGithubFinishSetupCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(gitHubFinishSetupRequestApi),
-    })
-}
-
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/link_existing/`
 }
@@ -696,29 +670,6 @@ export const integrationsGithubOauthAuthorizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationConfigApi),
-    })
-}
-
-export const getIntegrationsGithubPrepareCallbackCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/github/prepare_callback/`
-}
-
-/**
- * Seed GitHub setup callback state without redirecting to GitHub.
-
-Used when the user opens an existing installation's settings on github.com (e.g. PostHog
-Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
- */
-export const integrationsGithubPrepareCallbackCreate = async (
-    projectId: string,
-    gitHubPrepareCallbackRequestApi?: GitHubPrepareCallbackRequestApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubPrepareCallbackCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(gitHubPrepareCallbackRequestApi),
     })
 }
 
