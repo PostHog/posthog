@@ -95,15 +95,21 @@ def push_vercel_secrets(team_id: int) -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
 @skip_team_scope_audit
-def proxy_github_webhook_to_hognipotent(body: bytes, headers: dict[str, str]) -> None:
+def proxy_github_webhook_to_hognipotent(body: str, headers: dict[str, str]) -> None:
     # Runs out-of-band so a slow or unreachable hognipotent never eats GitHub's
     # 10-second delivery budget and forces retries.
+    #
+    # `body` arrives as a latin-1-encoded string (Celery's JSON serializer cannot
+    # carry raw bytes); re-encoding restores the exact original bytes so the
+    # downstream HMAC verifier sees the same payload GitHub signed.
     if not settings.HOGNIPOTENT_WEBHOOK_URL:
         return
 
     import requests
 
     try:
-        requests.post(settings.HOGNIPOTENT_WEBHOOK_URL, data=body, headers=headers, timeout=10)
+        requests.post(
+            settings.HOGNIPOTENT_WEBHOOK_URL, data=body.encode("latin-1"), headers=headers, timeout=10
+        )
     except Exception as e:
         logger.warning("hognipotent_webhook_proxy_failed", error=str(e))

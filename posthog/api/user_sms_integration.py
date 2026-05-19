@@ -132,18 +132,15 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
         return super().get_throttles()
 
     def _get_user(self) -> User:
+        # SMS is a personal integration — only the authenticated user may attach,
+        # view, or remove their own phone number. Allowing the staff-targets-other-user
+        # path here would let a staff caller run the verification flow against a phone
+        # number they control, redirecting inbound SMS for that number to the victim.
         request_user = cast(User, self.request.user)
         uuid_param = self.kwargs.get("parent_lookup_uuid")
-        if uuid_param is None or uuid_param == "@me":
-            return request_user
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-        user = User.objects.filter(uuid=uuid_param, is_active=True).first()
-        if user is None:
-            raise exceptions.NotFound()
-        return user
+        if uuid_param is not None and uuid_param != "@me":
+            raise exceptions.PermissionDenied("SMS integration can only be managed for `@me`.")
+        return request_user
 
     @extend_schema(
         summary="List verified phone numbers",

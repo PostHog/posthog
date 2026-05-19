@@ -200,7 +200,19 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
         )
         if team_match is not None:
             organization_id = str(team_match.team.organization_id)
-            token_user = team_match.created_by if team_match.created_by and team_match.created_by.is_active else None
+            # The original integration creator can only mint a task token if they
+            # are still an active member of the owning organization. A user who
+            # was removed from the org must not retain the ability to drive team
+            # tasks through their old integration.
+            token_user = (
+                team_match.created_by
+                if team_match.created_by
+                and team_match.created_by.is_active
+                and OrganizationMembership.objects.filter(
+                    user=team_match.created_by, organization_id=organization_id
+                ).exists()
+                else None
+            )
             if token_user is None:
                 token_user = _pick_org_admin(organization_id)
             access_token = _mint_task_token(token_user, team_match.team_id, cache_key) if token_user else None

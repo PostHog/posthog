@@ -124,7 +124,10 @@ def _proxy_to_hognipotent(request: HttpRequest) -> None:
     from posthog.tasks.integrations import proxy_github_webhook_to_hognipotent
 
     headers = {name: request.headers[name] for name in HOGNIPOTENT_FORWARDED_HEADERS if name in request.headers}
-    proxy_github_webhook_to_hognipotent.delay(request.body, headers)
+    # Celery's default JSON serializer cannot encode `bytes`. Latin-1 is a lossless
+    # 1:1 mapping between bytes 0x00–0xFF and code points, so the worker can recover
+    # the exact original body for HMAC verification by re-encoding with latin-1.
+    proxy_github_webhook_to_hognipotent.delay(request.body.decode("latin-1"), headers)
 
 
 @csrf_exempt
