@@ -46,6 +46,12 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
 export interface QuarantineSourceRunApi {
     id: string
     branch: string
@@ -104,12 +110,6 @@ export interface BaselineOverviewApi {
     generated_at: string
 }
 
-export interface UserBasicInfoApi {
-    id: number
-    first_name: string
-    email: string
-}
-
 export interface QuarantinedIdentifierEntryApi {
     created_by?: UserBasicInfoApi | null
     /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
@@ -134,19 +134,23 @@ export interface PaginatedQuarantinedIdentifierEntryListApi {
 }
 
 export interface QuarantineInputApi {
-    /** Snapshot identifier to quarantine.
-     * @maxLength 512 */
+    /**
+     * Snapshot identifier to quarantine.
+     * @maxLength 512
+     */
     identifier: string
-    /** Why this snapshot is being quarantined.
-     * @maxLength 255 */
+    /**
+     * Why this snapshot is being quarantined.
+     * @maxLength 255
+     */
     reason: string
-    /** @nullable */
-    expires_at?: string | null
     /**
      * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
      * @nullable
      */
     source_run_id?: string | null
+    /** @nullable */
+    expires_at?: string | null
 }
 
 export interface RunSummaryApi {
