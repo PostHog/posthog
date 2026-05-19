@@ -1472,7 +1472,11 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
+                  # --timeout=400 caps a single hung phase at ~6m40s — a safety net for the
+                  # Core segment, which previously relied solely on the 30-minute job-level
+                  # kill. --reruns 1 keeps a single retry for genuine flakes while halving
+                  # the rerun cost relative to the previous --reruns 2.
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=400 --timeout-method=thread ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
@@ -1489,7 +1493,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
-                      --reruns 2 --reruns-delay 1 \
+                      --reruns 1 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-core.xml \
                       $PYTEST_ARGS
