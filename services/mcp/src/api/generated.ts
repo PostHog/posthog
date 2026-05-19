@@ -6340,6 +6340,14 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkNotificationIdsRequest {
+      /**
+         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
+         * @maxItems 500
+         */
+      notification_ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -15960,7 +15968,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -19725,6 +19733,37 @@ export namespace Schemas {
       Indexer: 'indexer',
     } as const;
 
+    /**
+     * Mirrors `temporal.types.LensSnapshot` for OpenAPI generation.
+     */
+    export interface LensSnapshot {
+      /** Lens name at run time. */
+      name: string;
+      /** Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.
+
+      * `monitor` - Monitor
+      * `classifier` - Classifier
+      * `scorer` - Scorer
+      * `summarizer` - Summarizer
+      * `indexer` - Indexer */
+      lens_type: LensTypeEnum;
+      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
+      lens_version: number;
+      /** Concrete model that ran the observation.
+
+      * `gemini-3-flash` - Gemini 3 Flash
+      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      model: LensModelEnum;
+      /** Concrete provider that ran the observation.
+
+      * `google` - Google */
+      provider: LensProviderEnum;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      lens_config: unknown;
+    }
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -20851,6 +20890,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      target_type: string;
+      target_id: string;
       /** @nullable */
       resource_type: string | null;
       resource_id: string;
@@ -22697,24 +22738,18 @@ export namespace Schemas {
       * `succeeded` - Succeeded
       * `failed` - Failed */
       readonly status: ObservationStatusEnum;
-      /** Populated on failure. Includes the malformed model response when validation fails. */
+      /** Populated on failure; includes the malformed model response when validation fails. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
-      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
-      readonly lens_version: number;
-      /** Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations. */
-      readonly lens_config_snapshot: unknown;
-      /** Concrete model that ran the observation. */
-      readonly model_used: string;
-      /** Concrete provider that ran the observation. */
-      readonly provider_used: string;
+      /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
+      readonly lens_snapshot: LensSnapshot;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
       * `on_demand` - On demand */
       readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation. Null for scheduled observations. */
+      /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
       /** @nullable */
       started_at?: string | null;
@@ -26732,7 +26767,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -30122,11 +30157,21 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
       signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
       signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
       subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
       payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
     }
 
     export interface PatchedTeam {
@@ -39809,13 +39854,41 @@ export namespace Schemas {
 
     export type NotificationsListParams = {
     /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string;
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
     /**
+     * Filter by notification type
+     */
+    notification_type?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
+    resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
+    resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
+    target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
+    target_type?: string;
     };
 
     export type QuickFiltersListParams = {
@@ -44000,6 +44073,10 @@ export namespace Schemas {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean;
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean;
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1

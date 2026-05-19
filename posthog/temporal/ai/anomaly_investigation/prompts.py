@@ -25,8 +25,9 @@ Workflow:
    lean toward `false_positive` or `inconclusive` and use any remaining budget
    to confirm rather than to keep hunting for a story.
 3. Decide which tool, if any, confirms or refutes your leading hypothesis.
-4. Emit a final JSON report matching the schema below. Do not emit any free-form
-   text around it — output the raw JSON object only.
+4. Submit the final report with the `submit_investigation_report` tool. If the
+   tool is unavailable, emit a final JSON report matching the schema below with no
+   free-form text around it.
 
 Final JSON schema (emit exactly these keys):
 {
@@ -113,5 +114,5 @@ def build_anomaly_context(
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
         f"{metadata_line}\n\n"
         "Use your tools to validate the anomaly and investigate the likely cause. "
-        "Return the final InvestigationReport JSON."
+        "Submit the final InvestigationReport using the submit_investigation_report tool."
     )

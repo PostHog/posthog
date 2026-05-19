@@ -9,6 +9,7 @@ import {
     LemonSwitch,
     LemonTab,
     LemonTabs,
+    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
@@ -68,22 +69,32 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
                         <LemonTextArea placeholder="What this lens looks for and why." minRows={2} />
                     </Field>
 
-                    <Field name="lens_type" label="Lens type">
-                        <LemonSelect
-                            value={lens.lens_type}
-                            onChange={(v) => setLensType(v)}
-                            options={LENS_TYPE_OPTIONS.map((opt) => ({
-                                value: opt.value,
-                                label: opt.label,
-                                labelInMenu: (
-                                    <div className="flex flex-col">
-                                        <span className="font-medium">{opt.label}</span>
-                                        <span className="text-xs text-muted">{opt.description}</span>
-                                    </div>
-                                ),
-                            }))}
-                        />
-                    </Field>
+                    {isNew ? (
+                        <Field name="lens_type" label="Lens type">
+                            <LemonSelect
+                                value={lens.lens_type}
+                                onChange={(v) => setLensType(v)}
+                                options={LENS_TYPE_OPTIONS.map((opt) => ({
+                                    value: opt.value,
+                                    label: opt.label,
+                                    labelInMenu: (
+                                        <div className="flex flex-col">
+                                            <span className="font-medium">{opt.label}</span>
+                                            <span className="text-xs text-muted">{opt.description}</span>
+                                        </div>
+                                    ),
+                                }))}
+                            />
+                        </Field>
+                    ) : (
+                        <div className="space-y-1">
+                            <label className="block text-sm font-medium">Lens type</label>
+                            <LemonTag type="option">
+                                {LENS_TYPE_OPTIONS.find((o) => o.value === lens.lens_type)?.label ?? lens.lens_type}
+                            </LemonTag>
+                            <div className="text-xs text-muted">Lens type is fixed after creation.</div>
+                        </div>
+                    )}
 
                     <LensTypeConfigEditor lensId={lensId} tabId={tabId} />
 

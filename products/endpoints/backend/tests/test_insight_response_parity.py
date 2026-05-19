@@ -4,7 +4,8 @@ These tests are written TDD-style: they define the expected contract and initial
 materialized path currently returns flat HogQL data instead of rich insight-specific responses.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -12,6 +13,7 @@ from unittest import mock
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -28,6 +30,7 @@ from posthog.schema import (
 
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.endpoints.backend.insight_transformers import _transform_trends
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 pytestmark = [pytest.mark.django_db]
@@ -223,6 +226,95 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
             f"Expected Chrome in breakdown values: {breakdown_values}"
         )
         assert len(first["data"]) == 10, f"Expected 10 data points, got {len(first['data'])}"
+
+    # Cases cover both timezone-offset directions (UTC-ahead, UTC-behind) and both shapes
+    # the materialized read can hand us (the CH Python client returns tz-aware UTC datetime
+    # objects; ISO strings appear when results round-trip through JSON serialization).
+    @parameterized.expand(
+        [
+            (
+                "europe_bucharest_str",
+                "Europe/Bucharest",
+                ["2026-05-03 21:00:00.000", "2026-05-04 21:00:00.000", "2026-05-05 21:00:00.000"],
+            ),
+            (
+                "europe_bucharest_aware_dt",
+                "Europe/Bucharest",
+                [
+                    datetime(2026, 5, 3, 21, 0, tzinfo=UTC),
+                    datetime(2026, 5, 4, 21, 0, tzinfo=UTC),
+                    datetime(2026, 5, 5, 21, 0, tzinfo=UTC),
+                ],
+            ),
+            (
+                "america_new_york_str",
+                "America/New_York",
+                ["2026-05-04 04:00:00.000", "2026-05-05 04:00:00.000", "2026-05-06 04:00:00.000"],
+            ),
+            (
+                "america_new_york_aware_dt",
+                "America/New_York",
+                [
+                    datetime(2026, 5, 4, 4, 0, tzinfo=UTC),
+                    datetime(2026, 5, 5, 4, 0, tzinfo=UTC),
+                    datetime(2026, 5, 6, 4, 0, tzinfo=UTC),
+                ],
+            ),
+        ]
+    )
+    def test_transform_trends_formats_dates_in_team_timezone_at_day_boundary(
+        self, _name: str, team_timezone: str, date_values: list
+    ) -> None:
+        self.team.timezone = team_timezone
+        self.team.save()
+
+        original_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange={"date_from": "2026-05-04", "date_to": "2026-05-06"},
+        ).model_dump()
+
+        # Shape matches what the materialized read returns: a date column whose values
+        # are either tz-aware UTC datetimes (CH Python client) or ISO strings (JSON path).
+        result: dict[str, Any] = {
+            "results": [(0, date_values, [1, 0, 2])],
+            "columns": ["__series_index", "date", "total"],
+            "types": [
+                ["__series_index", "Int64"],
+                ["date", "Array(Nullable(DateTime64(3, 'UTC')))"],
+                ["total", "Array(Nullable(UInt64))"],
+            ],
+        }
+
+        _transform_trends(result, original_query, self.team)
+
+        series = result["results"][0]
+        assert series["data"] == [1, 0, 2]
+        assert series["days"] == ["2026-05-04", "2026-05-05", "2026-05-06"]
+        assert series["labels"] == ["4-May-2026", "5-May-2026", "6-May-2026"]
+
+    def test_transform_trends_parses_date_column_strings_so_strftime_succeeds(self):
+        """Date columns (no tz conversion) must still have ISO strings parsed to datetime
+        objects — otherwise downstream strftime() raises AttributeError on the string."""
+        original_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange={"date_from": "2026-05-04", "date_to": "2026-05-06"},
+        ).model_dump()
+
+        result: dict[str, Any] = {
+            "results": [(0, ["2026-05-04", "2026-05-05", "2026-05-06"], [1, 0, 2])],
+            "columns": ["__series_index", "date", "total"],
+            "types": [
+                ["__series_index", "Int64"],
+                ["date", "Array(Nullable(Date32))"],
+                ["total", "Array(Nullable(UInt64))"],
+            ],
+        }
+
+        _transform_trends(result, original_query, self.team)
+
+        series = result["results"][0]
+        assert series["days"] == ["2026-05-04", "2026-05-05", "2026-05-06"]
+        assert series["labels"] == ["4-May-2026", "5-May-2026", "6-May-2026"]
 
     # =========================================================================
     # LIFECYCLE
