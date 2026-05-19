@@ -81,10 +81,14 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         return record.service_name ?? record.resource_attributes?.['service.name']
     }
     if (key === 'severity_text' || key === 'level') {
-        // The logs UI surfaces severity under the `level` attribute name (common
-        // log-framework convention); ingestion stores it on the first-class
-        // `severity_text` column. Resolve both to the same source.
-        return record.severity_text ?? record.attributes?.[key]
+        // First-class column wins. Otherwise fall back to attribute storage,
+        // trying the SDK convention (`level` — Winston/Pino/Bunyan/log4j2) first
+        // and the OTel-style `severity_text` second. The fallback chain does not
+        // depend on which key the filter used, so `level: info` and
+        // `severity_text: info` always resolve to the same value for the same
+        // record (otherwise we'd silently disagree when only one of the two
+        // attribute names is populated).
+        return record.severity_text ?? record.attributes?.['level'] ?? record.attributes?.['severity_text']
     }
     if (key === 'message' || filter.type === PROPERTY_FILTER_TYPE_LOG) {
         return record.body ?? undefined

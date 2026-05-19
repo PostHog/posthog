@@ -109,6 +109,28 @@ describe('matchFilterGroup', () => {
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'info' }))).toBe(true)
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(false)
         })
+        it('level / severity_text resolve symmetrically when only an attribute is populated', () => {
+            // When the first-class column is null, the attribute fallback must
+            // produce the same value for both filter keys. The SDK convention
+            // (Winston/Pino/etc.) stores severity under `level`; we fall back
+            // to both attribute names regardless of which key the filter used.
+            const recordWithLevelAttr = baseRecord({
+                severity_text: null,
+                attributes: { level: 'info' },
+            })
+            const levelFilter = group({ values: [{ key: 'level', operator: 'exact', value: 'info' }] })
+            const severityFilter = group({ values: [{ key: 'severity_text', operator: 'exact', value: 'info' }] })
+            expect(matchFilterGroup(levelFilter, recordWithLevelAttr)).toBe(true)
+            expect(matchFilterGroup(severityFilter, recordWithLevelAttr)).toBe(true)
+
+            // Same symmetry when the (rare) `severity_text` attribute is populated instead.
+            const recordWithSeverityAttr = baseRecord({
+                severity_text: null,
+                attributes: { severity_text: 'info' },
+            })
+            expect(matchFilterGroup(levelFilter, recordWithSeverityAttr)).toBe(true)
+            expect(matchFilterGroup(severityFilter, recordWithSeverityAttr)).toBe(true)
+        })
         it('message resolves to LogRecord.body', () => {
             const g = group({ values: [{ key: 'message', type: 'log', operator: 'icontains', value: 'health' }] })
             expect(matchFilterGroup(g, baseRecord({ body: 'GET /healthz' }))).toBe(true)
