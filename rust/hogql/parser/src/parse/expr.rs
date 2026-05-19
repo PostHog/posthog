@@ -798,40 +798,45 @@ impl<'a> Parser<'a> {
 
     /// Like `find_cast_separator_pos`, but for a `columnsReplaceItem`
     /// (`columnExpr AS identifier`) inside a `REPLACE (…)` list. The
-    /// item's `columnExpr` greedily absorbs its own `AS` aliases, so the
-    /// AS that separates expr from the replacement name is the *last*
-    /// depth-0 `AS` before the item terminator — a depth-0 `,` (next
-    /// item) or the closing `)`.
+    /// `identifier` replacement name is the item's *last* token and the
+    /// separator `AS` is the token immediately before it. The last
+    /// `AS`-token of the item is NOT a reliable separator: the name can
+    /// itself be the keyword `as` (`a AS as`), so the trailing `Kw::As`
+    /// is the name, not the separator.
     ///
-    /// A depth-0 `,` is only an item boundary once this item has shown
-    /// an `AS` (every item is `columnExpr AS identifier`, so a comma
-    /// before any `AS` cannot end a complete item). That makes the scan
-    /// blind to lambda-parameter commas: `lambda x, y : …` and the bare
-    /// `a, b -> …` arrow form both place their commas before the item's
+    /// The item terminates at a depth-0 `)` / `]` / `}` or — once the
+    /// item has shown an `AS` — a depth-0 `,`. The `AS`-gate keeps the
+    /// scan blind to lambda-parameter commas: `lambda x, y : …` and the
+    /// bare `a, b -> …` arrow form place their commas before the item's
     /// `AS`, so they are treated as internal rather than as a boundary.
     fn find_replace_item_as_pos(&self) -> Result<Option<usize>, ParseError> {
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let mut depth: i32 = 0;
-        let mut last_as: Option<usize> = None;
+        let mut seen_as = false;
+        let mut prev_start: Option<usize> = None;
+        let mut last_start: Option<usize> = None;
         loop {
             let tok = probe.next_token()?;
+            let terminator = match tok.kind {
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace if depth == 0 => true,
+                TokenKind::Comma if depth == 0 && seen_as => true,
+                TokenKind::Eof => true,
+                _ => false,
+            };
+            if terminator {
+                break;
+            }
             match tok.kind {
                 TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
-                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
-                    if depth == 0 {
-                        break;
-                    }
-                    depth -= 1;
-                }
-                TokenKind::Comma if depth == 0 && last_as.is_some() => break,
-                TokenKind::Keyword(Kw::As) if depth == 0 => {
-                    last_as = Some(tok.start);
-                }
-                TokenKind::Eof => break,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
+                TokenKind::Keyword(Kw::As) if depth == 0 => seen_as = true,
                 _ => {}
             }
+            prev_start = last_start;
+            last_start = Some(tok.start);
         }
-        Ok(last_as)
+        // The separator `AS` is the second-to-last token of the item.
+        Ok(prev_start)
     }
 
     /// `INTERVAL <expr> <unit>` or `INTERVAL '<n> <unit>'`. Both forms
@@ -1244,11 +1249,11 @@ impl<'a> Parser<'a> {
             let mut items = Vec::new();
             loop {
                 // `columnsReplaceItem: columnExpr AS identifier`. The
-                // `columnExpr` greedily absorbs its own `AS` aliases, so
-                // the AS that ends the item is the *last* depth-0 AS
-                // before the next `,` / `)`. Gate the alias-infix on
-                // that offset (same mechanism as CAST) so the inner
-                // parse takes the earlier aliases and stops there.
+                // separator `AS` is the item's second-to-last token
+                // (the last token is the replacement `identifier`).
+                // Gate the alias-infix on that offset (same mechanism
+                // as CAST) so the inner `columnExpr` parse takes any
+                // earlier aliases and stops before the separator.
                 let item_as = self.find_replace_item_as_pos()?;
                 let prev_stop = std::mem::replace(&mut self.cast_as_stop, item_as);
                 let expr_result = self.parse_expr_bp(0);

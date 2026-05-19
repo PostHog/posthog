@@ -283,6 +283,26 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_columns_replace_item_name_is_the_as_keyword(self):
+        # `columnsReplace: columnExpr AS identifier` — the replacement
+        # name can itself be the keyword `as` (`* replace(a AS as)`).
+        # The Rust parser located the separator `AS` as the last `Kw::As`
+        # token of the item, which is the *name* in that case; it must
+        # use the second-to-last token instead.
+        cases = (
+            "(* replace(a as as))",
+            "columns(* replace(a as as))",
+            "(* replace(a as b as as))",
+            "columns(* replace(x as y, z as as))",
+            # guard: ordinary names still work
+            "(* replace(a as b))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`
