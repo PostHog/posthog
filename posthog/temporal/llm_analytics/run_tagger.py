@@ -218,7 +218,7 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
             key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
             if key.state != LLMProviderKey.State.OK:
                 raise ApplicationError(
-                    f"Your API key is {key.state}. Please fix or replace it.",
+                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
                     {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                     non_retryable=True,
                 )

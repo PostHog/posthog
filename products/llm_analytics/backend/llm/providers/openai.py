@@ -104,6 +104,8 @@ class OpenAIAdapter:
         analytics: AnalyticsContext,
     ) -> Any:
         """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
+        from products.llm_analytics.backend.llm.providers._diagnostics import tagged_http_client
+
         default_headers = self._get_default_headers()
         posthog_client = posthoganalytics.default_client
         if analytics.capture and posthog_client:
@@ -113,12 +115,14 @@ class OpenAIAdapter:
                 base_url=base_url,
                 timeout=OpenAIConfig.TIMEOUT,
                 default_headers=default_headers or None,
+                http_client=tagged_http_client(timeout=OpenAIConfig.TIMEOUT),
             )
         return openai.OpenAI(
             api_key=api_key,
             base_url=base_url,
             timeout=OpenAIConfig.TIMEOUT,
             default_headers=default_headers or None,
+            http_client=tagged_http_client(timeout=OpenAIConfig.TIMEOUT),
         )
 
     def complete(
