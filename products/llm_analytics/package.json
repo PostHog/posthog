@@ -30,7 +30,7 @@
         "papaparse": "*",
         "react": "*",
         "stylelint": "*",
-        "typescript": "*",
+        "typescript": "catalog:*",
         "use-debounce": "*"
     }
 }

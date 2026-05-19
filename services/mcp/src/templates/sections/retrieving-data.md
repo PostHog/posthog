@@ -8,41 +8,23 @@ Reach for `execute-sql` only when no `query-*` tool can express the question:
 - Multi-event joins, custom CTEs, window functions, or data-warehouse joins.
 - Pre-filtering or shaping data before running a `query-*` call.
 
-When you do use `execute-sql`, run `info execute-sql` first to load its full guidance.
+When you do use `execute-sql`, run `info execute-sql` first for the full discovery workflow, worked examples, and column-handling rules — this section only summarizes routing.
 
 #### Searching for existing entities
 
-Any "find / which / do we have / what's our X chart" question about PostHog-created entities is a SQL search against `system.*`, **not** a `*-list` walk. The list tools paginate over the entire team; SQL with ILIKE/FTS returns the matches in one call.
+"find / which / do we have / what's our X chart" questions about PostHog-created entities are SQL searches against `system.*` (`system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.notebooks`), **not** `*-list` walks.
 
-Map intent to table:
+Required order on every run, no shortcuts:
 
-- "find an insight" / "what's our X chart" / "is this insight saved" → `system.insights`
-- "find a dashboard" → `system.dashboards`
-- "find a cohort" → `system.cohorts`
-- "find a feature flag" → `system.feature_flags`
-- "find an experiment" → `system.experiments`
-- "find a survey" → `system.surveys`
-- "find a notebook" → `system.notebooks`
-
-Search rules:
-
-1. **One query, multiple columns.** Combine `name ILIKE '%term%' OR description ILIKE '%term%'` rather than running separate queries.
-2. **Filter `NOT deleted`** — every `system.*` table has soft-deletes.
-3. **Order by recency** (`last_modified_at DESC` or `created_at DESC`) and `LIMIT 20-50` so the most relevant rows surface first.
-4. **Verify the match with the entity's retrieve tool, not another SELECT.** Once SQL narrows to one or a few candidates, call the per-entity retrieve tool with the candidate's ID — for example `insight-get`, `dashboard-get`, `experiment-get`, `survey-get`, or `cohorts-retrieve` / `error-tracking-issues-retrieve`. Naming is inconsistent across entities; if the bare `<entity>-get` doesn't exist, run `search <entity>` and pick the read-shaped tool. **Do not run a second `execute-sql` to fetch the full row by ID.** The retrieve tool returns the authoritative entity shape (dashboards, query, ownership, last-viewed, etc.) in one call; re-querying via SQL costs an extra round-trip and only sees the columns exposed on the `system.*` table.
-5. **Fallback to list tools.** If the entity has no `system.*` table (e.g. workflows, error-tracking issues, log views), or if SQL returns nothing after broadening the ILIKE pattern, fall back to the entity's `*-list` tool. SQL is the fast path; list tools are the floor.
-
-<example>
-User: Do we have any insights tracking revenue?
-Assistant: [Calls `execute-sql` with `SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20`]
-[Picks the most plausible match by name, then calls `insight-get` with the candidate's `id` (or `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
-<reasoning>SQL surfaces candidates fast; `insight-get` confirms the authoritative shape in one call — re-running `execute-sql ... WHERE id = <id>` would skip the dedicated tool and miss dashboards/ownership joins.</reasoning>
-</example>
+1. `info execute-sql` AND `info read-data-warehouse-schema` — load both tool guides, even if a skill is already loaded.
+2. `read-data-warehouse-schema` — confirms the table's columns. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — call the tool.
+3. `execute-sql` against `system.*` — uses only columns confirmed in step 2.
+4. `<entity>-get` (e.g. `insight-get`, `dashboard-get`) — verifies the entity shape; do NOT re-`execute-sql` by ID.
 
 <bad-example>
-User: Find me a graph of MAUs.
-Assistant: [Calls `execute-sql` with `SELECT * FROM system.insights WHERE id = 33800 LIMIT 1` after a search SELECT already surfaced id 33800]
-WRONG — verify with `insight-get` (passing `id: 33800`) instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
+User: rename / find / list … (any `system.*` question)
+Assistant: [Calls `execute-sql` against `system.insights` without first running `read-data-warehouse-schema` — OR runs `read-data-warehouse-schema` partway through, only after several `execute-sql` calls thrashed]
+WRONG — the rule is "schema first, every run, no shortcuts." Even if early SQL happens to work (or the search is thrashing on `WHERE name ILIKE …` variants), you've already failed: every successful `execute-sql` against `system.*` MUST be preceded by `read-data-warehouse-schema` in the same run. Same for `info read-data-warehouse-schema` before the first `read-data-warehouse-schema` call. Skipping or postponing either step is a hard violation.
 </bad-example>
 
 #### Available insight query tools

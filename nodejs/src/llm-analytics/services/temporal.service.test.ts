@@ -108,6 +108,7 @@ describe('TemporalService', () => {
                 taskQueue: 'llm-analytics-evals-task-queue',
                 workflowId: 'llma-llm-eval-eval-123-event-456-ingestion',
                 workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
                 workflowTaskTimeout: '2 minutes',
                 args: [
                     {
@@ -172,6 +173,7 @@ describe('TemporalService', () => {
                 taskQueue: 'llm-analytics-evals-task-queue',
                 workflowId: 'llma-tagger-tagger-123-event-456-ingestion',
                 workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
                 workflowTaskTimeout: '2 minutes',
                 args: [
                     {

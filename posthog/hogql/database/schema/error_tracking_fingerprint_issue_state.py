@@ -3,7 +3,6 @@ from typing import Any, Optional
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -69,12 +68,29 @@ def join_with_error_tracking_fingerprint_issue_state_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "properties", "$exception_fingerprint"]),
-            right=ast.Field(chain=[join_to_add.to_table, "fingerprint"]),
+            left=ast.Call(
+                name="cityHash64",
+                args=[ast.Field(chain=[join_to_add.from_table, "properties", "$exception_fingerprint"])],
+            ),
+            right=ast.Field(chain=[join_to_add.to_table, "fp_hash"]),
         ),
         constraint_type="ON",
     )
     return join_expr
+
+
+# Tuple wrap defeats argMax's NULL-skip so unassignments (NULL at latest
+# version) don't return stale prior values.
+_ARGMAX_FIELDS: tuple[str, ...] = (
+    "issue_id",
+    "issue_name",
+    "issue_description",
+    "issue_status",
+    "assigned_user_id",
+    "assigned_role_id",
+    "first_seen",
+    "fingerprint",
+)
 
 
 def select_from_error_tracking_fingerprint_issue_state_table(
@@ -83,26 +99,68 @@ def select_from_error_tracking_fingerprint_issue_state_table(
 ):
     from posthog.hogql import ast
 
-    # Always include issue_id as it's the key used for further joins
     if "issue_id" not in requested_fields:
         requested_fields = {**requested_fields, "issue_id": ["issue_id"]}
-    select = argmax_select(
-        table_name=RAW_TABLE_NAME,
-        select_fields=requested_fields,
-        group_fields=["fingerprint"],
-        argmax_field="version",
-        deleted_field="is_deleted",
+
+    # GROUP BY the UInt64 hash — smaller hashmap buckets than the raw string.
+    # Collision probability ~N^2/2^65 is effectively zero at fingerprint scale.
+    fp_hash_alias = ast.Alias(
+        alias="fp_hash",
+        expr=ast.Call(name="cityHash64", args=[ast.Field(chain=[RAW_TABLE_NAME, "fingerprint"])]),
     )
-    # Wrap non-group-by fields in toNullable() so that unmatched LEFT JOIN rows
-    # produce actual NULLs instead of type defaults (e.g. 00000000-... for UUID).
-    # ClickHouse's join_use_nulls=0 (default) only returns NULL for Nullable columns.
-    group_fields = {"fingerprint"}
-    for i, expr in enumerate(select.select):
-        if isinstance(expr, ast.Alias) and expr.alias not in group_fields:
-            select.select[i] = ast.Alias(
-                alias=expr.alias,
-                expr=ast.Call(name="toNullable", args=[expr.expr]),
+
+    # Wrap in `toNullable(...)` so unmatched LEFT OUTER JOIN rows produce real
+    # NULLs (CH `join_use_nulls=0` returns type defaults for non-Nullable cols
+    # like `issue_id UUID` / `issue_status VARCHAR`, which silently breaks
+    # `isNotNull(...)` filters downstream).
+    select_exprs: list[ast.Expr] = [fp_hash_alias]
+    for field_name in requested_fields:
+        if field_name == "fp_hash":
+            continue
+        if field_name in _ARGMAX_FIELDS:
+            select_exprs.append(
+                ast.Alias(
+                    alias=field_name,
+                    expr=ast.Call(
+                        name="toNullable",
+                        args=[
+                            ast.Call(
+                                name="tupleElement",
+                                args=[
+                                    ast.Call(
+                                        name="argMax",
+                                        args=[
+                                            ast.Call(
+                                                name="tuple",
+                                                args=[ast.Field(chain=[RAW_TABLE_NAME, field_name])],
+                                            ),
+                                            ast.Field(chain=[RAW_TABLE_NAME, "version"]),
+                                        ],
+                                    ),
+                                    ast.Constant(value=1),
+                                ],
+                            )
+                        ],
+                    ),
+                )
             )
+
+    select = ast.SelectQuery(
+        select=select_exprs,
+        select_from=ast.JoinExpr(table=ast.Field(chain=[RAW_TABLE_NAME])),
+        group_by=[ast.Field(chain=["fp_hash"])],
+        having=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(
+                name="argMax",
+                args=[
+                    ast.Field(chain=[RAW_TABLE_NAME, "is_deleted"]),
+                    ast.Field(chain=[RAW_TABLE_NAME, "version"]),
+                ],
+            ),
+            right=ast.Constant(value=0),
+        ),
+    )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
     # Historically error tracking used to query 2 datasources and we didn't have that problem described below.
@@ -182,7 +240,12 @@ class RawErrorTrackingFingerprintIssueStateTable(Table):
 
 
 class ErrorTrackingFingerprintIssueStateTable(LazyTable):
-    fields: dict[str, FieldOrTable] = ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS
+    # `fp_hash` is a computed alias produced by `lazy_select`, not a physical
+    # column — so it lives here, not on the raw table.
+    fields: dict[str, FieldOrTable] = {
+        **ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS,
+        "fp_hash": IntegerDatabaseField(name="fp_hash", nullable=False),
+    }
 
     def lazy_select(
         self,

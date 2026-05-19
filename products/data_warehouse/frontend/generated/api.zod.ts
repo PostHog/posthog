@@ -777,8 +777,10 @@ export const externalDataSourcesUpdateBodyDescriptionMax = 400
 export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -801,8 +803,10 @@ export const externalDataSourcesPartialUpdateBodyDescriptionMax = 400
 export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -875,8 +879,10 @@ export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
 export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -899,8 +905,10 @@ export const externalDataSourcesDeleteWebhookCreateBodyDescriptionMax = 400
 export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -923,8 +931,10 @@ export const externalDataSourcesRefreshSchemasCreateBodyDescriptionMax = 400
 export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -947,8 +957,10 @@ export const externalDataSourcesReloadCreateBodyDescriptionMax = 400
 export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -971,8 +983,10 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyDescripti
 export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -998,8 +1012,10 @@ export const externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax = 40
 export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
@@ -1185,8 +1201,10 @@ export const externalDataSourcesSourcePrefixCreateBodyDescriptionMax = 400
 export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
-            .enum(['web', 'api', 'mcp'])
-            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'

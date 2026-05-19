@@ -776,7 +776,7 @@ export interface ExternalDataSourceSerializersApi {
   * `web` - web
   * `api` - api
   * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: CreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -1016,7 +1016,7 @@ export interface PatchedExternalDataSourceSerializersApi {
   * `web` - web
   * `api` - api
   * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: CreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string

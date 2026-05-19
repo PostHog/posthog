@@ -2917,6 +2917,17 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/**
+ * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
+ * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
+ * `filterGroup` must be set on a live (enabled=true) alert.
+ */
+export interface LogsAlertFilters {
+    severityLevels?: LogSeverityLevel[]
+    serviceNames?: string[]
+    filterGroup?: PropertyGroupFilter
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -6288,6 +6299,7 @@ export interface CustomerAnalyticsConfig {
     signup_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
+    account_group_type_index?: integer | null
 }
 
 /**
