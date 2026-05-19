@@ -282,6 +282,34 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_generate_survey_translation.assert_not_called()
 
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_cross_organization_survey_id(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
+        other_survey = Survey.objects.create(
+            team=other_team,
+            name="foreign survey",
+            type="popover",
+            questions=[],
+        )
+        mock_generate_survey_translation.return_value = ({}, [], [], "trace-id")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{other_survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft", "questions": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        mock_generate_survey_translation.assert_not_called()
+
     def test_can_create_survey_without_translations(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
