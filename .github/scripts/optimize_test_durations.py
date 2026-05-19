@@ -29,6 +29,26 @@ logger = logging.getLogger(__name__)
 DEFAULT_CEILING = 60.0
 
 
+def drop_missing_files(durations: dict[str, float], repo_root: Path) -> dict[str, float]:
+    """Drop entries whose source file no longer exists in the checkout.
+
+    Each pytest nodeid is `<file>::<class>::<method>`; if `<file>` is missing,
+    the test cannot run and its timing is dead weight that biases pytest-split's
+    `duration_based_chunks` toward never-executed slots.
+    """
+    seen_files: dict[str, bool] = {}
+    kept: dict[str, float] = {}
+    for nodeid, duration in durations.items():
+        file_part = nodeid.split("::", 1)[0]
+        exists = seen_files.get(file_part)
+        if exists is None:
+            exists = (repo_root / file_part).exists()
+            seen_files[file_part] = exists
+        if exists:
+            kept[nodeid] = duration
+    return kept
+
+
 def load_timing_artifacts(artifacts_dir: Path, segment: str | None = None) -> dict[str, float]:
     """Load and merge timing data from shard artifacts.
 
@@ -150,6 +170,12 @@ def main():
         logger.info("  Filtering to segment: %s", args.segment)
     real_durations = load_timing_artifacts(args.artifacts_dir, segment=args.segment)
     logger.info("  Loaded %d tests from artifacts", len(real_durations))
+
+    before_prune = len(real_durations)
+    real_durations = drop_missing_files(real_durations, Path.cwd())
+    pruned = before_prune - len(real_durations)
+    if pruned:
+        logger.info("  Pruned %d entries whose source files no longer exist", pruned)
 
     # Filter to only existing tests if requested
     if args.filter_existing:
