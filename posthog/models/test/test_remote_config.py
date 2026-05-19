@@ -351,6 +351,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -378,6 +379,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -426,6 +428,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore
