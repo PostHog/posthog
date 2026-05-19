@@ -707,6 +707,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "title": "Signal Task",
                 "description": "From a signal report",
+                "origin_product": "signal_report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": SignalReportTask.Relationship.IMPLEMENTATION.value,
             },
@@ -714,7 +715,6 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(data["origin_product"], Task.OriginProduct.USER_CREATED)
         self.assertEqual(data["signal_report"], str(report.id))
         link = SignalReportTask.objects.get(
             report=report,
@@ -732,35 +732,38 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "title": "Cross-team Task",
                 "description": "Should be rejected",
+                "origin_product": "signal_report",
                 "signal_report": str(report.id),
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_create_task_rejects_signal_report_origin_product(self):
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Fake pipeline task",
-                "description": "Should not be accepted",
-                "origin_product": "signal_report",
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        err = response.json()
-        self.assertEqual(err.get("attr"), "origin_product")
-
-    def test_patch_task_rejects_signal_report_origin_product(self):
+    def test_patch_cannot_change_origin_product(self):
         task = self.create_task("Mine")
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",
             {"origin_product": "signal_report"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "origin_product")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_patch_cannot_change_signal_report(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self.create_task("Mine")
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"signal_report": str(report.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.signal_report_id)
 
     def test_update_task(self):
         task = self.create_task("Original Task")
