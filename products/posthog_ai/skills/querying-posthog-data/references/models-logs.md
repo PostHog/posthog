@@ -32,11 +32,11 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 
 ### Sort key
 
-`(team_id, service_name, toUnixTimestamp(timestamp))`. Queries that filter on `service_name` + a time window are very efficient. **Never query without a `service_name` (or `resource_attributes` filter) and a time window** — unfiltered queries can scan terabytes.
+`(team_id, service_name, toUnixTimestamp(timestamp))`. Queries that filter on `service_name` + a time window are very efficient. **Never query without a `service_name` filter and a time window** — unfiltered queries can scan terabytes. `resource_attributes` is a Map column outside the sort key, so a `resource_attributes` filter alone does **not** prune granules the way `service_name` does and is no substitute for it.
 
 ### Important notes
 
-- **`trace_id` and `span_id` are base64-encoded bytes**, not hex. The displayed hex form (e.g. `21EDB3A025A9ECD32ADF3E5D7548A4F4`) comes from the API layer via `hex(tryBase64Decode(trace_id))`. Raw HogQL queries see the 24-character base64 form (e.g. `21EDB3A025A9ECD32ADF...` becomes `IepzoCWp7NMq3z5ddUik9A==`).
+- **`trace_id` and `span_id` are base64-encoded bytes**, not hex. The displayed hex form (e.g. `21EDB3A025A9ECD32ADF3E5D7548A4F4`) comes from the API layer via `hex(tryBase64Decode(trace_id))`. Raw HogQL queries see the 24-character base64 form (e.g. `21EDB3A025A9ECD32ADF3E5D7548A4F4` becomes `Ie2zoCWp7NMq3z5ddUik9A==`).
 - **Unset `trace_id` is `'AAAAAAAAAAAAAAAAAAAAAA=='`** (16 zero bytes encoded), not the hex zero-padded form. Use `trace_id != 'AAAAAAAAAAAAAAAAAAAAAA=='` to find logs with trace context. Or use the explicit decode: `tryBase64Decode(trace_id) != unhex('00000000000000000000000000000000')`.
 - **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
 - **Prefer `severity_text` over `severity_number` / `level`** for human-readable filters.
@@ -173,7 +173,7 @@ If you already have the trace_id in base64 form (e.g. selected directly from the
 ```sql
 SELECT timestamp, severity_text, service_name, body
 FROM logs
-WHERE trace_id = 'IepzoCWp7NMq3z5ddUik9A=='
+WHERE trace_id = 'Ie2zoCWp7NMq3z5ddUik9A=='
 ORDER BY timestamp
 ```
 
