@@ -19716,6 +19716,19 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+     */
+    export interface LensResult {
+      /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+    }
+
+    /**
      * * `monitor` - Monitor
     * `classifier` - Classifier
     * `scorer` - Scorer
@@ -22743,7 +22756,9 @@ export namespace Schemas {
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
       /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-      readonly lens_snapshot: LensSnapshot;
+      readonly lens_snapshot: LensSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly lens_result: LensResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
