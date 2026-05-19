@@ -1,4 +1,5 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { CoreFilterDefinition } from '~/types'
 
@@ -56,6 +57,19 @@ export function getCoreFilterDefinition(
     } else if (value.startsWith('$survey_response_')) {
         const suffix = value.replace(/^\$survey_response_/, '')
         if (suffix) {
+            // If `surveyQuestionLabelsLogic` is mounted (a `PropertyKeyInfo` for any
+            // survey response key triggers the mount, which auto-loads the slim labels
+            // endpoint), prefer the actual question text. This branch covers every
+            // call site — `PropertyKeyInfo`, the property definitions popover, chart
+            // legends, breakdown labels, the admin definitions page — so all of them
+            // benefit once the labels have loaded.
+            const resolved = surveyQuestionLabelsLogic.findMounted()?.values.surveyQuestionLabels?.[suffix]
+            if (resolved) {
+                return {
+                    label: `${resolved.questionText} · ${resolved.surveyName}`,
+                    description: `Response to "${resolved.questionText}" in survey "${resolved.surveyName}".`,
+                }
+            }
             const parsedIndex = Number(suffix)
             if (Number.isInteger(parsedIndex) && parsedIndex >= 0) {
                 const index = parsedIndex + 1
@@ -65,10 +79,9 @@ export function getCoreFilterDefinition(
                     description: `The response value for the ${index}${ordinal} question in the survey.`,
                 }
             }
-            // Modern format `$survey_response_<question-uuid>`: we can't derive the
-            // question's position without loading the survey, so emit a generic label.
-            // `PropertyKeyInfo` overlays the actual question text via
-            // `surveyQuestionLabelsLogic` when the surveys list is available.
+            // Modern format `$survey_response_<question-uuid>`, but the labels haven't
+            // loaded yet (or this consumer doesn't subscribe so it won't re-render
+            // when they do). Emit a generic short-ID label as a placeholder.
             const shortId = suffix.slice(0, 8)
             return {
                 label: `Survey response (${shortId}…)`,

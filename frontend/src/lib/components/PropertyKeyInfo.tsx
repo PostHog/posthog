@@ -8,7 +8,7 @@ import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils'
-import { SurveyQuestionLabel, surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -28,11 +28,7 @@ export interface PropertyKeyInfoProps {
     className?: string
 }
 
-interface PropertyKeyInfoBaseProps extends PropertyKeyInfoProps {
-    resolvedSurveyQuestion: SurveyQuestionLabel | null
-}
-
-const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoBaseProps>(function PropertyKeyInfoBase(
+const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfoBase(
     {
         value,
         type = TaxonomicFilterGroupType.EventProperties,
@@ -41,7 +37,6 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoBas
         ellipsis = true,
         className = '',
         displayText,
-        resolvedSurveyQuestion,
     },
     ref
 ): JSX.Element {
@@ -50,22 +45,11 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoBas
     value = value?.toString() ?? ''
 
     const coreDefinition = getCoreFilterDefinition(value, type)
-
-    const enrichedCoreDefinition =
-        resolvedSurveyQuestion && coreDefinition
-            ? {
-                  ...coreDefinition,
-                  label: `${resolvedSurveyQuestion.questionText} · ${resolvedSurveyQuestion.surveyName}`,
-                  description: `Response to "${resolvedSurveyQuestion.questionText}" in survey "${resolvedSurveyQuestion.surveyName}".`,
-              }
-            : coreDefinition
-
-    const valueDisplayText =
-        displayText || ((enrichedCoreDefinition ? enrichedCoreDefinition.label : value)?.trim() ?? '')
+    const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
     const recognizedSource: 'posthog' | 'langfuse' | null =
-        enrichedCoreDefinition || value.startsWith('$') ? 'posthog' : value.startsWith('langfuse ') ? 'langfuse' : null
+        coreDefinition || value.startsWith('$') ? 'posthog' : value.startsWith('langfuse ') ? 'langfuse' : null
 
     const innerContent = (
         <span
@@ -83,7 +67,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoBas
         </span>
     )
 
-    return !enrichedCoreDefinition || disablePopover ? (
+    return !coreDefinition || disablePopover ? (
         innerContent
     ) : (
         <Popover
@@ -91,38 +75,30 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoBas
             overlay={
                 <div className="PropertyKeyInfo__overlay">
                     <div className="PropertyKeyInfo__header">
-                        {!!enrichedCoreDefinition && (
+                        {!!coreDefinition && (
                             <span className={`PropertyKeyInfo__logo PropertyKeyInfo__logo--${recognizedSource}`} />
                         )}
-                        {enrichedCoreDefinition.label}
+                        {coreDefinition.label}
                     </div>
-                    {enrichedCoreDefinition.description || enrichedCoreDefinition.examples ? (
+                    {coreDefinition.description || coreDefinition.examples ? (
                         <>
                             <LemonDivider className="my-3" />
                             <div>
-                                {enrichedCoreDefinition.description ? (
-                                    <p>{enrichedCoreDefinition.description}</p>
-                                ) : null}
-                                {enrichedCoreDefinition.examples ? (
+                                {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
+                                {coreDefinition.examples ? (
                                     <p>
                                         <i>
                                             Example{' '}
-                                            {pluralize(
-                                                enrichedCoreDefinition.examples.length,
-                                                'value',
-                                                'values',
-                                                false
-                                            )}
-                                            :{' '}
+                                            {pluralize(coreDefinition.examples.length, 'value', 'values', false)}:{' '}
                                         </i>
-                                        {enrichedCoreDefinition.examples.join(', ')}
+                                        {coreDefinition.examples.join(', ')}
                                     </p>
                                 ) : null}
                             </div>
                         </>
                     ) : null}
 
-                    {!enrichedCoreDefinition.virtual && (
+                    {!coreDefinition.virtual && (
                         <>
                             <LemonDivider className="my-3" />
                             <div>
@@ -144,21 +120,17 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoBas
     )
 })
 
-// Mounted only when the value is a `$survey_response_<question-id>` key. This is the only
-// place where `surveyQuestionLabelsLogic` is touched, so the survey-labels fetch is paid for
-// exactly when the page actually renders a survey response property, not on every
-// `PropertyKeyInfo` instance across the app.
-const PropertyKeyInfoWithSurveyResolution = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(
-    function PropertyKeyInfoWithSurveyResolution(props, ref): JSX.Element {
-        const { surveyQuestionLabels } = useValues(surveyQuestionLabelsLogic)
-        const questionId = (props.value?.toString() ?? '').slice(SURVEY_RESPONSE_PREFIX.length)
-        return (
-            <PropertyKeyInfoBase
-                {...props}
-                resolvedSurveyQuestion={surveyQuestionLabels[questionId] ?? null}
-                ref={ref}
-            />
-        )
+// Mounted only when the value is a `$survey_response_<question-id>` key. Two
+// jobs: (1) trigger the `surveyQuestionLabelsLogic` mount so its `afterMount`
+// fires the slim labels endpoint, and (2) subscribe to the resulting state so
+// this component re-renders when the labels land, picking up the enriched
+// label via `getCoreFilterDefinition`. The enrichment itself lives in the
+// helper so non-React consumers (popovers, chart legends, definitions admin
+// page) benefit too.
+const PropertyKeyInfoWithSurveyMount = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(
+    function PropertyKeyInfoWithSurveyMount(props, ref): JSX.Element {
+        useValues(surveyQuestionLabelsLogic)
+        return <PropertyKeyInfoBase {...props} ref={ref} />
     }
 )
 
@@ -166,8 +138,8 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     function PropertyKeyInfo(props, ref): JSX.Element {
         const value = props.value?.toString() ?? ''
         if (value.startsWith(SURVEY_RESPONSE_PREFIX)) {
-            return <PropertyKeyInfoWithSurveyResolution {...props} ref={ref} />
+            return <PropertyKeyInfoWithSurveyMount {...props} ref={ref} />
         }
-        return <PropertyKeyInfoBase {...props} resolvedSurveyQuestion={null} ref={ref} />
+        return <PropertyKeyInfoBase {...props} ref={ref} />
     }
 )
