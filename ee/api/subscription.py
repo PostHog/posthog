@@ -49,6 +49,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.hogai.ai_reports import generate_ai_report
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
     ALLOWED_AI_MODELS,
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
@@ -89,6 +90,54 @@ def _count_active_summaries(organization) -> int:
 
 def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
+
+
+class AiReportRequestSerializer(serializers.Serializer):
+    """Input for the ad-hoc AI report endpoint — same prompt validation as a scheduled AI subscription."""
+
+    prompt = serializers.CharField(
+        required=True,
+        max_length=AI_PROMPT_MAX_LENGTH,
+        help_text=f"Natural-language prompt describing the report. Max {AI_PROMPT_MAX_LENGTH} characters.",
+    )
+    window_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        default=7,
+        help_text="Analysis window in days the planner should consider. Defaults to 7 (last week).",
+    )
+    ai_config = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional configuration; supports keys `model` (synthesis model) and `planner_model`. "
+            "Values outside the allowed model whitelist are rejected."
+        ),
+    )
+
+    def validate_ai_config(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise ValidationError("ai_config must be an object.")
+        allowed_keys = {"model", "planner_model"}
+        unknown = set(value.keys()) - allowed_keys
+        if unknown:
+            raise ValidationError(
+                f"ai_config keys must be a subset of {sorted(allowed_keys)}; got unknown {sorted(unknown)}."
+            )
+        for key in allowed_keys & value.keys():
+            model_val = value[key]
+            if not isinstance(model_val, str) or model_val not in ALLOWED_AI_MODELS:
+                raise ValidationError(f"ai_config.{key} must be one of {sorted(ALLOWED_AI_MODELS)}; got {model_val!r}.")
+        return value
+
+
+class AiReportResponseSerializer(serializers.Serializer):
+    """Output for the ad-hoc AI report endpoint."""
+
+    markdown = serializers.CharField(help_text="The LLM-synthesized report, rendered as commonmark markdown.")
 
 
 @extend_schema_field({"type": "array", "items": {"type": "integer"}})
@@ -868,7 +917,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         ],
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(tags=["subscriptions"])
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
@@ -983,6 +1032,70 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         }
         cache.set(cache_key, payload, SUMMARY_QUOTA_CACHE_TTL_SECONDS)
         return Response(payload)
+
+    @extend_schema(
+        request=AiReportRequestSerializer,
+        responses={
+            200: AiReportResponseSerializer,
+            400: OpenApiResponse(description="Validation failed (e.g. prompt empty or oversized)"),
+            403: OpenApiResponse(description="AI subscriptions not enabled for this organization"),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="ai_report",
+        throttle_classes=[SubscriptionTestDeliveryThrottle],
+        required_scopes=["subscription:write"],
+    )
+    def ai_report(self, request, **kwargs):
+        """Generate an ad-hoc AI report from a prompt without creating a recurring subscription.
+
+        Runs the same planner → HogQL → synthesis pipeline as a scheduled AI subscription
+        and returns the rendered markdown. Subject to the same cloud + consent + feature-flag
+        gates as creating an AI subscription. Each call burns LLM tokens — throttled.
+        """
+        # Same gates as creating an AI subscription. Inlined rather than extracted because
+        # there are only two call sites and the values come from slightly different sources.
+        if not settings.DEBUG and not is_cloud():
+            return Response(
+                {"detail": "AI reports are only available in PostHog Cloud."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        organization = self.organization
+        if not organization.is_ai_data_processing_approved:
+            return Response(
+                {"detail": "Your organization must approve AI data processing before generating AI reports."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not posthoganalytics.feature_enabled(
+            SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+            str(organization.id),
+            groups={"organization": str(organization.id)},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            return Response(
+                {"detail": "AI reports are not enabled for your organization."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = AiReportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            markdown = generate_ai_report(
+                team=self.team,
+                user=request.user,
+                prompt=serializer.validated_data["prompt"],
+                window_days=serializer.validated_data["window_days"],
+                ai_config=serializer.validated_data.get("ai_config"),
+                trace_correlation_id=f"adhoc-team-{self.team.id}",
+            )
+        except PromptRejectedError as exc:
+            raise ValidationError({"prompt": [str(exc)]})
+
+        return Response({"markdown": markdown})
 
     @extend_schema(
         request=None,

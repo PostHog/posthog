@@ -1,0 +1,121 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Subscriptions
+feature: subscriptions
+url_prefix: /subscriptions
+ui_apps: {}
+tools:
+    subscriptions-create:
+        operation: subscriptions_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create subscription
+        description: >
+            Create a recurring subscription. Three flavours:
+
+            (1) `content_type: "insight"` — schedule periodic snapshots of one insight. Requires `insight`.
+
+            (2) `content_type: "dashboard"` — schedule periodic snapshots of one dashboard. Requires `dashboard`
+            and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6).
+
+            (3) `content_type: "ai_prompt"` — schedule a recurring LLM-generated report from a free-text prompt.
+            Requires `prompt` (≤4000 chars). Subject to cloud + org-level AI data-processing consent +
+            `SUBSCRIPTION_AI_PROMPT` feature flag. `target_type` must be `email` or `slack` (no webhook for
+            AI subs). `ai_config` (optional) accepts `model` and `planner_model` from a whitelisted set.
+
+            `content_type` is pinned at create time — switching kind via PATCH is rejected. For an
+            immediately-delivered ad-hoc AI report (no schedule, no recipient), use subscriptions-ai-report-create
+            instead.
+        exclude_params:
+            - deleted
+            - next_delivery_date
+            - resource_name
+            - insight_short_id
+    subscriptions-list:
+        operation: subscriptions_list
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List subscriptions
+        description: >
+            List the team's subscriptions. Use `search` to filter by title, insight name, or dashboard name.
+        response:
+            exclude:
+                - results.*.invite_message
+    subscriptions-retrieve:
+        operation: subscriptions_retrieve
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription
+        description: Retrieve a single subscription by ID.
+    subscriptions-partial-update:
+        operation: subscriptions_partial_update
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update subscription
+        description: >
+            Update a subscription's mutable fields (title, target, schedule, prompt for AI subs, `enabled`).
+            `content_type` is immutable after create — rejected with 400 if supplied with a different value.
+            For AI subs, re-enabling a previously auto-disabled sub requires either a valid `prompt` already
+            persisted or one supplied in the PATCH body.
+    subscriptions-update:
+        operation: subscriptions_update
+        enabled: false
+    subscriptions-delete:
+        operation: subscriptions_destroy
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete subscription
+        description: Soft-delete a subscription. Stops all future deliveries.
+    subscriptions-ai-report-create:
+        operation: subscriptions_ai_report_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Generate an ad-hoc AI report
+        description: >
+            Run the planner → HogQL → synthesis pipeline once and return the rendered markdown — no
+            recurring schedule, no email/Slack delivery, no DB row created. Same gates as creating an AI
+            subscription (cloud + org-level AI data-processing consent + `SUBSCRIPTION_AI_PROMPT` flag).
+
+            Use for one-off "summarize how the product is doing" questions where the agent will render the
+            output itself. To make this report recur on a schedule and deliver to email/Slack, call
+            subscriptions-create with `content_type: "ai_prompt"` instead.
+    subscriptions-summary-quota-retrieve:
+        operation: subscriptions_summary_quota_retrieve
+        enabled: false
+    subscriptions-test-delivery-create:
+        operation: subscriptions_test_delivery_create
+        enabled: false

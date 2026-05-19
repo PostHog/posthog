@@ -1947,6 +1947,76 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
 
+    @patch("ee.api.subscription.generate_ai_report", return_value="# Ad-hoc report\n\nAll quiet.")
+    def test_ai_report_endpoint_returns_markdown(self, mock_generate, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/ai_report",
+            {"prompt": "What changed this week?", "window_days": 7},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"markdown": "# Ad-hoc report\n\nAll quiet."}
+        kwargs = mock_generate.call_args.kwargs
+        assert kwargs["team"] == self.team
+        assert kwargs["user"] == self.user
+        assert kwargs["prompt"] == "What changed this week?"
+        assert kwargs["window_days"] == 7
+
+    def test_ai_report_endpoint_rejects_without_consent(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/ai_report",
+            {"prompt": "anything"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing" in str(response.json())
+
+    def test_ai_report_endpoint_rejects_when_flag_off(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        mock_flag.return_value = False
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/ai_report",
+            {"prompt": "anything"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "not enabled" in str(response.json())
+
+    def test_ai_report_endpoint_rejects_when_not_cloud_or_debug(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        mock_is_cloud.return_value = False
+        self._mock_temporal(mock_sync)
+        with self.settings(DEBUG=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/ai_report",
+                {"prompt": "anything"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "PostHog Cloud" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("empty_prompt", {"prompt": "   "}),
+            ("oversize_prompt", {"prompt": "x" * 4001}),
+            ("disallowed_model", {"prompt": "ok", "ai_config": {"model": "gpt-4o"}}),
+            ("unknown_ai_config_key", {"prompt": "ok", "ai_config": {"surprise": "x"}}),
+        ]
+    )
+    def test_ai_report_endpoint_rejects_invalid_payloads(self, mock_is_cloud, mock_flag, mock_sync, name, payload):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/ai_report",
+            payload,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_ai_config_rejected_on_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         insight = Insight.objects.create(team=self.team, short_id="aicfg", name="x")

@@ -1,5 +1,3 @@
-import uuid
-import asyncio
 from datetime import UTC, datetime
 
 import nh3
@@ -7,24 +5,14 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from posthog.schema import AssistantHogQLQuery
-
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import SlackIntegration
 from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.utils import absolute_uri
 
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
-from ee.hogai.llm import MaxChatOpenAI
-from ee.tasks.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT
-from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec
-from ee.tasks.subscriptions.ai_subscription.spec_generator import (
-    DEFAULT_SYNTHESIS_MODEL,
-    PromptRejectedError,
-    build_enriched_prompt,
-    resolve_ai_model,
-)
+from ee.hogai.ai_reports import generate_ai_report
+from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError, frequency_to_window_days
 from ee.tasks.subscriptions.slack_subscriptions import UTM_TAGS_BASE, get_slack_integration_for_team
 
 logger = structlog.get_logger(__name__)
@@ -66,11 +54,6 @@ _ALLOWED_EMAIL_TAGS = {
 }
 _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
-# Wall-clock bounds for the in-band LLM + HogQL pipeline. Combined with the activity's
-# `start_to_close_timeout`, these prevent a single slow upstream from soaking the budget.
-_LLM_CALL_TIMEOUT_SECONDS = 90.0
-_HOGQL_STEP_TIMEOUT_SECONDS = 60.0
-
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
 
@@ -96,75 +79,21 @@ def _split_into_slack_sections(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMI
     return chunks
 
 
-def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results: list[str]) -> str:
-    results_block = "\n".join(rendered_results) if rendered_results else "_No query results were available._"
-    return (
-        f"<user_prompt>\n{spec.cleaned_prompt}\n</user_prompt>\n\n"
-        f"<project_context>\n{spec.context_blob}\n</project_context>\n\n"
-        f"Plan intent (system-provided, not user-controlled): {spec.plan.overall_intent}\n\n"
-        f"<query_results>\n{results_block}\n</query_results>"
-    )
-
-
-async def _arun_plan(spec: EnrichedPromptSpec, subscription: Subscription) -> list[str]:
-    executor = AssistantQueryExecutor(subscription.team, datetime.now(tz=UTC))
-
-    async def run_step(step) -> str:
-        try:
-            query = AssistantHogQLQuery(query=step.hogql)
-            formatted, _ = await asyncio.wait_for(
-                executor.arun_and_format_query(query),
-                timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
-            )
-            return f"### {step.description}\n\n{formatted}"
-        except Exception as exc:
-            logger.warning(
-                "ai_subscription.query_failed",
-                subscription_id=subscription.id,
-                step_description=step.description,
-                exc_info=True,
-            )
-            capture_exception(exc, {"subscription_id": subscription.id, "stage": "query"})
-            # The exception message goes into the synthesis prompt and the resulting
-            # email; pass only the type, not the body — ClickHouse errors can echo
-            # team-scoped identifiers (cluster URL, table names) that shouldn't ship.
-            return f"### {step.description}\n\n_Query failed: {type(exc).__name__}_"
-
-    return await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
-
-
 def generate_ai_subscription_markdown(subscription: Subscription) -> str:
-    # `created_by` is FK SET_NULL; MaxChatOpenAI requires a non-None user.
+    """Subscription-flavoured wrapper around :func:`generate_ai_report` — just unpacks
+    the persisted row and forwards to the shared pipeline."""
+    # `created_by` is FK SET_NULL; the shared primitive requires a non-None user.
     if subscription.created_by is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
-    spec = build_enriched_prompt(subscription)
-    rendered_results = asyncio.run(_arun_plan(spec, subscription))
-
-    model_name = resolve_ai_model(subscription.ai_config, "model", DEFAULT_SYNTHESIS_MODEL)
-    chat = MaxChatOpenAI(
-        model=model_name,
-        temperature=0.2,
-        timeout=_LLM_CALL_TIMEOUT_SECONDS,
-        user=subscription.created_by,
+    return generate_ai_report(
         team=subscription.team,
-        billable=False,
-        posthog_properties={
-            "feature": "ai_subscription",
-            "stage": "synthesis",
-            "subscription_id": subscription.id,
-            "trace_id": str(uuid.uuid4()),
-        },
+        user=subscription.created_by,
+        prompt=subscription.prompt,
+        window_days=frequency_to_window_days(subscription.frequency),
+        ai_config=subscription.ai_config,
+        trace_correlation_id=subscription.id,
     )
-
-    result = chat.invoke(
-        [
-            ("system", AI_SUBSCRIPTION_SYNTHESIS_PROMPT),
-            ("human", _compose_synthesis_human_message(spec, rendered_results)),
-        ]
-    )
-    content = result.content if hasattr(result, "content") else str(result)
-    return content if isinstance(content, str) else str(content)
 
 
 def render_ai_email_html(markdown: str) -> str:

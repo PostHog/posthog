@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, datetime
+from typing import Optional, Union
 
 import structlog
 
@@ -7,7 +8,7 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.subscription import Subscription
 from posthog.text_sanitization import sanitize_core_memory_text, sanitize_user_text
 
@@ -55,6 +56,8 @@ _FREQUENCY_WINDOW_DAYS = {
     Subscription.SubscriptionFrequency.YEARLY: 365,
 }
 
+DEFAULT_AD_HOC_WINDOW_DAYS = 7
+
 
 class PromptRejectedError(ValueError):
     pass
@@ -73,8 +76,9 @@ def sanitize_prompt(raw: str | None) -> str:
     return cleaned
 
 
-def _window_days_for(frequency: str) -> int:
-    return _FREQUENCY_WINDOW_DAYS.get(frequency, 7)
+def frequency_to_window_days(frequency: str) -> int:
+    """Map a subscription frequency to the analysis window the LLM should consider."""
+    return _FREQUENCY_WINDOW_DAYS.get(frequency, DEFAULT_AD_HOC_WINDOW_DAYS)
 
 
 def _top_event_names(team: Team, limit: int) -> list[str]:
@@ -91,9 +95,8 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     return [name for name in sanitized if name]
 
 
-def build_context_blob(team: Team, frequency: str) -> str:
+def build_context_blob(team: Team, window_days: int) -> str:
     event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
-    window_days = _window_days_for(frequency)
     now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
     # Team / org names are also user-controlled and end up in the LLM context, so
@@ -115,13 +118,22 @@ def build_context_blob(team: Team, frequency: str) -> str:
     return "\n".join(lines)
 
 
-def generate_query_plan(*, cleaned_prompt: str, context_blob: str, subscription: Subscription) -> QueryPlan:
-    team = subscription.team
-    user = subscription.created_by
+def generate_query_plan(
+    *,
+    cleaned_prompt: str,
+    context_blob: str,
+    team: Team,
+    user: User,
+    ai_config: Optional[dict] = None,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+) -> QueryPlan:
     if user is None:
-        raise PromptRejectedError("AI subscription must have a creator to run.")
+        raise PromptRejectedError("AI report must have a user to run.")
 
-    model_name = resolve_ai_model(subscription.ai_config, "planner_model", DEFAULT_PLANNER_MODEL)
+    model_name = resolve_ai_model(ai_config, "planner_model", DEFAULT_PLANNER_MODEL)
+    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
+    if trace_correlation_id is not None:
+        posthog_properties["subscription_id"] = trace_correlation_id
     llm = MaxChatOpenAI(
         model=model_name,
         temperature=0,
@@ -132,11 +144,7 @@ def generate_query_plan(*, cleaned_prompt: str, context_blob: str, subscription:
         # LLM spend. Flip to True when the feature flag rolls to GA and AI usage is
         # priced into the billing model.
         billable=False,
-        posthog_properties={
-            "feature": "ai_subscription",
-            "stage": "plan",
-            "subscription_id": subscription.id,
-        },
+        posthog_properties=posthog_properties,
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
     # Single-pass substitution: chained .replace() is order-dependent — if the first
@@ -155,8 +163,23 @@ def generate_query_plan(*, cleaned_prompt: str, context_blob: str, subscription:
     return result
 
 
-def build_enriched_prompt(subscription: Subscription) -> EnrichedPromptSpec:
-    cleaned = sanitize_prompt(subscription.prompt)
-    context_blob = build_context_blob(subscription.team, subscription.frequency)
-    plan = generate_query_plan(cleaned_prompt=cleaned, context_blob=context_blob, subscription=subscription)
+def build_enriched_prompt(
+    *,
+    team: Team,
+    user: User,
+    prompt: Optional[str],
+    window_days: int,
+    ai_config: Optional[dict] = None,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+) -> EnrichedPromptSpec:
+    cleaned = sanitize_prompt(prompt)
+    context_blob = build_context_blob(team, window_days)
+    plan = generate_query_plan(
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        team=team,
+        user=user,
+        ai_config=ai_config,
+        trace_correlation_id=trace_correlation_id,
+    )
     return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)

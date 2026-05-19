@@ -83,9 +83,9 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
             title="Test AI report",
         )
 
-    @patch("ee.tasks.subscriptions.ai_subscription.delivery.MaxChatOpenAI")
-    @patch("ee.tasks.subscriptions.ai_subscription.delivery.AssistantQueryExecutor")
-    @patch("ee.tasks.subscriptions.ai_subscription.delivery.build_enriched_prompt")
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
     def test_orchestrates_plan_query_synthesis(self, mock_build, mock_executor_cls, mock_llm_cls):
         sub = self._make_ai_sub()
         mock_build.return_value = EnrichedPromptSpec(
@@ -111,9 +111,9 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
         executor.arun_and_format_query.assert_awaited_once()
         llm.invoke.assert_called_once()
 
-    @patch("ee.tasks.subscriptions.ai_subscription.delivery.MaxChatOpenAI")
-    @patch("ee.tasks.subscriptions.ai_subscription.delivery.AssistantQueryExecutor")
-    @patch("ee.tasks.subscriptions.ai_subscription.delivery.build_enriched_prompt")
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
     def test_continues_when_a_step_query_fails(self, mock_build, mock_executor_cls, mock_llm_cls):
         sub = self._make_ai_sub()
         mock_build.return_value = EnrichedPromptSpec(
