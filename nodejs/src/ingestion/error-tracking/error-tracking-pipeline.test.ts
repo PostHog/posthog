@@ -17,7 +17,7 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { TopHog } from '../tophog'
-import { CymbalClient } from './cymbal/client'
+import { CymbalClient, FetchFunction } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import {
@@ -1081,6 +1081,134 @@ describe('ErrorTrackingPipeline', () => {
             const user2Metric = perDistinctIdMetrics.find((m) => m.key.distinct_id === 'user-2')
             expect(user1Metric.value).toBe(2)
             expect(user2Metric.value).toBe(1)
+        })
+    })
+
+    /**
+     * Integration tests that exercise the real `CymbalClient` + `withBatchRetry`
+     * composition through the pipeline. Other tests in this file mock
+     * `processExceptions` with canned per-event verdicts; these construct a
+     * real client against a mocked `fetch` so we observe how the client's
+     * chunking/fan-out actually flows into the wrapper's retry/escalation
+     * behavior, and how the configured retry policy routes the final result.
+     */
+    describe('cymbal client + wrapper integration', () => {
+        const cymbalBaseUrl = 'http://cymbal.example.test:8080'
+
+        const successJson = (req: { uuid: string; team_id: number }) => ({
+            uuid: req.uuid,
+            event: '$exception',
+            team_id: req.team_id,
+            timestamp: '2024-01-01T00:00:00Z',
+            properties: {
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+                $exception_fingerprint: `fp-${req.uuid}`,
+                $exception_issue_id: `issue-${req.uuid}`,
+            },
+        })
+
+        const timeoutError = () => Object.assign(new Error('request timed out'), { name: 'TimeoutError' })
+
+        /** Replace the pipeline's mock CymbalClient with a real one bound to the given fetch mock. */
+        const useRealCymbalClient = (mockFetch: jest.Mock) => {
+            pipelineConfig.cymbalClient = new CymbalClient({
+                baseUrl: cymbalBaseUrl,
+                timeoutMs: 5000,
+                maxBodyBytes: 1_800_000,
+                fetch: mockFetch as FetchFunction,
+            })
+        }
+
+        beforeEach(() => {
+            // Default: everyone in the batch has a known person, so the pipeline
+            // doesn't bail before reaching Cymbal.
+            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([])
+        })
+
+        it('fan-out identifies the offending event and the wrapper retries only that one', async () => {
+            // Strategy: 5 events. Attempt 1's chunk call times out → client fans
+            // out per-event → 4 succeed and 1 (the "poison" uuid) times out
+            // again. Wrapper sees [✓ ✓ ✗ ✓ ✓] and retries only the poison event
+            // on attempt 2, where it now succeeds (transient).
+            const poisonUuid = new UUIDT().toString()
+            const otherUuids = Array.from({ length: 4 }, () => new UUIDT().toString())
+            const allUuids = [otherUuids[0], otherUuids[1], poisonUuid, otherUuids[2], otherUuids[3]]
+            const messages = allUuids.map((eventUuid, i) => createKafkaMessage({ eventUuid, distinctId: `user-${i}` }))
+
+            let attempt1ChunkSeen = false
+            let poisonAttempts = 0
+            const mockFetch = jest.fn((_url: string, opts: { body: string }) => {
+                const requests = parseJSON(opts.body) as { uuid: string; team_id: number }[]
+                // First multi-event chunk → timeout, triggers fan-out
+                if (requests.length > 1 && !attempt1ChunkSeen) {
+                    attempt1ChunkSeen = true
+                    return Promise.reject(timeoutError())
+                }
+                // Single-event probe for the poison event: first time fail, second time succeed
+                if (requests.length === 1 && requests[0].uuid === poisonUuid) {
+                    poisonAttempts += 1
+                    if (poisonAttempts === 1) {
+                        return Promise.reject(timeoutError())
+                    }
+                }
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve(requests.map(successJson)),
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                })
+            })
+            useRealCymbalClient(mockFetch)
+            pipelineConfig.cymbalRetryOptions = { maxAttempts: 3, retrySleepMs: 0, maxRetrySleepMs: 0 }
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, messages)
+
+            // Call shape proves targeted retry: 1 chunk call + 5 fan-out probes
+            // + 1 single-event retry call for the poison event = 7 total.
+            expect(mockFetch).toHaveBeenCalledTimes(7)
+
+            // The retry call carried just the poison event, not the whole chunk.
+            const retryCall = mockFetch.mock.calls[6]
+            const retryBody = parseJSON((retryCall[1] as { body: string }).body) as { uuid: string }[]
+            expect(retryBody).toHaveLength(1)
+            expect(retryBody[0].uuid).toBe(poisonUuid)
+
+            // All five events ultimately succeed and land in the output topic.
+            expect(getProducedEvents()).toHaveLength(5)
+            expect(getOverflowMessages()).toHaveLength(0)
+            expect(getDLQMessages()).toHaveLength(0)
+        })
+
+        it('overflow lane terminates at DLQ (overflowEnabled: false)', async () => {
+            // Mirrors what the consumer derives for lane === 'overflow':
+            // exhausted-retriable events land in DLQ, not overflow.
+            const messages = [createKafkaMessage({ eventUuid: new UUIDT().toString() })]
+
+            const mockFetch = jest.fn(() =>
+                Promise.resolve({
+                    status: 500,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                })
+            )
+            useRealCymbalClient(mockFetch)
+            pipelineConfig.cymbalRetryOptions = {
+                maxAttempts: 1,
+                retrySleepMs: 0,
+                maxRetrySleepMs: 0,
+                overflowEnabled: false,
+            }
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, messages)
+
+            expect(getDLQMessages()).toHaveLength(1)
+            expect(getOverflowMessages()).toHaveLength(0)
+            expect(getProducedEvents()).toHaveLength(0)
         })
     })
 })

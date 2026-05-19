@@ -217,6 +217,11 @@ export class ErrorTrackingServer implements NodeServer {
                     fallbackRedisUrl: this.config.REDIS_URL,
                     rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                     rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    cymbalRetryOptions: {
+                        maxAttempts: this.config.ERROR_TRACKING_CYMBAL_RETRY_MAX_ATTEMPTS,
+                        retrySleepMs: this.config.ERROR_TRACKING_CYMBAL_RETRY_SLEEP_MS,
+                        maxRetrySleepMs: this.config.ERROR_TRACKING_CYMBAL_RETRY_MAX_SLEEP_MS,
+                    },
                 },
                 {
                     outputs,

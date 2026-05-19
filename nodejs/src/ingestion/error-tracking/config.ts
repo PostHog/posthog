@@ -45,6 +45,13 @@ export type ErrorTrackingConsumerConfig = {
      *  split large batches before they hit Cymbal's body limit. */
     ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: number
 
+    /** Wrapper retry budget per event. Tune higher in the slow lane. */
+    ERROR_TRACKING_CYMBAL_RETRY_MAX_ATTEMPTS: number
+    /** Base sleep between retry attempts in ms. Doubles each attempt. */
+    ERROR_TRACKING_CYMBAL_RETRY_SLEEP_MS: number
+    /** Maximum sleep between retry attempts in ms. */
+    ERROR_TRACKING_CYMBAL_RETRY_MAX_SLEEP_MS: number
+
     /** Master kill-switch for the keyed rate limiter. When false, no Redis pool
      *  is created and the pipeline step is a no-op. */
     ERROR_TRACKING_RATE_LIMITER_ENABLED: boolean
@@ -80,6 +87,9 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
+        ERROR_TRACKING_CYMBAL_RETRY_MAX_ATTEMPTS: 3,
+        ERROR_TRACKING_CYMBAL_RETRY_SLEEP_MS: 100,
+        ERROR_TRACKING_CYMBAL_RETRY_MAX_SLEEP_MS: 10_000,
         ERROR_TRACKING_RATE_LIMITER_ENABLED: false,
         ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: true,
         ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: '',

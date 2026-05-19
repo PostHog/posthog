@@ -21,6 +21,7 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { DlqOutput, OverflowOutput } from '../common/outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
+import { BatchRetryOptions } from '../pipelines/batch-retry'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -71,6 +72,13 @@ export interface ErrorTrackingConsumerOptions {
     /** Pool sizing for the dedicated rate limiter Redis pool. */
     rateLimiterRedisPoolMinSize?: number
     rateLimiterRedisPoolMaxSize?: number
+    /**
+     * Retry policy + lane-aware escalation for the Cymbal step. Typically
+     * tuned per lane via chart env vars: main lane = short/fast retry that
+     * escalates to overflow; overflow lane = longer/patient retry that
+     * terminates in DLQ.
+     */
+    cymbalRetryOptions?: BatchRetryOptions
 }
 
 /**
@@ -271,6 +279,12 @@ export class ErrorTrackingConsumer {
             preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
             errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
+            cymbalRetryOptions: {
+                ...this.config.cymbalRetryOptions,
+                // Main lane escalates to overflow (slow lane retries patiently);
+                // overflow lane terminates in DLQ (no further escalation target).
+                overflowEnabled: this.config.lane !== 'overflow',
+            },
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)

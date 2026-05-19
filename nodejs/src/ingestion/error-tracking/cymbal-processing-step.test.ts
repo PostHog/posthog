@@ -66,7 +66,6 @@ describe('createCymbalProcessingStep', () => {
     beforeEach(() => {
         mockCymbalClient = {
             processExceptions: jest.fn(),
-            healthCheck: jest.fn(),
         } as unknown as jest.Mocked<CymbalClient>
         step = createCymbalProcessingStep(mockCymbalClient)
     })

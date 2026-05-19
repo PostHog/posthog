@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { logger } from '~/utils/logger'
 
@@ -29,34 +29,45 @@ export interface BatchRetryOptions {
     retrySleepMs?: number
     /** Maximum sleep between retries in ms. Defaults to 10000. */
     maxRetrySleepMs?: number
+    /**
+     * Where exhausted-but-retriable events route. When true (main lane),
+     * they redirect to the overflow topic so the slow lane can spend more
+     * time on them. When false (overflow lane), they route to DLQ — by the
+     * time an event has failed N times across both lanes' retry budgets,
+     * "isolated unsymbolicatable event" is a defensible terminal verdict.
+     * Defaults to true.
+     */
+    overflowEnabled?: boolean
 }
 
-const overflowCounter = new Counter({
-    name: 'ingestion_batch_retry_overflow_total',
-    help: 'Events redirected to overflow after exhausting retries',
-    labelNames: ['step'],
+const terminalCounter = new Counter({
+    name: 'ingestion_batch_retry_terminal_total',
+    help: 'Events that ended in a terminal routing outcome',
+    labelNames: ['step', 'outcome'],
 })
 
-const dlqCounter = new Counter({
-    name: 'ingestion_batch_retry_dlq_total',
-    help: 'Events sent to DLQ due to non-retriable failures',
+const attemptsHistogram = new Histogram({
+    name: 'ingestion_batch_retry_attempts',
+    help: 'Attempt number at which each event resolved (success or terminal)',
     labelNames: ['step'],
+    buckets: [1, 2, 3, 4, 5, 10],
 })
 
 /**
- * Wraps a batch step with per-event retry, overflow redirection,
- * and DLQ routing.
+ * Wraps a batch step with per-event retry and lane-aware terminal routing.
  *
  * Behavior:
  * 1. Calls the step with all inputs
  * 2. Retries only the failed+retriable inputs up to maxAttempts
- * 3. After exhausting retries, classifies remaining failures:
+ * 3. After retries exhaust, classifies remaining failures:
  *    - Non-retriable → DLQ (event is broken, retrying won't help)
- *    - Retriable → overflow (service may be degraded for these events)
+ *    - Retriable → overflow when {@link BatchRetryOptions.overflowEnabled}
+ *      is true (main lane), otherwise DLQ (overflow lane terminal).
  *
- * Designed to work with client-level resilience patterns: when a dependency
- * is down, the client can fast-fail or block, and the retry wrapper's
- * subsequent attempts will reflect the client's behavior.
+ * Service-wide degradation detection is intentionally out of scope here —
+ * a proper circuit breaker (cross-batch state, half-open recovery) will
+ * land separately. This wrapper stays naive about whether the dependency
+ * is up.
  */
 export function withBatchRetry<TIn, TOut, R extends string = never>(
     step: BatchRetryStep<TIn, TOut, R>,
@@ -65,6 +76,7 @@ export function withBatchRetry<TIn, TOut, R extends string = never>(
     const maxAttempts = options.maxAttempts ?? 3
     const baseSleepMs = options.retrySleepMs ?? 100
     const maxSleepMs = options.maxRetrySleepMs ?? 10_000
+    const overflowEnabled = options.overflowEnabled ?? true
     const stepName = step.name || 'anonymousBatchRetryStep'
 
     const retryStep: BatchProcessingStep<TIn, TOut, OverflowOutput | DlqOutput | R> = async (
@@ -101,10 +113,12 @@ export function withBatchRetry<TIn, TOut, R extends string = never>(
 
                 if (result.status === 'success') {
                     results[originalIndex] = result
+                    attemptsHistogram.labels(stepName).observe(attempt + 1)
                 } else if (result.retriable && attempt < maxAttempts - 1) {
                     stillFailingIndices.push(originalIndex)
                 } else {
                     results[originalIndex] = result
+                    attemptsHistogram.labels(stepName).observe(attempt + 1)
                 }
             }
 
@@ -122,10 +136,14 @@ export function withBatchRetry<TIn, TOut, R extends string = never>(
                 return result.result
             }
             if (!result.retriable) {
-                dlqCounter.labels(stepName).inc()
+                terminalCounter.labels(stepName, 'dlq_non_retriable').inc()
                 return dlq(result.reason)
             }
-            overflowCounter.labels(stepName).inc()
+            if (!overflowEnabled) {
+                terminalCounter.labels(stepName, 'dlq_exhausted').inc()
+                return dlq(result.reason)
+            }
+            terminalCounter.labels(stepName, 'overflow').inc()
             return redirect(result.reason, OVERFLOW_OUTPUT)
         })
     }

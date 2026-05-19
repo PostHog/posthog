@@ -252,4 +252,32 @@ describe('withBatchRetry', () => {
             }
         })
     })
+
+    describe('overflowEnabled: false', () => {
+        it('routes exhausted-retriable events to DLQ instead of overflow', async () => {
+            const step = createMockStep()
+            step.mockResolvedValue([succeeded('ok'), failed('still failing')])
+
+            const wrapped = withBatchRetry(step, { maxAttempts: 1, overflowEnabled: false })
+            const results = await wrapped(['a', 'b'])
+
+            expect(results).toHaveLength(2)
+            expect(isOkResult(results[0])).toBe(true)
+            expect(isDlqResult(results[1])).toBe(true)
+            if (isDlqResult(results[1])) {
+                expect(results[1].reason).toBe('still failing')
+            }
+        })
+
+        it('still routes non-retriable failures to DLQ regardless of overflowEnabled', async () => {
+            const step = createMockStep()
+            step.mockResolvedValue([failed('broken', false)])
+
+            const wrapped = withBatchRetry(step, { maxAttempts: 1, overflowEnabled: true })
+            const results = await wrapped(['a'])
+
+            expect(results).toHaveLength(1)
+            expect(isDlqResult(results[0])).toBe(true)
+        })
+    })
 })

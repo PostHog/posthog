@@ -1,6 +1,6 @@
 import { parseJSON } from '~/utils/json-parse'
 
-import { CymbalClient, CymbalEventResult, DnsResolveFunction, FetchFunction } from './client'
+import { CymbalClient, CymbalEventResult, FetchFunction } from './client'
 import { CymbalRequest, CymbalResponse } from './types'
 
 /** Extract the CymbalResponse from a successful result, or fail. */
@@ -50,28 +50,12 @@ describe('CymbalClient', () => {
         ...overrides,
     })
 
-    /** Create a client with a single-IP DNS response (no sticky routing). */
     const createClient = (fetchMock: jest.Mock = mockFetch) => {
         return new CymbalClient({
             baseUrl: 'http://cymbal.example.com:8080',
             timeoutMs: 5000,
             maxBodyBytes: 1_800_000,
             fetch: fetchMock as FetchFunction,
-            dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
-        })
-    }
-
-    /** Create a client whose DNS returns multiple pod IPs (sticky routing active). */
-    const createRoutedClient = (
-        pods: string[] = ['10.0.0.1', '10.0.0.2', '10.0.0.3'],
-        fetchMock: jest.Mock = mockFetch
-    ) => {
-        return new CymbalClient({
-            baseUrl: 'http://cymbal.example.com:8080',
-            timeoutMs: 5000,
-            maxBodyBytes: 1_800_000,
-            fetch: fetchMock as FetchFunction,
-            dnsResolve: jest.fn().mockResolvedValue(pods) as DnsResolveFunction,
         })
     }
 
@@ -109,7 +93,7 @@ describe('CymbalClient', () => {
             expect(results.map((r) => unwrapSuccess(r))).toEqual(responses)
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(mockFetch).toHaveBeenCalledWith(
-                'http://1.2.3.4:8080/process',
+                'http://cymbal.example.com:8080/process',
                 expect.objectContaining({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -274,26 +258,6 @@ describe('CymbalClient', () => {
             // Only 1 call — no retry
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
-
-        it('returns retriable failed on DNS errors', async () => {
-            const client = new CymbalClient({
-                baseUrl: 'http://cymbal.example.com:8080',
-                timeoutMs: 5000,
-                maxBodyBytes: 1_800_000,
-
-                fetch: mockFetch as FetchFunction,
-                dnsResolve: jest.fn().mockRejectedValue(new Error('DNS failed')) as DnsResolveFunction,
-            })
-
-            const results = await client.processExceptions(toItems([createRequest()]))
-            expect(results).toHaveLength(1)
-            expect(results[0].status).toBe('failed')
-            if (results[0].status === 'failed') {
-                expect(results[0].retriable).toBe(true)
-                expect(results[0].reason).toBe('DNS failed')
-            }
-            expect(mockFetch).not.toHaveBeenCalled()
-        })
     })
 
     describe('size-based chunking', () => {
@@ -319,7 +283,6 @@ describe('CymbalClient', () => {
                 maxBodyBytes: 150,
 
                 fetch: mockFetch as FetchFunction,
-                dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
 
             const requests = [
@@ -350,7 +313,6 @@ describe('CymbalClient', () => {
                 maxBodyBytes: 500,
 
                 fetch: mockFetch as FetchFunction,
-                dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
 
             const requests = Array.from({ length: 5 }, (_, i) => createRequest({ uuid: `uuid-${i}` }))
@@ -381,7 +343,6 @@ describe('CymbalClient', () => {
                 maxBodyBytes: 50,
 
                 fetch: mockFetch as FetchFunction,
-                dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
 
             mockFetch.mockImplementation((_url: string, options: { body: string }) => {
@@ -407,7 +368,6 @@ describe('CymbalClient', () => {
                 maxBodyBytes: 150,
 
                 fetch: mockFetch as FetchFunction,
-                dnsResolve: jest.fn().mockResolvedValue(['1.2.3.4']) as DnsResolveFunction,
             })
 
             // All calls return 500
@@ -425,257 +385,14 @@ describe('CymbalClient', () => {
         })
     })
 
-    describe('sticky routing', () => {
-        it('routes events from the same team to the same pod', async () => {
-            const client = createRoutedClient()
-
-            const requests = [
-                createRequest({ uuid: 'uuid-1', team_id: 42 }),
-                createRequest({ uuid: 'uuid-2', team_id: 42 }),
-                createRequest({ uuid: 'uuid-3', team_id: 42 }),
-            ]
-
-            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
-                const parsed = parseJSON(options.body)
-                const responses = parsed.map((req: CymbalRequest) =>
-                    createResponse({ uuid: req.uuid, team_id: req.team_id })
-                )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
-            })
-
-            await client.processExceptions(toItems(requests))
-
-            // All events from the same team go to a single pod
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            const url = mockFetch.mock.calls[0][0] as string
-            expect(url).toMatch(/^http:\/\/10\.0\.0\.\d+:8080\/process$/)
-        })
-
-        it('coalesces teams that hash to the same pod into one HTTP call', async () => {
-            const client = createRoutedClient()
-
-            // Teams 1 and 3 hash to the same pod (index 1), team 2 hashes to a different pod (index 0)
-            const requests = [
-                createRequest({ uuid: 'uuid-a', team_id: 1 }),
-                createRequest({ uuid: 'uuid-b', team_id: 2 }),
-                createRequest({ uuid: 'uuid-c', team_id: 3 }),
-            ]
-
-            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
-                const parsed = parseJSON(options.body)
-                const responses = parsed.map((req: CymbalRequest) =>
-                    createResponse({ uuid: req.uuid, team_id: req.team_id })
-                )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
-            })
-
-            const results = await client.processExceptions(toItems(requests))
-
-            // 2 HTTP calls (one per pod), not 3 (one per team)
-            expect(mockFetch).toHaveBeenCalledTimes(2)
-
-            // The call to pod index 1 should contain both team 1 and team 3 events
-            const callBodies = mockFetch.mock.calls.map((call) => parseJSON(call[1].body))
-            const twoEventCall = callBodies.find((body: CymbalRequest[]) => body.length === 2)
-            expect(twoEventCall).toBeDefined()
-            expect(twoEventCall!.map((r: CymbalRequest) => r.team_id)).toEqual([1, 3])
-
-            // Results still maintain 1:1 position correspondence
-            expect(results.map((r) => unwrapSuccess(r)!.uuid)).toEqual(['uuid-a', 'uuid-b', 'uuid-c'])
-        })
-
-        it('routes events from different teams to potentially different pods in parallel', async () => {
-            const client = createRoutedClient()
-
-            const requests = [
-                createRequest({ uuid: 'uuid-1', team_id: 1 }),
-                createRequest({ uuid: 'uuid-2', team_id: 2 }),
-                createRequest({ uuid: 'uuid-3', team_id: 3 }),
-            ]
-
-            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
-                const parsed = parseJSON(options.body)
-                const responses = parsed.map((req: CymbalRequest) =>
-                    createResponse({ uuid: req.uuid, team_id: req.team_id })
-                )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
-            })
-
-            await client.processExceptions(toItems(requests))
-
-            const urls = mockFetch.mock.calls.map((call) => call[0] as string)
-            urls.forEach((url) => expect(url).toMatch(/^http:\/\/10\.0\.0\.\d+:8080\/process$/))
-        })
-
-        it('preserves 1:1 position correspondence with mixed teams', async () => {
-            const client = createRoutedClient()
-
-            // Interleaved team IDs
-            const requests = [
-                createRequest({ uuid: 'uuid-a', team_id: 1 }),
-                createRequest({ uuid: 'uuid-b', team_id: 2 }),
-                createRequest({ uuid: 'uuid-c', team_id: 1 }),
-                createRequest({ uuid: 'uuid-d', team_id: 3 }),
-                createRequest({ uuid: 'uuid-e', team_id: 2 }),
-            ]
-
-            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
-                const parsed = parseJSON(options.body)
-                const responses = parsed.map((req: CymbalRequest) =>
-                    createResponse({ uuid: req.uuid, team_id: req.team_id })
-                )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
-            })
-
-            const results = await client.processExceptions(toItems(requests))
-
-            expect(results.map((r) => unwrapSuccess(r)!.uuid)).toEqual([
-                'uuid-a',
-                'uuid-b',
-                'uuid-c',
-                'uuid-d',
-                'uuid-e',
-            ])
-            expect(results.map((r) => unwrapSuccess(r)!.team_id)).toEqual([1, 2, 1, 3, 2])
-        })
-
-        it('preserves position correspondence when some pod groups overflow', async () => {
-            // Use 2 pods so we get predictable routing
-            const client = createRoutedClient(['10.0.0.1', '10.0.0.2'])
-
-            // 5 events with mixed team_ids — will route to different pods
-            const requests = [
-                createRequest({ uuid: 'uuid-0', team_id: 1 }),
-                createRequest({ uuid: 'uuid-1', team_id: 2 }),
-                createRequest({ uuid: 'uuid-2', team_id: 1 }),
-                createRequest({ uuid: 'uuid-3', team_id: 2 }),
-                createRequest({ uuid: 'uuid-4', team_id: 1 }),
-            ]
-
-            // One pod succeeds, the other returns 500 (will overflow after retries)
-            mockFetch.mockImplementation((url: string, options: { body: string }) => {
-                if (url.includes('10.0.0.1')) {
-                    const parsed = parseJSON(options.body)
-                    return Promise.resolve({
-                        status: 200,
-                        json: () =>
-                            Promise.resolve(parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))),
-                    })
-                }
-                return Promise.resolve({ status: 500, json: () => Promise.resolve({}) })
-            })
-
-            const results = await client.processExceptions(toItems(requests))
-
-            expect(results).toHaveLength(5)
-
-            // All results with the same team_id should have the same status
-            // (since they route to the same pod). Verify position correspondence
-            // by checking that success results carry the correct uuid.
-            const team1Results = [results[0], results[2], results[4]]
-            const team2Results = [results[1], results[3]]
-
-            // One team's events all succeeded, the other's all failed
-            const team1Status = team1Results[0].status
-            const team2Status = team2Results[0].status
-            expect(team1Status).not.toBe(team2Status)
-
-            // Verify every event for each team has a consistent status
-            for (const r of team1Results) {
-                expect(r.status).toBe(team1Status)
-            }
-            for (const r of team2Results) {
-                expect(r.status).toBe(team2Status)
-            }
-
-            // Verify success results have the correct uuid at each position
-            // and failed results have a reason
-            for (let i = 0; i < results.length; i++) {
-                if (results[i].status === 'success') {
-                    expect((results[i] as any).response.uuid).toBe(requests[i].uuid)
-                } else {
-                    expect((results[i] as any).reason).toBeDefined()
-                }
-            }
-        })
-
-        it('routes consistently for the same team_id', async () => {
-            const client = createRoutedClient()
-
-            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
-                const parsed = parseJSON(options.body)
-                return Promise.resolve({
-                    status: 200,
-                    json: () => Promise.resolve(parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))),
-                })
-            })
-
-            for (let i = 0; i < 5; i++) {
-                await client.processExceptions(toItems([createRequest({ uuid: `uuid-${i}`, team_id: 99 })]))
-            }
-
-            const urls = mockFetch.mock.calls.map((call) => call[0] as string)
-            expect(new Set(urls).size).toBe(1)
-        })
-
-        it('skips grouping when DNS returns a single IP', async () => {
-            const client = createRoutedClient(['10.0.0.1'])
-
-            const requests = [
-                createRequest({ uuid: 'uuid-1', team_id: 1 }),
-                createRequest({ uuid: 'uuid-2', team_id: 2 }),
-            ]
-
-            mockFetch.mockImplementation((_url: string, options: { body: string }) => {
-                const parsed = parseJSON(options.body)
-                const responses = parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
-            })
-
-            await client.processExceptions(toItems(requests))
-
-            // Single endpoint — no grouping, single HTTP call with both events
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockFetch).toHaveBeenCalledWith('http://10.0.0.1:8080/process', expect.any(Object))
-        })
-    })
-
-    describe('healthCheck', () => {
-        it('returns true when health check succeeds', async () => {
-            const client = createClient()
-            mockFetch.mockResolvedValueOnce({ status: 200 })
-
-            const result = await client.healthCheck()
-
-            expect(result).toBe(true)
-            expect(mockFetch).toHaveBeenCalledWith(
-                'http://cymbal.example.com:8080/_liveness',
-                // Health check uses the hostname directly
-                expect.objectContaining({ method: 'GET' })
-            )
-        })
-
-        it('returns false when health check fails', async () => {
-            const client = createClient()
-            mockFetch.mockResolvedValueOnce({ status: 503 })
-            expect(await client.healthCheck()).toBe(false)
-        })
-
-        it('returns false on network error', async () => {
-            const client = createClient()
-            mockFetch.mockRejectedValueOnce(new Error('Network error'))
-            expect(await client.healthCheck()).toBe(false)
-        })
-    })
-
-    describe('poison pill isolation', () => {
+    describe('fan-out and per-event isolation', () => {
         const createTimeoutError = () => {
             const error = new Error('The operation was aborted due to timeout')
             error.name = 'TimeoutError'
             return error
         }
 
-        it('fans out to individual events on timeout and drops the poison pill', async () => {
+        it('fans out on timeout and marks the offending event retriable for the wrapper', async () => {
             const client = createClient()
             const requests = [
                 createRequest({ uuid: 'good-1' }),
@@ -699,39 +416,31 @@ describe('CymbalClient', () => {
             const results = await client.processExceptions(toItems(requests))
 
             expect(results).toHaveLength(4)
-            expect(results[0]).toMatchObject({ uuid: 'good-1' })
-            expect(results[1]).toMatchObject({ uuid: 'good-2' })
-            expect(results[2]).toBeNull() // poison pill dropped
-            expect(results[3]).toMatchObject({ uuid: 'good-3' })
-        })
-
-        it('throws 5xx errors during fan-out to let retry wrapper handle them', async () => {
-            const client = createClient()
-            const requests = [createRequest({ uuid: 'a' }), createRequest({ uuid: 'b' })]
-
-            let callCount = 0
-            mockFetch.mockImplementation(() => {
-                callCount++
-                if (callCount === 1) {
-                    // First call: batch times out, triggers fan-out
-                    return Promise.reject(createTimeoutError())
-                }
-                // During fan-out: first individual event hits a 5xx
-                return Promise.resolve({ status: 500, json: () => Promise.resolve({}) })
+            expect(unwrapSuccess(results[0])).toMatchObject({ uuid: 'good-1' })
+            expect(unwrapSuccess(results[1])).toMatchObject({ uuid: 'good-2' })
+            // Offending event → retriable failure; wrapper routes per its
+            // overflowEnabled flag (overflow on main lane, DLQ on overflow lane).
+            expect(results[2]).toMatchObject({
+                status: 'failed',
+                retriable: true,
+                reason: expect.stringContaining('timeout'),
             })
-
-            await expect(client.processExceptions(toItems(requests))).rejects.toThrow('Cymbal returned 500')
+            expect(unwrapSuccess(results[3])).toMatchObject({ uuid: 'good-3' })
         })
 
-        it('preserves 1:1 ordering with poison pill at various positions', async () => {
+        it('fans out on 500 to isolate single-event-triggered server errors', async () => {
             const client = createClient()
-            const inputs = ['a', 'b', 'POISON', 'c', 'd']
-            const requests = inputs.map((id) => createRequest({ uuid: id }))
+            const requests = [
+                createRequest({ uuid: 'good-1' }),
+                createRequest({ uuid: 'bad' }),
+                createRequest({ uuid: 'good-2' }),
+            ]
 
             mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
                 const parsed = parseJSON(opts.body) as CymbalRequest[]
-                if (parsed.some((r: CymbalRequest) => r.uuid === 'POISON')) {
-                    return Promise.reject(createTimeoutError())
+                const hasBad = parsed.some((r: CymbalRequest) => r.uuid === 'bad')
+                if (hasBad) {
+                    return Promise.resolve({ status: 500, json: () => Promise.resolve({}) })
                 }
                 return Promise.resolve({
                     status: 200,
@@ -741,22 +450,123 @@ describe('CymbalClient', () => {
 
             const results = await client.processExceptions(toItems(requests))
 
-            expect(results).toHaveLength(5)
-            for (let i = 0; i < inputs.length; i++) {
-                if (inputs[i] === 'POISON') {
-                    expect(results[i]).toBeNull()
-                } else {
-                    expect(results[i]).toMatchObject({ uuid: inputs[i] })
-                }
-            }
+            expect(results).toHaveLength(3)
+            expect(unwrapSuccess(results[0])).toMatchObject({ uuid: 'good-1' })
+            expect(results[1]).toMatchObject({
+                status: 'failed',
+                retriable: true,
+                reason: expect.stringContaining('500'),
+            })
+            expect(unwrapSuccess(results[2])).toMatchObject({ uuid: 'good-2' })
         })
 
-        it('does not fan out single-event batches', async () => {
+        it('does not fan out on 429 — backpressure propagates as whole-chunk retriable', async () => {
+            const client = createClient()
+            const requests = [createRequest({ uuid: 'a' }), createRequest({ uuid: 'b' })]
+
+            mockFetch.mockResolvedValue({ status: 429, json: () => Promise.resolve({}) })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            // 429 = explicit backpressure. Fanning out would amplify load
+            // against an already-overloaded service. The chunk fails as a
+            // whole and the wrapper retries with its backoff policy.
+            expect(results).toHaveLength(2)
+            for (const r of results) {
+                expect(r).toMatchObject({
+                    status: 'failed',
+                    retriable: true,
+                    reason: expect.stringContaining('429'),
+                })
+            }
+            // Exactly one call — no per-event fan-out probing.
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps successful peers from a fan-out attempt — never throws away progress', async () => {
+            const client = createClient()
+            const requests = [
+                createRequest({ uuid: 'good-1' }),
+                createRequest({ uuid: 'good-2' }),
+                createRequest({ uuid: 'poison' }),
+            ]
+
+            let callCount = 0
+            mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
+                callCount++
+                const parsed = parseJSON(opts.body) as CymbalRequest[]
+                if (callCount === 1) {
+                    // Initial chunk call: times out (poison present), triggers fan-out.
+                    return Promise.reject(createTimeoutError())
+                }
+                // Per-event fan-out calls: poison times out individually; others succeed.
+                if (parsed[0].uuid === 'poison') {
+                    return Promise.reject(createTimeoutError())
+                }
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve([createResponse({ uuid: parsed[0].uuid })]),
+                })
+            })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            expect(results).toHaveLength(3)
+            expect(unwrapSuccess(results[0])).toMatchObject({ uuid: 'good-1' })
+            expect(unwrapSuccess(results[1])).toMatchObject({ uuid: 'good-2' })
+            expect(results[2]).toMatchObject({ status: 'failed', retriable: true })
+        })
+
+        it('preserves successful chunks when a later chunk fails without fan-out', async () => {
+            // Two chunks (size budget forces one event per chunk). First
+            // succeeds, second returns 429 (no fan-out for backpressure).
+            // The first chunk's success must be preserved; the failure
+            // verdict must apply only to the failing chunk's event so the
+            // wrapper can retry it targetedly rather than re-running the
+            // already-successful event.
+            const smallClient = new CymbalClient({
+                baseUrl: 'http://cymbal.example.com:8080',
+                timeoutMs: 5000,
+                maxBodyBytes: 150,
+                fetch: mockFetch as FetchFunction,
+            })
+
+            let callCount = 0
+            mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
+                callCount++
+                const parsed = parseJSON(opts.body) as CymbalRequest[]
+                if (callCount === 1) {
+                    return Promise.resolve({
+                        status: 200,
+                        json: () => Promise.resolve(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                    })
+                }
+                return Promise.resolve({ status: 429, json: () => Promise.resolve({}) })
+            })
+
+            const results = await smallClient.processExceptions(
+                toItems([createRequest({ uuid: 'good' }), createRequest({ uuid: 'bad' })], 100)
+            )
+
+            expect(results).toHaveLength(2)
+            expect(unwrapSuccess(results[0])).toMatchObject({ uuid: 'good' })
+            expect(results[1]).toMatchObject({
+                status: 'failed',
+                retriable: true,
+                reason: expect.stringContaining('429'),
+            })
+        })
+
+        it('does not fan out single-event chunks — surfaces as retriable failure', async () => {
             const client = createClient()
             mockFetch.mockRejectedValue(createTimeoutError())
 
-            // Single event timeout throws normally — no fan-out possible
-            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toThrow()
+            const [result] = await client.processExceptions(toItems([createRequest()]))
+            expect(result).toMatchObject({
+                status: 'failed',
+                retriable: true,
+                reason: expect.any(String),
+            })
         })
     })
 })

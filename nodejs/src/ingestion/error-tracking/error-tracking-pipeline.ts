@@ -226,16 +226,13 @@ export function createErrorTrackingPipeline(
                     }),
                     (b) =>
                         b
-                            // FOLLOW-UP: the master-side pre-Cymbal keyed rate-limiter chain
-                            // (applyKeyedRateLimiters + preCymbalRateLimiters) narrows the
-                            // chain's value type, dropping fields required downstream of the
-                            // new per-event BatchRetryStep Cymbal signature — they need
-                            // re-integrating against the new step type before the rate-limiter
-                            // chain can come back. errorTrackingSettingsManager is similarly
-                            // unwired here pending that fix.
-                            .teamAware((b) =>
-                                b
-                                    .gather()
+                            .teamAware((b) => {
+                                // Pre-Cymbal rate limit chain runs FIRST so that events we'd drop
+                                // never consume overflow-redirect cycles or symbolication budget.
+                                // Each spec becomes its own batch step, applied in array order.
+                                // Empty / undefined → no-op.
+                                const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
+                                const preCymbal = afterRateLimit
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
@@ -245,50 +242,53 @@ export function createErrorTrackingPipeline(
                                     )
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-                                    // Process through Cymbal as a batch (before enrichment — Cymbal
-                                    // only needs raw exception data, not person/geoip/group data).
-                                    // The wrapper retries retriable per-event failures and routes
-                                    // remaining failures via the result handler (DLQ for
-                                    // non-retriable, overflow for exhausted retries). Default keeps
-                                    // worst-case batch time (3 × 45s timeout = 135s) within the
-                                    // 180s liveness interval; services can override (e.g. to add a
-                                    // circuit breaker) via cymbalRetryOptions.
-                                    .pipeBatchWithRetry(
-                                        createCymbalProcessingStep(cymbalClient),
-                                        config.cymbalRetryOptions
-                                    )
-                                    // Enrich, prepare, create, and emit events
-                                    // Batch fetch person (read-only, no updates)
-                                    .pipeBatch(createFetchPersonBatchStep(personRepository))
-                                    .sequentially((b) =>
-                                        b
-                                            // Run Hog transformations (including GeoIP if team has it enabled)
-                                            .pipe(createHogTransformEventStep(hogTransformer))
-                                            // Prepare event for emission
-                                            .pipe(createErrorTrackingPrepareEventStep())
-                                            // Map group types to indexes (read-only, no new group types created)
-                                            .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
-                                            .pipe(createCreateEventStep(EVENTS_OUTPUT))
-                                            .pipe(
-                                                topHogWrapper(
-                                                    createEmitEventStep({
-                                                        outputs,
-                                                        groupId,
-                                                    }),
-                                                    [
-                                                        count('emitted_events', (input) => ({
-                                                            team_id: String(input.teamId),
-                                                        })),
-                                                        count('emitted_events_per_distinct_id', (input) => ({
-                                                            team_id: String(input.teamId),
-                                                            distinct_id:
-                                                                input.eventsToEmit[0]?.event.distinct_id ?? '',
-                                                        })),
-                                                    ]
+                                return (
+                                    preCymbal
+                                        // Process through Cymbal as a batch (before enrichment — Cymbal
+                                        // only needs raw exception data, not person/geoip/group data).
+                                        // The wrapper retries retriable per-event failures and routes
+                                        // remaining failures via the result handler (DLQ for
+                                        // non-retriable, overflow for exhausted retries). Default keeps
+                                        // worst-case batch time (3 × 45s timeout = 135s) within the
+                                        // 180s liveness interval; services can override via
+                                        // cymbalRetryOptions.
+                                        .pipeBatchWithRetry(
+                                            createCymbalProcessingStep(cymbalClient),
+                                            config.cymbalRetryOptions
+                                        )
+                                        // Enrich, prepare, create, and emit events
+                                        // Batch fetch person (read-only, no updates)
+                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        .sequentially((b) =>
+                                            b
+                                                // Run Hog transformations (including GeoIP if team has it enabled)
+                                                .pipe(createHogTransformEventStep(hogTransformer))
+                                                // Prepare event for emission
+                                                .pipe(createErrorTrackingPrepareEventStep())
+                                                // Map group types to indexes (read-only, no new group types created)
+                                                .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
+                                                .pipe(createCreateEventStep(EVENTS_OUTPUT))
+                                                .pipe(
+                                                    topHogWrapper(
+                                                        createEmitEventStep({
+                                                            outputs,
+                                                            groupId,
+                                                        }),
+                                                        [
+                                                            count('emitted_events', (input) => ({
+                                                                team_id: String(input.teamId),
+                                                            })),
+                                                            count('emitted_events_per_distinct_id', (input) => ({
+                                                                team_id: String(input.teamId),
+                                                                distinct_id:
+                                                                    input.eventsToEmit[0]?.event.distinct_id ?? '',
+                                                            })),
+                                                        ]
+                                                    )
                                                 )
-                                            )
-                                    )
-                            )
+                                        )
+                                )
+                            })
                             .handleIngestionWarnings(outputs)
                 )
         )
