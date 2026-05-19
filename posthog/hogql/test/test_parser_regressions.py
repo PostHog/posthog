@@ -174,6 +174,22 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_trailing_limit_offset_compound_body(self):
+        # The `LIMIT`/`OFFSET` that may follow a `LIMIT BY` clause takes
+        # a full `columnExpr` body. The Rust parser parsed it bounded
+        # at BP_MULT+1, stranding any lower-precedence tail
+        # (`limit (x) ?? y`, `offset a ?? b`).
+        cases = (
+            "select x limit a by c limit d ?? e",
+            "select x limit a by c offset d ?? e",
+            "select x limit a by c limit 1 + 1",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

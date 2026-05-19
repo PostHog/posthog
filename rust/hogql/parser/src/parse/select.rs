@@ -843,8 +843,14 @@ impl<'a> Parser<'a> {
         obj: &mut serde_json::Map<String, Value>,
     ) -> Result<(), ParseError> {
         if self.eat_kw(Kw::Limit)? {
-            let limit_raw = self.parse_expr_bp(BP_MULT + 1)?;
-            let (limit, percent) = self.limit_resolve_percent(limit_raw)?;
+            // Full `columnExpr` body — `parse_limit_body` covers the
+            // compound case (`limit (x) ?? y`) and the `%`/PERCENT
+            // resolution; a bare `BP_MULT+1` parse stranded any
+            // lower-precedence tail.
+            self.limit_body_depth += 1;
+            let body = self.parse_limit_body();
+            self.limit_body_depth -= 1;
+            let (limit, percent) = body?;
             obj.insert("limit".into(), limit);
             if percent {
                 obj.insert("limit_percent".into(), Value::Bool(true));
@@ -866,7 +872,7 @@ impl<'a> Parser<'a> {
             // OFFSET branch.
             if self.eat(TokenKind::Comma)? {
                 // Compact form.
-                obj.insert("offset".into(), self.parse_expr_bp(BP_MULT + 1)?);
+                obj.insert("offset".into(), self.parse_expr_bp(0)?);
                 if self.peek_kw2(Kw::With, Kw::Ties) {
                     self.bump()?;
                     self.bump()?;
@@ -880,7 +886,7 @@ impl<'a> Parser<'a> {
                     obj.insert("limit_with_ties".into(), Value::Bool(true));
                 }
                 if self.eat_kw(Kw::Offset)? {
-                    obj.insert("offset".into(), self.parse_expr_bp(BP_MULT + 1)?);
+                    obj.insert("offset".into(), self.parse_expr_bp(0)?);
                     // Sentinel for the SelectSetStmt wrapper's
                     // conditional lift logic — only the verbose form
                     // is liftable.
@@ -890,7 +896,7 @@ impl<'a> Parser<'a> {
         } else if self.eat_kw(Kw::Offset)? {
             // Bare `OFFSET m` (no preceding LIMIT). cpp keeps this on
             // the inner SELECT — don't mark liftable.
-            obj.insert("offset".into(), self.parse_expr_bp(BP_MULT + 1)?);
+            obj.insert("offset".into(), self.parse_expr_bp(0)?);
         }
         Ok(())
     }
