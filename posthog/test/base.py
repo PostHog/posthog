@@ -1616,24 +1616,29 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
     future_to_stmt = {pool.submit(_execute_with_retry, stmt): stmt for stmt in statements}
 
     exceptions: list[BaseException] = []
+    succeeded = False
     try:
-        for future in as_completed(future_to_stmt, timeout=per_call_timeout):
-            try:
-                future.result()
-            except Exception as exc:
-                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
-                    continue
-                exceptions.append(exc)
-    except TimeoutError:
-        pending = [stmt for fut, stmt in future_to_stmt.items() if not fut.done()]
-        preview = "\n---\n".join(s[:500] for s in pending[:5])
-        pool.shutdown(wait=False, cancel_futures=True)
-        raise TimeoutError(
-            f"run_clickhouse_statement_in_parallel: {len(pending)} statement(s) did not complete within "
-            f"{per_call_timeout:.0f}s. First few pending statements:\n{preview}"
-        )
-    else:
-        pool.shutdown(wait=True)
+        try:
+            for future in as_completed(future_to_stmt, timeout=per_call_timeout):
+                try:
+                    future.result()
+                except Exception as exc:
+                    if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                        continue
+                    exceptions.append(exc)
+            succeeded = True
+        except TimeoutError:
+            pending = [stmt for fut, stmt in future_to_stmt.items() if not fut.done()]
+            preview = "\n---\n".join(s[:500] for s in pending[:5])
+            raise TimeoutError(
+                f"run_clickhouse_statement_in_parallel: {len(pending)} statement(s) did not complete within "
+                f"{per_call_timeout:.0f}s. First few pending statements:\n{preview}"
+            )
+    finally:
+        # Always release the pool — wait for in-flight work in the happy path, but on timeout or any
+        # other propagating exception (KeyboardInterrupt, SystemExit, ...) cancel pending futures so
+        # the hanging worker doesn't keep the process alive.
+        pool.shutdown(wait=succeeded, cancel_futures=not succeeded)
 
     if exceptions:
         raise exceptions[0]
