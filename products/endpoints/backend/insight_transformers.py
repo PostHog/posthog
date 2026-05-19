@@ -8,8 +8,9 @@ that users expect (matching what the non-materialized path produces).
 
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Union, cast
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -91,11 +92,17 @@ def _strip_hogql_fields(result: dict) -> None:
 
 
 _TEMPORAL_TYPE_RE = re.compile(r"\b(?:Date|DateTime|DateTime64|Date32)\b")
+_DATETIME_TYPE_RE = re.compile(r"\bDateTime(?:64)?\b")
 
 
 def _is_temporal_type(type_str: str) -> bool:
     """True for any Date/DateTime variant, including Nullable/Array/LowCardinality wrappings."""
     return bool(_TEMPORAL_TYPE_RE.search(type_str))
+
+
+def _is_datetime_type(type_str: str) -> bool:
+    """True only for DateTime/DateTime64 (point-in-time), not Date/Date32 (calendar day)."""
+    return bool(_DATETIME_TYPE_RE.search(type_str))
 
 
 def _extract_type_str(entry: Any) -> str | None:
@@ -107,30 +114,60 @@ def _extract_type_str(entry: Any) -> str | None:
     return None
 
 
-def _coerce_temporal_columns(rows: list, types: list | None) -> None:
-    """Parse ISO strings into ``datetime`` objects for every Date/DateTime column.
+def _to_team_tz(value: Any, team_tz: "ZoneInfo | None") -> Any:
+    """Coerce a temporal value into something downstream ``strftime`` can render.
 
-    HogQL's response pipeline stringifies all Date/DateTime values regardless of name,
-    but the insight runners call .strftime() on them. We use the ``types`` metadata to
-    find temporal columns so this works for any column name (``date``, ``timestamp``,
-    custom aliases), not just ``date``. Rows can be tuples, so we replace the row in
-    the outer list.
+    ISO strings are always parsed to ``datetime`` so ``.strftime()`` calls don't blow up.
+    When ``team_tz`` is given (DateTime columns), naive values are treated as UTC and
+    converted to team_tz; aware values are converted directly. When ``team_tz`` is None
+    (Date columns), the parsed value passes through unchanged. Non-temporal values pass
+    through untouched.
+    """
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value)
+    elif isinstance(value, datetime):
+        parsed = value
+    else:
+        return value
+    if team_tz is None:
+        return parsed
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(team_tz)
+
+
+def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None = None) -> None:
+    """Parse/coerce temporal values for every Date/DateTime column.
+
+    For DateTime columns, ISO strings and tz-aware UTC datetimes are re-anchored to the
+    team timezone so downstream strftime renders the correct local day. For Date columns
+    (no tz conversion needed), string values are parsed to naive ``datetime`` objects so
+    that downstream ``.strftime()`` calls succeed. We use the ``types`` metadata to find
+    temporal columns so this works for any column name (``date``, ``timestamp``, custom
+    aliases). Rows can be tuples, so we replace the row in the outer list.
     """
     if not types:
         return
-    temporal_indices = [i for i, entry in enumerate(types) if (t := _extract_type_str(entry)) and _is_temporal_type(t)]
-    if not temporal_indices:
+    temporal_cols: list[tuple[int, bool]] = []
+    for i, entry in enumerate(types):
+        type_str = _extract_type_str(entry)
+        if not type_str or not _is_temporal_type(type_str):
+            continue
+        temporal_cols.append((i, _is_datetime_type(type_str)))
+    if not temporal_cols:
         return
+    team_tz: ZoneInfo | None = team.timezone_info if team is not None else None
     for i, row in enumerate(rows):
         new_row: list | None = None
-        for col_idx in temporal_indices:
+        for col_idx, is_datetime in temporal_cols:
             if col_idx >= len(row):
                 continue
             value = row[col_idx]
+            convert_tz = team_tz if is_datetime else None
             if isinstance(value, list):
-                coerced: Any = [datetime.fromisoformat(item) if isinstance(item, str) else item for item in value]
-            elif isinstance(value, str):
-                coerced = datetime.fromisoformat(value)
+                coerced: Any = [_to_team_tz(item, convert_tz) for item in value]
+            elif isinstance(value, str | datetime):
+                coerced = _to_team_tz(value, convert_tz)
             else:
                 continue
             if new_row is None:
@@ -151,7 +188,7 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
         _strip_hogql_fields(result)
         return
 
-    _coerce_temporal_columns(rows, result.get("types"))
+    _coerce_temporal_columns(rows, result.get("types"), team)
 
     series_index_col = columns.index("__series_index") if "__series_index" in columns else None
     groups: dict[int, list] = defaultdict(list)
@@ -199,7 +236,7 @@ def _transform_lifecycle(result: dict, original_query: dict, team: Team, now: da
         _strip_hogql_fields(result)
         return
 
-    _coerce_temporal_columns(rows, result.get("types"))
+    _coerce_temporal_columns(rows, result.get("types"), team)
 
     response = HogQLQueryResponse(results=rows, columns=columns)
     result["results"] = runner.format_results(response)

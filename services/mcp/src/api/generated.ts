@@ -1928,11 +1928,23 @@ export namespace Schemas {
     export type TrendsFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | {[key: string]: ResultCustomizationByPosition} | null;
 
     export interface TrendsFilter {
+      /** Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+
+      - `numeric` (default): raw numbers, e.g. `1,234`.
+      - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+      - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+      - `percentage`: values are already in the 0-100 range; appends `%`.
+      - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+      - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+      - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
       aggregationAxisFormat?: AggregationAxisFormat | null;
+      /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
       aggregationAxisPostfix?: string | null;
+      /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
       breakdown_histogram_bin_count?: number | null;
       confidenceLevel?: number | null;
+      /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
       decimalPlaces?: number | null;
       /** detailed results table */
       detailedResultsAggregationType?: DetailedResultsAggregationType | null;
@@ -3570,6 +3582,17 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
     } as const;
+
+    export interface AggregatedSpanRow {
+      avg_duration_nano: number;
+      count: number;
+      error_count: number;
+      name: string;
+      p50_duration_nano: number;
+      p95_duration_nano: number;
+      service_name: string;
+      total_duration_nano: number;
+    }
 
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
@@ -6317,6 +6340,14 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkNotificationIdsRequest {
+      /**
+         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
+         * @maxItems 500
+         */
+      notification_ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -7576,6 +7607,37 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface ComposeTicket {
+      /** Recipient email address. */
+      recipient_email: string;
+      /**
+         * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+         * @maxLength 400
+         */
+      recipient_distinct_id?: string;
+      /**
+         * Email subject line.
+         * @maxLength 500
+         */
+      email_subject?: string;
+      /** ID of the EmailChannel to send from. */
+      email_config_id: string;
+      /**
+         * Message content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
+    export interface ComposeTicketResponse {
+      /** Created ticket UUID. */
+      id: string;
+      /** Human-readable ticket number. */
+      ticket_number: number;
+    }
+
     /**
      * * `won` - won
     * `lost` - lost
@@ -7954,6 +8016,22 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `single` - Single page
+    * `sitemap` - Sitemap
+    * `same_origin` - Same origin crawl
+    * `github_repo` - GitHub repository
+     */
+    export type CrawlModeEnum = typeof CrawlModeEnum[keyof typeof CrawlModeEnum];
+
+
+    export const CrawlModeEnum = {
+      Single: 'single',
+      Sitemap: 'sitemap',
+      SameOrigin: 'same_origin',
+      GithubRepo: 'github_repo',
+    } as const;
+
     export interface CreateGroup {
       /**
          * @minimum -2147483648
@@ -7969,10 +8047,10 @@ export namespace Schemas {
      * * `BAA` - BAA
     * `DPA` - DPA
      */
-    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
 
 
-    export const DocumentTypeEnum = {
+    export const CreateLegalDocumentDocumentTypeEnum = {
       Baa: 'BAA',
       Dpa: 'DPA',
     } as const;
@@ -7987,7 +8065,7 @@ export namespace Schemas {
 
       * `BAA` - BAA
       * `DPA` - DPA */
-      document_type: DocumentTypeEnum;
+      document_type: CreateLegalDocumentDocumentTypeEnum;
       /**
          * The customer legal entity entering the agreement (PandaDoc's Client.Company).
          * @maxLength 255
@@ -8174,6 +8252,16 @@ export namespace Schemas {
     export interface CreateRunResult {
       run_id: string;
       uploads: UploadTarget[];
+    }
+
+    export interface CreateTextSource {
+      /**
+         * Short human label for the source. Shown in the settings list and in agent citations.
+         * @maxLength 255
+         */
+      name: string;
+      /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
+      text: string;
     }
 
     /**
@@ -11808,6 +11896,430 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `dispatch` - Dispatch
+    * `clone` - Clone
+    * `install` - Install
+    * `build` - Build
+    * `publish` - Publish
+     */
+    export type ErrorStepEnum = typeof ErrorStepEnum[keyof typeof ErrorStepEnum];
+
+
+    export const ErrorStepEnum = {
+      Dispatch: 'dispatch',
+      Clone: 'clone',
+      Install: 'install',
+      Build: 'build',
+      Publish: 'publish',
+    } as const;
+
+    export const DeploymentErrorStep = {...ErrorStepEnum,...BlankEnum,} as const
+    /**
+     * * `queued` - Queued
+    * `initializing` - Initializing
+    * `building` - Building
+    * `ready` - Ready
+    * `error` - Error
+    * `cancelled` - Cancelled
+     */
+    export type DeploymentStatusEnum = typeof DeploymentStatusEnum[keyof typeof DeploymentStatusEnum];
+
+
+    export const DeploymentStatusEnum = {
+      Queued: 'queued',
+      Initializing: 'initializing',
+      Building: 'building',
+      Ready: 'ready',
+      Error: 'error',
+      Cancelled: 'cancelled',
+    } as const;
+
+    /**
+     * * `manual` - Manual
+    * `git` - Git
+    * `redeploy` - Redeploy
+    * `rollback` - Rollback
+    * `seed` - Seed
+     */
+    export type TriggerKindEnum = typeof TriggerKindEnum[keyof typeof TriggerKindEnum];
+
+
+    export const TriggerKindEnum = {
+      Manual: 'manual',
+      Git: 'git',
+      Redeploy: 'redeploy',
+      Rollback: 'rollback',
+      Seed: 'seed',
+    } as const;
+
+    export interface Deployment {
+      /** Unique identifier for the deployment. */
+      readonly id: string;
+      /** The deployment project this deployment belongs to. */
+      readonly project: string;
+      /** Current pipeline stage. Valid values: queued, initializing, building, ready, error, cancelled.
+
+      * `queued` - Queued
+      * `initializing` - Initializing
+      * `building` - Building
+      * `ready` - Ready
+      * `error` - Error
+      * `cancelled` - Cancelled */
+      status: DeploymentStatusEnum;
+      /**
+         * When the pipeline started building. Null while still queued.
+         * @nullable
+         */
+      started_at?: string | null;
+      /**
+         * When the pipeline finished (regardless of outcome). Null while still running.
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** When the deployment row was created (~ queued_at). */
+      readonly created_at: string;
+      /**
+         * Git commit SHA the deployment was built from.
+         * @maxLength 64
+         */
+      commit_sha?: string;
+      /** Commit message associated with the commit SHA. */
+      commit_message?: string;
+      /**
+         * Display name of the commit author.
+         * @maxLength 255
+         */
+      commit_author_name?: string;
+      /**
+         * Email address of the commit author. Used by the Author filter on the list page.
+         * @maxLength 255
+         */
+      commit_author_email?: string;
+      /**
+         * HTTPS URL of the source repository. Captured at deploy time.
+         * @maxLength 1024
+         */
+      repo_url?: string;
+      /**
+         * Source branch the deployment was built from.
+         * @maxLength 255
+         */
+      branch?: string;
+      /**
+         * Public URL serving the built site once ready.
+         * @maxLength 1024
+         */
+      deployment_url?: string;
+      /**
+         * URL of the captured site screenshot, used in the list/card view.
+         * @maxLength 1024
+         */
+      preview_image_url?: string;
+      /**
+         * The deployment this one was triggered from (for rollbacks and redeploys).
+         * @nullable
+         */
+      readonly triggered_by_deployment: string | null;
+      /**
+         * Posthog user id of the user who clicked Deploy/Redeploy/Rollback. Null for git-triggered or seed rows.
+         * @nullable
+         */
+      readonly triggered_by_user_id: number | null;
+      /** What caused this deployment to start: manual | git | redeploy | rollback | seed.
+
+      * `manual` - Manual
+      * `git` - Git
+      * `redeploy` - Redeploy
+      * `rollback` - Rollback
+      * `seed` - Seed */
+      trigger_kind: TriggerKindEnum;
+      /** Failure detail set when status=error. Empty for successful or in-flight deployments. */
+      readonly error_message: string;
+      /** Build step that failed: dispatch | clone | install | build | publish. Empty when status != error.
+
+      * `dispatch` - Dispatch
+      * `clone` - Clone
+      * `install` - Install
+      * `build` - Build
+      * `publish` - Publish */
+      error_step?: typeof DeploymentErrorStep[keyof typeof DeploymentErrorStep];
+      /** Cloudflare Pages deployment id, set once the publish step succeeds. */
+      readonly cloudflare_deployment_id: string;
+      /** Temporal workflow id for this build. Used for cancellation signalling. */
+      readonly temporal_workflow_id: string;
+      /** True if this deployment is currently serving production traffic for its project. */
+      readonly is_current: boolean;
+      /** Build duration in seconds (finished_at - started_at). 0 while still running. */
+      readonly duration_seconds: number;
+    }
+
+    /**
+     * Response shape for one-off action endpoints (cancel, refresh_preview).
+     */
+    export interface DeploymentActionResponse {
+      /** Short human-readable confirmation message. */
+      detail: string;
+    }
+
+    /**
+     * Response shape returned with HTTP 409 when an active deploy exists.
+     */
+    export interface DeploymentConflictResponse {
+      /** Reason for the conflict. */
+      detail: string;
+      /** The deployment currently in-flight for the project. Frontend can poll this id. */
+      active_deployment_id: string;
+    }
+
+    /**
+     * Body of POST /api/projects/{}/deployment_projects/{}/deployments/.
+     */
+    export interface DeploymentCreateInput {
+      /**
+         * Optional commit SHA. If omitted, the build worker resolves HEAD of `branch` (or the project's default_branch).
+         * @maxLength 64
+         */
+      commit_sha?: string;
+      /**
+         * Optional branch override. If omitted, uses the project's `default_branch`.
+         * @maxLength 255
+         */
+      branch?: string;
+    }
+
+    export interface DeploymentEvent {
+      /** Unique identifier for the event row. */
+      readonly id: string;
+      /** The deployment this event belongs to. */
+      readonly deployment: string;
+      /**
+         * Event category, e.g. `status_changed`, `preview_captured`, `dispatched`.
+         * @maxLength 50
+         */
+      event_type: string;
+      /** Arbitrary structured payload for the event. Shape varies by event_type. */
+      payload: unknown;
+      /** When the event occurred (server time). */
+      readonly occurred_at: string;
+    }
+
+    /**
+     * One line of build output emitted by the build worker as a `$log` event.
+     */
+    export interface DeploymentLogEntry {
+      /** When the line was emitted by the build worker. */
+      timestamp: string;
+      /**
+         * Log level: "info" | "warn" | "error". Null if the event did not carry one.
+         * @nullable
+         */
+      level: string | null;
+      /**
+         * Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.
+         * @nullable
+         */
+      step: string | null;
+      /**
+         * The log line itself (a single line of stdout or stderr).
+         * @nullable
+         */
+      line: string | null;
+      /**
+         * Set on the last line of a step; null on all other lines.
+         * @nullable
+         */
+      exit_code: number | null;
+    }
+
+    /**
+     * Response shape for GET /deployments/{id}/logs/.
+     */
+    export interface DeploymentLogsResponse {
+      /** Log lines for the deployment, oldest first. */
+      results: DeploymentLogEntry[];
+      /** True if the row limit was hit and older lines may exist beyond this page. */
+      has_more: boolean;
+      /** The hard cap applied by the server. */
+      row_limit: number;
+    }
+
+    export interface DeploymentProject {
+      /** Unique identifier for the deployment project. */
+      readonly id: string;
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * HTTPS URL of the connected GitHub repository, resolved from the selected repository id.
+         * @maxLength 1024
+         */
+      readonly repo_url: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+      /** Cloudflare Pages project name, assigned during provisioning. */
+      readonly cloudflare_project_name: string;
+      /** Public subdomain at which deployments of this project serve. */
+      readonly subdomain: string;
+      /**
+         * Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.
+         * @nullable
+         */
+      readonly cloudflare_ready_at: string | null;
+      /**
+         * The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.
+         * @nullable
+         */
+      readonly current_deployment: string | null;
+      /** True when the project has both a provisioned Cloudflare backend and a configured GitHub credential — meaning a deploy can be triggered right now. */
+      readonly is_ready_to_deploy: boolean;
+      /** Timestamp when the project was created. */
+      readonly created_at: string;
+      /** Timestamp when the project was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface DeploymentProjectCreate {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /** Existing PostHog GitHub integration id used for repository access. */
+      github_integration_id: number;
+      /** Stable GitHub repository identifier selected from the existing integration's repository list. */
+      github_repo_id: number;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
+    /**
+     * Response shape for refreshing a deployment project's GitHub branch.
+     */
+    export interface DeploymentProjectRefreshResponse {
+      /** Human-readable explanation of the refresh result. */
+      detail: string;
+      /** HTTPS URL of the connected GitHub repository. */
+      repo_url: string;
+      /** Branch checked by the refresh action. */
+      default_branch: string;
+      /** Current GitHub HEAD SHA for default_branch. */
+      commit_sha: string;
+    }
+
+    export interface DeploymentProjectWrite {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
     export interface DeprovisionWarehouseResponse {
       status: string;
       team: string;
@@ -11884,6 +12396,69 @@ export namespace Schemas {
       completed_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Inputs the `/detect/` endpoint needs to suggest a project config.
+
+    Decouples detection from any one git provider — callers fetch
+    `package.json` and the list of lockfiles however they like (GitHub
+    raw content via the team's existing integration, a temporary clone,
+    user-pasted JSON during early development) and pass them here.
+     */
+    export interface DetectConfigRequest {
+      /** Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback. */
+      package_json?: unknown;
+      /** Filenames of package-manager lockfiles found in the repo root (e.g. ["pnpm-lock.yaml"]). Used to pick the package manager. */
+      lockfiles?: string[];
+    }
+
+    /**
+     * * `npm` - npm
+    * `pnpm` - pnpm
+    * `yarn` - yarn
+    * `bun` - bun
+     */
+    export type PackageManagerEnum = typeof PackageManagerEnum[keyof typeof PackageManagerEnum];
+
+
+    export const PackageManagerEnum = {
+      Npm: 'npm',
+      Pnpm: 'pnpm',
+      Yarn: 'yarn',
+      Bun: 'bun',
+    } as const;
+
+    /**
+     * Suggested project config. Every field is overridable in the connect-repo UI.
+
+    `build_command`, `output_dir`, and `framework` map directly to the
+    `DeploymentProject` model fields. `package_manager`, `install_command`,
+    and `node_version` are informational hints — the model doesn't store
+    them today, but the UI can display them so the user knows what the
+    build worker will end up running.
+     */
+    export interface DetectConfigResponse {
+      /** Detected package manager from lockfile presence.
+
+      * `npm` - npm
+      * `pnpm` - pnpm
+      * `yarn` - yarn
+      * `bun` - bun */
+      package_manager: PackageManagerEnum;
+      /** Suggested install command, or empty when no install is needed. */
+      install_command: string;
+      /** Suggested build command, or empty when no known framework matched. */
+      build_command: string;
+      /** Suggested output directory relative to repo root. */
+      output_dir: string;
+      /** Suggested Node major version, parsed from `engines.node` or defaulted to 20. */
+      node_version: string;
+      /**
+         * Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into `DeploymentProject.framework`. Null when no framework matched — leaving the field null lets the build worker fall back to its own auto-detection.
+         * @nullable
+         */
+      framework: string | null;
     }
 
     /**
@@ -14928,13 +15503,18 @@ export namespace Schemas {
      */
     export interface ExperimentSavedMetric {
       readonly id: number;
-      /** @maxLength 400 */
+      /**
+         * Name of the shared metric. Must be unique within the project (case-insensitive).
+         * @maxLength 400
+         */
       name: string;
       /**
+         * Short description of what the metric measures.
          * @maxLength 400
          * @nullable
          */
       description?: string | null;
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -15399,7 +15979,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -17695,6 +18275,91 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface TraceSpansAggregationQueryResponse {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: AggregatedSpanRow[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AggregatedSpanRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface TraceSpansAggregationQuery {
+      /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+      compareFilter?: CompareFilter | null;
+      dateRange: DateRange;
+      filterGroup?: PropertyGroupFilter | null;
+      kind?: 'TraceSpansAggregationQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: TraceSpansAggregationQueryResponse | null;
+      serviceNames?: string[] | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface SpanTreeNode {
+      avg_duration_nano: number;
+      /** Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph. */
+      avg_start_offset_nano: number;
+      count: number;
+      error_count: number;
+      name: string;
+      p50_duration_nano: number;
+      p95_duration_nano: number;
+      parent_name: string;
+      parent_service: string;
+      service_name: string;
+      total_duration_nano: number;
+    }
+
+    export interface TraceSpansTreeQueryResponse {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: SpanTreeNode[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: SpanTreeNode[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface TraceSpansTreeQuery {
+      /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+      compareFilter?: CompareFilter | null;
+      dateRange: DateRange;
+      filterGroup?: PropertyGroupFilter | null;
+      kind?: 'TraceSpansTreeQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: TraceSpansTreeQueryResponse | null;
+      /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+      serviceName: string;
+      serviceNames?: string[] | null;
+      /** Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run. */
+      spanName: string;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type RecordingOrder = typeof RecordingOrder[keyof typeof RecordingOrder];
 
 
@@ -18035,7 +18700,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -18061,7 +18726,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -18318,6 +18983,14 @@ export namespace Schemas {
       values?: unknown;
     }
 
+    export interface InsightViewedRequest {
+      /**
+         * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
+         * @maxItems 2500
+         */
+      insight_ids: number[];
+    }
+
     export interface InsightsToolCall {
       /** @maxLength 1000 */
       query: string;
@@ -18465,6 +19138,60 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    export interface InterviewInviteResult {
+      /** The original identifier (email or distinct ID) from the topic targeting. */
+      interviewee_identifier: string;
+      /**
+         * Email used for delivery. Null when the identifier was not an email (e.g., a distinct ID).
+         * @nullable
+         */
+      email?: string | null;
+      /** The personalized public interview URL embedded in the email body. */
+      interview_url: string;
+      /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
+      sent: boolean;
+      /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+      reason?: string;
+    }
+
+    export interface InterviewLink {
+      /**
+         * The original identifier (email or distinct ID) from the topic targeting.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /** Best-effort display name derived from the identifier, used to greet the interviewee. */
+      user_name: string;
+      /** Public, unauthenticated URL the interviewee opens to start the call. Backed by a SharingConfiguration access token. */
+      interview_url: string;
+      /** The merged topic + per-interviewee context the voice agent will see during the call. */
+      agent_context: string;
+    }
+
+    export interface IntervieweeContext {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface IntervieweeIdentifierRequest {
+      /**
+         * Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.
+         * @maxLength 400
+         */
+      identifier: string;
+    }
+
     /**
      * * `2.0` - 2.0
      */
@@ -18474,6 +19201,77 @@ export namespace Schemas {
     export const JsonrpcEnum = {
       '20': '2.0',
     } as const;
+
+    /**
+     * * `text` - Text
+    * `url` - URL
+    * `file` - File
+     */
+    export type KnowledgeSourceSourceTypeEnum = typeof KnowledgeSourceSourceTypeEnum[keyof typeof KnowledgeSourceSourceTypeEnum];
+
+
+    export const KnowledgeSourceSourceTypeEnum = {
+      Text: 'text',
+      Url: 'url',
+      File: 'file',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+    * `processing` - Processing
+    * `ready` - Ready
+    * `error` - Error
+     */
+    export type KnowledgeSourceStatusEnum = typeof KnowledgeSourceStatusEnum[keyof typeof KnowledgeSourceStatusEnum];
+
+
+    export const KnowledgeSourceStatusEnum = {
+      Pending: 'pending',
+      Processing: 'processing',
+      Ready: 'ready',
+      Error: 'error',
+    } as const;
+
+    /**
+     * * `success` - Success
+    * `not_modified` - Not modified
+    * `error` - Error
+     */
+    export type LastRefreshStatusEnum = typeof LastRefreshStatusEnum[keyof typeof LastRefreshStatusEnum];
+
+
+    export const LastRefreshStatusEnum = {
+      Success: 'success',
+      NotModified: 'not_modified',
+      Error: 'error',
+    } as const;
+
+    export interface KnowledgeSource {
+      readonly id: string;
+      readonly team_id: number;
+      readonly name: string;
+      readonly source_type: KnowledgeSourceSourceTypeEnum;
+      readonly status: KnowledgeSourceStatusEnum;
+      readonly error_message: string;
+      /** Number of documents belonging to this source. */
+      readonly document_count: number;
+      /** Number of chunks belonging to this source. */
+      readonly chunk_count: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly source_url: string;
+      /** @nullable */
+      readonly last_refresh_at: string | null;
+      readonly last_refresh_status: LastRefreshStatusEnum;
+      readonly last_refresh_error: string;
+      readonly crawl_mode: CrawlModeEnum;
+      readonly crawl_config: unknown;
+      readonly original_filename: string;
+      readonly file_content_type: string;
+      /** @nullable */
+      readonly file_size_bytes: number | null;
+    }
 
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
@@ -18946,6 +19744,37 @@ export namespace Schemas {
       Indexer: 'indexer',
     } as const;
 
+    /**
+     * Mirrors `temporal.types.LensSnapshot` for OpenAPI generation.
+     */
+    export interface LensSnapshot {
+      /** Lens name at run time. */
+      name: string;
+      /** Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.
+
+      * `monitor` - Monitor
+      * `classifier` - Classifier
+      * `scorer` - Scorer
+      * `summarizer` - Summarizer
+      * `indexer` - Indexer */
+      lens_type: LensTypeEnum;
+      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
+      lens_version: number;
+      /** Concrete model that ran the observation.
+
+      * `gemini-3-flash` - Gemini 3 Flash
+      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      model: LensModelEnum;
+      /** Concrete provider that ran the observation.
+
+      * `google` - Google */
+      provider: LensProviderEnum;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      lens_config: unknown;
+    }
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -19180,6 +20009,7 @@ export namespace Schemas {
     * `snooze` - Snooze
     * `unsnooze` - Unsnooze
     * `threshold_change` - Threshold change
+    * `broken_config` - Broken config
      */
     export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
 
@@ -19192,6 +20022,7 @@ export namespace Schemas {
       Snooze: 'snooze',
       Unsnooze: 'unsnooze',
       ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
     } as const;
 
     export interface LogsAlertEvent {
@@ -20070,6 +20901,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      target_type: string;
+      target_id: string;
       /** @nullable */
       resource_type: string | null;
       resource_id: string;
@@ -20158,6 +20991,25 @@ export namespace Schemas {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
     } as const;
+
+    /**
+     * Body of POST /vision/lenses/{id}/observe/.
+     */
+    export interface ObserveRequest {
+      /**
+         * ID of the session recording to apply the lens to.
+         * @maxLength 128
+         */
+      session_id: string;
+    }
+
+    /**
+     * Async-accepted response for POST /vision/lenses/{id}/observe/.
+     */
+    export interface ObserveResponse {
+      /** Temporal workflow id for this lens application. Look up the resulting ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>. */
+      workflow_id: string;
+    }
 
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
@@ -20818,6 +21670,33 @@ export namespace Schemas {
       results: Dataset[];
     }
 
+    export interface PaginatedDeploymentEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DeploymentEvent[];
+    }
+
+    export interface PaginatedDeploymentList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Deployment[];
+    }
+
+    export interface PaginatedDeploymentProjectList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DeploymentProject[];
+    }
+
     export interface PaginatedDesktopRecordingList {
       count: number;
       /** @nullable */
@@ -21212,6 +22091,42 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
+    }
+
+    export interface PaginatedInterviewInviteResultList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: InterviewInviteResult[];
+    }
+
+    export interface PaginatedInterviewLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: InterviewLink[];
+    }
+
+    export interface PaginatedIntervieweeContextList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: IntervieweeContext[];
+    }
+
+    export interface PaginatedKnowledgeSourceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeSource[];
     }
 
     export interface PaginatedLLMPromptListList {
@@ -21834,24 +22749,18 @@ export namespace Schemas {
       * `succeeded` - Succeeded
       * `failed` - Failed */
       readonly status: ObservationStatusEnum;
-      /** Populated on failure. Includes the malformed model response when validation fails. */
+      /** Populated on failure; includes the malformed model response when validation fails. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
-      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
-      readonly lens_version: number;
-      /** Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations. */
-      readonly lens_config_snapshot: unknown;
-      /** Concrete model that ran the observation. */
-      readonly model_used: string;
-      /** Concrete provider that ran the observation. */
-      readonly provider_used: string;
+      /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
+      readonly lens_snapshot: LensSnapshot;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
       * `on_demand` - On demand */
       readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation. Null for scheduled observations. */
+      /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
       /** @nullable */
       started_at?: string | null;
@@ -22651,7 +23560,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
+     * * `hourly` - Hourly
+    * `daily` - Daily
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly
@@ -22660,6 +23570,7 @@ export namespace Schemas {
 
 
     export const SubscriptionFrequencyEnum = {
+      Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -22717,8 +23628,9 @@ export namespace Schemas {
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
+      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -23904,6 +24816,9 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       interviewee_emails?: string[];
+      readonly interviewee_identifier: string;
+      /** @nullable */
+      readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
       audio: string;
@@ -23916,6 +24831,31 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: UserInterview[];
+    }
+
+    export interface UserInterviewTopic {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
+    }
+
+    export interface PaginatedUserInterviewTopicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserInterviewTopic[];
     }
 
     /**
@@ -24990,6 +25930,53 @@ export namespace Schemas {
       readonly team?: number;
     }
 
+    export interface PatchedDeploymentProjectWrite {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
     export interface PatchedDesktopRecording {
       readonly id?: string;
       readonly team?: number;
@@ -25679,13 +26666,18 @@ export namespace Schemas {
      */
     export interface PatchedExperimentSavedMetric {
       readonly id?: number;
-      /** @maxLength 400 */
+      /**
+         * Name of the shared metric. Must be unique within the project (case-insensitive).
+         * @maxLength 400
+         */
       name?: string;
       /**
+         * Short description of what the metric measures.
          * @maxLength 400
          * @nullable
          */
       description?: string | null;
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -25797,7 +26789,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -26309,6 +27301,22 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+    }
+
+    export interface PatchedIntervieweeContext {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier?: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context?: string;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -28232,8 +29240,9 @@ export namespace Schemas {
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
+      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -29170,11 +30179,21 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
       signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
       signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
       subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
       payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
     }
 
     export interface PatchedTeam {
@@ -29210,6 +30229,25 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
+      /** Filters used to identify internal/test users. Each entry is a property filter.
+
+                  Supported entry types and the exact shape each accepts:
+
+                  # Person property — match (or exclude) by a person property
+                  {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+                  # Event property — match by an event property
+                  {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+                  # Cohort membership — match (or exclude) members of a cohort.
+                  # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+                  # `negation` field here — `negation` is specific to cohort *definitions*
+                  # (the inner sub-filters that build a cohort) and is rejected by the
+                  # property-filter schema.
+                  {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+                  Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+                  "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -29484,6 +30522,20 @@ export namespace Schemas {
     }
 
     /**
+     * PATCH payload for text sources. Both fields optional, at least one
+    required. `text` triggers a re-chunk; `name` alone does not.
+     */
+    export interface PatchedUpdateTextSource {
+      /**
+         * New human label for the source.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Replacement text. Omit to keep the existing content. */
+      text?: string;
+    }
+
+    /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
     export type PatchedUserNotificationSettings = { [key: string]: unknown };
@@ -29577,9 +30629,28 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       interviewee_emails?: string[];
+      readonly interviewee_identifier?: string;
+      /** @nullable */
+      readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
       audio?: string;
+    }
+
+    export interface PatchedUserInterviewTopic {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic?: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
     }
 
     export interface PatchedUserProductList {
@@ -30766,6 +31837,20 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    /**
+     * * `ios` - iOS
+    * `android` - Android
+    * `web` - Web
+     */
+    export type PushTokenPlatformEnum = typeof PushTokenPlatformEnum[keyof typeof PushTokenPlatformEnum];
+
+
+    export const PushTokenPlatformEnum = {
+      Ios: 'ios',
+      Android: 'android',
+      Web: 'web',
+    } as const;
+
     export interface QuarantineInput {
       /** @maxLength 512 */
       identifier: string;
@@ -30942,7 +32027,7 @@ export namespace Schemas {
       ```
 
       For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
       - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
       - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -32300,10 +33385,46 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative79 {
-      questions: string[];
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: AggregatedSpanRow[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AggregatedSpanRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative80 {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: SpanTreeNode[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: SpanTreeNode[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface QueryResponseAlternative81 {
+      questions: string[];
+    }
+
+    export interface QueryResponseAlternative82 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -32322,7 +33443,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative81 {
+    export interface QueryResponseAlternative83 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -32341,7 +33462,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative82 {
+    export interface QueryResponseAlternative84 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -32357,7 +33478,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative83 {
+    export interface QueryResponseAlternative85 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -32377,7 +33498,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative87 {
       /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
       /** ID of the newer trace (chronologically after current) */
@@ -32386,38 +33507,6 @@ export namespace Schemas {
       olderTimestamp?: string | null;
       /** ID of the older trace (chronologically before current) */
       olderTraceId?: string | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-    }
-
-    export interface QueryResponseAlternative86 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: VectorSearchResponseItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-    }
-
-    export interface QueryResponseAlternative87 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: UsageMetric[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
@@ -32433,12 +33522,44 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: EndpointsUsageOverviewItem[];
+      results: VectorSearchResponseItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative89 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: UsageMetric[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface QueryResponseAlternative90 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: EndpointsUsageOverviewItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface QueryResponseAlternative91 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -32459,9 +33580,9 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
-    export type QueryResponseAlternative90ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative92ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative90 {
+    export interface QueryResponseAlternative92 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -32472,12 +33593,12 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative90ResultsItem[];
+      results: QueryResponseAlternative92ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative91 {
+    export interface QueryResponseAlternative93 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -32493,18 +33614,18 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface RecomputeResult {
@@ -32778,6 +33899,18 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SendInvitesRequest {
+      /**
+         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * @maxLength 200
+         */
+      subject?: string;
+      /** Email address replies should go to. Defaults to the topic creator's email if blank. */
+      reply_to?: string;
+      /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
+      send_async?: boolean;
+    }
+
     export type SentimentResultScores = {[key: string]: number};
 
     export type SentimentResultMessages = {[key: string]: MessageSentiment};
@@ -32951,8 +34084,10 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** The key of the variant to ship to 100% of users. */
+      /** The key of the variant to ship. */
       variant_key: string;
+      /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
+      release_to_everyone?: boolean;
     }
 
     export interface _User {
@@ -34185,6 +35320,25 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
+      /** Filters used to identify internal/test users. Each entry is a property filter.
+
+                  Supported entry types and the exact shape each accepts:
+
+                  # Person property — match (or exclude) by a person property
+                  {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+                  # Event property — match by an event property
+                  {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+                  # Cohort membership — match (or exclude) members of a cohort.
+                  # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+                  # `negation` field here — `negation` is specific to cohort *definitions*
+                  # (the inner sub-filters that build a cohort) and is rejected by the
+                  # property-filter schema.
+                  {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+                  Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+                  "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -34572,6 +35726,102 @@ export namespace Schemas {
       connect_flow: string;
     }
 
+    /**
+     * * `transcript` - transcript
+    * `summary` - summary
+     */
+    export type UserInterviewSearchDocumentTypeEnum = typeof UserInterviewSearchDocumentTypeEnum[keyof typeof UserInterviewSearchDocumentTypeEnum];
+
+
+    export const UserInterviewSearchDocumentTypeEnum = {
+      Transcript: 'transcript',
+      Summary: 'summary',
+    } as const;
+
+    export interface UserInterviewSearchRequest {
+      /**
+         * Natural-language query to match semantically against interview transcripts and summaries.
+         * @maxLength 2000
+         */
+      query: string;
+      /**
+         * Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.
+         * @minItems 1
+         */
+      document_types?: UserInterviewSearchDocumentTypeEnum[];
+      /**
+         * Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.
+         * @nullable
+         */
+      topic_id?: string | null;
+      /**
+         * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    export interface UserInterviewSearchResult {
+      /** ID of the matched UserInterview. */
+      interview_id: string;
+      /** Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.
+
+      * `transcript` - transcript
+      * `summary` - summary */
+      document_type: UserInterviewSearchDocumentTypeEnum;
+      /** Cosine similarity in [0, 1]; higher is closer to the query. Computed as `1 - cosineDistance`. */
+      similarity: number;
+      /** Excerpt of the matched document (first 500 characters). */
+      content_snippet: string;
+      /** Email or PostHog distinct ID of the interviewee. */
+      interviewee_identifier: string;
+      /**
+         * ID of the UserInterviewTopic the interview was conducted for, or null if detached.
+         * @nullable
+         */
+      topic_id: string | null;
+      /** When the interview row was created. */
+      created_at: string;
+    }
+
+    export interface UserPushTokenItem {
+      /** PostHog UserPushToken row id. */
+      id: string;
+      /** Device platform the token was issued for.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+      /** When this token was first registered. */
+      created_at: string;
+      /** Last time the mobile app re-registered this token. */
+      last_seen_at: string;
+    }
+
+    export interface UserPushTokenRegisterRequest {
+      /**
+         * Opaque push token issued by the device's platform push service (e.g. an Expo push token).
+         * @maxLength 512
+         */
+      token: string;
+      /** Device platform the token was issued for. One of `ios`, `android`, or `web`.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+    }
+
+    export interface UserPushTokenUnregisterRequest {
+      /**
+         * The opaque push token to remove for the authenticated user.
+         * @maxLength 512
+         */
+      token: string;
+    }
+
     export interface UtmEvent {
       /** UTM campaign value from pageview events */
       utm_campaign: string;
@@ -34724,6 +35974,16 @@ export namespace Schemas {
       products_in_use: string[];
       suggested_next_steps: _WelcomeSuggestedStep[];
       is_organization_first_user: boolean;
+    }
+
+    export interface _CompareFilter {
+      /** When true, also fetch results for a comparison window and return them under `compare`. */
+      compare?: boolean;
+      /**
+         * Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.
+         * @nullable
+         */
+      compare_to?: string | null;
     }
 
     export interface _DateRange {
@@ -35196,6 +36456,22 @@ export namespace Schemas {
       date_to?: string | null;
     }
 
+    export interface _TracingAggregationQueryBody {
+      /** Date range for the primary window. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+      compareFilter?: _CompareFilter;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Property filters applied to spans in both windows. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingAggregationRequest {
+      /** The span aggregation query to execute. */
+      query: _TracingAggregationQueryBody;
+    }
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -35230,6 +36506,26 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
+    }
+
+    export interface _TracingTreeQueryBody {
+      /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
+      spanName: string;
+      /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+      serviceName: string;
+      /** Date range for the primary window. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+      compareFilter?: _CompareFilter;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Additional property filters applied to spans in both windows. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingTreeRequest {
+      /** The span call-tree aggregation query to execute. */
+      query: _TracingTreeQueryBody;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -38580,13 +39876,41 @@ export namespace Schemas {
 
     export type NotificationsListParams = {
     /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string;
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
     /**
+     * Filter by notification type
+     */
+    notification_type?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
+    resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
+    resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
+    target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
+    target_type?: string;
     };
 
     export type QuickFiltersListParams = {
@@ -38668,10 +39992,10 @@ export namespace Schemas {
 
     export type TracingSpansAttributesRetrieveParams = {
     /**
-     * Type of attributes: "span" for span attributes, "resource" for resource attributes.
+     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
-    * `span` - span
-    * `resource` - resource
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
      * @minLength 1
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType;
@@ -38697,8 +40021,8 @@ export namespace Schemas {
 
 
     export const TracingSpansAttributesRetrieveAttributeType = {
-      Span: 'span',
-      Resource: 'resource',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
     export type TracingSpansServiceNamesRetrieveParams = {
@@ -38716,10 +40040,11 @@ export namespace Schemas {
 
     export type TracingSpansValuesRetrieveParams = {
     /**
-     * Type of attribute: "span" or "resource".
+     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
     * `span` - span
-    * `resource` - resource
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType;
@@ -38751,8 +40076,35 @@ export namespace Schemas {
 
     export const TracingSpansValuesRetrieveAttributeType = {
       Span: 'span',
-      Resource: 'resource',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type UserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type UserInterviewsListParams = {
     /**
@@ -38763,6 +40115,7 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    topic?: string;
     };
 
     export type VisionLensesListParams = {
@@ -39795,6 +41148,21 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type BusinessKnowledgeSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type BusinessKnowledgeSourcesTextRetrieve200 = {
+      text?: string;
+    };
+
     export type CohortsListParams = {
     /**
      * Number of results to return per page.
@@ -40349,6 +41717,63 @@ export namespace Schemas {
     order_by?: string[];
     /**
      * Search in name, description, or metadata
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsDeploymentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsDeploymentsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
      */
     search?: string;
     };
@@ -42670,6 +44095,10 @@ export namespace Schemas {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean;
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean;
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1
