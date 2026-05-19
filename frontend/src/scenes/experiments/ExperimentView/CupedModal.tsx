@@ -82,8 +82,8 @@ export function CupedModal(): JSX.Element {
         >
             <div className="flex flex-col gap-4">
                 <p className="text-secondary m-0">
-                    CUPED (Controlled-experiment Using Pre-Experiment Data) uses pre-experiment data to detect
-                    significant effects faster. Currently supported for mean and funnel metrics.
+                    Use pre-experiment data to detect significant effects faster. Currently supported for mean and
+                    funnel metrics.
                 </p>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>CUPED</LemonLabel>
