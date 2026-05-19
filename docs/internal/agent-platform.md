@@ -116,6 +116,22 @@ Operational process: queue sweeps + internal HTTP surface for Django. The runtim
 
 ---
 
+## CLI wire-up: stubbed commands against existing endpoints
+
+The Django management API and the existing `/internal/*` session proxy are kept as-is. What remains is wiring the stubbed `ass logs` and `ass secrets` commands in the CLI against endpoints that already exist on the Django side. No new auth, no new services.
+
+**Last audited:** 2026-05-19.
+
+- [ ] `ass-client`: add `sessions.{list, get, cancel, logs}` and `env.{update, patch}` methods on the `AssClient` interface; remove the `sessions.tail` placeholder.
+- [ ] `ass logs [--agent <slug>] [--session <id>]`: real implementation — list latest session for the agent, poll `sessions.logs(id)` every 2s, render entries (mirrors the frontend's polling cadence).
+- [ ] `ass secrets list / set / rm`: against the existing `env_redacted` field and `PATCH /env` (`{ keys: {NAME: "value" | null } }`). CLI command name stays `secrets`; underlying client method is `env.*` (one-line comment to bridge the naming).
+- [ ] Vitest unit tests for the new client methods (mock fetch, assert URL + payload shape).
+- [ ] Vitest integration tests for the new CLI commands under `POSTHOG_INTEGRATION=1`.
+
+The architectural pieces previously documented here (extracting management to a new service, OAuth-gating a public janitor surface) were considered and rejected — see [Part E](#part-e--considered-and-rejected-publishing-the-management-api-outside-django).
+
+---
+
 ## Runtime services
 
 Three services under `services/`, each its own process / deployment:
@@ -230,6 +246,8 @@ A separate Postgres DB owned by the agent-runtime — `agent_runtime_queue` (nam
 ---
 
 ## Part A — `products/agent_stack/` Django app
+
+> **Direction:** the management API lives here, in Django, and stays here. Auditing, access controls, activity feed, generated TypeScript types, MCP tools, and the approval-workflow infrastructure are all worth too much to give up. The session-proxy viewset stays too — the CLI talks to Django; Django talks to `agent-janitor`. See [Part E](#part-e--considered-and-rejected-publishing-the-management-api-outside-django) for the alternatives we considered and rejected.
 
 Mirror the [`products/deployments/`](../../products/deployments) scaffold from #58421:
 
@@ -411,6 +429,30 @@ Pure-function validators (`(bytes) -> (parsed, errors)`) inside the validator pa
 - **Per-team quotas**: enforced on Django writes (apps, secrets, revisions/day) and at `agent-ingress` (concurrent sessions per app, `/run` rate limit). Surface limits in the UI.
 - **Observability**: structured logs with `app_id` / `revision_id` / `session_id` / `queue_job_id`; OTel traces per session and per tool call; Prometheus metrics; Sentry tagged separately for `agent-ingress` and `agent-runner`.
 - **Feature flag**: `FEATURE_FLAGS.AGENTS` gates the product (frontend + API + ingress). Per-team rollout.
+
+---
+
+## Part E — Considered and rejected: publishing the management API outside Django
+
+We seriously considered, and rejected, two architectural moves to extract management-plane functionality out of Django:
+
+1. **A new `services/agent-management` service** that owned the entire agent_application API surface (CRUD, deploys, env, sessions), with the PostHog frontend hitting it via a Django-minted short-lived JWT and the CLI hitting it via OAuth.
+2. **A narrower OAuth-gated public surface on `agent-janitor`** that owned only the session/log endpoints, with Django keeping CRUD/deploys/env.
+
+Both are abandoned for now. Recording why so we don't relitigate from scratch:
+
+- **Auditing, access controls, scope enforcement, activity feed, generated TypeScript types, MCP tools, approval workflows.** All wired into PostHog Django for free. Reimplementing them in a Node service is a meaningful undertaking with real service-drift risk.
+- **The runtime is already Django-independent.** Already-deployed agents keep serving traffic during a Django outage — the runtime services read Postgres directly. The management plane being down during an outage is annoying (no new deploys, no env changes, no fresh session inspection) but not catastrophic.
+- **OAuth tokens are opaque, not JWTs.** Verifying them statelessly in Node would mean either reading `oauth2_provider_accesstoken` from Postgres (schema coupling to django-oauth-toolkit) or HTTP-introspecting against Django (defeating the independence motivation). Neither is free.
+- **The narrower janitor variant** would have shipped a second auth surface on a service whose name no longer matched its job, for a single operational scenario (inspect logs during a Django outage) that nobody has hit yet.
+
+**What would change our minds:**
+
+- A real, repeated operational scenario where management-plane outage tolerance matters and Django's uptime can't reach it.
+- Customer demand for a third-party-callable management API that Django's auth/scope infrastructure can't comfortably serve.
+- A frontend that needs SSE for session log tail (Node handles long-lived connections; WSGI doesn't). At that point, an SSE endpoint on janitor with a Django-minted token is the lowest-effort win and doesn't require giving up Django's CRUD surface.
+
+Until one of those, the CLI talks to Django; Django talks to janitor through the existing `/internal/*` proxy. See the [CLI wire-up tracker](#cli-wire-up-stubbed-commands-against-existing-endpoints) for the small remaining work.
 
 ---
 
