@@ -159,6 +159,9 @@ tools:
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false
+    integrations-users-retrieve:
+        operation: integrations_users_retrieve
+        enabled: false
     role-external-references-create:
         operation: role_external_references_create
         enabled: false
