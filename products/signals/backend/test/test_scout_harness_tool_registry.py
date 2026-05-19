@@ -4,8 +4,8 @@ import pytest
 from posthog.test.base import BaseTest
 
 from products.llm_analytics.backend.models.skills import LLMSkill
-from products.signals.backend.agent_harness.skill_loader import load_skill_for_run
-from products.signals.backend.agent_harness.tool_registry import (
+from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.tool_registry import (
     HARNESS_INTERNAL_TOOLS,
     AllowedToolsResolution,
     EffectiveToolset,
@@ -36,8 +36,8 @@ class TestValidateAndPartitionAllowedTools:
         assert result.mcp_tool_candidates == frozenset({"mcp__posthog__exec", "posthog:execute-sql", "team.tool"})
 
     def test_mixed_harness_and_mcp_partition(self) -> None:
-        result = validate_and_partition_allowed_tools(["remember", "mcp__posthog__exec", "search_memory"])
-        assert result.harness_tools == frozenset({"remember", "search_memory"})
+        result = validate_and_partition_allowed_tools(["remember", "mcp__posthog__exec", "search_scratchpad"])
+        assert result.harness_tools == frozenset({"remember", "search_scratchpad"})
         assert result.mcp_tool_candidates == frozenset({"mcp__posthog__exec"})
 
     def test_unknown_bare_name_raises_with_known_list(self) -> None:
@@ -71,7 +71,7 @@ class TestValidateAndPartitionAllowedTools:
                 "forget",
                 "get_run",
                 "remember",
-                "search_memory",
+                "search_scratchpad",
                 "search_recent_runs",
             }
         )
@@ -90,14 +90,14 @@ class TestComputeEffectiveToolset:
     def test_declared_resolution_narrows_to_intersection(self) -> None:
         resolution = AllowedToolsResolution(
             declared=True,
-            harness_tools=frozenset({"remember", "search_memory"}),
+            harness_tools=frozenset({"remember", "search_scratchpad"}),
             mcp_tool_candidates=frozenset({"mcp__posthog__exec"}),
         )
         effective = compute_effective_toolset(
             resolution=resolution,
             mcp_tools_available=["mcp__posthog__exec", "posthog:execute-sql"],
         )
-        assert effective.harness_tools == frozenset({"remember", "search_memory"})
+        assert effective.harness_tools == frozenset({"remember", "search_scratchpad"})
         # `posthog:execute-sql` is not in the skill's allowed list, so it's excluded.
         assert effective.mcp_tools == frozenset({"mcp__posthog__exec"})
 
@@ -128,12 +128,12 @@ class TestSkillLoaderAllowedToolsIntegration(BaseTest):
     def test_loads_resolution_alongside_raw_allowed_tools(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
-            name="signals-agent-errors",
+            name="signals-scout-errors",
             description="Errors scout",
             body="x",
             allowed_tools=["search_recent_runs", "remember", "mcp__posthog__exec"],
         )
-        loaded = load_skill_for_run(self.team, "signals-agent-errors")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
         assert loaded.allowed_tools == ["search_recent_runs", "remember", "mcp__posthog__exec"]
         assert loaded.allowed_tools_resolution.declared is True
         assert loaded.allowed_tools_resolution.harness_tools == frozenset({"search_recent_runs", "remember"})
@@ -142,21 +142,21 @@ class TestSkillLoaderAllowedToolsIntegration(BaseTest):
     def test_load_raises_on_unknown_harness_tool_in_allowed_tools(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
-            name="signals-agent-errors",
+            name="signals-scout-errors",
             description="Errors scout",
             body="x",
             allowed_tools=["search_resent_runs"],  # typo of search_recent_runs
         )
         with pytest.raises(UnknownHarnessToolError):
-            load_skill_for_run(self.team, "signals-agent-errors")
+            load_skill_for_run(self.team, "signals-scout-errors")
 
     def test_empty_allowed_tools_yields_undeclared_resolution(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
-            name="signals-agent-errors",
+            name="signals-scout-errors",
             description="Errors scout",
             body="x",
             allowed_tools=[],
         )
-        loaded = load_skill_for_run(self.team, "signals-agent-errors")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
         assert loaded.allowed_tools_resolution.declared is False

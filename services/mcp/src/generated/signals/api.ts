@@ -9,10 +9,10 @@
 import * as zod from 'zod'
 
 /**
- * Return `SignalMemory` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via Postgres array overlap. Expired `agent_inference` entries are hidden by default.
  * @summary Search durable memories
  */
-export const SignalsAgentHarnessMemoryListParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutMemoryListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -20,9 +20,9 @@ export const SignalsAgentHarnessMemoryListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsAgentHarnessMemoryListQueryLimitMax = 100
+export const signalsScoutScratchpadListQueryLimitMax = 100
 
-export const SignalsAgentHarnessMemoryListQueryParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutMemoryListQueryParams = /* @__PURE__ */ zod.object({
     include_expired: zod
         .boolean()
         .optional()
@@ -30,7 +30,7 @@ export const SignalsAgentHarnessMemoryListQueryParams = /* @__PURE__ */ zod.obje
     limit: zod
         .number()
         .min(1)
-        .max(signalsAgentHarnessMemoryListQueryLimitMax)
+        .max(signalsScoutScratchpadListQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -48,7 +48,7 @@ export const SignalsAgentHarnessMemoryListQueryParams = /* @__PURE__ */ zod.obje
  * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
  * @summary Write or refresh an agent memory
  */
-export const SignalsAgentHarnessMemoryCreateParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutMemoryCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -56,36 +56,38 @@ export const SignalsAgentHarnessMemoryCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const signalsAgentHarnessMemoryCreateBodyKeyMax = 300
+export const signalsScoutScratchpadCreateBodyKeyMax = 300
 
-export const signalsAgentHarnessMemoryCreateBodyTtlDaysMax = 90
+export const signalsScoutScratchpadCreateBodyTtlDaysMax = 90
 
-export const SignalsAgentHarnessMemoryCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutMemoryCreateBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
-            .max(signalsAgentHarnessMemoryCreateBodyKeyMax)
+            .max(signalsScoutScratchpadCreateBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
         content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
         tags: zod.array(zod.string()).optional().describe('Tags for later search. Empty/whitespace tags are dropped.'),
         ttl_days: zod
             .number()
             .min(1)
-            .max(signalsAgentHarnessMemoryCreateBodyTtlDaysMax)
+            .max(signalsScoutScratchpadCreateBodyTtlDaysMax)
             .optional()
             .describe('Days until expiry (default 7, hard cap 90).'),
         run_id: zod
-            .string()
+            .uuid()
             .nullish()
-            .describe('Run that authored this memory; persisted as `created_by_run_id` for lineage.'),
+            .describe(
+                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
+            ),
     })
     .describe('Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.')
 
 /**
  * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
- * @summary Forget an agent memory by key
+ * @summary Delete an agent memory by key
  */
-export const SignalsAgentHarnessMemoryForgetCreateParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutMemoryDeleteParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -93,19 +95,19 @@ export const SignalsAgentHarnessMemoryForgetCreateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const signalsAgentHarnessMemoryForgetCreateBodyKeyMax = 300
+export const signalsScoutScratchpadDeleteBodyKeyMax = 300
 
-export const SignalsAgentHarnessMemoryForgetCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutMemoryDeleteBody = /* @__PURE__ */ zod
     .object({
-        key: zod.string().max(signalsAgentHarnessMemoryForgetCreateBodyKeyMax).describe('Memory key to delete.'),
+        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
     })
     .describe('Request body for `forget`. Only `agent_inference` keys can be deleted.')
 
 /**
- * Return the most recent `SignalAgentRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
  * @summary Search recent agent runs
  */
-export const SignalsAgentHarnessRunsListParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -113,18 +115,18 @@ export const SignalsAgentHarnessRunsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsAgentHarnessRunsListQueryLimitMax = 100
+export const signalsScoutRunsListQueryLimitMax = 100
 
-export const SignalsAgentHarnessRunsListQueryParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod
         .number()
         .min(1)
-        .max(signalsAgentHarnessRunsListQueryLimitMax)
+        .max(signalsScoutRunsListQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     since: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('ISO-8601 lower bound on `started_at`. Use to scope to a recent window.'),
     text: zod
@@ -134,13 +136,13 @@ export const SignalsAgentHarnessRunsListQueryParams = /* @__PURE__ */ zod.object
 })
 
 /**
- * Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
  * @summary Get a run by ID
  */
-export const signalsAgentHarnessRunsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+export const signalsScoutRunsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]+$')
 
-export const SignalsAgentHarnessRunsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().regex(signalsAgentHarnessRunsRetrievePathIdRegExp),
+export const SignalsScoutRunsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().regex(signalsScoutRunsRetrievePathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -149,13 +151,13 @@ export const SignalsAgentHarnessRunsRetrieveParams = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with `source_product = signals_agent`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
+ * Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
  * @summary Emit a finding for a run
  */
-export const signalsAgentHarnessRunsFindingsCreatePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+export const signalsScoutRunsFindingsCreatePathIdRegExp = new RegExp('^[0-9a-f-]+$')
 
-export const SignalsAgentHarnessRunsFindingsCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().regex(signalsAgentHarnessRunsFindingsCreatePathIdRegExp),
+export const SignalsScoutRunsFindingsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().regex(signalsScoutRunsFindingsCreatePathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -163,26 +165,26 @@ export const SignalsAgentHarnessRunsFindingsCreateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const signalsAgentHarnessRunsFindingsCreateBodyWeightMin = 0
-export const signalsAgentHarnessRunsFindingsCreateBodyWeightMax = 1
+export const signalsScoutRunsFindingsCreateBodyWeightMin = 0
+export const signalsScoutRunsFindingsCreateBodyWeightMax = 1
 
-export const signalsAgentHarnessRunsFindingsCreateBodyConfidenceMin = 0
-export const signalsAgentHarnessRunsFindingsCreateBodyConfidenceMax = 1
+export const signalsScoutRunsFindingsCreateBodyConfidenceMin = 0
+export const signalsScoutRunsFindingsCreateBodyConfidenceMax = 1
 
-export const signalsAgentHarnessRunsFindingsCreateBodyEvidenceMax = 20
+export const signalsScoutRunsFindingsCreateBodyEvidenceMax = 20
 
-export const SignalsAgentHarnessRunsFindingsCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
         weight: zod
             .number()
-            .min(signalsAgentHarnessRunsFindingsCreateBodyWeightMin)
-            .max(signalsAgentHarnessRunsFindingsCreateBodyWeightMax)
+            .min(signalsScoutRunsFindingsCreateBodyWeightMin)
+            .max(signalsScoutRunsFindingsCreateBodyWeightMax)
             .describe("Agent's weight for the signal in [0, 1]. Drives ranking in the inbox."),
         confidence: zod
             .number()
-            .min(signalsAgentHarnessRunsFindingsCreateBodyConfidenceMin)
-            .max(signalsAgentHarnessRunsFindingsCreateBodyConfidenceMax)
+            .min(signalsScoutRunsFindingsCreateBodyConfidenceMin)
+            .max(signalsScoutRunsFindingsCreateBodyConfidenceMax)
             .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
         evidence: zod
             .array(
@@ -201,9 +203,9 @@ export const SignalsAgentHarnessRunsFindingsCreateBody = /* @__PURE__ */ zod
                             .nullish()
                             .describe('Optional ID of the cited entity (issue id, recording id, log query id).'),
                     })
-                    .describe('One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`.')
+                    .describe('One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.')
             )
-            .max(signalsAgentHarnessRunsFindingsCreateBodyEvidenceMax)
+            .max(signalsScoutRunsFindingsCreateBodyEvidenceMax)
             .describe('Citations supporting the finding. Capped at 20 entries.'),
         hypothesis: zod.string().nullish().describe('Optional one-line hypothesis the finding tests.'),
         severity: zod.string().nullish().describe('Optional severity tag (`P0`-`P4`) — informational only.'),
@@ -212,11 +214,14 @@ export const SignalsAgentHarnessRunsFindingsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
         time_range: zod
-            .object({
-                date_from: zod.string().describe("ISO-8601 inclusive lower bound for the finding's window."),
-                date_to: zod.string().describe("ISO-8601 inclusive upper bound for the finding's window."),
-            })
-            .nullish()
+            .union([
+                zod.object({
+                    date_from: zod.string().describe("ISO-8601 inclusive lower bound for the finding's window."),
+                    date_to: zod.string().describe("ISO-8601 inclusive upper bound for the finding's window."),
+                }),
+                zod.null(),
+            ])
+            .optional()
             .describe('Optional time window the finding refers to.'),
         mcp_trace_id: zod.string().nullish().describe('Optional MCP trace id for cross-system debugging.'),
         finding_id: zod

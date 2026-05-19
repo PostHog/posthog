@@ -1,5 +1,5 @@
 ---
-name: signals-agent-general
+name: signals-scout-general
 description: >
   Generic Signals scout — examines a PostHog project end-to-end (errors, replays, web analytics,
   experiments, warehouse, integrations) and emits a small number of high-confidence findings
@@ -38,7 +38,7 @@ A good run does _not_:
 2. **Read recent agent history.** Call `search_recent_runs(since=last_7_days)` to see what prior
    runs surfaced. Skip anything already covered unless you have new evidence.
 
-3. **Read durable memory.** Call `search_memory()` for known false positives, team steering, and
+3. **Read durable memory.** Call `search_scratchpad()` for known false positives, team steering, and
    prior context. Do not re-emit anything memory tells you to ignore.
 
 4. **Pick one or two areas to investigate.** Don't fan out. Errors that spiked? A new

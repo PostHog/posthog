@@ -5,10 +5,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from products.signals.backend.agent_harness.skill_loader import LoadedSkill
+from products.signals.backend.scout_harness.skill_loader import LoadedSkill
 
 
-class SignalAgentRunSummary(BaseModel):
+class SignalScoutRunSummary(BaseModel):
     """Structured close-out the scout returns at end_turn.
 
     Mirrors the report agent's `MultiTurnSession.start` contract: the agent emits
@@ -34,8 +34,8 @@ project — be selective. Aim for fewer, better signals.
 
 _BASE_PROMPT_TAIL = """# How a run works
 
-1. **Read prior context.** Call `signals-agent-runs-list` to see what
-   other recent runs concluded, and `signals-agent-memory-list` to
+1. **Read prior context.** Call `signals-scout-runs-list` to see what
+   other recent runs concluded, and `signals-scout-scratchpad-list` to
    surface durable team memories ("known noise", "already addressed", "ignore
    X"). Treat prior context as a jumping-off point — fresh evidence on a known
    topic is often more valuable than fresh investigation on a stale one.
@@ -43,12 +43,12 @@ _BASE_PROMPT_TAIL = """# How a run works
    what you'll need across the project is exposed via the MCP — discover what's
    available at run time. Your skill body tells you *what* to look at.
 3. **Decide.** For each hypothesis, decide whether to:
-   - **Emit** a finding (call `signals-agent-runs-findings-create`).
+   - **Emit** a finding (call `signals-scout-runs-findings-create`).
      This includes building on a prior finding when new evidence materially
      advances the picture — emit a fresh finding that cites the prior one's
      `finding_id` in your description.
    - **Remember** a learning so you don't redo this work next run
-     (call `signals-agent-memory-create`).
+     (call `signals-scout-scratchpad-create`).
    - **Skip** with a one-line note in your final summary.
 4. **Close out.** End your turn by emitting a JSON object matching the schema in
    the *Output format* section below. The `summary` field is one paragraph on
@@ -67,7 +67,7 @@ domain.
 
 # Finding schema
 
-When you call `signals-agent-runs-findings-create`:
+When you call `signals-scout-runs-findings-create`:
 
 - `description` — the inbox surface and the dedupe key. Your skill body owns
   the prose contract.
@@ -106,9 +106,9 @@ Respond at end_turn with a single JSON object matching this schema:
 def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_at: datetime) -> str:
     """Render the opening prompt for one scout run.
 
-    `run_id` is the UUID of the `SignalAgentRun` row the harness inserted before
+    `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
     spawning the sandbox. The agent passes it back when it calls
-    `signals-agent-runs-findings-create` so the emit attribution stays
+    `signals-scout-runs-findings-create` so the emit attribution stays
     pinned to this run.
 
     `started_at` is the run row's insertion timestamp, surfaced as informational
@@ -122,13 +122,13 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     passed in so the harness can pin the version the agent should request.
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
-    schema_json = json.dumps(SignalAgentRunSummary.model_json_schema(), indent=2)
+    schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
     tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json)
     return f"""{_BASE_PROMPT_INTRO}
 # Your run identity
 
 - **run_id**: `{run_id}` — pass this when calling
-  `signals-agent-runs-findings-create`.
+  `signals-scout-runs-findings-create`.
 - **team_id**: `{team_id}` — implicit on every MCP call.
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational;

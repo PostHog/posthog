@@ -12,11 +12,11 @@ import yaml
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.agent_harness.skill_loader import SIGNALS_AGENT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 
 logger = logging.getLogger(__name__)
 
-# Canonical signals-agent-* skills live on disk under `products/signals/skills/` so they're
+# Canonical signals-scout-* skills live on disk under `products/signals/skills/` so they're
 # usable both as in-repo packaged skills (consumed by `hogli build:skills` for the AI plugin
 # and shipped via the dist/skills.zip release) and seeded into each team's LLMSkill namespace
 # by the headless harness. Single source of truth, two distribution paths.
@@ -38,7 +38,7 @@ class CanonicalSkillFile:
 
 @dataclass(frozen=True)
 class CanonicalSkill:
-    """A canonical `signals-agent-*` skill discovered from `products/signals/skills/`.
+    """A canonical `signals-scout-*` skill discovered from `products/signals/skills/`.
 
     `name` and `description` come from SKILL.md frontmatter. `body` is the markdown after the
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
@@ -57,7 +57,7 @@ class CanonicalSkill:
 class SeedResult:
     """Outcome of `seed_canonical_skills`.
 
-    `created_skill_names` is empty when the team already had at least one signals-agent-*
+    `created_skill_names` is empty when the team already had at least one signals-scout-*
     skill (the seed is a no-op in that case — edits and forks on team copies are preserved).
     """
 
@@ -88,9 +88,9 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'name': {skill_file}")
     if not isinstance(description, str) or not description:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'description': {skill_file}")
-    if not name.startswith(SIGNALS_AGENT_SKILL_PREFIX):
+    if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
         raise CanonicalSkillParseError(
-            f"Canonical skill name must start with '{SIGNALS_AGENT_SKILL_PREFIX}': got {name!r} in {skill_file}"
+            f"Canonical skill name must start with '{SIGNALS_SCOUT_SKILL_PREFIX}': got {name!r} in {skill_file}"
         )
 
     raw_allowed = frontmatter.get("allowed_tools", []) or []
@@ -124,7 +124,7 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
 
 
 def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
-    """Walk `products/signals/skills/signals-agent-*/` and return the parsed manifest.
+    """Walk `products/signals/skills/signals-scout-*/` and return the parsed manifest.
 
     Skipping a malformed canonical entry would mask author errors; instead we let
     `CanonicalSkillParseError` propagate so the harness fails loud and the canonical source
@@ -137,7 +137,7 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
-        if not entry.name.startswith(SIGNALS_AGENT_SKILL_PREFIX):
+        if not entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             continue
         if not (entry / "SKILL.md").is_file():
             continue
@@ -146,9 +146,9 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
 
 
 def seed_canonical_skills(team: Team) -> SeedResult:
-    """Idempotently seed canonical `signals-agent-*` skills into a team's namespace.
+    """Idempotently seed canonical `signals-scout-*` skills into a team's namespace.
 
-    No-op when the team already has any `signals-agent-*` skill (deleted or live). Edits
+    No-op when the team already has any `signals-scout-*` skill (deleted or live). Edits
     and forks on team copies are preserved across calls — once a team has been seeded
     (or has authored its own row under the prefix), the canonical set never overwrites
     their content. Existence of any row under the prefix counts as "already seeded",
@@ -159,17 +159,17 @@ def seed_canonical_skills(team: Team) -> SeedResult:
     unique constraint (`unique_llm_skill_latest_per_team`) to drop duplicate inserts.
     """
     existing = list(
-        LLMSkill.objects.filter(team=team, name__startswith=SIGNALS_AGENT_SKILL_PREFIX).values_list("name", flat=True)
+        LLMSkill.objects.filter(team=team, name__startswith=SIGNALS_SCOUT_SKILL_PREFIX).values_list("name", flat=True)
     )
     if existing:
         return SeedResult(
             created_skill_names=(),
-            skipped_reason=f"team already has {len(set(existing))} signals-agent-* skill(s)",
+            skipped_reason=f"team already has {len(set(existing))} signals-scout-* skill(s)",
         )
 
     canonicals = discover_canonical_skills()
     if not canonicals:
-        return SeedResult(created_skill_names=(), skipped_reason="no canonical signals-agent-* skills on disk")
+        return SeedResult(created_skill_names=(), skipped_reason="no canonical signals-scout-* skills on disk")
 
     created: list[str] = []
     for canonical in canonicals:
@@ -182,7 +182,7 @@ def seed_canonical_skills(team: Team) -> SeedResult:
                     body=canonical.body,
                     allowed_tools=list(canonical.allowed_tools),
                     metadata={
-                        "seeded_by": "signals_agent_harness",
+                        "seeded_by": "signals_scout_harness",
                         "source": "products/signals/skills",
                     },
                     version=1,
@@ -204,7 +204,7 @@ def seed_canonical_skills(team: Team) -> SeedResult:
             # A concurrent caller (e.g. two coordinator-spawned runs for the same team)
             # raced us. The other writer's row stands; we move on.
             logger.info(
-                "signals_agent: concurrent seed dropped, canonical skill already created",
+                "signals_scout: concurrent seed dropped, canonical skill already created",
                 extra={"team_id": team.id, "skill_name": canonical.name},
             )
             continue
@@ -212,7 +212,7 @@ def seed_canonical_skills(team: Team) -> SeedResult:
 
     if created:
         logger.info(
-            "signals_agent: seeded canonical skills",
+            "signals_scout: seeded canonical skills",
             extra={"team_id": team.id, "skill_names": created},
         )
     return SeedResult(created_skill_names=tuple(created))

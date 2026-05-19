@@ -12,22 +12,23 @@ import pytest_asyncio
 
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.agent_harness.tools import (
-    DEFAULT_MEMORY_TTL_DAYS,
+from products.signals.backend.models import SignalScoutRun, SignalScratchpad
+from products.signals.backend.scout_harness.tools import (
+    DEFAULT_SCRATCHPAD_TTL_DAYS,
     MAX_EVIDENCE_ENTRIES,
-    MAX_MEMORY_TTL_DAYS,
+    MAX_SCRATCHPAD_TTL_DAYS,
     EvidenceEntry,
-    HumanConfirmedMemoryError,
+    HumanConfirmedScratchpadError,
     InvalidEmitError,
-    InvalidMemoryError,
+    InvalidScratchpadError,
     emit_finding,
     forget,
     get_run,
     remember,
-    search_memory,
     search_recent_runs,
+    search_scratchpad,
 )
-from products.signals.backend.agent_harness.tools.emit import (
+from products.signals.backend.scout_harness.tools.emit import (
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     _build_extra,
@@ -35,21 +36,20 @@ from products.signals.backend.agent_harness.tools.emit import (
     _record_finding_pre_emit,
     _validate_inputs,
 )
-from products.signals.backend.agent_harness.tools.memory import MAX_MEMORY_SEARCH_LIMIT
-from products.signals.backend.agent_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
-from products.signals.backend.models import SignalAgentRun, SignalMemory
+from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
+from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_SEARCH_LIMIT
 
 
-def _create_run(team, **overrides) -> SignalAgentRun:
+def _create_run(team, **overrides) -> SignalScoutRun:
     defaults: dict = {
-        "skill_name": "signals-agent-errors",
+        "skill_name": "signals-scout-errors",
         "skill_version": 1,
-        "status": SignalAgentRun.Status.COMPLETED,
+        "status": SignalScoutRun.Status.COMPLETED,
         "summary": "found a checkout 500 spike on /api/checkout",
         "findings": [{"id": "f1"}],
     }
     defaults.update(overrides)
-    return SignalAgentRun.objects.create(team=team, **defaults)
+    return SignalScoutRun.objects.create(team=team, **defaults)
 
 
 class TestSearchRecentRuns(BaseTest):
@@ -57,8 +57,8 @@ class TestSearchRecentRuns(BaseTest):
         first = _create_run(self.team, summary="older finding")
         second = _create_run(self.team, summary="newer finding")
         # Force ordering by tweaking started_at because auto_now_add resolution can collide.
-        SignalAgentRun.objects.filter(id=first.id).update(started_at=timezone.now() - timedelta(hours=2))
-        SignalAgentRun.objects.filter(id=second.id).update(started_at=timezone.now() - timedelta(hours=1))
+        SignalScoutRun.objects.filter(id=first.id).update(started_at=timezone.now() - timedelta(hours=2))
+        SignalScoutRun.objects.filter(id=second.id).update(started_at=timezone.now() - timedelta(hours=1))
 
         results = search_recent_runs(team_id=self.team.id)
 
@@ -76,8 +76,8 @@ class TestSearchRecentRuns(BaseTest):
     def test_filters_by_since(self) -> None:
         old = _create_run(self.team, summary="ancient")
         recent = _create_run(self.team, summary="fresh")
-        SignalAgentRun.objects.filter(id=old.id).update(started_at=timezone.now() - timedelta(days=10))
-        SignalAgentRun.objects.filter(id=recent.id).update(started_at=timezone.now() - timedelta(hours=1))
+        SignalScoutRun.objects.filter(id=old.id).update(started_at=timezone.now() - timedelta(days=10))
+        SignalScoutRun.objects.filter(id=recent.id).update(started_at=timezone.now() - timedelta(hours=1))
 
         hits = search_recent_runs(team_id=self.team.id, since=timezone.now() - timedelta(days=1))
 
@@ -150,56 +150,56 @@ class TestRemember(BaseTest):
         before = timezone.now()
         entry = remember(team_id=self.team.id, key="known-noise", content="ignore /favicon 404s")
 
-        row = SignalMemory.objects.get(team_id=self.team.id, key="known-noise")
-        assert row.authority == SignalMemory.Authority.AGENT_INFERENCE
+        row = SignalScratchpad.objects.get(team_id=self.team.id, key="known-noise")
+        assert row.authority == SignalScratchpad.Authority.AGENT_INFERENCE
         assert row.content == "ignore /favicon 404s"
         assert row.expires_at is not None
         elapsed = (row.expires_at - before).total_seconds()
         # Default 7-day TTL: allow ±10s of slack for query execution.
-        assert abs(elapsed - timedelta(days=DEFAULT_MEMORY_TTL_DAYS).total_seconds()) < 10
+        assert abs(elapsed - timedelta(days=DEFAULT_SCRATCHPAD_TTL_DAYS).total_seconds()) < 10
         assert entry.key == "known-noise"
-        assert entry.authority == SignalMemory.Authority.AGENT_INFERENCE
+        assert entry.authority == SignalScratchpad.Authority.AGENT_INFERENCE
 
     def test_idempotent_upsert_on_team_key(self) -> None:
         first = remember(team_id=self.team.id, key="k", content="v1")
         second = remember(team_id=self.team.id, key="k", content="v2", tags=["new"])
 
         assert first.key == second.key
-        rows = SignalMemory.objects.filter(team_id=self.team.id, key="k")
+        rows = SignalScratchpad.objects.filter(team_id=self.team.id, key="k")
         assert rows.count() == 1
         assert rows.first().content == "v2"
         assert rows.first().tags == ["new"]
 
     def test_clamps_ttl_to_max(self) -> None:
         before = timezone.now()
-        remember(team_id=self.team.id, key="k", content="v", ttl_days=MAX_MEMORY_TTL_DAYS + 1000)
+        remember(team_id=self.team.id, key="k", content="v", ttl_days=MAX_SCRATCHPAD_TTL_DAYS + 1000)
 
-        row = SignalMemory.objects.get(team_id=self.team.id, key="k")
-        assert (row.expires_at - before).days >= MAX_MEMORY_TTL_DAYS - 1
-        assert (row.expires_at - before).days <= MAX_MEMORY_TTL_DAYS + 1
+        row = SignalScratchpad.objects.get(team_id=self.team.id, key="k")
+        assert (row.expires_at - before).days >= MAX_SCRATCHPAD_TTL_DAYS - 1
+        assert (row.expires_at - before).days <= MAX_SCRATCHPAD_TTL_DAYS + 1
 
     def test_rejects_overwrite_of_human_confirmed(self) -> None:
         # Human-authored row, never expires.
-        SignalMemory.objects.create(
+        SignalScratchpad.objects.create(
             team=self.team,
             key="locked",
             content="human said so",
-            authority=SignalMemory.Authority.HUMAN_CONFIRMED,
+            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
         )
 
-        with pytest.raises(HumanConfirmedMemoryError):
+        with pytest.raises(HumanConfirmedScratchpadError):
             remember(team_id=self.team.id, key="locked", content="agent override")
 
-        row = SignalMemory.objects.get(team_id=self.team.id, key="locked")
+        row = SignalScratchpad.objects.get(team_id=self.team.id, key="locked")
         assert row.content == "human said so"
-        assert row.authority == SignalMemory.Authority.HUMAN_CONFIRMED
+        assert row.authority == SignalScratchpad.Authority.HUMAN_CONFIRMED
 
     def test_rejects_empty_key_or_content(self) -> None:
-        with pytest.raises(InvalidMemoryError):
+        with pytest.raises(InvalidScratchpadError):
             remember(team_id=self.team.id, key="", content="x")
-        with pytest.raises(InvalidMemoryError):
+        with pytest.raises(InvalidScratchpadError):
             remember(team_id=self.team.id, key="   ", content="x")
-        with pytest.raises(InvalidMemoryError):
+        with pytest.raises(InvalidScratchpadError):
             remember(team_id=self.team.id, key="k", content="")
 
     def test_links_to_creating_run(self) -> None:
@@ -220,79 +220,79 @@ class TestForget(BaseTest):
         result = forget(team_id=self.team.id, key="k")
 
         assert result is True
-        assert not SignalMemory.objects.filter(team_id=self.team.id, key="k").exists()
+        assert not SignalScratchpad.objects.filter(team_id=self.team.id, key="k").exists()
 
     def test_returns_false_when_key_missing(self) -> None:
         assert forget(team_id=self.team.id, key="never-existed") is False
 
     def test_refuses_to_delete_human_confirmed(self) -> None:
-        SignalMemory.objects.create(
+        SignalScratchpad.objects.create(
             team=self.team,
             key="locked",
             content="human said so",
-            authority=SignalMemory.Authority.HUMAN_CONFIRMED,
+            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
         )
 
-        with pytest.raises(HumanConfirmedMemoryError):
+        with pytest.raises(HumanConfirmedScratchpadError):
             forget(team_id=self.team.id, key="locked")
 
-        assert SignalMemory.objects.filter(team_id=self.team.id, key="locked").exists()
+        assert SignalScratchpad.objects.filter(team_id=self.team.id, key="locked").exists()
 
 
 class TestSearchMemory(BaseTest):
     def test_returns_only_unexpired_by_default(self) -> None:
-        SignalMemory.objects.create(
+        SignalScratchpad.objects.create(
             team=self.team,
             key="active",
             content="active",
-            authority=SignalMemory.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
             expires_at=timezone.now() + timedelta(days=1),
         )
-        SignalMemory.objects.create(
+        SignalScratchpad.objects.create(
             team=self.team,
             key="expired",
             content="expired",
-            authority=SignalMemory.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
             expires_at=timezone.now() - timedelta(days=1),
         )
 
-        results = search_memory(team_id=self.team.id)
+        results = search_scratchpad(team_id=self.team.id)
 
         keys = {e.key for e in results}
         assert "active" in keys
         assert "expired" not in keys
 
     def test_include_expired_surfaces_them(self) -> None:
-        SignalMemory.objects.create(
+        SignalScratchpad.objects.create(
             team=self.team,
             key="expired",
             content="expired",
-            authority=SignalMemory.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
             expires_at=timezone.now() - timedelta(days=1),
         )
 
-        results = search_memory(team_id=self.team.id, include_expired=True)
+        results = search_scratchpad(team_id=self.team.id, include_expired=True)
 
         assert any(e.key == "expired" for e in results)
 
     def test_human_confirmed_with_no_expiry_visible(self) -> None:
-        SignalMemory.objects.create(
+        SignalScratchpad.objects.create(
             team=self.team,
             key="forever",
             content="permanent",
-            authority=SignalMemory.Authority.HUMAN_CONFIRMED,
+            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
             expires_at=None,
         )
 
-        results = search_memory(team_id=self.team.id)
+        results = search_scratchpad(team_id=self.team.id)
 
-        assert any(e.key == "forever" and e.authority == SignalMemory.Authority.HUMAN_CONFIRMED for e in results)
+        assert any(e.key == "forever" and e.authority == SignalScratchpad.Authority.HUMAN_CONFIRMED for e in results)
 
     def test_text_filter_uses_ilike(self) -> None:
         remember(team_id=self.team.id, key="k1", content="The CHECKOUT funnel is broken")
         remember(team_id=self.team.id, key="k2", content="Image loading is slow")
 
-        results = search_memory(team_id=self.team.id, text="checkout")
+        results = search_scratchpad(team_id=self.team.id, text="checkout")
 
         assert len(results) == 1
         assert results[0].key == "k1"
@@ -302,7 +302,7 @@ class TestSearchMemory(BaseTest):
         remember(team_id=self.team.id, key="k2", content="y", tags=["llm"])
         remember(team_id=self.team.id, key="k3", content="z", tags=["replay", "errors"])
 
-        results = search_memory(team_id=self.team.id, tags=["errors"])
+        results = search_scratchpad(team_id=self.team.id, tags=["errors"])
 
         keys = {e.key for e in results}
         assert keys == {"k1", "k3"}
@@ -314,17 +314,17 @@ class TestSearchMemory(BaseTest):
         remember(team_id=self.team.id, key="mine", content="mine")
         remember(team_id=other.id, key="theirs", content="theirs")
 
-        results = search_memory(team_id=self.team.id)
+        results = search_scratchpad(team_id=self.team.id)
 
         assert all(e.key == "mine" for e in results)
 
     def test_limit_clamped_to_max(self) -> None:
-        for i in range(MAX_MEMORY_SEARCH_LIMIT + 5):
+        for i in range(MAX_SCRATCHPAD_SEARCH_LIMIT + 5):
             remember(team_id=self.team.id, key=f"k{i:03d}", content=f"c{i}")
 
-        results = search_memory(team_id=self.team.id, limit=MAX_MEMORY_SEARCH_LIMIT + 50)
+        results = search_scratchpad(team_id=self.team.id, limit=MAX_SCRATCHPAD_SEARCH_LIMIT + 50)
 
-        assert len(results) == MAX_MEMORY_SEARCH_LIMIT
+        assert len(results) == MAX_SCRATCHPAD_SEARCH_LIMIT
 
 
 # --- emit adapter tests --- (Phase 3c)
@@ -364,13 +364,13 @@ class TestValidateEmitInputs:
 
 
 class TestBuildEmitExtra:
-    """Pure shaping — no DB. Asserts the dict matches what `SignalsAgentSignalExtra` expects."""
+    """Pure shaping — no DB. Asserts the dict matches what `SignalsScoutSignalExtra` expects."""
 
     def _minimal(self) -> dict:
         return _build_extra(
             run_id="run-uuid",
             finding_id="finding-uuid",
-            skill_name="signals-agent-errors",
+            skill_name="signals-scout-errors",
             skill_version=2,
             confidence=0.7,
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
@@ -384,9 +384,9 @@ class TestBuildEmitExtra:
     def test_minimal_extra_has_only_required_fields(self) -> None:
         extra = self._minimal()
         # Required by schema:
-        assert extra["agent_run_id"] == "run-uuid"
+        assert extra["scout_run_id"] == "run-uuid"
         assert extra["finding_id"] == "finding-uuid"
-        assert extra["skill_name"] == "signals-agent-errors"
+        assert extra["skill_name"] == "signals-scout-errors"
         assert extra["confidence"] == 0.7
         assert extra["evidence"] == [
             {"source_product": "error_tracking", "summary": "500s on /checkout", "entity_id": None}
@@ -398,7 +398,7 @@ class TestBuildEmitExtra:
 
     def test_skill_version_cast_to_float(self) -> None:
         extra = self._minimal()
-        # SignalsAgentSignalExtra.skill_version is float in posthog/schema.py.
+        # SignalsScoutSignalExtra.skill_version is float in posthog/schema.py.
         assert isinstance(extra["skill_version"], float)
         assert extra["skill_version"] == 2.0
 
@@ -406,7 +406,7 @@ class TestBuildEmitExtra:
         extra = _build_extra(
             run_id="run-uuid",
             finding_id="finding-uuid",
-            skill_name="signals-agent-errors",
+            skill_name="signals-scout-errors",
             skill_version=1,
             confidence=0.9,
             evidence=[EvidenceEntry(source_product="logs", summary="bursts of 500s", entity_id="log-1")],
@@ -423,13 +423,13 @@ class TestBuildEmitExtra:
         assert extra["mcp_trace_id"] == "trace-abc"
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
-        """Round-trip: the extra we build must pass `SignalsAgentSignalInput` validation
+        """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
         — this is the contract `emit_signal` checks via `_SIGNAL_VARIANT_LOOKUP`."""
-        from posthog.schema import SignalsAgentSignalInput
+        from posthog.schema import SignalsScoutSignalInput
 
         extra = self._minimal()
         # The full top-level signal — same shape `_SIGNAL_VARIANT_LOOKUP` validates.
-        SignalsAgentSignalInput.model_validate(
+        SignalsScoutSignalInput.model_validate(
             {
                 "source_product": SOURCE_PRODUCT,
                 "source_type": SOURCE_TYPE,
@@ -450,7 +450,7 @@ class TestRecordFindingPreEmit(BaseTest):
             finding_id="f-new",
             description="d",
             weight=0.5,
-            extra={"agent_run_id": str(run.id), "finding_id": "f-new"},
+            extra={"scout_run_id": str(run.id), "finding_id": "f-new"},
         )
 
         assert already is False
@@ -484,7 +484,7 @@ class TestRecordFindingPreEmit(BaseTest):
             finding_id="f-retry",
             description="second",
             weight=0.7,
-            extra={"agent_run_id": str(run.id), "finding_id": "f-retry"},
+            extra={"scout_run_id": str(run.id), "finding_id": "f-retry"},
         )
 
         assert already is False
@@ -519,7 +519,7 @@ class TestRecordFindingPreEmit(BaseTest):
             finding_id="f-done",
             description="changed",
             weight=0.99,
-            extra={"agent_run_id": str(run.id), "finding_id": "f-done"},
+            extra={"scout_run_id": str(run.id), "finding_id": "f-done"},
         )
 
         assert already is True
@@ -582,7 +582,7 @@ async def aorganization_emit():
     from posthog.models import Organization
 
     org = await database_sync_to_async(Organization.objects.create)(
-        name="signals-agent-emit", is_ai_data_processing_approved=True
+        name="signals-scout-emit", is_ai_data_processing_approved=True
     )
     return org
 
@@ -594,14 +594,14 @@ async def ateam_emit(aorganization_emit):
     from products.signals.backend.models import SignalSourceConfig
 
     team = await database_sync_to_async(Team.objects.create)(organization=aorganization_emit, name="emit-team")
-    # The signals_agent source must be explicitly enabled per-team — emit_signal()
+    # The signals_scout source must be explicitly enabled per-team — emit_signal()
     # silently no-ops without it, and the harness preflight mirrors that gate.
     # Default to enabled in tests so the existing happy-path / failure-path emit
     # tests stay focused on what they actually exercise. Tests that exercise the
     # gates themselves create their own SignalSourceConfig overrides.
     await database_sync_to_async(SignalSourceConfig.objects.create)(
         team=team,
-        source_product="signals_agent",
+        source_product="signals_scout",
         source_type="cross_source_issue",
         enabled=True,
     )
@@ -610,11 +610,11 @@ async def ateam_emit(aorganization_emit):
 
 @pytest_asyncio.fixture
 async def arun_emit(ateam_emit):
-    run = await database_sync_to_async(SignalAgentRun.objects.create)(
+    run = await database_sync_to_async(SignalScoutRun.objects.create)(
         team=ateam_emit,
-        skill_name="signals-agent-errors",
+        skill_name="signals-scout-errors",
         skill_version=3,
-        status=SignalAgentRun.Status.RUNNING,
+        status=SignalScoutRun.Status.RUNNING,
     )
     return run
 
@@ -647,12 +647,12 @@ async def test_emit_finding_happy_path_calls_emit_signal_and_marks_emitted(ateam
     assert call_kwargs["source_id"] == f"run:{arun_emit.id}:finding:f-happy"
     assert call_kwargs["description"] == "Checkout 500s post-deploy"
     assert call_kwargs["weight"] == 0.7
-    assert call_kwargs["extra"]["agent_run_id"] == str(arun_emit.id)
+    assert call_kwargs["extra"]["scout_run_id"] == str(arun_emit.id)
     assert call_kwargs["extra"]["finding_id"] == "f-happy"
-    assert call_kwargs["extra"]["skill_name"] == "signals-agent-errors"
+    assert call_kwargs["extra"]["skill_name"] == "signals-scout-errors"
     assert call_kwargs["extra"]["skill_version"] == 3.0
 
-    refreshed = await database_sync_to_async(SignalAgentRun.objects.get)(id=arun_emit.id)
+    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
     assert len(refreshed.findings) == 1
     assert refreshed.findings[0]["emitted"] is True
     assert "emitted_at" in refreshed.findings[0]
@@ -676,7 +676,7 @@ async def test_emit_finding_shadow_mode_skips_external_emit(ateam_emit, arun_emi
     assert result.emitted is False
     assert result.skipped_reason == "shadow_mode"
     mock_emit.assert_not_awaited()
-    refreshed = await database_sync_to_async(SignalAgentRun.objects.get)(id=arun_emit.id)
+    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
     assert refreshed.findings[0]["emitted"] is False
 
 
@@ -727,7 +727,7 @@ async def test_emit_finding_validation_error_does_not_persist_or_emit(ateam_emit
             )
 
     mock_emit.assert_not_awaited()
-    refreshed = await database_sync_to_async(SignalAgentRun.objects.get)(id=arun_emit.id)
+    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
     assert refreshed.findings == []
 
 
@@ -747,7 +747,7 @@ async def test_emit_finding_emit_signal_raises_leaves_finding_unemitted(ateam_em
                 finding_id="f-fails",
             )
 
-    refreshed = await database_sync_to_async(SignalAgentRun.objects.get)(id=arun_emit.id)
+    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
     assert len(refreshed.findings) == 1
     # Pre-emit row recorded but NOT marked emitted, so a later run can spot the gap.
     assert refreshed.findings[0]["finding_id"] == "f-fails"

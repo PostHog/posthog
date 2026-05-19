@@ -1,13 +1,13 @@
 """Emit adapter: agent-authored findings -> emit_signal() with attribution baked in.
 
-The harness owns idempotency. Each finding is recorded on `SignalAgentRun.findings`
+The harness owns idempotency. Each finding is recorded on `SignalScoutRun.findings`
 under `select_for_update` *before* the external `emit_signal` call, then marked
 `emitted=True` post-success. A re-call with the same `finding_id` short-circuits
 without firing the pipeline a second time. Shadow-mode runs persist findings to the
 run row but do not fire the external emit.
 
-Attribution (`agent_run_id`, `finding_id`, `skill_name`, `skill_version`) is read
-off the run row so the agent never has to plumb it through. The `SignalsAgentSignalExtra`
+Attribution (`scout_run_id`, `finding_id`, `skill_name`, `skill_version`) is read
+off the run row so the agent never has to plumb it through. The `SignalsScoutSignalExtra`
 shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
 in `products/signals/backend/api.py` validates against.
 """
@@ -25,11 +25,11 @@ from django.utils import timezone
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalAgentRun
+from products.signals.backend.models import SignalScoutRun
 
 logger = logging.getLogger(__name__)
 
-SOURCE_PRODUCT = "signals_agent"
+SOURCE_PRODUCT = "signals_scout"
 SOURCE_TYPE = "cross_source_issue"
 
 # Defensive cap on evidence list length — the agent shouldn't ship hundreds of
@@ -44,7 +44,7 @@ class InvalidEmitError(ValueError):
 
 @dataclass(frozen=True)
 class EvidenceEntry:
-    """One citation the agent attaches to a finding. Mirrors `SignalsAgentEvidenceEntry`."""
+    """One citation the agent attaches to a finding. Mirrors `SignalsScoutEvidenceEntry`."""
 
     source_product: str
     summary: str
@@ -61,7 +61,7 @@ class EmitResult:
       - "already_emitted": same `finding_id` was previously emitted (idempotent re-call)
       - "shadow_mode": shadow_mode=True was requested
       - "ai_processing_not_approved": team's organization has not approved AI processing
-      - "source_disabled": SignalSourceConfig disables the signals_agent source for this team
+      - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
     """
 
     finding_id: str
@@ -72,7 +72,7 @@ class EmitResult:
 async def emit_finding(
     *,
     team: Team,
-    run: SignalAgentRun,
+    run: SignalScoutRun,
     description: str,
     weight: float,
     confidence: float,
@@ -118,7 +118,7 @@ async def emit_finding(
         evidence_count=len(evidence),
         shadow_mode=shadow_mode,
     )
-    logger.info("signals_agent.emit: attempt", extra=attempt_extra)
+    logger.info("signals_scout.emit: attempt", extra=attempt_extra)
 
     already_emitted = await database_sync_to_async(_record_finding_pre_emit, thread_sensitive=False)(
         run_id=str(run.id),
@@ -128,17 +128,17 @@ async def emit_finding(
         extra=extra,
     )
     if already_emitted:
-        logger.info("signals_agent.emit: skipped already_emitted", extra=attempt_extra)
+        logger.info("signals_scout.emit: skipped already_emitted", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=True, skipped_reason="already_emitted")
 
     if shadow_mode:
-        logger.info("signals_agent.emit: skipped shadow_mode", extra=attempt_extra)
+        logger.info("signals_scout.emit: skipped shadow_mode", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team)
     if preflight is not None:
         logger.warning(
-            "signals_agent.emit: skipped %s",
+            "signals_scout.emit: skipped %s",
             preflight,
             extra={**attempt_extra, "skipped_reason": preflight},
         )
@@ -163,7 +163,7 @@ async def emit_finding(
         run_id=str(run.id), finding_id=finding_id
     )
     logger.info(
-        "signals_agent.emit: emitted",
+        "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
     )
     return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
@@ -172,7 +172,7 @@ async def emit_finding(
 def emit_finding_sync(
     *,
     team: Team,
-    run: SignalAgentRun,
+    run: SignalScoutRun,
     description: str,
     weight: float,
     confidence: float,
@@ -192,7 +192,7 @@ def emit_finding_sync(
     failure is visible on the run row when the runner reads it back.
 
     `time_range` is a `(date_from, date_to)` tuple; the harness normalizes it into
-    the `{"date_from", "date_to"}` shape that `SignalsAgentSignalExtra` expects.
+    the `{"date_from", "date_to"}` shape that `SignalsScoutSignalExtra` expects.
     """
     from asgiref.sync import async_to_sync
 
@@ -223,7 +223,7 @@ def emit_finding_sync(
         evidence_count=len(evidence),
         shadow_mode=shadow_mode,
     )
-    logger.info("signals_agent.emit: attempt", extra=attempt_extra)
+    logger.info("signals_scout.emit: attempt", extra=attempt_extra)
 
     already_emitted = _record_finding_pre_emit(
         run_id=str(run.id),
@@ -233,17 +233,17 @@ def emit_finding_sync(
         extra=extra,
     )
     if already_emitted:
-        logger.info("signals_agent.emit: skipped already_emitted", extra=attempt_extra)
+        logger.info("signals_scout.emit: skipped already_emitted", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=True, skipped_reason="already_emitted")
 
     if shadow_mode:
-        logger.info("signals_agent.emit: skipped shadow_mode", extra=attempt_extra)
+        logger.info("signals_scout.emit: skipped shadow_mode", extra=attempt_extra)
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
 
     preflight = _preflight_emit_gates(team)
     if preflight is not None:
         logger.warning(
-            "signals_agent.emit: skipped %s",
+            "signals_scout.emit: skipped %s",
             preflight,
             extra={**attempt_extra, "skipped_reason": preflight},
         )
@@ -264,7 +264,7 @@ def emit_finding_sync(
 
     _mark_finding_emitted(run_id=str(run.id), finding_id=finding_id)
     logger.info(
-        "signals_agent.emit: emitted",
+        "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
     )
     return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
@@ -300,12 +300,12 @@ def _build_extra(
     time_range: tuple[str, str] | None,
     mcp_trace_id: str | None,
 ) -> dict[str, Any]:
-    """Shape the extra payload to match `SignalsAgentSignalExtra` (extra='forbid'),
+    """Shape the extra payload to match `SignalsScoutSignalExtra` (extra='forbid'),
     omitting optional fields when not provided so pydantic doesn't see a `None` for
     fields that don't accept it."""
-    # SignalsAgentSignalExtra.skill_version is float in the schema; cast explicitly.
+    # SignalsScoutSignalExtra.skill_version is float in the schema; cast explicitly.
     extra: dict[str, Any] = {
-        "agent_run_id": run_id,
+        "scout_run_id": run_id,
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": float(skill_version),
@@ -339,7 +339,7 @@ def _record_finding_pre_emit(
     Otherwise inserts/updates a `emitted=False` row and returns False.
     """
     with transaction.atomic():
-        run = SignalAgentRun.objects.select_for_update().get(id=run_id)
+        run = SignalScoutRun.objects.select_for_update().get(id=run_id)
         findings: list[dict[str, Any]] = list(run.findings or [])
         now_iso = timezone.now().isoformat()
         for entry in findings:
@@ -373,7 +373,7 @@ def _record_finding_pre_emit(
 
 def _mark_finding_emitted(*, run_id: str, finding_id: str) -> None:
     with transaction.atomic():
-        run = SignalAgentRun.objects.select_for_update().get(id=run_id)
+        run = SignalScoutRun.objects.select_for_update().get(id=run_id)
         findings: list[dict[str, Any]] = list(run.findings or [])
         now_iso = timezone.now().isoformat()
         for entry in findings:

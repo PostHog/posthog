@@ -15,29 +15,29 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.agent_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
-from products.signals.backend.agent_harness.prompt import build_run_prompt
-from products.signals.backend.agent_harness.runner import (
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
+from products.signals.backend.scout_harness.prompt import build_run_prompt
+from products.signals.backend.scout_harness.runner import (
     RunResult,
     _finalize_failed,
     _limits_for_run,
     _record_task_linkage,
-    arun_signals_agent,
+    arun_signals_scout,
 )
-from products.signals.backend.agent_harness.skill_loader import (
+from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
-    is_signals_agent_skill,
+    is_signals_scout_skill,
     load_skill_for_run,
 )
-from products.signals.backend.agent_harness.tools.runs import _build_task_url, _to_detail, _to_summary
-from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
-from products.signals.backend.temporal.agentic.agent_scheduler import RunSignalsAgentInput, run_signals_agent_activity
+from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 
 
 @pytest_asyncio.fixture
 async def aorganization():
     organization = await sync_to_async(Organization.objects.create)(
-        name=f"SignalsAgentTestOrg-{random.randint(1, 99999)}",
+        name=f"SignalsScoutTestOrg-{random.randint(1, 99999)}",
         is_ai_data_processing_approved=True,
     )
     yield organization
@@ -48,7 +48,7 @@ async def aorganization():
 async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(
         organization=aorganization,
-        name=f"SignalsAgentTestTeam-{random.randint(1, 99999)}",
+        name=f"SignalsScoutTestTeam-{random.randint(1, 99999)}",
     )
     yield team
     await sync_to_async(team.delete)()
@@ -58,7 +58,7 @@ async def ateam(aorganization):
 async def aerrors_skill(ateam):
     skill = await sync_to_async(LLMSkill.objects.create)(
         team=ateam,
-        name="signals-agent-errors",
+        name="signals-scout-errors",
         description="Errors scout",
         body="scout",
     )
@@ -85,7 +85,7 @@ class TestLimitsResolution(BaseTest):
         # `_limits_for_run` is the three-level merge point: defaults < config row <
         # caller overrides. A caller-supplied key must not silently drop unrelated
         # config-row keys (the bug a previous short-circuit would introduce).
-        config = SignalAgentConfig(team=self.team, limit_overrides={"max_findings": 3})
+        config = SignalScoutConfig(team=self.team, limit_overrides={"max_findings": 3})
         limits = _limits_for_run(config, overrides={"max_runtime_s": 900})
         # Caller's max_runtime_s wins, but the team's max_findings is preserved.
         assert limits.max_runtime_s == 900
@@ -93,12 +93,12 @@ class TestLimitsResolution(BaseTest):
 
     def test_limits_for_run_overrides_win_on_conflict(self) -> None:
         # When config and overrides set the same key, the caller wins.
-        config = SignalAgentConfig(team=self.team, limit_overrides={"max_runtime_s": 600})
+        config = SignalScoutConfig(team=self.team, limit_overrides={"max_runtime_s": 600})
         limits = _limits_for_run(config, overrides={"max_runtime_s": 120})
         assert limits.max_runtime_s == 120
 
     def test_limits_for_run_falls_back_to_config_when_no_overrides(self) -> None:
-        config = SignalAgentConfig(team=self.team, limit_overrides={"max_findings": 2})
+        config = SignalScoutConfig(team=self.team, limit_overrides={"max_findings": 2})
         limits = _limits_for_run(config, overrides=None)
         assert limits.max_findings == 2
         assert limits.max_runtime_s == DEFAULT_LIMITS.max_runtime_s
@@ -118,19 +118,19 @@ class TestSkillLoader(BaseTest):
         return skill
 
     def test_loads_latest_version_by_default(self) -> None:
-        self._create_skill("signals-agent-errors", body="v1 body")
-        loaded = load_skill_for_run(self.team, "signals-agent-errors")
-        assert loaded.name == "signals-agent-errors"
+        self._create_skill("signals-scout-errors", body="v1 body")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
+        assert loaded.name == "signals-scout-errors"
         assert loaded.version == 1
         assert loaded.body == "v1 body"
         assert loaded.allowed_tools == ["search_recent_runs", "remember"]
 
     def test_loads_file_manifest_alongside_body(self) -> None:
         self._create_skill(
-            "signals-agent-errors",
+            "signals-scout-errors",
             file_paths=["references/playbook.md", "references/examples.md"],
         )
-        loaded = load_skill_for_run(self.team, "signals-agent-errors")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
         # Files come back sorted by path so the manifest is stable.
         assert [f.path for f in loaded.files] == [
             "references/examples.md",
@@ -139,25 +139,25 @@ class TestSkillLoader(BaseTest):
 
     def test_missing_skill_raises(self) -> None:
         with pytest.raises(SkillNotFoundError):
-            load_skill_for_run(self.team, "signals-agent-does-not-exist")
+            load_skill_for_run(self.team, "signals-scout-does-not-exist")
 
-    def test_signals_agent_prefix_check(self) -> None:
-        match = self._create_skill("signals-agent-errors")
+    def test_signals_scout_prefix_check(self) -> None:
+        match = self._create_skill("signals-scout-errors")
         non_match = self._create_skill("custom-research-helper")
-        assert is_signals_agent_skill(match) is True
-        assert is_signals_agent_skill(non_match) is False
+        assert is_signals_scout_skill(match) is True
+        assert is_signals_scout_skill(non_match) is False
 
 
 class TestPromptBuilder(BaseTest):
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(
             team=self.team,
-            name="signals-agent-errors",
+            name="signals-scout-errors",
             description="Errors scout",
             body="watch for spikes",
         )
         LLMSkillFile.objects.create(skill=skill, path="refs/playbook.md", content="x", content_type="text/plain")
-        loaded = load_skill_for_run(self.team, "signals-agent-errors")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
         started_at = datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC)
         prompt = build_run_prompt(
             loaded,
@@ -166,7 +166,7 @@ class TestPromptBuilder(BaseTest):
             started_at=started_at,
         )
         # Identity carries the skill name + version so bootstrap can reference it.
-        assert "signals-agent-errors" in prompt
+        assert "signals-scout-errors" in prompt
         assert "(v1)" in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
@@ -176,13 +176,13 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
         # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'llma-skill-get(skill_name="signals-agent-errors", version=1)' in prompt
+        assert 'llma-skill-get(skill_name="signals-scout-errors", version=1)' in prompt
         assert "llma-skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
-        assert "signals-agent-runs-findings-create" in prompt
-        assert "signals-agent-memory-list" in prompt
+        assert "signals-scout-runs-findings-create" in prompt
+        assert "signals-scout-scratchpad-list" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -199,23 +199,23 @@ async def test_successful_run_persists_completed_row(ateam, aerrors_skill):
     async def fake_spawn(**_kwargs):
         return "I would investigate /checkout 500s next."
 
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert result.status == SignalAgentRun.Status.COMPLETED
-    assert result.skill_name == "signals-agent-errors"
+    assert result.status == SignalScoutRun.Status.COMPLETED
+    assert result.skill_name == "signals-scout-errors"
     assert result.skill_version == 1
     assert result.last_message and "checkout" in result.last_message
 
-    run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
-    assert run_row.status == SignalAgentRun.Status.COMPLETED
+    run_row = await database_sync_to_async(SignalScoutRun.objects.get)(id=result.run_id)
+    assert run_row.status == SignalScoutRun.Status.COMPLETED
     assert run_row.completed_at is not None
     assert run_row.summary == "I would investigate /checkout 500s next."
     assert "runtime_s" in run_row.run_metrics
-    config = await database_sync_to_async(SignalAgentConfig.objects.get)(team=ateam)
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam)
     assert config.enabled is False
     assert config.shadow_mode is True
-    assert run_row.agent_config_id == config.id
+    assert run_row.scout_config_id == config.id
 
 
 @pytest.mark.asyncio
@@ -224,13 +224,13 @@ async def test_failed_run_persists_failure_metadata(ateam, aerrors_skill):
     async def fake_spawn(**_kwargs):
         raise RuntimeError("sandbox refused to start")
 
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert result.status == SignalAgentRun.Status.FAILED
+    assert result.status == SignalScoutRun.Status.FAILED
     assert result.last_message is None
-    run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
-    assert run_row.status == SignalAgentRun.Status.FAILED
+    run_row = await database_sync_to_async(SignalScoutRun.objects.get)(id=result.run_id)
+    assert run_row.status == SignalScoutRun.Status.FAILED
     assert run_row.completed_at is not None
     assert "sandbox refused to start" in run_row.summary
     assert run_row.metadata.get("error_type") == "RuntimeError"
@@ -240,8 +240,8 @@ async def test_failed_run_persists_failure_metadata(ateam, aerrors_skill):
 @pytest.mark.django_db
 async def test_missing_skill_does_not_create_run_row(ateam):
     with pytest.raises(SkillNotFoundError):
-        await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-missing")
-    has_runs = await database_sync_to_async(SignalAgentRun.objects.filter(team=ateam).exists)()
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-missing")
+    has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
     assert not has_runs
 
 
@@ -251,39 +251,39 @@ async def test_limit_overrides_propagate_into_run_metadata(ateam, aerrors_skill)
     async def fake_spawn(**_kwargs):
         return "ok"
 
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_agent(
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(
             team_id=ateam.id,
-            skill_name="signals-agent-errors",
+            skill_name="signals-scout-errors",
             limit_overrides={"max_runtime_s": 120},
         )
 
-    run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
+    run_row = await database_sync_to_async(SignalScoutRun.objects.get)(id=result.run_id)
     assert run_row.metadata["limits"]["max_runtime_s"] == 120
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
-    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
-    await database_sync_to_async(SignalAgentRun.objects.create)(
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+    await database_sync_to_async(SignalScoutRun.objects.create)(
         team=ateam,
-        agent_config=config,
-        skill_name="signals-agent-errors",
+        scout_config=config,
+        skill_name="signals-scout-errors",
         skill_version=1,
-        status=SignalAgentRun.Status.RUNNING,
+        status=SignalScoutRun.Status.RUNNING,
     )
 
     async def fake_spawn(**_kwargs):
         raise AssertionError("spawn should not run while a prior run is RUNNING")
 
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert result.run_id is None
     assert result.status is None
     assert result.skip_reason and "RUNNING" in result.skip_reason
-    count = await database_sync_to_async(SignalAgentRun.objects.filter(team=ateam).count)()
+    count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
     assert count == 1
 
 
@@ -293,21 +293,21 @@ async def test_activity_returns_completed_outcome(ateam):
     async def fake_arun(**_kwargs):
         return RunResult(
             run_id="abc",
-            status=SignalAgentRun.Status.COMPLETED,
+            status=SignalScoutRun.Status.COMPLETED,
             last_message="ok",
             runtime_s=1.5,
-            skill_name="signals-agent-errors",
+            skill_name="signals-scout-errors",
             skill_version=2,
         )
 
     with patch(
-        "products.signals.backend.temporal.agentic.agent_scheduler.arun_signals_agent",
+        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
         side_effect=fake_arun,
     ):
         env = ActivityEnvironment()
         output = await env.run(
-            run_signals_agent_activity,
-            RunSignalsAgentInput(team_id=ateam.id, skill_name="signals-agent-errors"),
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
         )
 
     assert output.run_id == "abc"
@@ -325,19 +325,19 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
             status=None,
             last_message=None,
             runtime_s=0.0,
-            skill_name="signals-agent-errors",
+            skill_name="signals-scout-errors",
             skill_version=1,
             skip_reason="prior run still in RUNNING status",
         )
 
     with patch(
-        "products.signals.backend.temporal.agentic.agent_scheduler.arun_signals_agent",
+        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
         side_effect=fake_arun,
     ):
         env = ActivityEnvironment()
         output = await env.run(
-            run_signals_agent_activity,
-            RunSignalsAgentInput(team_id=ateam.id, skill_name="signals-agent-errors"),
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
         )
 
     assert output.run_id is None
@@ -345,7 +345,7 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
     assert output.skip_reason and "RUNNING" in output.skip_reason
 
 
-# ── Tasks-UI cross-link: SignalAgentRun.metadata.task_id / task_run_id ────────
+# ── Tasks-UI cross-link: SignalScoutRun.metadata.task_id / task_run_id ────────
 #
 # The runner spawns a sandbox via `MultiTurnSession.start()` which itself creates
 # a `(Task, TaskRun)` row in the Tasks product. The IDs of that pair are needed
@@ -363,13 +363,13 @@ def test_record_task_linkage_persists_both_ids_into_metadata():
         ),
         name=f"link-test-team-{random.randint(1, 99999)}",
     )
-    config = SignalAgentConfig.objects.create(team=team)
-    run = SignalAgentRun.objects.create(
+    config = SignalScoutConfig.objects.create(team=team)
+    run = SignalScoutRun.objects.create(
         team=team,
-        agent_config=config,
-        skill_name="signals-agent-errors",
+        scout_config=config,
+        skill_name="signals-scout-errors",
         skill_version=1,
-        status=SignalAgentRun.Status.RUNNING,
+        status=SignalScoutRun.Status.RUNNING,
         metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid", "allowed_tools": {"declared": False}},
     )
 
@@ -399,14 +399,14 @@ def test_finalize_failed_preserves_task_linkage():
         ),
         name=f"fail-link-team-{random.randint(1, 99999)}",
     )
-    skill = LLMSkill.objects.create(team=team, name="signals-agent-errors", description="x", body="x")
-    config = SignalAgentConfig.objects.create(team=team)
-    run = SignalAgentRun.objects.create(
+    skill = LLMSkill.objects.create(team=team, name="signals-scout-errors", description="x", body="x")
+    config = SignalScoutConfig.objects.create(team=team)
+    run = SignalScoutRun.objects.create(
         team=team,
-        agent_config=config,
-        skill_name="signals-agent-errors",
+        scout_config=config,
+        skill_name="signals-scout-errors",
         skill_version=1,
-        status=SignalAgentRun.Status.RUNNING,
+        status=SignalScoutRun.Status.RUNNING,
         metadata={"limits": {"max_runtime_s": 1800}, "skill_id": str(skill.id), "allowed_tools": {"declared": False}},
     )
     # Linkage was recorded mid-run (between session start and the failure).
@@ -416,7 +416,7 @@ def test_finalize_failed_preserves_task_linkage():
         task_run_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     )
 
-    loaded = load_skill_for_run(team_id=team.id, skill_name="signals-agent-errors", version=None)
+    loaded = load_skill_for_run(team_id=team.id, skill_name="signals-scout-errors", version=None)
     _finalize_failed(
         run_id=str(run.id),
         exc=RuntimeError("sandbox died"),
@@ -426,7 +426,7 @@ def test_finalize_failed_preserves_task_linkage():
     )
 
     run.refresh_from_db()
-    assert run.status == SignalAgentRun.Status.FAILED
+    assert run.status == SignalScoutRun.Status.FAILED
     # Failure annotation lands.
     assert run.metadata["error_type"] == "RuntimeError"
     # Task linkage survives — without the merge in `_finalize_failed`, the
@@ -469,13 +469,13 @@ def test_to_summary_and_detail_surface_task_url_when_linkage_present():
         ),
         name=f"surface-team-{random.randint(1, 99999)}",
     )
-    config = SignalAgentConfig.objects.create(team=team)
-    run = SignalAgentRun.objects.create(
+    config = SignalScoutConfig.objects.create(team=team)
+    run = SignalScoutRun.objects.create(
         team=team,
-        agent_config=config,
-        skill_name="signals-agent-errors",
+        scout_config=config,
+        skill_name="signals-scout-errors",
         skill_version=1,
-        status=SignalAgentRun.Status.COMPLETED,
+        status=SignalScoutRun.Status.COMPLETED,
         summary="ok",
         metadata={
             "limits": {"max_runtime_s": 1800},
@@ -512,13 +512,13 @@ def test_to_summary_and_detail_emit_null_task_url_when_linkage_missing():
         ),
         name=f"missing-team-{random.randint(1, 99999)}",
     )
-    config = SignalAgentConfig.objects.create(team=team)
-    run = SignalAgentRun.objects.create(
+    config = SignalScoutConfig.objects.create(team=team)
+    run = SignalScoutRun.objects.create(
         team=team,
-        agent_config=config,
-        skill_name="signals-agent-errors",
+        scout_config=config,
+        skill_name="signals-scout-errors",
         skill_version=1,
-        status=SignalAgentRun.Status.COMPLETED,
+        status=SignalScoutRun.Status.COMPLETED,
         summary="ok",
         # No task_id / task_run_id — represents either a row predating the
         # linkage capture or a run that aborted before `MultiTurnSession.start()`

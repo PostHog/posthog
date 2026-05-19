@@ -119,11 +119,11 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
-    signals-agent-memory-create:
-        operation: signals_agent_memory_create
+    signals-scout-scratchpad-create:
+        operation: signals_scout_scratchpad_create
         enabled: true
         scopes:
-            - signal_agent_internal:write
+            - signal_scout_internal:write
         annotations:
             readOnly: false
             destructive: false
@@ -134,11 +134,11 @@ tools:
             in place and resets its TTL (default 7 days, max 90). Cannot overwrite `human_confirmed` entries — those are
             managed by humans only. Use this to record "already saw it" notes, dedupe keys, validated hypotheses, or
             narrow the scope of future runs.
-    signals-agent-memory-delete:
-        operation: signals_agent_memory_delete
+    signals-scout-scratchpad-delete:
+        operation: signals_scout_scratchpad_delete
         enabled: true
         scopes:
-            - signal_agent_internal:write
+            - signal_scout_internal:write
         annotations:
             readOnly: false
             destructive: true
@@ -147,11 +147,11 @@ tools:
         description: >
             Delete an `agent_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is
             idempotent. Cannot delete `human_confirmed` entries.
-    signals-agent-memory-list:
-        operation: signals_agent_memory_list
+    signals-scout-scratchpad-list:
+        operation: signals_scout_scratchpad_list
         enabled: true
         scopes:
-            - signal_agent:read
+            - signal_scout:read
         annotations:
             readOnly: true
             destructive: false
@@ -159,7 +159,7 @@ tools:
         list: true
         title: Search durable agent memories
         description: >
-            Return `SignalMemory` entries the project has accumulated — known issues, false positives, team steering.
+            Return `SignalScratchpad` entries the project has accumulated — known issues, false positives, team steering.
             ILIKE matches on `content`; tags filter via Postgres array overlap (pass repeated `tags=` query params).
             Expired `agent_inference` entries are hidden by default; pass `include_expired=true` for audit/debug.
         response:
@@ -172,27 +172,27 @@ tools:
                 - updated_at
                 - expires_at
                 - created_by_run_id
-    signals-agent-runs-findings-create:
-        operation: signals_agent_runs_findings_create
+    signals-scout-runs-findings-create:
+        operation: signals_scout_runs_findings_create
         enabled: true
         scopes:
-            - signal_agent_internal:write
+            - signal_scout_internal:write
         annotations:
             readOnly: false
             destructive: false
             idempotent: true
         title: Emit a finding for a run
         description: >
-            Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with `source_product = signals_agent`.
+            Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`.
             Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without
             re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted on the run
             row but the external emit is a no-op. Use `weight` to rank, `confidence` to self-grade, and attach evidence
             citations referencing `error_tracking`, `session_replay`, `logs`, `feature_flags`, etc.
-    signals-agent-runs-list:
-        operation: signals_agent_runs_list
+    signals-scout-runs-list:
+        operation: signals_scout_runs_list
         enabled: true
         scopes:
-            - signal_agent:read
+            - signal_scout:read
         annotations:
             readOnly: true
             destructive: false
@@ -200,7 +200,7 @@ tools:
         list: true
         title: Search recent agent runs
         description: >
-            Return recent `SignalAgentRun` summaries for the current project, newest first. Used by the headless Signals
+            Return recent `SignalScoutRun` summaries for the current project, newest first. Used by the headless Signals
             agent to dedupe its own work — read what other runs already covered before generating new hypotheses. ILIKE
             matches on `summary`; results are capped at 100 (default 20). Optional `since` window narrows to recent runs
             only.
@@ -214,20 +214,20 @@ tools:
                 - completed_at
                 - summary
                 - findings_count
-    signals-agent-runs-retrieve:
-        operation: signals_agent_runs_retrieve
+    signals-scout-runs-retrieve:
+        operation: signals_scout_runs_retrieve
         enabled: true
         scopes:
-            - signal_agent:read
+            - signal_scout:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
         title: Get an agent run by ID
         description: >
-            Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`,
+            Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`,
             `tool_call_log`, and `metadata`. Strictly team-scoped — a UUID belonging to another project returns 404.
-            Follow up to a row surfaced by `signals-agent-runs-list` when you need the full payload.
+            Follow up to a row surfaced by `signals-scout-runs-list` when you need the full payload.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false

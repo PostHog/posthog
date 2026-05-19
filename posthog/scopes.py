@@ -87,8 +87,8 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
-    "signal_agent",
-    "signal_agent_internal",
+    "signal_scout",
+    "signal_scout_internal",
     "streamlit_app",
     "subscription",
     "survey",
@@ -131,8 +131,8 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         "query_performance",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
-        # `signal_agent` object so user-grantable PAKs can still inspect runs/memory.
-        "signal_agent_internal",
+        # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
+        "signal_scout_internal",
     }
 )
 
@@ -151,11 +151,11 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "w
 # (and therefore `validate_scopes()` on personal API keys) untouched.
 #
 # Today this is the Signals agent harness sandbox: the harness mints an OAuth
-# token containing `signal_agent_internal:write` so the in-sandbox agent can
-# call `signals-agent-runs-findings-create` / `-memory-create` / `-memory-delete`,
+# token containing `signal_scout_internal:write` so the in-sandbox agent can
+# call `signals-scout-runs-findings-create` / `-memory-create` / `-memory-delete`,
 # but a user PAK with that scope would be a durable prompt-injection vector
 # (memory rows are read verbatim into every subsequent run's prompt).
-PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"signal_agent_internal"})
+PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"signal_scout_internal"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
@@ -248,7 +248,7 @@ def get_oauth_grantable_scope_descriptions() -> dict[str, str]:
     Mirrors `get_oauth_scopes_supported()` and is used by Django's
     `OAUTH2_PROVIDER["SCOPES"]` to validate scope requests at `/authorize`.
     Without this, scopes advertised in OAuth metadata but excluded from PAK UI
-    (`PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS` — e.g. `signal_agent_internal`)
+    (`PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS` — e.g. `signal_scout_internal`)
     would be rejected with `invalid_scope` despite being intentionally
     OAuth-grantable for server-to-server flows like the Signals agent harness
     sandbox token.

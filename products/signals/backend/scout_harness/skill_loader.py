@@ -5,13 +5,13 @@ from dataclasses import dataclass, field
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.agent_harness.tool_registry import (
+from products.signals.backend.scout_harness.tool_registry import (
     AllowedToolsResolution,
     validate_and_partition_allowed_tools,
 )
 
 # Naming contract for skills that steer a Signals-agent run.
-SIGNALS_AGENT_SKILL_PREFIX = "signals-agent-"
+SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 
 
 class SkillNotFoundError(LookupError):
@@ -46,14 +46,14 @@ class LoadedSkill:
     )
 
 
-def is_signals_agent_skill(skill: LLMSkill) -> bool:
-    return skill.name.startswith(SIGNALS_AGENT_SKILL_PREFIX)
+def is_signals_scout_skill(skill: LLMSkill) -> bool:
+    return skill.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
 
 
 def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = None) -> LoadedSkill:
     """Resolve a skill on the team's namespace and load its body + file manifest.
 
-    Pass `version=None` to follow-latest. The `signals-agent-*` prefix is not enforced
+    Pass `version=None` to follow-latest. The `signals-scout-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
     """
     # Lazy import: `products.llm_analytics.backend.api` triggers a temporal module load

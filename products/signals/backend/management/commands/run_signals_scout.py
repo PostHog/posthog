@@ -1,7 +1,7 @@
 """Hand-trigger one Signals agent run against a team + skill.
 
 Used during dogfood to exercise the harness end-to-end without waiting for the
-Temporal scheduler. Inserts a `SignalAgentRun` row, spawns a sandbox, polls until
+Temporal scheduler. Inserts a `SignalScoutRun` row, spawns a sandbox, polls until
 the agent finishes, and prints the resulting run id and final message.
 """
 
@@ -11,8 +11,8 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.signals.backend.agent_harness.runner import run_signals_agent
-from products.signals.backend.agent_harness.skill_loader import SkillNotFoundError
+from products.signals.backend.scout_harness.runner import run_signals_scout
+from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 
 
 class Command(BaseCommand):
@@ -45,7 +45,7 @@ class Command(BaseCommand):
                 raise CommandError("--budget must be a JSON object")
 
         try:
-            result = run_signals_agent(
+            result = run_signals_scout(
                 team_id=options["team_id"],
                 skill_name=options["skill_name"],
                 skill_version=options["skill_version"],

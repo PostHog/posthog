@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
-# Per-team overrides live on `SignalAgentConfig.limit_overrides` as a partial jsonb
+# Per-team overrides live on `SignalScoutConfig.limit_overrides` as a partial jsonb
 # dict. Only the fields below are honoured — extra keys are ignored.
 #
 # `max_runtime_s` is the hard cap on the sandbox poll loop; the poll-loop's own
@@ -11,7 +11,7 @@ from typing import Any
 # raising it above the poll cap has no effect (the poll loop wins).
 #
 # `max_findings` is a soft target — the agent self-limits via the
-# `signals-agent-runs-findings-create` idempotency rule plus its own
+# `signals-scout-runs-findings-create` idempotency rule plus its own
 # "fewer, better" calibration. We don't reject finding emits past the cap; we
 # instead read it back via `len(run.findings)` at finalize and surface it as a
 # metric for follow-up calibration.
@@ -25,7 +25,7 @@ class RunLimits:
 
     Cost and tool-call caps are deliberately *not* in here — token cost data only
     arrives via LLM analytics (the `metadata.task_run_id` join key on
-    `SignalAgentRun` makes that join possible later) and there's no runtime
+    `SignalScoutRun` makes that join possible later) and there's no runtime
     enforcement primitive for either today. Adding fields without a populate path
     would make the schema lie about what we measure; keeping this dataclass
     honest is the priority.

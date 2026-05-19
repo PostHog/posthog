@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 # Canonical names of harness-internal tools the agent can call during a run.
-# Updated whenever a new tool lands in `agent_harness/tools/`. Order is alphabetical
+# Updated whenever a new tool lands in `scout_harness/tools/`. Order is alphabetical
 # so the diff is easy to read when one is added.
 HARNESS_INTERNAL_TOOLS: frozenset[str] = frozenset(
     {
@@ -12,7 +12,7 @@ HARNESS_INTERNAL_TOOLS: frozenset[str] = frozenset(
         "forget",
         "get_run",
         "remember",
-        "search_memory",
+        "search_scratchpad",
         "search_recent_runs",
     }
 )

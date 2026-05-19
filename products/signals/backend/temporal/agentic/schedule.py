@@ -19,16 +19,16 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.signals.backend.temporal.agentic.agent_coordinator import (
+from products.signals.backend.temporal.agentic.scout_coordinator import (
     COORDINATOR_INTERVAL_MINUTES,
     CoordinatorWorkflowInput,
 )
 
-SIGNALS_AGENT_COORDINATOR_SCHEDULE_ID = "signals-agent-coordinator-schedule"
-SIGNALS_AGENT_COORDINATOR_WORKFLOW_NAME = "run-signals-agent-coordinator"
+SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID = "signals-scout-coordinator-schedule"
+SIGNALS_SCOUT_COORDINATOR_WORKFLOW_NAME = "run-signals-scout-coordinator"
 
 
-async def create_signals_agent_coordinator_schedule(client: Client) -> None:
+async def create_signals_scout_coordinator_schedule(client: Client) -> None:
     """Create or update the hourly schedule that drives the Signals agent coordinator.
 
     The coordinator runs on the existing signals task queue (currently
@@ -39,21 +39,21 @@ async def create_signals_agent_coordinator_schedule(client: Client) -> None:
     """
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            SIGNALS_AGENT_COORDINATOR_WORKFLOW_NAME,
+            SIGNALS_SCOUT_COORDINATOR_WORKFLOW_NAME,
             asdict(CoordinatorWorkflowInput()),
-            id=SIGNALS_AGENT_COORDINATOR_SCHEDULE_ID,
+            id=SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
-    if await a_schedule_exists(client, SIGNALS_AGENT_COORDINATOR_SCHEDULE_ID):
-        await a_update_schedule(client, SIGNALS_AGENT_COORDINATOR_SCHEDULE_ID, schedule)
+    if await a_schedule_exists(client, SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID):
+        await a_update_schedule(client, SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(
             client,
-            SIGNALS_AGENT_COORDINATOR_SCHEDULE_ID,
+            SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID,
             schedule,
             trigger_immediately=False,
         )

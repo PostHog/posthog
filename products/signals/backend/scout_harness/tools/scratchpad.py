@@ -1,4 +1,4 @@
-"""Durable memory tools: read/write `SignalMemory` entries for the team.
+"""Durable memory tools: read/write `SignalScratchpad` entries for the team.
 
 The agent calls `remember`/`forget` via this module. All agent-written entries
 have authority `agent_inference` and are TTL'd. The schema reserves a
@@ -17,33 +17,33 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from products.signals.backend.models import SignalMemory
+from products.signals.backend.models import SignalScratchpad
 
 # TTL bounds on agent-written entries. The default of 7 days matches the spec;
 # a hard upper bound prevents an over-eager agent from creating effectively-
 # permanent rows.
-DEFAULT_MEMORY_TTL_DAYS = 7
-MAX_MEMORY_TTL_DAYS = 90
+DEFAULT_SCRATCHPAD_TTL_DAYS = 7
+MAX_SCRATCHPAD_TTL_DAYS = 90
 
 # Defensive cap on search results.
-DEFAULT_MEMORY_SEARCH_LIMIT = 20
-MAX_MEMORY_SEARCH_LIMIT = 100
+DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
+MAX_SCRATCHPAD_SEARCH_LIMIT = 100
 
 # Keys/content are agent-chosen prose. Match the model's column lengths so callers
 # get a clean error before hitting the DB.
-MAX_MEMORY_KEY_LENGTH = 300
+MAX_SCRATCHPAD_KEY_LENGTH = 300
 
 
-class InvalidMemoryError(ValueError):
+class InvalidScratchpadError(ValueError):
     """The agent tried to write a memory with invalid shape (empty key, oversized, etc)."""
 
 
-class HumanConfirmedMemoryError(PermissionError):
+class HumanConfirmedScratchpadError(PermissionError):
     """The agent tried to overwrite or delete a `human_confirmed` entry."""
 
 
 @dataclass(frozen=True)
-class MemoryEntry:
+class ScratchpadEntry:
     key: str
     content: str
     authority: str
@@ -57,14 +57,14 @@ class MemoryEntry:
         return asdict(self)
 
 
-def search_memory(
+def search_scratchpad(
     *,
     team_id: int,
     text: str | None = None,
     tags: list[str] | None = None,
-    limit: int = DEFAULT_MEMORY_SEARCH_LIMIT,
+    limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
     include_expired: bool = False,
-) -> list[MemoryEntry]:
+) -> list[ScratchpadEntry]:
     """Return memories the agent should consider when planning a run.
 
     `text` matches ILIKE against `content`. `tags` filters via Postgres array overlap
@@ -72,7 +72,7 @@ def search_memory(
     hidden by default; pass `include_expired=True` to surface them for audit/debug.
     """
     clamped_limit = _clamp_search_limit(limit)
-    qs = SignalMemory.objects.filter(team_id=team_id)
+    qs = SignalScratchpad.objects.filter(team_id=team_id)
     if not include_expired:
         # `expires_at IS NULL` is the no-expiry sentinel (only valid for human_confirmed
         # per the model's invariant — we keep them visible).
@@ -91,14 +91,14 @@ def remember(
     key: str,
     content: str,
     tags: list[str] | None = None,
-    ttl_days: int = DEFAULT_MEMORY_TTL_DAYS,
+    ttl_days: int = DEFAULT_SCRATCHPAD_TTL_DAYS,
     run_id: str | None = None,
-) -> MemoryEntry:
+) -> ScratchpadEntry:
     """Write or update an `agent_inference` memory entry. Idempotent on `(team, key)`.
 
     The agent never sets `human_confirmed` — that authority class is reserved for
     humans. If a `human_confirmed` row already exists for the key, this raises
-    `HumanConfirmedMemoryError` rather than silently overwriting it.
+    `HumanConfirmedScratchpadError` rather than silently overwriting it.
     """
     _validate_key_content(key, content)
     clamped_ttl = _clamp_ttl_days(ttl_days)
@@ -106,15 +106,15 @@ def remember(
     normalized_tags = [t for t in (tags or []) if t]
 
     with transaction.atomic():
-        existing = SignalMemory.objects.select_for_update().filter(team_id=team_id, key=key).first()
-        if existing is not None and existing.authority == SignalMemory.Authority.HUMAN_CONFIRMED:
-            raise HumanConfirmedMemoryError(f"Cannot overwrite human-confirmed memory '{key}' on team {team_id}")
+        existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
+        if existing is not None and existing.authority == SignalScratchpad.Authority.HUMAN_CONFIRMED:
+            raise HumanConfirmedScratchpadError(f"Cannot overwrite human-confirmed memory '{key}' on team {team_id}")
         if existing is None:
-            row = SignalMemory.objects.create(
+            row = SignalScratchpad.objects.create(
                 team_id=team_id,
                 key=key,
                 content=content,
-                authority=SignalMemory.Authority.AGENT_INFERENCE,
+                authority=SignalScratchpad.Authority.AGENT_INFERENCE,
                 tags=normalized_tags,
                 expires_at=expires_at,
                 created_by_run_id=run_id,
@@ -133,41 +133,41 @@ def remember(
 def forget(*, team_id: int, key: str) -> bool:
     """Delete an `agent_inference` entry by key. Returns whether anything was removed.
 
-    Does NOT delete `human_confirmed` entries — raises `HumanConfirmedMemoryError`.
+    Does NOT delete `human_confirmed` entries — raises `HumanConfirmedScratchpadError`.
     Returns False if the key doesn't exist (no-op).
     """
     with transaction.atomic():
-        existing = SignalMemory.objects.select_for_update().filter(team_id=team_id, key=key).first()
+        existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         if existing is None:
             return False
-        if existing.authority == SignalMemory.Authority.HUMAN_CONFIRMED:
-            raise HumanConfirmedMemoryError(f"Cannot forget human-confirmed memory '{key}' on team {team_id}")
+        if existing.authority == SignalScratchpad.Authority.HUMAN_CONFIRMED:
+            raise HumanConfirmedScratchpadError(f"Cannot forget human-confirmed memory '{key}' on team {team_id}")
         existing.delete()
     return True
 
 
 def _validate_key_content(key: str, content: str) -> None:
     if not key or not key.strip():
-        raise InvalidMemoryError("memory key must be non-empty")
-    if len(key) > MAX_MEMORY_KEY_LENGTH:
-        raise InvalidMemoryError(f"memory key length {len(key)} exceeds max {MAX_MEMORY_KEY_LENGTH}")
+        raise InvalidScratchpadError("memory key must be non-empty")
+    if len(key) > MAX_SCRATCHPAD_KEY_LENGTH:
+        raise InvalidScratchpadError(f"memory key length {len(key)} exceeds max {MAX_SCRATCHPAD_KEY_LENGTH}")
     if not content or not content.strip():
-        raise InvalidMemoryError("memory content must be non-empty")
+        raise InvalidScratchpadError("memory content must be non-empty")
 
 
 def _clamp_ttl_days(ttl_days: int) -> int:
     if ttl_days < 1:
         return 1
-    if ttl_days > MAX_MEMORY_TTL_DAYS:
-        return MAX_MEMORY_TTL_DAYS
+    if ttl_days > MAX_SCRATCHPAD_TTL_DAYS:
+        return MAX_SCRATCHPAD_TTL_DAYS
     return ttl_days
 
 
 def _clamp_search_limit(limit: int) -> int:
     if limit < 1:
         return 1
-    if limit > MAX_MEMORY_SEARCH_LIMIT:
-        return MAX_MEMORY_SEARCH_LIMIT
+    if limit > MAX_SCRATCHPAD_SEARCH_LIMIT:
+        return MAX_SCRATCHPAD_SEARCH_LIMIT
     return limit
 
 
@@ -175,11 +175,11 @@ def _not_expired_clause() -> Q:
     return Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.now())
 
 
-def _to_entry(row: SignalMemory) -> MemoryEntry:
+def _to_entry(row: SignalScratchpad) -> ScratchpadEntry:
     # Django's FK descriptor exposes both `created_by_run` (object) and `created_by_run_id`
     # (the raw FK column). `getattr` keeps Pyright happy without a join.
     run_pk = getattr(row, "created_by_run_id", None)
-    return MemoryEntry(
+    return ScratchpadEntry(
         key=row.key,
         content=row.content,
         authority=row.authority,

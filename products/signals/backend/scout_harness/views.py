@@ -1,13 +1,13 @@
 """DRF viewsets exposing the Signals agent surface over HTTP for MCP consumption.
 
-These wrap the sync Python tools in `agent_harness/tools/` so the headless agent
-(and any other agent on the team's PostHog MCP) can call the `signals-agent-*`
+These wrap the sync Python tools in `scout_harness/tools/` so the headless agent
+(and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
 `memory-create`, and `memory-delete` — over the standard PostHog MCP plumbing.
 
-Auth uses two dedicated scope objects: `signal_agent:read` is user-grantable
+Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/memory from
-their own clients), while `signal_agent_internal:write` is in
+their own clients), while `signal_scout_internal:write` is in
 `INTERNAL_API_SCOPE_OBJECTS` and so can't be granted via PAK at all — the
 sandbox gets it only via `INTERNAL_SCOPES` when its OAuth token is minted.
 This blocks the prompt-injection vector where a user could mint a PAK,
@@ -31,39 +31,39 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.agent_harness.serializers import (
+from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
     EvidenceEntrySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
-    MemoryEntrySerializer,
     RememberRequestSerializer,
+    ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
-    SignalAgentRunDetailSerializer,
-    SignalAgentRunSummarySerializer,
+    SignalScoutRunDetailSerializer,
+    SignalScoutRunSummarySerializer,
 )
-from products.signals.backend.agent_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
-from products.signals.backend.agent_harness.tools.memory import (
-    HumanConfirmedMemoryError,
-    InvalidMemoryError,
+from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
+from products.signals.backend.scout_harness.tools.scratchpad import (
+    HumanConfirmedScratchpadError,
+    InvalidScratchpadError,
     forget,
     remember,
-    search_memory,
+    search_scratchpad,
 )
-from products.signals.backend.agent_harness.tools.runs import get_run, search_recent_runs
-from products.signals.backend.models import SignalAgentRun
 
 
-class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
-    serializer_class = SignalAgentRunSummarySerializer
+    serializer_class = SignalScoutRunSummarySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "signal_agent"
-    queryset = SignalAgentRun.objects.all()
+    scope_object = "signal_scout"
+    queryset = SignalScoutRun.objects.all()
     # Lookup is the run's UUID PK; DRF parses with the default `pk` URL kwarg.
     lookup_field = "id"
     lookup_value_regex = "[0-9a-f-]+"
@@ -72,13 +72,13 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=SearchRecentRunsQuerySerializer,
         responses={
             200: OpenApiResponse(
-                response=SignalAgentRunSummarySerializer(many=True),
+                response=SignalScoutRunSummarySerializer(many=True),
                 description="Recent run summaries newest-first.",
             ),
         },
         summary="Search recent agent runs",
         description=(
-            "Return the most recent `SignalAgentRun` summaries for this project, newest first. "
+            "Return the most recent `SignalScoutRun` summaries for this project, newest first. "
             "Used by the headless agent to dedupe against work other runs already covered. "
             "ILIKE matches on `summary`; results are capped at 100."
         ),
@@ -89,16 +89,16 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         since = validated.get("since")
         limit = validated.get("limit") or 20
         rows = search_recent_runs(team_id=self.team_id, text=text, since=since, limit=limit)
-        return Response(SignalAgentRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @extend_schema(
         responses={
-            200: OpenApiResponse(response=SignalAgentRunDetailSerializer, description="Full run detail."),
+            200: OpenApiResponse(response=SignalScoutRunDetailSerializer, description="Full run detail."),
             404: OpenApiResponse(description="Run not found or not visible to this project."),
         },
         summary="Get a run by ID",
         description=(
-            "Return the full `SignalAgentRun` row including `summary`, `findings`, "
+            "Return the full `SignalScoutRun` row including `summary`, `findings`, "
             "`hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — "
             "a UUID belonging to another team returns 404."
         ),
@@ -110,7 +110,7 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail = get_run(team_id=self.team_id, run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
-        return Response(SignalAgentRunDetailSerializer(detail.as_dict()).data)
+        return Response(SignalScoutRunDetailSerializer(detail.as_dict()).data)
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,
@@ -123,8 +123,8 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Emit a finding for a run",
         description=(
-            "Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with "
-            "`source_product = signals_agent`. Idempotent on `(run_id, finding_id)` — a "
+            "Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with "
+            "`source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a "
             "second call with the same `finding_id` short-circuits without re-firing the pipeline. "
             "Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external "
             "emit is a no-op."
@@ -134,17 +134,17 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="findings",
-        required_scopes=["signal_agent_internal:write"],
+        required_scopes=["signal_scout_internal:write"],
         pagination_class=None,
     )
     def findings(self, request: Request, **kwargs) -> Response:
         run_id = kwargs.get("id")
         if run_id is None:
             raise exceptions.NotFound()
-        run = SignalAgentRun.objects.select_related("agent_config").filter(team_id=self.team_id, id=run_id).first()
+        run = SignalScoutRun.objects.select_related("scout_config").filter(team_id=self.team_id, id=run_id).first()
         if run is None:
             raise exceptions.NotFound()
-        if run.status != SignalAgentRun.Status.RUNNING:
+        if run.status != SignalScoutRun.Status.RUNNING:
             raise exceptions.ValidationError(
                 {"status": f"Findings can only be emitted on RUNNING runs (current: {run.status})."}
             )
@@ -167,7 +167,7 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Default to shadow mode when there is no config (e.g. legacy run row from a deleted
         # config) — safe-by-default keeps a misconfigured run from accidentally firing emits.
-        config = run.agent_config
+        config = run.scout_config
         shadow_mode = True if config is None else bool(config.shadow_mode)
 
         try:
@@ -206,41 +206,41 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     _EVIDENCE_SHAPE = EvidenceEntrySerializer
 
 
-class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Durable agent memories (`SignalMemory`) — read, write, and delete.
+class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Durable agent memories (`SignalScratchpad`) — read, write, and delete.
 
-    Reads (`list`) use the public `signal_agent:read` scope by inheriting the
+    Reads (`list`) use the public `signal_scout:read` scope by inheriting the
     viewset's `scope_object`. Writes (`create`, `delete`) elevate to the
-    internal-only `signal_agent_internal:write` scope — `delete` carries it
+    internal-only `signal_scout_internal:write` scope — `delete` carries it
     on its `@action`, and `create` (a built-in DRF method) gets it via the
     `dangerously_get_required_scopes` hook below.
     """
 
-    serializer_class = MemoryEntrySerializer
+    serializer_class = ScratchpadEntrySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "signal_agent"
+    scope_object = "signal_scout"
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         # `create` is a default DRF action so it has no `@action` decorator to set
         # `required_scopes`; without this override the permission would resolve to
-        # `signal_agent:write` (user-grantable) and let any team member with a PAK
+        # `signal_scout:write` (user-grantable) and let any team member with a PAK
         # write durable memories. Map it to the internal scope explicitly.
         if getattr(view, "action", None) == "create":
-            return ["signal_agent_internal:write"]
+            return ["signal_scout_internal:write"]
         return None
 
     @validated_request(
         query_serializer=SearchMemoryQuerySerializer,
         responses={
             200: OpenApiResponse(
-                response=MemoryEntrySerializer(many=True),
+                response=ScratchpadEntrySerializer(many=True),
                 description="Matching memory entries newest-first.",
             ),
         },
         summary="Search durable memories",
         description=(
-            "Return `SignalMemory` entries for this project. ILIKE matches on `content`; tags "
+            "Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags "
             "filter via Postgres array overlap. Expired `agent_inference` entries are hidden by "
             "default."
         ),
@@ -251,19 +251,19 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         tags = validated.get("tags") or None
         limit = validated.get("limit") or 20
         include_expired = bool(validated.get("include_expired") or False)
-        rows = search_memory(
+        rows = search_scratchpad(
             team_id=self.team_id,
             text=text,
             tags=list(tags) if tags else None,
             limit=limit,
             include_expired=include_expired,
         )
-        return Response(MemoryEntrySerializer([row.as_dict() for row in rows], many=True).data)
+        return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
         request_serializer=RememberRequestSerializer,
         responses={
-            200: OpenApiResponse(response=MemoryEntrySerializer, description="Memory entry written or refreshed."),
+            200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(description="Invalid memory shape (empty key/content, key too long)."),
             403: OpenApiResponse(description="Tried to overwrite a `human_confirmed` entry."),
         },
@@ -281,7 +281,7 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # field on the request body and a foreign-team UUID would otherwise create
         # a cross-team `created_by_run_id` reference on this team's memory row.
         # Bad UUIDs are blocked by `UUIDField` in the serializer.
-        if run_id is not None and not SignalAgentRun.objects.filter(id=run_id, team_id=self.team_id).exists():
+        if run_id is not None and not SignalScoutRun.objects.filter(id=run_id, team_id=self.team_id).exists():
             raise exceptions.ValidationError({"run_id": "run_id does not reference a run on this project"})
         try:
             entry = remember(
@@ -292,11 +292,11 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ttl_days=data.get("ttl_days") or 7,
                 run_id=str(run_id) if run_id is not None else None,
             )
-        except InvalidMemoryError as exc:
+        except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
-        except HumanConfirmedMemoryError as exc:
+        except HumanConfirmedScratchpadError as exc:
             raise exceptions.PermissionDenied(detail=str(exc))
-        return Response(MemoryEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
+        return Response(ScratchpadEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=ForgetRequestSerializer,
@@ -309,19 +309,19 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. "
             "Cannot delete `human_confirmed` entries — those are human-managed only."
         ),
-        operation_id="signals_agent_memory_delete",
+        operation_id="signals_scout_scratchpad_delete",
     )
     @action(
         detail=False,
         methods=["post"],
         url_path="delete",
-        required_scopes=["signal_agent_internal:write"],
+        required_scopes=["signal_scout_internal:write"],
         pagination_class=None,
     )
     def delete(self, request: Request, **kwargs) -> Response:
         data = request.validated_data
         try:
             removed = forget(team_id=self.team_id, key=data["key"])
-        except HumanConfirmedMemoryError as exc:
+        except HumanConfirmedScratchpadError as exc:
             raise exceptions.PermissionDenied(detail=str(exc))
         return Response(ForgetResponseSerializer({"deleted": removed}).data)

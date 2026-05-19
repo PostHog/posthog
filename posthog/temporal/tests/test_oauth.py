@@ -18,12 +18,12 @@ class TestResolveScopes(SimpleTestCase):
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
 
-    def test_signals_agent_preset_matches_read_only_content(self) -> None:
-        # `signals_agent` and `read_only` share the same scope content. The only
+    def test_signals_scout_preset_matches_read_only_content(self) -> None:
+        # `signals_scout` and `read_only` share the same scope content. The only
         # behavioral difference is `has_write_scopes` (covered separately) — that
         # preset toggles the MCP server's read-only-mode tool filter.
-        assert resolve_scopes("signals_agent") == resolve_scopes("read_only")
-        assert "action:write" not in resolve_scopes("signals_agent")
+        assert resolve_scopes("signals_scout") == resolve_scopes("read_only")
+        assert "action:write" not in resolve_scopes("signals_scout")
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
@@ -76,7 +76,7 @@ class TestHasWriteScopes(SimpleTestCase):
         [
             ("read_only_preset", "read_only", False),
             ("full_preset", "full", True),
-            ("signals_agent_preset", "signals_agent", True),
+            ("signals_scout_preset", "signals_scout", True),
             ("custom_with_mcp_write", ["feature_flag:read", "feature_flag:write"], True),
             ("custom_read_only", ["feature_flag:read", "insight:read"], False),
             ("custom_with_non_mcp_write", ["task:write"], False),

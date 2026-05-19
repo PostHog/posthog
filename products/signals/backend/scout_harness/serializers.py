@@ -1,9 +1,9 @@
 """DRF serializers for the Signals agent harness HTTP surface.
 
 These serializers shape the harness-internal tools (`search_recent_runs`,
-`get_run`, `search_memory`, `remember`, `forget`, `emit_finding`) for MCP
+`get_run`, `search_scratchpad`, `remember`, `forget`, `emit_finding`) for MCP
 exposure. They mirror the dataclasses returned by the underlying functions
-in `agent_harness/tools/` so the wire shape and Python shape stay in lockstep.
+in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ from rest_framework import serializers
 # --- Run history -----------------------------------------------------------
 
 
-class SignalAgentRunSummarySerializer(serializers.Serializer):
-    """Lightweight projection of a `SignalAgentRun` row used by `search-recent-runs`."""
+class SignalScoutRunSummarySerializer(serializers.Serializer):
+    """Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`."""
 
     run_id = serializers.CharField(help_text="UUID of the run row.")
     skill_name = serializers.CharField(
-        help_text="Canonical skill name the run executed (e.g. `signals-agent-general`)."
+        help_text="Canonical skill name the run executed (e.g. `signals-scout-general`)."
     )
     skill_version = serializers.IntegerField(help_text="Skill version snapshotted at run start.")
     status = serializers.CharField(
@@ -53,8 +53,8 @@ class SignalAgentRunSummarySerializer(serializers.Serializer):
     )
 
 
-class SignalAgentRunDetailSerializer(serializers.Serializer):
-    """Full `SignalAgentRun` projection used by `get-run`. Includes structured payloads."""
+class SignalScoutRunDetailSerializer(serializers.Serializer):
+    """Full `SignalScoutRun` projection used by `get-run`. Includes structured payloads."""
 
     run_id = serializers.CharField(help_text="UUID of the run row.")
     skill_name = serializers.CharField(help_text="Canonical skill name the run executed.")
@@ -118,8 +118,8 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
 # --- Memory ---------------------------------------------------------------
 
 
-class MemoryEntrySerializer(serializers.Serializer):
-    """`SignalMemory` projection used by `search-memory` and `remember`."""
+class ScratchpadEntrySerializer(serializers.Serializer):
+    """`SignalScratchpad` projection used by `search-memory` and `remember`."""
 
     key = serializers.CharField(help_text="Agent-chosen semantic key, unique per team.")
     content = serializers.CharField(help_text="Prose content for prompt injection.")
@@ -210,7 +210,7 @@ class ForgetResponseSerializer(serializers.Serializer):
 
 
 class EvidenceEntrySerializer(serializers.Serializer):
-    """One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`."""
+    """One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`."""
 
     source_product = serializers.CharField(
         help_text="Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...).",
