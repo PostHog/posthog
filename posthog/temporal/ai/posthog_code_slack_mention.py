@@ -33,6 +33,45 @@ POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 
 
+def _build_posthog_code_task_description(
+    initiator_text: str,
+    thread_messages: list[dict[str, str]],
+    initiator_ts: str | None,
+) -> str:
+    """Build the task description so the initiator's @mention is the actionable prompt
+    and the surrounding Slack thread is clearly delimited context.
+
+    Concatenating the whole thread as one blob made the agent waste turns figuring out
+    which line was the request vs. background. Splitting them up front means the agent
+    can treat the prompt as the task and the thread as supporting context.
+    """
+    prompt = initiator_text.strip() or "Task from Slack"
+
+    context_messages: list[dict[str, str]] = []
+    for msg in thread_messages:
+        msg_text = (msg.get("text") or "").strip()
+        if not msg_text:
+            continue
+        # Exclude the initiator's own message from the context block; it's the prompt above.
+        # Fall back to a text match when ts is missing (older messages or stubbed inputs).
+        if initiator_ts and msg.get("ts") == initiator_ts:
+            continue
+        if not initiator_ts and msg_text == initiator_text.strip():
+            continue
+        context_messages.append(msg)
+
+    if not context_messages:
+        return prompt
+
+    context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in context_messages)
+    return (
+        f"{prompt}\n\n"
+        "---\n"
+        "Attached Slack thread context (chronological, oldest first; does not repeat the prompt above):\n"
+        f"{context_block}"
+    )
+
+
 @dataclass
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
@@ -736,7 +775,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
-    description = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    description = _build_posthog_code_task_description(user_text, thread_messages, user_message_ts)
 
     slack_thread_context = SlackThreadContext(
         integration_id=integration.id,

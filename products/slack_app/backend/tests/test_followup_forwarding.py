@@ -287,6 +287,73 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "user"
         mock_execute_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_description_uses_initiator_as_prompt_with_thread_as_context(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [
+                {"user": "georgiy", "text": "We need to improve the Slack bot prompt.", "ts": "1.000"},
+                {"user": "alessandro", "text": "yeah I had a worktree laying around", "ts": "1.500"},
+                {"user": "georgiy", "text": "do something", "ts": "1234.5678"},
+                {"user": "alessandro", "text": "we just need to inject those better", "ts": "2.000"},
+            ],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        # Initiator's message leads the description as the prompt
+        assert task.description.startswith("do something")
+        # Thread context is clearly delimited
+        assert "Attached Slack thread context" in task.description
+        # Other thread messages are included as context
+        assert "We need to improve the Slack bot prompt." in task.description
+        assert "we just need to inject those better" in task.description
+        # Initiator is not duplicated in the context block
+        assert task.description.count("do something") == 1
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_description_with_no_thread_context_is_just_the_prompt(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "georgiy", "text": "do something", "ts": "1234.5678"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.description == "do something"
+
 
 class TestForwardPostHogCodeFollowupActivity(TestCase):
     def setUp(self):
