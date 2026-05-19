@@ -185,13 +185,36 @@ def start_sshd(uid: int, gid: int) -> None:
     log("sshd listening on port 2222")
 
 
+def _strip_host_permissions(settings_path: Path) -> None:
+    """Drop host-only allow/deny lists from a copied Claude settings file.
+
+    Host deny rules are enforced even under bypass mode by design, so copying
+    them into the disposable sandbox defeats the agentic freedom we want here.
+    Allow lists are likewise moot under bypassPermissions.
+    """
+    if not settings_path.exists():
+        return
+    try:
+        settings = json.loads(settings_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+    perms = settings.get("permissions")
+    if not isinstance(perms, dict):
+        return
+    perms.pop("allow", None)
+    perms.pop("deny", None)
+    if not perms:
+        settings.pop("permissions", None)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+
 def _force_sandbox_claude_defaults(settings_path: Path) -> None:
     """Make the sandbox's Claude default to max effort + bypass permissions.
 
     The sandbox is a disposable, isolated container — the safety friction that
     justifies permission prompts on the host doesn't apply here, and the Claude
-    window boots unattended in tmux. We merge over (not replace) the copied host
-    settings so the user's allow/deny lists, plugins, and theme are preserved.
+    window boots unattended in tmux. Plugins and theme survive the merge;
+    allow/deny lists are stripped separately by _strip_host_permissions.
     """
     try:
         settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
@@ -217,6 +240,8 @@ def copy_claude_auth(uid: int, gid: int) -> None:
         if src.exists():
             shutil.copy2(src, claude_dir / name)
 
+    _strip_host_permissions(claude_dir / "settings.json")
+    _strip_host_permissions(claude_dir / "settings.local.json")
     _force_sandbox_claude_defaults(claude_dir / "settings.json")
 
     src = Path("/tmp/claude-auth.json")
