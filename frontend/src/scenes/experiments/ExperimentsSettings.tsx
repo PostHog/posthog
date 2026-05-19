@@ -48,8 +48,8 @@ export function ExperimentsSettings(): JSX.Element {
             <div>
                 <LemonLabel className="text-base">Default participant measurability filter</LemonLabel>
                 <p className="text-secondary mt-2">
-                    When enabled, new experiments exclude participants who haven't been in the experiment long enough to
-                    be evaluated. Can be overridden per experiment.
+                    When enabled, new experiments exclude participants whose conversion or retention window hasn't
+                    elapsed yet. Can be overridden per experiment.
                 </p>
                 <DefaultOnlyCountMaturedUsers />
             </div>
