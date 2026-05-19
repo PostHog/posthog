@@ -85,6 +85,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         return execute_lazy_precomputed_read(self)
 
     def _build_response_from_row(self, row: list, used_pre_aggregated: bool) -> WebOverviewQueryResponse:
+        # Only called from the lazy precompute short-circuit; that path's gate
+        # already rejects conversionGoal, so we don't need a separate branch
+        # here. The v2/raw path builds its response inline in `_calculate`.
+        assert not self.query.conversionGoal, "lazy precompute does not support conversionGoal"
+
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
         def get_prev_val(idx, use_unsample=True):
@@ -92,21 +97,13 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
                 return None
             return self._unsample(row[idx]) if use_unsample else row[idx]
 
-        if self.query.conversionGoal:
-            results = [
-                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
-                to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
-            ]
-        else:
-            results = [
-                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
-                to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
-                to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
-            ]
+        results = [
+            to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+            to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
+            to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
+            to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
+            to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+        ]
 
         return WebOverviewQueryResponse(
             results=results,

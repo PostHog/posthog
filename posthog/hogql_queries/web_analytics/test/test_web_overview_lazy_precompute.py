@@ -3,12 +3,16 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CompareFilter,
     DateRange,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
+    SessionsV2JoinMode,
     WebAnalyticsSampling,
     WebOverviewQuery,
 )
@@ -246,3 +250,97 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Compare reads from the same precomputed window with a wider date range, so
         # it should reuse existing jobs and not multiply them.
         assert no_compare_jobs.issubset(after_compare_jobs)
+
+    # --- Group A: timezone correctness --------------------------------------
+
+    @parameterized.expand(
+        [
+            ("utc", "UTC"),
+            ("pacific", "America/Los_Angeles"),
+            ("tokyo", "Asia/Tokyo"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
+        """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths."""
+        self.team.timezone = team_tz
+        self.team.save()
+        self._seed_two_sessions()
+
+        raw_response = self._run(self._build_query())
+        raw_values = [(r.key, r.value) for r in raw_response.results]
+
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query())
+
+        ready_jobs = PreaggregationJob.objects.filter(
+            team_id=self.team.pk, status=PreaggregationJob.Status.READY
+        ).count()
+        assert ready_jobs > 0, f"expected READY precompute job for {team_tz}, got 0"
+
+        lazy_values = [(r.key, r.value) for r in lazy_response.results]
+        assert lazy_values == raw_values, f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_half_hour_offset_timezone_falls_through(self):
+        # IST is UTC+5:30 — hourly UTC buckets can't represent the team-local
+        # midnight, so the gate must refuse.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            self._run(self._build_query())
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    # --- Group B: gate strictness -------------------------------------------
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_multiple_host_filters_fall_through(self):
+        # Gate accepts at most one user-supplied property — multi-host inputs
+        # collide on a single-filter cache key and must be rejected.
+        self._seed_two_sessions()
+        host_a = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
+        host_b = EventPropertyFilter(key="$host", value="other.com", operator=PropertyOperator.EXACT)
+        with self._enable_lazy():
+            self._run(self._build_query(properties=[host_a, host_b]))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_uuid_session_mode_falls_through(self):
+        # `events.$session_id_uuid` would produce `uniqState(UUID)` which the
+        # `(uniq, String)` column rejects non-retryably. Gate must refuse.
+        self._seed_two_sessions()
+        query = self._build_query()
+        query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
+        with self._enable_lazy():
+            self._run(query)
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand(
+        [
+            ("none_value", None),
+            ("list_value", ["example.com", "other.com"]),
+            ("empty_string", ""),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
+        self._seed_two_sessions()
+        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
+        with self._enable_lazy():
+            self._run(self._build_query(properties=[prop]))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_window_over_max_days_falls_through(self):
+        # 365 days >> MAX_PRECOMPUTE_DAYS — gate refuses to avoid spawning
+        # hundreds of daily INSERT jobs in one request.
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0

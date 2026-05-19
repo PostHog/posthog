@@ -54,10 +54,15 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
 
 def SHARDED_WEB_OVERVIEW_PREAGGREGATED_TABLE_SQL():
+    # Partition by `expires_at` (the TTL column) so `ttl_only_drop_parts=1` can
+    # actually drop whole parts atomically when all rows in them expire. Rows
+    # for the same UTC day share a partition regardless of which `time_window_start`
+    # hour they cover, so mixed-TTL writes (15m for today, 7d for older) end up
+    # in distinct parts and the short-TTL parts drop cleanly.
     return (
         WEB_OVERVIEW_PREAGGREGATED_TABLE_BASE_SQL
         + """
-PARTITION BY toYYYYMM(time_window_start)
+PARTITION BY toYYYYMMDD(expires_at)
 ORDER BY (team_id, job_id, time_window_start)
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1

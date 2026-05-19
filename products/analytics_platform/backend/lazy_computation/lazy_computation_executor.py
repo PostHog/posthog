@@ -932,6 +932,7 @@ def ensure_precomputed(
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
+    query_type: str | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1039,7 +1040,10 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        with tags_context(client_query_id=str(job.id), team_id=t.id):
+        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        if query_type:
+            tag_kwargs["query_type"] = query_type
+        with tags_context(**tag_kwargs):
             sync_execute(
                 insert_sql,
                 values,
