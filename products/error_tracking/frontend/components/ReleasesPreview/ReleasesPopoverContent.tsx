@@ -1,8 +1,14 @@
 import { ReactNode, createElement, useMemo } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCommit, IconGitBranch, IconGitRepository, IconShare } from '@posthog/icons'
-import { IconComponent, IconProps } from '@posthog/icons/dist/src/types/icon-types'
+import {
+    IconCommit,
+    IconGitBranch,
+    IconGitRepository,
+    IconShare,
+    type IconComponent,
+    type IconProps,
+} from '@posthog/icons'
 import { LemonTag, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRelease, ReleaseGitMetadata } from 'lib/components/Errors/types'

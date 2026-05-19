@@ -9,6 +9,7 @@
         "verbatimModuleSyntax": true,
         "jsx": "react-jsx",
         "noEmit": true,
+        "rootDir": "./src",
         "baseUrl": ".",
         "paths": {
             "@/*": ["./src/*"]

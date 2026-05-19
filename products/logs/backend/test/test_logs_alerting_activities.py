@@ -1613,6 +1613,81 @@ class TestCohortManifest(unittest.TestCase):
 
         assert sorted(len(m.alert_ids) for m in manifests) == [1, 2, 2]
 
+    def test_manifests_exclude_alert_with_malformed_filter_group(self):
+        # Exact prod-failure shape: `filterGroup` is a list, not a dict. Before
+        # the fix this crashed `is_projection_eligible` with AttributeError and
+        # bricked discovery for every alert in the project. After the fix the
+        # malformed alert is detected, transitioned to BROKEN out-of-band, and
+        # excluded from this batch's manifests; the healthy alert is still
+        # scheduled.
+        from products.logs.backend.temporal.activities import _cohort_manifests_from_alerts
+
+        rows: list[dict[str, Any]] = [
+            {
+                "id": "019dec00-0000-0000-0000-000000000001",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"serviceNames": ["healthy"]},
+                "next_check_at": None,
+            },
+            {
+                "id": "019dec00-0000-0000-0000-000000000002",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"filterGroup": [{"type": "AND", "values": []}]},
+                "next_check_at": None,
+            },
+        ]
+        now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+
+        with (
+            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities._mark_alert_broken_for_bad_config") as mark_broken,
+        ):
+            manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
+
+        all_alert_ids = sorted(aid for m in manifests for aid in m.alert_ids)
+        assert all_alert_ids == ["019dec00-0000-0000-0000-000000000001"]
+        mark_broken.assert_called_once()
+        assert mark_broken.call_args.args[0] == "019dec00-0000-0000-0000-000000000002"
+
+    def test_manifests_skip_catastrophically_broken_row(self):
+        # A row missing required keys (e.g. corrupt projection) must not crash
+        # discovery for healthy alerts in the same project.
+        from products.logs.backend.temporal.activities import _cohort_manifests_from_alerts
+
+        rows: list[dict[str, Any]] = [
+            {
+                "id": "019dec00-0000-0000-0000-000000000001",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"serviceNames": ["healthy"]},
+                "next_check_at": None,
+            },
+            # Missing window_minutes — triggers KeyError, must be skipped.
+            {
+                "id": "019dec00-0000-0000-0000-000000000002",
+                "team_id": 1,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {},
+                "next_check_at": None,
+            },
+        ]
+        now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+
+        with patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now):
+            manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
+
+        all_alert_ids = [aid for m in manifests for aid in m.alert_ids]
+        assert all_alert_ids == ["019dec00-0000-0000-0000-000000000001"]
+
 
 class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
@@ -1652,6 +1727,49 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         # (One alert is in the future; not due, not discovered.)
         assert len(result.manifests) == 1
         assert len(result.manifests[0].alert_ids) == 2
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_transitions_alert_with_broken_filter_config_to_broken(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        healthy = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="healthy",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["ok"]},
+            enabled=True,
+            next_check_at=None,
+        )
+        broken = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="broken",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            # Exact prod-failure shape that bricked discovery on 2026-05-13.
+            filters={"filterGroup": [{"type": "AND", "values": []}]},
+            enabled=True,
+            next_check_at=None,
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        manifest_alert_ids = {aid for m in result.manifests for aid in m.alert_ids}
+        assert str(healthy.id) in manifest_alert_ids
+        assert str(broken.id) not in manifest_alert_ids
+
+        broken.refresh_from_db()
+        assert broken.state == LogsAlertConfiguration.State.BROKEN
+
+        from products.logs.backend.models import LogsAlertEvent
+
+        event = LogsAlertEvent.objects.get(alert=broken, kind=LogsAlertEvent.Kind.BROKEN_CONFIG)
+        assert event.state_after == LogsAlertConfiguration.State.BROKEN
+        assert event.error_message is not None and "filterGroup" in event.error_message
 
 
 class TestCohortFromManifest(unittest.TestCase):

@@ -38,6 +38,7 @@ import {
     AssigneeSelect,
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
 import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
@@ -525,6 +526,7 @@ export function SupportTicketsScene(): JSX.Element {
                 resourceType={{
                     type: 'conversation',
                 }}
+                actions={<ComposeTicketButton />}
             />
             <ScenesTabs />
             {conversationsDisabled ? <ConversationsDisabledBanner /> : null}

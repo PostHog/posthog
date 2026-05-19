@@ -319,6 +319,12 @@ def _resolve_mcp_url() -> str | None:
     if hostname == "eu.posthog.com":
         return "https://mcp-eu.posthog.com/mcp"
 
+    # Local dev: point to the local wrangler dev MCP server via
+    # host.docker.internal, since the sandbox runs in Docker.
+    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
+    if hostname in ("localhost", "127.0.0.1"):
+        return "http://host.docker.internal:8787/mcp"
+
     return None
 
 

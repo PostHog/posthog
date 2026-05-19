@@ -24,7 +24,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
     } = defaults ?? {}
 
     return (
-        <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+        <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
             <div className="space-y-4">
                 <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center">
                     <div>
