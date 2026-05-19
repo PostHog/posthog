@@ -114,17 +114,21 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
-    def test_final_after_pivot(self):
-        # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the
-        # `JoinExprTable: tableExpr FINAL? sampleClause?` wrapper can
-        # decorate it: `FROM (t PIVOT (…) FINAL)`. The Rust parser
-        # parsed PIVOT at the join level and stopped, rejecting a
-        # trailing FINAL / SAMPLE with "expected )".
+    def test_decoration_after_pivot(self):
+        # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
+        # can still take a `TableExprAlias` alias and a `JoinExprTable`
+        # `FINAL? sampleClause?`, and a further PIVOT / JOIN can follow.
+        # The Rust parser parsed PIVOT as a one-shot at the join level
+        # and stopped, rejecting the trailing tokens.
         cases = (
             "SELECT 1 FROM (t PIVOT (a FOR b IN (c)) FINAL)",
             "SELECT 1 FROM (t PIVOT (a FOR b IN (c)) SAMPLE 1)",
             "SELECT 1 FROM (t UNPIVOT (a FOR b IN (c)) FINAL)",
             "SELECT 1 FROM t PIVOT (a FOR b IN (c)) FINAL",
+            "SELECT 1 FROM t PIVOT (a FOR b IN (c)) AS x",
+            "SELECT 1 FROM t PIVOT (a FOR b IN (c)) x",
+            "SELECT 1 FROM t PIVOT (a FOR b IN (c)) AS x PIVOT (d FOR e IN (f))",
+            "SELECT 1 FROM t PIVOT (a FOR b IN (c)) JOIN u ON x",
         )
         for src in cases:
             oracle = clear_locations(parse_select(src, backend="cpp-json"))

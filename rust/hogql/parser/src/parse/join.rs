@@ -70,6 +70,16 @@ impl<'a> Parser<'a> {
             let _natural = self.eat_kw(Kw::Natural)?;
             let join_op = self.try_consume_join_op()?;
             if join_op.is_none() && !matches!(self.peek(), TokenKind::Keyword(Kw::Join)) {
+                // No JOIN — but PIVOT / UNPIVOT also extend the
+                // joinExpr chain, and the result can still take an
+                // alias / FINAL / SAMPLE or a further JOIN / PIVOT.
+                if matches!(
+                    self.peek(),
+                    TokenKind::Keyword(Kw::Pivot) | TokenKind::Keyword(Kw::Unpivot)
+                ) {
+                    left = self.wrap_pivot_chain(left, joined_any)?;
+                    continue;
+                }
                 break;
             }
             let op_text = join_op.unwrap_or_default();
@@ -85,47 +95,60 @@ impl<'a> Parser<'a> {
             joined_any = true;
         }
 
-        // PIVOT/UNPIVOT decorates the entire chain. For the single-atom
-        // case (no JOIN happened), the chain is a JoinExpr that only
-        // wraps a bare Field — unwrap to match the C++ shape where the
-        // PivotExpr's `table` is the bare Field. When the JoinExpr carries
-        // an alias / final / sample / column_aliases, we keep it as is
-        // since that decoration belongs *inside* the PIVOT.
-        if matches!(
-            self.peek(),
-            TokenKind::Keyword(Kw::Pivot) | TokenKind::Keyword(Kw::Unpivot)
-        ) {
-            let pivot_input = if joined_any {
-                left
-            } else if let Some(obj) = left.as_object() {
-                let has_decorations = obj.keys().any(|k| k != "node" && k != "table");
-                if has_decorations {
-                    left
-                } else {
-                    obj.get("table").cloned().unwrap_or(left)
-                }
-            } else {
-                left
-            };
-            let wrapped = self.try_consume_pivot_unpivot(pivot_input)?;
-            // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
-            // visitor's JoinExprPivot does the same).
-            let mut outer = serde_json::Map::new();
-            outer.insert("node".into(), Value::String("JoinExpr".into()));
-            outer.insert("table".into(), wrapped);
-            // `tableExpr PIVOT (...)` is itself a `tableExpr`, so the
-            // `JoinExprTable: tableExpr FINAL? sampleClause?` wrapper can
-            // still decorate it — `FROM (t PIVOT (...) FINAL)`. cpp puts
-            // `table_final` / `sample` on this outer JoinExpr.
-            if self.eat_kw(Kw::Final)? {
-                outer.insert("table_final".into(), Value::Bool(true));
-            }
-            if let Some(s) = self.try_consume_sample()? {
-                outer.insert("sample".into(), s);
-            }
-            return Ok(Value::Object(outer));
-        }
         Ok(left)
+    }
+
+    /// Consume a `PIVOT (...)` / `UNPIVOT (...)` run that decorates the
+    /// current join chain, then any `JoinExprTable`/`TableExprAlias`
+    /// decoration the result can still take. `tableExpr PIVOT (...)` is
+    /// itself a `tableExpr`, so an alias (`TableExprAlias`) and a
+    /// trailing `FINAL? sampleClause?` (`JoinExprTable`) all still apply
+    /// — `FROM (t PIVOT (...) AS x FINAL)`. The caller loops, so a
+    /// following JOIN or further PIVOT is picked up too.
+    fn wrap_pivot_chain(&mut self, left: Value, joined_any: bool) -> Result<Value, ParseError> {
+        // For the single-atom case (no JOIN happened) the chain is a
+        // JoinExpr that only wraps a bare Field — unwrap to match cpp's
+        // shape (PivotExpr's `table` is the bare Field). When the
+        // JoinExpr carries an alias / final / sample / column_aliases,
+        // keep it as is since that decoration belongs *inside* the PIVOT.
+        let pivot_input = if joined_any {
+            left
+        } else if let Some(obj) = left.as_object() {
+            let has_decorations = obj.keys().any(|k| k != "node" && k != "table");
+            if has_decorations {
+                left
+            } else {
+                obj.get("table").cloned().unwrap_or(left)
+            }
+        } else {
+            left
+        };
+        let wrapped = self.try_consume_pivot_unpivot(pivot_input)?;
+        // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
+        // visitor's JoinExprPivot does the same).
+        let mut outer = serde_json::Map::new();
+        outer.insert("node".into(), Value::String("JoinExpr".into()));
+        outer.insert("table".into(), wrapped);
+        // Grammar order: `TableExprAlias` (alias + columnAliases) binds
+        // inside `tableExpr`, then `JoinExprTable` adds `FINAL?
+        // sampleClause?`.
+        let (alias, column_aliases) = self.consume_table_alias_chain()?;
+        if let Some(a) = alias {
+            outer.insert("alias".into(), Value::String(a));
+        }
+        if let Some(ca) = column_aliases {
+            outer.insert(
+                "column_aliases".into(),
+                Value::Array(ca.into_iter().map(Value::String).collect()),
+            );
+        }
+        if self.eat_kw(Kw::Final)? {
+            outer.insert("table_final".into(), Value::Bool(true));
+        }
+        if let Some(s) = self.try_consume_sample()? {
+            outer.insert("sample".into(), s);
+        }
+        Ok(Value::Object(outer))
     }
 
     fn try_consume_join_op(&mut self) -> Result<Option<String>, ParseError> {
