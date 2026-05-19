@@ -54,11 +54,14 @@ div.inline-editable {
 }
 
 // Wrapper that anchors the canvas + settings layout. Lets the canvas grow
-// while the side panel stays fixed-width.
+// while the side panel stays fixed-width. Stretches both children to the same
+// row height so the canvas, settings panel, and flow rail share an aligned
+// baseline at the top and bottom.
 .HostedSurveyCanvasLayout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
+    align-items: stretch;
 
     @media (min-width: 1024px) {
         grid-template-columns: minmax(0, 1fr) 320px;
@@ -69,15 +72,16 @@ div.inline-editable {
     }
 }
 
-// The canvas stage gets a soft card background so the styled hosted survey
-// frame floats inside it without fighting PostHog chrome. Sized to fill most
-// of the viewport so the editor feels like a true full-screen surface.
+// The canvas stage is the styled survey frame itself — no extra wrapper padding
+// so the survey fills its column edge-to-edge and lines up with the rail and
+// settings panel siblings. Sized to fill most of the viewport so the editor
+// feels like a true full-screen surface.
 .HostedSurveyCanvasStage {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     min-height: min(85dvh, 900px);
-    padding: 2rem 1rem;
+    overflow: hidden;
     background: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -91,6 +95,8 @@ div.inline-editable {
         flex: 1;
         min-height: 0;
         padding: clamp(2rem, 5dvh, 4rem) clamp(1.5rem, 4vw, 2.5rem);
+        border: none;
+        border-radius: 0;
     }
 }
 

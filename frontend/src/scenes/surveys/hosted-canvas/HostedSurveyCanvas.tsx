@@ -297,45 +297,64 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                         <fieldset>
                             <legend className="sr-only">{question.question}</legend>
                             <div className="multiple-choice-options">
-                                {(question as MultipleSurveyQuestion).choices.map((choice, choiceIndex) => (
-                                    <div className="HostedSurveyCanvasChoice" key={choiceIndex}>
-                                        <label>
-                                            <span className="response-choice">
-                                                <input
-                                                    type={
-                                                        question.type === SurveyQuestionType.SingleChoice
-                                                            ? 'radio'
-                                                            : 'checkbox'
-                                                    }
-                                                    checked={false}
-                                                    onChange={() => {}}
-                                                    aria-hidden
-                                                    tabIndex={-1}
-                                                />
-                                                <InlineEditable
-                                                    value={choice}
-                                                    onChange={(value) => updateChoice(choiceIndex, value)}
-                                                    placeholder={`Choice ${choiceIndex + 1}`}
-                                                    ariaLabel={`Choice ${choiceIndex + 1}`}
-                                                    data-attr={`canvas-question-${index}-choice-${choiceIndex}`}
-                                                />
-                                            </span>
-                                        </label>
-                                        <LemonButton
-                                            type="tertiary"
-                                            size="xsmall"
-                                            icon={<IconTrash />}
-                                            aria-label={`Delete choice ${choiceIndex + 1}`}
-                                            className="HostedSurveyCanvasChoice__delete"
-                                            onClick={() => deleteChoice(choiceIndex)}
-                                            disabledReason={
-                                                (question as MultipleSurveyQuestion).choices.length <= 1
-                                                    ? 'A choice question needs at least one option'
-                                                    : undefined
-                                            }
-                                        />
-                                    </div>
-                                ))}
+                                {(question as MultipleSurveyQuestion).choices.map((choice, choiceIndex) => {
+                                    const choices = (question as MultipleSurveyQuestion).choices || []
+                                    // When hasOpenChoice is enabled, posthog-js renders the LAST choice with a
+                                    // ":" suffix plus an adjacent text input. Mirror that on the canvas so authors
+                                    // can see what respondents will see.
+                                    const isOpenChoice =
+                                        !!(question as MultipleSurveyQuestion).hasOpenChoice &&
+                                        choiceIndex === choices.length - 1
+                                    return (
+                                        <div className="HostedSurveyCanvasChoice" key={choiceIndex}>
+                                            <label className={isOpenChoice ? 'choice-option-open' : undefined}>
+                                                <div className="response-choice">
+                                                    <input
+                                                        type={
+                                                            question.type === SurveyQuestionType.SingleChoice
+                                                                ? 'radio'
+                                                                : 'checkbox'
+                                                        }
+                                                        checked={false}
+                                                        onChange={() => {}}
+                                                        aria-hidden
+                                                        tabIndex={-1}
+                                                    />
+                                                    <InlineEditable
+                                                        value={choice}
+                                                        onChange={(value) => updateChoice(choiceIndex, value)}
+                                                        placeholder={`Choice ${choiceIndex + 1}`}
+                                                        ariaLabel={`Choice ${choiceIndex + 1}`}
+                                                        data-attr={`canvas-question-${index}-choice-${choiceIndex}`}
+                                                    />
+                                                    {isOpenChoice ? <span aria-hidden>:</span> : null}
+                                                </div>
+                                                {isOpenChoice ? (
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Respondent types their own answer…"
+                                                        readOnly
+                                                        aria-hidden
+                                                        tabIndex={-1}
+                                                    />
+                                                ) : null}
+                                            </label>
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="xsmall"
+                                                icon={<IconTrash />}
+                                                aria-label={`Delete choice ${choiceIndex + 1}`}
+                                                className="HostedSurveyCanvasChoice__delete"
+                                                onClick={() => deleteChoice(choiceIndex)}
+                                                disabledReason={
+                                                    choices.length <= 1
+                                                        ? 'A choice question needs at least one option'
+                                                        : undefined
+                                                }
+                                            />
+                                        </div>
+                                    )
+                                })}
                                 <button
                                     type="button"
                                     className="HostedSurveyCanvasAddChoice"
