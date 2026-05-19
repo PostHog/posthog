@@ -9,19 +9,6 @@ export type CyclotronV2PoolConfig = {
     idleTimeoutMs?: number
 }
 
-// `id` and `functionId` use PostHog's UUIDT-style identifiers which don't set
-// valid UUID version bits, so we only validate them as non-empty strings here.
-// `personId` comes from posthog_person.uuid (a real UUID v4/v7) for person-based
-// blast radius, but group-based blast radius returns group keys (non-UUID strings).
-// We coerce non-UUID values to null so the postgres UUID column accepts them
-// rather than failing the whole batch insert.
-const personIdSchema = z.preprocess((val) => {
-    if (typeof val === 'string' && !z.uuid().safeParse(val).success) {
-        return null
-    }
-    return val
-}, z.uuid().nullish())
-
 export const CyclotronV2JobInitSchema = z.object({
     id: z.string().min(1).optional(),
     teamId: z.number().int(),
@@ -32,7 +19,7 @@ export const CyclotronV2JobInitSchema = z.object({
     parentRunId: z.string().nullish(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: personIdSchema,
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
 })
 
@@ -42,7 +29,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: personIdSchema,
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
 })
 
