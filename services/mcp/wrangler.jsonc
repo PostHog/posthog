@@ -27,6 +27,12 @@
             "tag": "v2",
         },
     ],
+    "kv_namespaces": [
+        {
+            "binding": "MCP_KV",
+            "id": "30a887fff4d04c4fbf979208293ce012",
+        },
+    ],
     "durable_objects": {
         "bindings": [
             {

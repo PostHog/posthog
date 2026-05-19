@@ -16,6 +16,8 @@ import { Breadcrumb, LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySched
 import {
     SURVEY_CREATED_SOURCE,
     SurveyTemplate,
+    SurveyTemplateMode,
+    SurveyTemplateType,
     defaultSurveyAppearance,
     defaultSurveyTemplates,
     surveyThemes,
@@ -26,18 +28,26 @@ import type { surveyWizardLogicType } from './surveyWizardLogicType'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
-export type SurveyTemplateMode = 'in_app' | 'hosted'
+// Re-exported for convenience — the canonical definition lives in ../constants.
+export type { SurveyTemplateMode } from '../constants'
 
 // Main flow steps (appearance is optional, branched from 'when')
 const WIZARD_STEPS: WizardStep[] = ['template', 'questions', 'where', 'when']
 
-// Core templates to show prominently
-const CORE_TEMPLATE_TYPES = [
-    'Net promoter score (NPS)',
-    'Customer satisfaction score (CSAT)',
-    'Product-market fit (PMF)',
-    'Open feedback',
-]
+// Core templates to show prominently, per template mode.
+const CORE_TEMPLATE_TYPES: Record<SurveyTemplateMode, SurveyTemplateType[]> = {
+    in_app: [SurveyTemplateType.NPS, SurveyTemplateType.CSAT, SurveyTemplateType.PMF, SurveyTemplateType.OpenFeedback],
+    hosted: [
+        SurveyTemplateType.UserResearchIntake,
+        SurveyTemplateType.ProductResearch,
+        SurveyTemplateType.NPS,
+        SurveyTemplateType.CCR,
+    ],
+}
+
+function templateMatchesMode(template: SurveyTemplate, mode: SurveyTemplateMode): boolean {
+    return !template.modes || template.modes.includes(mode)
+}
 
 export interface SurveyWizardLogicProps {
     id: string // 'new' for new surveys, or a UUID for editing
@@ -151,15 +161,22 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     selectors({
         coreTemplates: [
-            () => [],
-            (): SurveyTemplate[] => {
-                return defaultSurveyTemplates.filter((t) => CORE_TEMPLATE_TYPES.includes(t.templateType))
+            (s) => [s.templateMode],
+            (mode: SurveyTemplateMode): SurveyTemplate[] => {
+                const coreTypes = CORE_TEMPLATE_TYPES[mode]
+                // Preserve the order declared in CORE_TEMPLATE_TYPES so featured cards stay positioned.
+                return coreTypes
+                    .map((type) => defaultSurveyTemplates.find((t) => t.templateType === type))
+                    .filter((t): t is SurveyTemplate => !!t && templateMatchesMode(t, mode))
             },
         ],
         otherTemplates: [
-            () => [],
-            (): SurveyTemplate[] => {
-                return defaultSurveyTemplates.filter((t) => !CORE_TEMPLATE_TYPES.includes(t.templateType))
+            (s) => [s.templateMode],
+            (mode: SurveyTemplateMode): SurveyTemplate[] => {
+                const coreTypes = new Set<SurveyTemplateType>(CORE_TEMPLATE_TYPES[mode])
+                return defaultSurveyTemplates.filter(
+                    (t) => !coreTypes.has(t.templateType) && templateMatchesMode(t, mode)
+                )
             },
         ],
         stepNumber: [(s) => [s.currentStep], (currentStep: WizardStep): number => WIZARD_STEPS.indexOf(currentStep)],

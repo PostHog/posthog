@@ -1,4 +1,4 @@
-import copy
+from typing import Any
 
 from django.db import IntegrityError, transaction
 
@@ -10,12 +10,24 @@ from posthog.models.organization import OrganizationMembership
 
 from products.replay_vision.backend.models.replay_lens import ReplayLens
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
+from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput, LensSnapshot
+
+
+def _build_lens_snapshot(lens: ReplayLens) -> dict[str, Any]:
+    return LensSnapshot(
+        name=lens.name,
+        lens_type=lens.lens_type,
+        lens_version=lens.lens_version,
+        model=lens.model,
+        provider=lens.provider,
+        emits_signals=lens.emits_signals,
+        lens_config=lens.lens_config,
+    ).model_dump(mode="json")
 
 
 @activity.defn
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
-    """Snapshot the lens config + version and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""
+    """Snapshot the full lens state and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""
     lens = ReplayLens.objects.filter(pk=inputs.lens_id, team_id=inputs.team_id).select_related("team").first()
     if lens is None:
         raise ValueError(f"ReplayLens {inputs.lens_id} not found for team {inputs.team_id}")
@@ -39,8 +51,7 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
                 session_id=inputs.session_id,
                 status=ObservationStatus.PENDING,
                 workflow_id=inputs.workflow_id,
-                lens_version=lens.lens_version,
-                lens_config_snapshot=copy.deepcopy(lens.lens_config),
+                lens_snapshot=_build_lens_snapshot(lens),
                 triggered_by=inputs.triggered_by,
                 triggered_by_user_id=inputs.triggered_by_user_id,
             )

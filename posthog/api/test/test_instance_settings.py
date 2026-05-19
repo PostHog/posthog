@@ -1,12 +1,51 @@
+import unittest
 from posthog.test.base import APIBaseTest
 
 from django.core import mail
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.instance_settings import get_instance_setting as get_instance_setting_helper
+from posthog.api.instance_settings import (
+    cast_str_to_desired_type,
+    get_instance_setting as get_instance_setting_helper,
+)
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.settings import CONSTANCE_CONFIG
+
+
+class TestCastStrToDesiredType(unittest.TestCase):
+    @parameterized.expand(
+        [
+            # int
+            ("int_from_str", "42", int, 42),
+            ("int_from_int", 42, int, 42),
+            # bool
+            ("bool_true", "true", bool, True),
+            ("bool_false", "false", bool, False),
+            # str passthrough
+            ("str_passthrough", "hello", str, "hello"),
+            # list[int] — all accepted input formats
+            ("list_from_list", [1, 2, 3], list[int], [1, 2, 3]),
+            ("list_from_csv", "4, 5, 6", list[int], [4, 5, 6]),
+            ("list_from_json_str", "[7, 8, 9]", list[int], [7, 8, 9]),
+            ("list_empty_str", "", list[int], []),
+            ("list_empty_list", [], list[int], []),
+        ]
+    )
+    def test_cast_success(self, _name: str, value: object, target_type: type, expected: object) -> None:
+        self.assertEqual(cast_str_to_desired_type(value, target_type), expected)
+
+    @parameterized.expand(
+        [
+            ("list_non_int_items", "1, two, 3", list[int]),
+            ("list_invalid_json", "[1, 2", list[int]),
+            ("list_non_json_non_list_type", 999, list[int]),
+        ]
+    )
+    def test_cast_raises_on_bad_input(self, _name: str, value: object, target_type: type) -> None:
+        with self.assertRaises((ValueError, TypeError)):
+            cast_str_to_desired_type(value, target_type)
 
 
 class TestInstanceSettings(APIBaseTest):
@@ -122,6 +161,36 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
         self.assertEqual(get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
+
+    def test_update_list_int_setting(self):
+        valid_cases = [
+            ("json_array", [1, 2, 3], [1, 2, 3]),
+            ("comma_separated", "4, 5, 6", [4, 5, 6]),
+            ("json_string", "[7, 8, 9]", [7, 8, 9]),
+            ("empty_string", "", []),
+        ]
+        for name, input_value, expected in valid_cases:
+            with self.subTest(name):
+                response = self.client.patch(
+                    "/api/instance_settings/CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
+                    {"value": input_value},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["value"], expected)
+
+        invalid_cases = [
+            ("non_int_items", "1, two, 3"),
+            ("invalid_json", "[1, 2"),
+        ]
+        for name, input_value in invalid_cases:
+            with self.subTest(name):
+                response = self.client.patch(
+                    "/api/instance_settings/CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
+                    {"value": input_value},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cant_update_setting_that_is_not_overridable(self):
         response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
