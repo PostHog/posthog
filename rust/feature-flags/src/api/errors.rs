@@ -723,34 +723,25 @@ mod tests {
         assert!(!FlagError::TokenValidationError.is_5xx());
 
         // Cookieless: DateOutOfRange is client-data (4xx); other SaltCache errors are server faults (5xx).
-        assert!(
-            !FlagError::CookielessError(CookielessManagerError::SaltCacheError(
-                SaltCacheError::DateOutOfRange
-            ))
-            .is_5xx()
-        );
-        assert!(
-            FlagError::CookielessError(CookielessManagerError::SaltCacheError(
-                SaltCacheError::SaltRetrievalFailed
-            ))
-            .is_5xx()
-        );
-        assert!(
-            FlagError::CookielessError(CookielessManagerError::SaltCacheError(
-                SaltCacheError::RedisError("boom".to_string())
-            ))
-            .is_5xx()
-        );
+        let salt_cache_cases = [
+            (SaltCacheError::DateOutOfRange, false),
+            (SaltCacheError::SaltRetrievalFailed, true),
+            (SaltCacheError::RedisError("boom".to_string()), true),
+        ];
+        for (variant, expected_5xx) in salt_cache_cases {
+            let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(variant));
+            assert_eq!(err.is_5xx(), expected_5xx, "is_5xx() mismatch for {err:?}");
+        }
     }
 
     #[test]
     fn test_date_out_of_range_is_400() {
+        // is_5xx() for this variant is covered by the SaltCacheError table in test_is_5xx.
         let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(
             SaltCacheError::DateOutOfRange,
         ));
         assert_eq!(err.status_code(), 400);
         assert_eq!(err.error_code(), "cookieless_error");
-        assert!(!err.is_5xx());
     }
 
     #[test]
