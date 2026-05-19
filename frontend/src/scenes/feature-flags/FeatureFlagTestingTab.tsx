@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 
@@ -36,10 +35,10 @@ const CONDITION_DISPLAY_STYLES = {
 
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
-    const [includeTime, setIncludeTime] = useState(true)
 
     const {
         testFormData: formData,
+        includeTime,
         testResult: result,
         datePickerOpen,
         datePickerValue,
@@ -56,6 +55,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         setDatePickerOpen,
         setDatePickerValue,
         setSelectedPerson,
+        setIncludeTime,
         clearTestForm,
         testFlagEvaluation,
     } = useActions(logic)

@@ -61,6 +61,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         setDatePickerOpen: (open: boolean) => ({ open }),
         setDatePickerValue: (value: Dayjs | null) => ({ value }),
         setSelectedPerson: (person: PersonType | null) => ({ person }),
+        setIncludeTime: (includeTime: boolean) => ({ includeTime }),
         clearTestForm: true,
     }),
     loaders(({ values }) => ({
@@ -160,6 +161,12 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             {
                 setSelectedPerson: (_, { person }) => person,
                 clearTestForm: () => null,
+            },
+        ],
+        includeTime: [
+            true,
+            {
+                setIncludeTime: (_, { includeTime }) => includeTime,
             },
         ],
     }),
