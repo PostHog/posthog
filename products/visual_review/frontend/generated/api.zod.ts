@@ -36,6 +36,7 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
     identifier: zod.string().max(visualReviewReposQuarantineCreateBodyIdentifierMax),
     reason: zod.string().max(visualReviewReposQuarantineCreateBodyReasonMax),
     expires_at: zod.iso.datetime({ offset: true }).nullish(),
+    source_run_id: zod.uuid().nullish(),
 })
 
 /**
