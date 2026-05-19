@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -14,8 +14,18 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
     actions({
         loadGoogleAdsConversionActions: (customerId: string, parentId: string) => ({ customerId, parentId }),
         loadGoogleAdsAccessibleAccounts: true,
+        setGoogleAdsAccessibleAccountsError: (error: string | null) => ({ error }),
     }),
-    loaders(({ props }) => ({
+    reducers({
+        googleAdsAccessibleAccountsError: [
+            null as string | null,
+            {
+                loadGoogleAdsAccessibleAccounts: () => null,
+                setGoogleAdsAccessibleAccountsError: (_, { error }) => error,
+            },
+        ],
+    }),
+    loaders(({ props, actions }) => ({
         googleAdsConversionActions: [
             null as GoogleAdsConversionActionType[] | null,
             {
@@ -38,8 +48,18 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
             null as { id: string; level: string; parent_id: string; name: string }[] | null,
             {
                 loadGoogleAdsAccessibleAccounts: async () => {
-                    const res = await api.integrations.googleAdsAccounts(props.id)
-                    return res.accessibleAccounts
+                    try {
+                        const res = await api.integrations.googleAdsAccounts(props.id)
+                        actions.setGoogleAdsAccessibleAccountsError(null)
+                        return res.accessibleAccounts
+                    } catch (error: any) {
+                        actions.setGoogleAdsAccessibleAccountsError(
+                            error?.detail ||
+                                error?.message ||
+                                'Something went wrong while loading Google Ads accounts.'
+                        )
+                        return []
+                    }
                 },
             },
         ],

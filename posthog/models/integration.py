@@ -1374,6 +1374,7 @@ class GoogleAdsIntegration:
 
         accessible_accounts = response.json()
         all_accounts: list[dict[str, str]] = []
+        per_account_failures: list[dict[str, str]] = []
 
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
@@ -1393,6 +1394,19 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
+                per_account_failures.append(
+                    {
+                        "account_id": account_id,
+                        "status_code": str(response.status_code),
+                        "body": response.text[:500],
+                    }
+                )
+                logger.warning(
+                    "GoogleAdsIntegration: Failed to expand accessible account",
+                    status_code=response.status_code,
+                    integration_id=self.integration.id,
+                    account_id=account_id,
+                )
                 return accounts
 
             data = response.json()
@@ -1429,6 +1443,26 @@ class GoogleAdsIntegration:
 
         for account in accessible_accounts["resourceNames"]:
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
+
+        if per_account_failures and not all_accounts:
+            capture_exception(
+                Exception(
+                    f"GoogleAdsIntegration: All accessible-account expansions failed: {per_account_failures}"
+                )
+            )
+            raise ValidationError(
+                "We couldn't load any Google Ads accounts for this login. "
+                "This usually means the connected Google account doesn't have permission to manage "
+                "any ad accounts, or the developer token doesn't have access to them. "
+                "Try reconnecting the integration with an account that has Google Ads access."
+            )
+
+        if per_account_failures:
+            capture_exception(
+                Exception(
+                    f"GoogleAdsIntegration: Some accessible-account expansions failed: {per_account_failures}"
+                )
+            )
 
         return all_accounts
 

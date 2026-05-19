@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 
 import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 
@@ -108,9 +108,11 @@ export function GoogleAdsCustomerIdPicker({
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
-    const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading } = useValues(
-        googleAdsIntegrationLogic({ id: integration.id })
-    )
+    const {
+        googleAdsAccessibleAccounts,
+        googleAdsAccessibleAccountsLoading,
+        googleAdsAccessibleAccountsError,
+    } = useValues(googleAdsIntegrationLogic({ id: integration.id }))
     const { loadGoogleAdsAccessibleAccounts } = useActions(googleAdsIntegrationLogic({ id: integration.id }))
 
     const googleAdsAccountOptions = useMemo(
@@ -123,6 +125,16 @@ export function GoogleAdsCustomerIdPicker({
             loadGoogleAdsAccessibleAccounts()
         }
     }, [loadGoogleAdsAccessibleAccounts, disabled])
+
+    const hasLoaded = googleAdsAccessibleAccounts !== null && !googleAdsAccessibleAccountsLoading
+    const hasNoAccounts = hasLoaded && (googleAdsAccessibleAccounts?.length ?? 0) === 0
+
+    const emptyStateMessage = googleAdsAccessibleAccountsError
+        ? googleAdsAccessibleAccountsError
+        : hasNoAccounts
+          ? "We didn't find any Google Ads accounts accessible from this login. " +
+            "Make sure the connected Google account has access to at least one Google Ads account, then retry."
+          : null
 
     return (
         <>
@@ -151,6 +163,22 @@ export function GoogleAdsCustomerIdPicker({
                 }
                 loading={googleAdsAccessibleAccountsLoading}
             />
+            {emptyStateMessage ? (
+                <div
+                    className="flex items-center gap-2 mt-1 text-secondary text-xs"
+                    data-attr="google-ads-customer-id-picker-empty-state"
+                >
+                    <span>{emptyStateMessage}</span>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => loadGoogleAdsAccessibleAccounts()}
+                        loading={googleAdsAccessibleAccountsLoading}
+                    >
+                        Retry
+                    </LemonButton>
+                </div>
+            ) : null}
         </>
     )
 }
