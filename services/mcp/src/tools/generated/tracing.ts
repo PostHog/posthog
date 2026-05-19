@@ -6,6 +6,7 @@ import {
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
+    TracingSpansSparklineCreateBody,
     TracingSpansTraceCreateBody,
     TracingSpansTraceCreateParams,
     TracingSpansTreeCreateBody,
@@ -122,6 +123,27 @@ const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
     },
 })
 
+const ApmSparklineQuerySchema = TracingSpansSparklineCreateBody
+
+const apmSparklineQuery = (): ToolBase<typeof ApmSparklineQuerySchema, unknown> => ({
+    name: 'apm-sparkline-query',
+    schema: ApmSparklineQuerySchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSparklineQuerySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/sparkline/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
 const ApmTraceGetSchema = TracingSpansTraceCreateParams.omit({ project_id: true }).extend(
     TracingSpansTraceCreateBody.shape
 )
@@ -174,6 +196,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-services-list': apmServicesList,
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-tree': apmSpansTree,
+    'apm-sparkline-query': apmSparklineQuery,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,
 }
