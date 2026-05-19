@@ -5,11 +5,20 @@ Validates JSON via serializers, routes everything through the facade,
 returns DTO-shaped responses. No model imports.
 """
 
+import time
+import dataclasses
+from collections.abc import Iterator
+from datetime import datetime
+from enum import Enum
 from typing import Any
 
+from django.http import StreamingHttpResponse
+
+import orjson
 import structlog
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,7 +26,12 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.wizard.backend.facade import api as wizard_facade
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, UpsertWizardSessionRequest
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardSessionInput,
+    UpsertWizardSessionRequest,
+    WizardSessionDTO,
+)
+from products.wizard.backend.logic.pubsub import subscribe
 from products.wizard.backend.presentation.serializers import (
     UpsertWizardSessionRequestSerializer,
     WizardSessionSerializer,
@@ -73,9 +87,13 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
     )
 
 
+SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
+SSE_POLL_TIMEOUT_SECONDS = 1.0
+
+
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "wizard_session"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "stream"]
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "session_id"
@@ -180,3 +198,85 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(WizardSessionSerializer(dto).data, status=response_status)
+
+    @extend_schema(
+        description=(
+            "Server-Sent Events stream of wizard session updates for a "
+            "(workflow_id, skill_id) pair. On connect, the current latest "
+            "session (if any) is emitted as the first event; subsequent "
+            "upserts are streamed in real time."
+        ),
+        parameters=[
+            OpenApiParameter(name="workflow_id", required=True, type=str),
+            OpenApiParameter(name="skill_id", required=True, type=str),
+        ],
+        responses={
+            (200, "text/event-stream"): {
+                "type": "string",
+                "description": "SSE stream of WizardSession events.",
+            }
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="stream")
+    def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        workflow_id = request.query_params.get("workflow_id")
+        skill_id = request.query_params.get("skill_id")
+        if not workflow_id or not skill_id:
+            raise ValidationError({"detail": "workflow_id and skill_id are required."})
+
+        generator = _wizard_session_event_stream(
+            team_id=self.team_id,
+            workflow_id=workflow_id,
+            skill_id=skill_id,
+        )
+        return StreamingHttpResponse(
+            generator,
+            status=status.HTTP_200_OK,
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+
+def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str) -> Iterator[bytes]:
+    """Yield SSE-formatted bytes for a (workflow_id, skill_id) subscription.
+
+    Emits the current latest session (if any) first, then forwards Redis
+    pub/sub messages. Yields heartbeat comments roughly every
+    SSE_HEARTBEAT_INTERVAL_SECONDS so proxies don't time the connection out.
+    """
+    latest = wizard_facade.get_latest(team_id, workflow_id, skill_id)
+    if latest is not None:
+        yield _format_event(latest)
+
+    with subscribe(team_id, workflow_id, skill_id) as pubsub:
+        last_heartbeat = time.monotonic()
+        while True:
+            message = pubsub.get_message(timeout=SSE_POLL_TIMEOUT_SECONDS)
+            now = time.monotonic()
+
+            if message and message.get("type") == "message":
+                yield b"data: " + message["data"] + b"\n\n"
+                last_heartbeat = now
+                continue
+
+            if now - last_heartbeat >= SSE_HEARTBEAT_INTERVAL_SECONDS:
+                yield b": ping\n\n"
+                last_heartbeat = now
+
+
+def _format_event(dto: WizardSessionDTO) -> bytes:
+    payload = orjson.dumps(dto, default=_json_default)
+    return b"data: " + payload + b"\n\n"
+
+
+def _json_default(value: Any) -> Any:
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")

@@ -4,6 +4,7 @@ Business logic for Wizard sessions.
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
+from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
 from products.wizard.backend.models import WizardSession
 
@@ -37,7 +38,9 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             "error": params.error,
         },
     )
-    return _to_dto(instance), created
+    dto = _to_dto(instance)
+    publish_session_update(dto)
+    return dto, created
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
