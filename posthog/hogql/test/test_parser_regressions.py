@@ -258,6 +258,31 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_columns_macro_asterisk_form_as_list_element(self):
+        # `COLUMNS (…)` resolves `columnExprList` before the dedicated
+        # `* EXCLUDE` / `id.* …` alternatives. An asterisk-form
+        # followed by a postfix `(…)` call (`columns(q.*())`,
+        # `columns(* exclude(a) ())`) is a `ColumnsList` whose element
+        # is an `ExprCall` over the asterisk-form — not a plain
+        # `Call(columns, …)`. The Rust parser committed to the
+        # dedicated form and then fell back to a function call when the
+        # trailing `(…)` would not parse.
+        cases = (
+            "columns(q.*())",
+            "columns(* exclude(a) ())",
+            # guard: the plain forms must keep their shape
+            "columns(*)",
+            "columns(a, b)",
+            "columns(q.*)",
+            "columns(* exclude(a))",
+            "columns('re')",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

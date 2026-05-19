@@ -1047,118 +1047,146 @@ impl<'a> Parser<'a> {
         //   2. `*` [EXCLUDE (...)] [REPLACE (...)]
         //   3. `ident DOT *` [EXCLUDE (...)] [REPLACE (...)]
         //   4. `expr_list` → ColumnsList
-        let result = if matches!(self.peek(), TokenKind::String)
-            && self.peek_next() == TokenKind::RParen
-        {
-            let str_tok = self.bump()?;
-            let s = unquote_single_string(self.text(str_tok));
-            emit::columns_expr(Some(s), None, false, None, None)
-        } else if self.peek() == TokenKind::Asterisk
-            && matches!(
-                self.peek_next(),
-                TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
-            )
-        {
-            self.bump()?;
-            let (exclude, replace) = self.parse_columns_decorators()?;
-            // ANTLR resolves `COLUMNS(* …)` against five alternatives in
-            // declared order. The interesting split:
-            //
-            //   `COLUMNS(* EXCLUDE …)` only
-            //     → matches `ColumnExprColumnsList` first because
-            //       `ColumnExprAsterisk` admits a trailing EXCLUDE
-            //       (line 288 of HogQLParser.g4). cpp wraps the asterisk
-            //       columns-expr inside an outer `ColumnsExpr(columns=…)`.
-            //
-            //   `COLUMNS(* REPLACE …)`
-            //   `COLUMNS(* EXCLUDE … REPLACE …)`
-            //     → list path can't match (REPLACE isn't a valid trailing
-            //       decoration on `ColumnExprAsterisk`), so ANTLR falls
-            //       through to the specialised `ColumnExprColumnsReplace`
-            //       / `…ExcludeReplace` rule, which returns the
-            //       UNWRAPPED `ColumnsExpr(all_columns=True, …)` shape.
-            //
-            // Mirror that split here.
-            if replace.is_some() {
-                emit::columns_expr(None, None, true, exclude, replace)
-            } else {
-                let inner = emit::columns_expr(None, None, true, exclude, None);
-                emit::columns_expr(None, Some(vec![inner]), false, None, None)
-            }
-        } else {
-            // Could be `ident . *` or an expression list.
-            // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
-            if matches!(
-                self.peek(),
-                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-            ) && self.peek_next() == TokenKind::Dot
+        let result =
+            if matches!(self.peek(), TokenKind::String) && self.peek_next() == TokenKind::RParen {
+                let str_tok = self.bump()?;
+                let s = unquote_single_string(self.text(str_tok));
+                emit::columns_expr(Some(s), None, false, None, None)
+            } else if self.peek() == TokenKind::Asterisk
+                && matches!(
+                    self.peek_next(),
+                    TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
+                )
             {
-                // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
-                let saved_pos = self.peek0.start;
-                let mut chain: Vec<String> = Vec::new();
-                let mut probe = Lexer::with_pos(self.src, saved_pos);
-                let first = probe.next_token()?;
-                chain.push(identifier_text(
-                    &self.src[first.start..first.end],
-                    first.kind,
-                ));
-                let mut ok = true;
-                let mut saw_star = false;
-                loop {
-                    let dot = probe.next_token()?;
-                    if dot.kind != TokenKind::Dot {
-                        ok = false;
-                        break;
-                    }
-                    let nxt = probe.next_token()?;
-                    if nxt.kind == TokenKind::Asterisk {
-                        saw_star = true;
-                        break;
-                    }
-                    if matches!(
-                        nxt.kind,
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                    ) {
-                        chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
-                    } else {
-                        ok = false;
-                        break;
-                    }
+                self.bump()?;
+                let (exclude, replace) = self.parse_columns_decorators()?;
+                // ANTLR resolves `COLUMNS(* …)` against five alternatives in
+                // declared order. The interesting split:
+                //
+                //   `COLUMNS(* EXCLUDE …)` only
+                //     → matches `ColumnExprColumnsList` first because
+                //       `ColumnExprAsterisk` admits a trailing EXCLUDE
+                //       (line 288 of HogQLParser.g4). cpp wraps the asterisk
+                //       columns-expr inside an outer `ColumnsExpr(columns=…)`.
+                //
+                //   `COLUMNS(* REPLACE …)`
+                //   `COLUMNS(* EXCLUDE … REPLACE …)`
+                //     → list path can't match (REPLACE isn't a valid trailing
+                //       decoration on `ColumnExprAsterisk`), so ANTLR falls
+                //       through to the specialised `ColumnExprColumnsReplace`
+                //       / `…ExcludeReplace` rule, which returns the
+                //       UNWRAPPED `ColumnsExpr(all_columns=True, …)` shape.
+                //
+                // Mirror that split here.
+                if replace.is_some() {
+                    emit::columns_expr(None, None, true, exclude, replace)
+                } else {
+                    let inner = emit::columns_expr(None, None, true, exclude, None);
+                    self.columns_list_from_first(inner)?
                 }
-                if ok && saw_star {
-                    // Commit the qualified-asterisk consumption.
-                    self.set_lexer_pos(probe.pos())?;
-                    let (exclude, replace) = self.parse_columns_decorators()?;
-                    let mut chain_values: Vec<Value> =
-                        chain.into_iter().map(Value::String).collect();
-                    chain_values.push(Value::String("*".into()));
-                    let qualified_field = emit::field(chain_values);
-                    // Four C++-visitor shapes, all reachable here:
-                    //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
-                    //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
-                    //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
-                    //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
-                    match (exclude, replace) {
-                        (None, None) => {
-                            emit::columns_expr(None, Some(vec![qualified_field]), false, None, None)
+            } else {
+                // Could be `ident . *` or an expression list.
+                // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
+                if matches!(
+                    self.peek(),
+                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+                ) && self.peek_next() == TokenKind::Dot
+                {
+                    // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
+                    let saved_pos = self.peek0.start;
+                    let mut chain: Vec<String> = Vec::new();
+                    let mut probe = Lexer::with_pos(self.src, saved_pos);
+                    let first = probe.next_token()?;
+                    chain.push(identifier_text(
+                        &self.src[first.start..first.end],
+                        first.kind,
+                    ));
+                    let mut ok = true;
+                    let mut saw_star = false;
+                    loop {
+                        let dot = probe.next_token()?;
+                        if dot.kind != TokenKind::Dot {
+                            ok = false;
+                            break;
                         }
-                        (Some(ex), None) => {
-                            let inner = emit::columns_expr(None, None, true, Some(ex), None);
-                            emit::columns_expr(None, Some(vec![inner]), false, None, None)
+                        let nxt = probe.next_token()?;
+                        if nxt.kind == TokenKind::Asterisk {
+                            saw_star = true;
+                            break;
                         }
-                        (ex, repl @ Some(_)) => emit::columns_expr(None, None, true, ex, repl),
+                        if matches!(
+                            nxt.kind,
+                            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+                        ) {
+                            chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if ok && saw_star {
+                        // Commit the qualified-asterisk consumption.
+                        self.set_lexer_pos(probe.pos())?;
+                        let (exclude, replace) = self.parse_columns_decorators()?;
+                        let mut chain_values: Vec<Value> =
+                            chain.into_iter().map(Value::String).collect();
+                        chain_values.push(Value::String("*".into()));
+                        let qualified_field = emit::field(chain_values);
+                        // Four C++-visitor shapes, all reachable here:
+                        //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
+                        //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
+                        //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
+                        //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
+                        match (exclude, replace) {
+                            (None, None) => self.columns_list_from_first(qualified_field)?,
+                            (Some(ex), None) => {
+                                let inner = emit::columns_expr(None, None, true, Some(ex), None);
+                                self.columns_list_from_first(inner)?
+                            }
+                            (ex, repl @ Some(_)) => emit::columns_expr(None, None, true, ex, repl),
+                        }
+                    } else {
+                        let list = self.parse_arg_list(TokenKind::RParen)?;
+                        emit::columns_expr(None, Some(list), false, None, None)
                     }
                 } else {
                     let list = self.parse_arg_list(TokenKind::RParen)?;
                     emit::columns_expr(None, Some(list), false, None, None)
                 }
-            } else {
-                let list = self.parse_arg_list(TokenKind::RParen)?;
-                emit::columns_expr(None, Some(list), false, None, None)
-            }
-        };
+            };
         self.expect(TokenKind::RParen, ")")?;
         Ok(result)
+    }
+
+    /// An asterisk-form (`*`, `id.*`, `* EXCLUDE (...)`) inside
+    /// `COLUMNS (...)` has already been parsed into `first`. cpp's
+    /// ANTLR resolves the `COLUMNS LPAREN columnExprList RPAREN`
+    /// alternative before the dedicated `* …` / `id.* …` ones, so when
+    /// a `)` follows immediately this was the sole list element. When
+    /// anything else follows, the asterisk-form is the head of a
+    /// larger `columnExpr` (a postfix `(…)` call etc.) and may be the
+    /// first of a comma list — continue it through the Pratt loop and
+    /// collect the rest as `ColumnExprColumnsList`.
+    fn columns_list_from_first(&mut self, first: Value) -> Result<Value, ParseError> {
+        if self.peek() == TokenKind::RParen {
+            return Ok(emit::columns_expr(
+                None,
+                Some(vec![first]),
+                false,
+                None,
+                None,
+            ));
+        }
+        let cont_start = self.peek0.start;
+        let first = self.pratt_continue_with_lhs(first, 0, cont_start)?;
+        let mut list = vec![first];
+        while self.eat(TokenKind::Comma)? {
+            if self.peek() == TokenKind::RParen {
+                break;
+            }
+            list.push(self.parse_expr_bp(0)?);
+        }
+        Ok(emit::columns_expr(None, Some(list), false, None, None))
     }
 
     fn parse_columns_decorators(&mut self) -> Result<ColumnsDecorators, ParseError> {
