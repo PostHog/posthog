@@ -70,9 +70,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                if (sceneSidePanelContext.settings_section) {
-                    tabs.push(SidePanelTab.Settings)
-                }
+                // Settings is always enabled so `openSettingsPanel` works on any scene
+                // (e.g. the gear icon next to "Filter out internal and test users").
+                // `visibleTabs` decides whether the gear shows in the nav bar.
+                tabs.push(SidePanelTab.Settings)
 
                 // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)
@@ -91,10 +92,14 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs],
-            (enabledTabs): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.sceneSidePanelContext],
+            (enabledTabs, sceneSidePanelContext): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
-                const hiddenTabs = [SidePanelTab.Exports]
+                const hiddenTabs: SidePanelTab[] = [SidePanelTab.Exports]
+                // Hide Settings from the nav bar unless the scene declares a settings_section.
+                if (!sceneSidePanelContext.settings_section) {
+                    hiddenTabs.push(SidePanelTab.Settings)
+                }
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],
