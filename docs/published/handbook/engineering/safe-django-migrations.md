@@ -289,51 +289,75 @@ class Migration(migrations.Migration):
 - **Blocks all writes:** No data can be written during index creation
 - **Deployment timeout:** Migration might exceed timeout limits
 
-### Safe Approach: Concurrent Index Creation
+### Why `AddIndexConcurrently` Is Not Enough
 
-**Recommended: Use Django's built-in concurrent operations (PostgreSQL only):**
+Do not use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly.
+They are non-blocking, but they are **not idempotent**:
+Django emits a bare `CREATE INDEX CONCURRENTLY` (or `DROP INDEX CONCURRENTLY`)
+with no `IF NOT EXISTS` / `IF EXISTS`, and there is no hook to disable
+`lock_timeout` for the build.
+
+Deploy runs migrations under a `lock_timeout`, and `bin/migrate` re-runs the
+**entire** migration on failure with exponential backoff.
+`CREATE INDEX CONCURRENTLY` is non-transactional and runs with `atomic = False`,
+so if the build is cancelled (a single transient `lock_timeout` while another
+session holds a conflicting lock is enough) PostgreSQL leaves an **invalid**
+index behind with nothing to roll it back.
+Every subsequent retry then re-issues the same bare statement and fails with
+`relation "..." already exists` (or `index "..." does not exist` for drops).
+The migration is now stuck and blocks all deploys until someone drops or
+`REINDEX`es the invalid index by hand.
+
+This is enforced: `ConcurrentIndexIdempotencyPolicy` in the migration risk
+analyzer blocks any migration that uses `AddIndexConcurrently`,
+`RemoveIndexConcurrently`, or a `RunSQL` concurrent index without
+`IF [NOT] EXISTS`.
+
+### Safe Approach: RunSQL + `lock_timeout = 0` + `IF NOT EXISTS`
+
+Use `RunSQL` wrapped in `SeparateDatabaseAndState` so Django model state still
+tracks the index (keeps `makemigrations --check` and the ORM correct) while the
+database side runs the hardened, idempotent SQL:
 
 ```python
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 class Migration(migrations.Migration):
     atomic = False  # Required for CONCURRENTLY
 
     operations = [
-        AddIndexConcurrently(
-            model_name='mymodel',
-            index=models.Index(fields=['field_name'], name='mymodel_field_idx'),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="mymodel",
+                    index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        SET lock_timeout = 0;
+                        CREATE INDEX CONCURRENTLY IF NOT EXISTS mymodel_field_idx
+                        ON mymodel (field_name);
+                    """,
+                    reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS mymodel_field_idx;",
+                ),
+            ],
         ),
     ]
 ```
 
-**If you need `IF NOT EXISTS` for idempotency, use RunSQL:**
-
-```python
-from django.db import migrations
-
-class Migration(migrations.Migration):
-    atomic = False  # Required for CONCURRENTLY
-
-    operations = [
-        migrations.RunSQL(
-            sql="""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS mymodel_field_idx
-                ON mymodel (field_name)
-            """,
-            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS mymodel_field_idx",
-        ),
-    ]
-```
+Dropping an index uses the mirror image: `DROP INDEX CONCURRENTLY IF EXISTS`
+in `database_operations`, with `RemoveIndex` in `state_operations`.
 
 ### Key Points
 
-- **Use `AddIndexConcurrently` for existing large tables** - it handles the SQL correctly
-- `AddIndexConcurrently` does not support `IF NOT EXISTS` - use `RunSQL` if you need idempotency
-- Set `atomic = False` in the migration (required for all CONCURRENTLY operations)
-- Concurrent index creation is slower but doesn't block writes
-- Use `RemoveIndexConcurrently` to drop indexes safely
+- **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** - they are non-idempotent and the CI policy blocks them
+- `SET lock_timeout = 0;` stops the deploy `lock_timeout` from cancelling the build and creating an invalid index in the first place
+- `IF NOT EXISTS` / `IF EXISTS` makes the retry idempotent if the build is interrupted some other way
+- Wrap in `SeparateDatabaseAndState` so Django model state still tracks the index
+- Set `atomic = False` (required for all `CONCURRENTLY` operations)
+- If a prior deploy already left an invalid index, clean it up with `REINDEX INDEX CONCURRENTLY` (rebuilds in place) or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running
 
 ## Adding Constraints
 
@@ -601,17 +625,29 @@ class Migration(migrations.Migration):
     atomic = False  # Required for CONCURRENTLY
 
     operations = [
-        AddIndexConcurrently(
-            model_name="mymodel",
-            index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="mymodel",
+                    index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS mymodel_field_idx ON mymodel (field_name);",
+                    reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS mymodel_field_idx;",
+                ),
+            ],
         ),
     ]
 ```
 
+See [Adding Indexes](#adding-indexes) for why the bare `AddIndexConcurrently` form is unsafe.
+
 **When to use `atomic=False`:**
 
-- `CREATE INDEX CONCURRENTLY` (required - `AddIndexConcurrently` needs this)
-- `DROP INDEX CONCURRENTLY` (required - `RemoveIndexConcurrently` needs this)
+- `CREATE INDEX CONCURRENTLY` (required - use the `RunSQL` + `IF NOT EXISTS` pattern, not `AddIndexConcurrently`)
+- `DROP INDEX CONCURRENTLY` (required - use the `RunSQL` + `IF EXISTS` pattern, not `RemoveIndexConcurrently`)
 - `REINDEX CONCURRENTLY` (required)
 
 **When NOT to use `atomic=False`:**

@@ -4,6 +4,7 @@ These are team coding guidelines, not database safety issues.
 Policies enforce architectural decisions and coding standards.
 """
 
+import re
 from abc import ABC, abstractmethod
 
 # Apps owned by PostHog where policies are enforced
@@ -242,8 +243,117 @@ class AtomicFalsePolicy(MigrationPolicy):
         return False
 
 
+class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
+    """
+    Policy: concurrent index operations must be idempotent.
+
+    Rationale:
+    - bin/migrate re-runs the ENTIRE migration on failure, with exponential
+      backoff, up to MIGRATE_MAX_RETRIES times.
+    - CREATE/DROP INDEX CONCURRENTLY is non-transactional and runs with
+      atomic=False, so a cancelled or interrupted build leaves an INVALID
+      index behind - there is no transaction to roll it back.
+    - Django's AddIndexConcurrently / RemoveIndexConcurrently emit a bare
+      CREATE/DROP INDEX CONCURRENTLY with no IF [NOT] EXISTS and give no way
+      to disable lock_timeout. Deploy runs under a lock_timeout, so a single
+      transient cancellation leaves an invalid index, and every subsequent
+      retry then fails with "relation already exists" (or "does not exist"
+      for drops). The migration is stuck and blocks deploys until the invalid
+      index is cleaned up by hand.
+    - The safe pattern is RunSQL with `SET lock_timeout = 0;` plus
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (and the matching
+      `DROP INDEX CONCURRENTLY IF EXISTS` reverse), wrapped in
+      SeparateDatabaseAndState so Django model state still tracks the index.
+      lock_timeout = 0 stops the build from being cancelled in the first
+      place; IF NOT EXISTS makes the retry idempotent if it is.
+    """
+
+    DJANGO_CONCURRENT_OPS = {"AddIndexConcurrently", "RemoveIndexConcurrently"}
+
+    GUIDANCE = (
+        "Use RunSQL wrapped in SeparateDatabaseAndState instead:\n"
+        "    migrations.SeparateDatabaseAndState(\n"
+        "        state_operations=[migrations.AddIndex(...)],\n"
+        "        database_operations=[migrations.RunSQL(\n"
+        '            sql="SET lock_timeout = 0; '
+        'CREATE INDEX CONCURRENTLY IF NOT EXISTS my_idx ON my_table (col);",\n'
+        '            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS my_idx;",\n'
+        "        )],\n"
+        "    )\n"
+        "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#adding-indexes"
+    )
+
+    def check_operation(self, op) -> list[str]:
+        return []  # Checked at migration level
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        violations = []
+        for op in self._iter_executed_operations(migration):
+            violations.extend(self._check_single_operation(op))
+        return violations
+
+    def _iter_executed_operations(self, migration):
+        """Yield operations that emit SQL.
+
+        Descends into SeparateDatabaseAndState.database_operations (the half
+        that actually runs DDL); state_operations never touch the database.
+        """
+        for op in migration.operations:
+            if op.__class__.__name__ == "SeparateDatabaseAndState":
+                yield from getattr(op, "database_operations", []) or []
+            else:
+                yield op
+
+    def _check_single_operation(self, op) -> list[str]:
+        op_type = op.__class__.__name__
+
+        if op_type in self.DJANGO_CONCURRENT_OPS:
+            return [
+                f"❌ BLOCKED: {op_type} emits a non-idempotent CREATE/DROP INDEX CONCURRENTLY "
+                "and cannot disable lock_timeout. A single transient lock_timeout cancellation "
+                "during deploy leaves an INVALID index; bin/migrate then re-runs the migration "
+                'and every retry fails with "relation already exists" - a stuck migration that '
+                f"blocks deploys.\n{self.GUIDANCE}"
+            ]
+
+        if op_type == "RunSQL":
+            return self._check_runsql(op)
+
+        return []
+
+    def _check_runsql(self, op) -> list[str]:
+        sql = str(getattr(op, "sql", ""))
+        # Strip -- and # comments so keywords inside comments don't match
+        sql = re.sub(r"--[^\n]*", "", sql)
+        sql = re.sub(r"#[^\n]*", "", sql)
+        sql = sql.upper()
+
+        if "CONCURRENTLY" not in sql or "INDEX" not in sql:
+            return []
+
+        if "CREATE" in sql and "IF NOT EXISTS" not in sql:
+            return [
+                "❌ BLOCKED: RunSQL CREATE INDEX CONCURRENTLY is missing IF NOT EXISTS, so it is "
+                "non-idempotent. A cancelled build leaves an INVALID index and every bin/migrate "
+                f'retry then fails with "relation already exists".\n{self.GUIDANCE}'
+            ]
+
+        if "DROP" in sql and "IF EXISTS" not in sql:
+            return [
+                "❌ BLOCKED: RunSQL DROP INDEX CONCURRENTLY is missing IF EXISTS, so it is "
+                "non-idempotent. After a partial failure every bin/migrate retry then fails "
+                f'with "index does not exist".\n{self.GUIDANCE}'
+            ]
+
+        return []
+
+
 # Registry of all PostHog policies
 POSTHOG_POLICIES = [
     UUIDPrimaryKeyPolicy(),
     AtomicFalsePolicy(),
+    ConcurrentIndexIdempotencyPolicy(),
 ]
