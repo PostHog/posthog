@@ -60,6 +60,7 @@ import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
@@ -589,6 +590,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When enabled, new experiments will only count participants whose full conversion window has elapsed. Can be overridden per experiment.',
                 component: <DefaultOnlyCountMaturedUsers />,
                 keywords: ['matured', 'conversion', 'window', 'filter'],
+            },
+            {
+                id: 'environment-experiment-cuped-enabled',
+                title: 'Default CUPED variance reduction',
+                description:
+                    'When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
+                flag: 'EXPERIMENT_CUPED',
+                component: <DefaultCupedEnabled />,
+                keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
             },
         ],
     },
@@ -1233,7 +1243,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'datacapture',
                 title: 'IP data capture configuration',
                 description:
-                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded.',
+                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded. Note: this does not apply when Cookieless server hash mode is enabled, which strips the IP before transformations run.',
                 docsUrl: 'https://posthog.com/docs/privacy',
                 component: <IPCapture />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],

@@ -20,8 +20,6 @@ To run:
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
@@ -38,7 +36,6 @@ def _sql_case(*, name: str, prompt: str, expected_sql: str) -> SandboxedEvalCase
     )
 
 
-@pytest.mark.django_db
 async def eval_sql(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         # Straightforward breakdowns

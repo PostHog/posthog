@@ -732,6 +732,7 @@ class AssistantTool(StrEnum):
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
+    WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
 
 
 class AssistantToolCall(BaseModel):
@@ -21360,6 +21361,15 @@ class LogValuesQuery(BaseModel):
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class LogsAlertFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterGroup: PropertyGroupFilter | None = None
+    serviceNames: list[str] | None = None
+    severityLevels: list[LogSeverityLevel] | None = None
 
 
 class LogsQuery(BaseModel):

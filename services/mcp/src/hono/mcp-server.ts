@@ -132,7 +132,9 @@ export class HonoMcpServer {
             return customApiBaseUrl
         }
         if (process.env.NODE_ENV === 'production') {
-            throw new Error('POSTHOG_API_BASE_URL must be set in production — Hono deployments are regional and do not auto-detect.')
+            throw new Error(
+                'POSTHOG_API_BASE_URL must be set in production — Hono deployments are regional and do not auto-detect.'
+            )
         }
         return 'http://localhost:8010'
     }
