@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     event_uuid String,
     distinct_id String,
     person_id String,
-    invocation_globals String CODEC(ZSTD(3)),
+    invocation_globals String,
     version UInt64,
     is_deleted UInt8 DEFAULT 0,
     INDEX status_idx     status      TYPE set(8)             GRANULARITY 4,
