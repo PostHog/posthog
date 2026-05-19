@@ -103,7 +103,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                 <Tooltip
                     title={
                         <>
-                            Click on a version number to view events captured.
+                            Click on a version or status to view events captured.
                             <br />
                             Hover over status for version age and/or suggestion.
                         </>
@@ -116,88 +116,88 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         dataIndex: 'version',
         render: function RenderVersion(_, record) {
             return (
-                <div className="flex items-center gap-2 justify-start">
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Events on Activity page',
-                                onClick: () => {
-                                    posthog.capture('sdk doctor view events', {
-                                        sdkType: record.type,
-                                        destination: 'activity_page',
-                                    })
-                                    newInternalTab(activityPageUrlForSdkVersion(record.type, record.version))
-                                },
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Events on Activity page',
+                            onClick: () => {
+                                posthog.capture('sdk doctor view events', {
+                                    sdkType: record.type,
+                                    destination: 'activity_page',
+                                })
+                                newInternalTab(activityPageUrlForSdkVersion(record.type, record.version))
                             },
-                            {
-                                label: 'SQL query',
-                                onClick: () => {
-                                    posthog.capture('sdk doctor view events', {
-                                        sdkType: record.type,
-                                        destination: 'sql_editor',
+                        },
+                        {
+                            label: 'SQL query',
+                            onClick: () => {
+                                posthog.capture('sdk doctor view events', {
+                                    sdkType: record.type,
+                                    destination: 'sql_editor',
+                                })
+                                newInternalTab(
+                                    urls.sqlEditor({
+                                        query: queryForSdkVersion(record.type, record.version),
                                     })
-                                    newInternalTab(
-                                        urls.sqlEditor({
-                                            query: queryForSdkVersion(record.type, record.version),
-                                        })
-                                    )
-                                },
+                                )
                             },
-                        ]}
-                    >
-                        <code className="text-xs font-mono bg-muted-highlight rounded-sm cursor-pointer hover:bg-muted">
+                        },
+                    ]}
+                >
+                    <div className="flex items-center gap-2 justify-start cursor-pointer">
+                        <code className="text-xs font-mono bg-muted-highlight rounded-sm hover:bg-muted">
                             {record.version}
                         </code>
-                    </LemonMenu>
-                    {record.isOutdated ? (
-                        <Tooltip
-                            placement="right"
-                            title={
-                                record.releasedAgo
-                                    ? `Released ${record.releasedAgo}. Upgrade recommended.`
-                                    : 'Upgrade recommended'
-                            }
-                        >
-                            <LemonTag type="danger" className="shrink-0 cursor-help">
-                                Outdated
-                            </LemonTag>
-                        </Tooltip>
-                    ) : record.isCurrentOrNewer ? (
-                        <Tooltip
-                            placement="right"
-                            title={
-                                <>
-                                    You have the latest available.
-                                    <br />
-                                    Click 'Releases ↗' above to check for any since.
-                                </>
-                            }
-                        >
-                            <LemonTag type="success" className="shrink-0 cursor-help">
-                                Current
-                            </LemonTag>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip
-                            placement="right"
-                            title={
-                                record.releasedAgo ? (
+                        {record.isOutdated ? (
+                            <Tooltip
+                                placement="right"
+                                title={
+                                    record.releasedAgo
+                                        ? `Released ${record.releasedAgo}. Upgrade recommended.`
+                                        : 'Upgrade recommended'
+                                }
+                            >
+                                <LemonTag type="danger" className="shrink-0">
+                                    Outdated
+                                </LemonTag>
+                            </Tooltip>
+                        ) : record.isCurrentOrNewer ? (
+                            <Tooltip
+                                placement="right"
+                                title={
                                     <>
-                                        Released {record.releasedAgo}.
+                                        You have the latest available.
                                         <br />
-                                        Upgrading is a good idea, but it's not urgent yet.
+                                        Click 'Releases ↗' above to check for any since.
                                     </>
-                                ) : (
-                                    "Upgrading is a good idea, but it's not urgent yet"
-                                )
-                            }
-                        >
-                            <LemonTag type="warning" className="shrink-0 cursor-help">
-                                Recent
-                            </LemonTag>
-                        </Tooltip>
-                    )}
-                </div>
+                                }
+                            >
+                                <LemonTag type="success" className="shrink-0">
+                                    Current
+                                </LemonTag>
+                            </Tooltip>
+                        ) : (
+                            <Tooltip
+                                placement="right"
+                                title={
+                                    record.releasedAgo ? (
+                                        <>
+                                            Released {record.releasedAgo}.
+                                            <br />
+                                            Upgrading is a good idea, but it's not urgent yet.
+                                        </>
+                                    ) : (
+                                        "Upgrading is a good idea, but it's not urgent yet"
+                                    )
+                                }
+                            >
+                                <LemonTag type="warning" className="shrink-0">
+                                    Recent
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
+                </LemonMenu>
             )
         },
     },
