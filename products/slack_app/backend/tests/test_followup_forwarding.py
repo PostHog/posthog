@@ -325,6 +325,12 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert "we just need to inject those better" in task.description
         # Initiator is not duplicated in the context block
         assert task.description.count("do something") == 1
+        # The initiator's chronological slot is preserved as a placeholder
+        assert "georgiy: [see prompt below]" in task.description
+        # The placeholder sits between the surrounding messages, not at the end
+        placeholder_pos = task.description.index("[see prompt below]")
+        last_context_pos = task.description.index("we just need to inject those better")
+        assert placeholder_pos < last_context_pos
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")

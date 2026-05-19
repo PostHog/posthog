@@ -33,6 +33,9 @@ POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 
 
+_INITIATOR_PLACEHOLDER = "[see prompt below]"
+
+
 def _build_posthog_code_task_description(
     initiator_text: str,
     thread_messages: list[dict[str, str]],
@@ -43,29 +46,39 @@ def _build_posthog_code_task_description(
 
     Concatenating the whole thread as one blob made the agent waste turns figuring out
     which line was the request vs. background. Putting the prompt last — after the
-    framed context — anchors the agent on the actual ask just before it acts.
+    framed context — anchors the agent on the actual ask just before it acts. The
+    initiator's slot in the context block is preserved as a placeholder so the agent
+    can still see where the prompt landed chronologically (e.g. mid-discussion vs.
+    at the start of a thread).
     """
     prompt = initiator_text.strip() or "Task from Slack"
+    stripped_initiator = initiator_text.strip()
 
-    context_messages: list[dict[str, str]] = []
+    context_entries: list[str] = []
     for msg in thread_messages:
         msg_text = (msg.get("text") or "").strip()
         if not msg_text:
             continue
-        # Exclude the initiator's own message from the context block; it's the prompt below.
-        # Fall back to a text match when ts is missing (older messages or stubbed inputs).
-        if initiator_ts and msg.get("ts") == initiator_ts:
-            continue
-        if not initiator_ts and msg_text == initiator_text.strip():
-            continue
-        context_messages.append(msg)
+        is_initiator = (
+            (initiator_ts and msg.get("ts") == initiator_ts)
+            or (not initiator_ts and stripped_initiator and msg_text == stripped_initiator)
+        )
+        username = msg.get("user") or "user"
+        if is_initiator:
+            context_entries.append(f"{username}: {_INITIATOR_PLACEHOLDER}")
+        else:
+            context_entries.append(f"{username}: {msg['text']}")
 
-    if not context_messages:
+    # Drop a trailing placeholder — no thread context to anchor it to.
+    while context_entries and context_entries[-1].endswith(_INITIATOR_PLACEHOLDER):
+        context_entries.pop()
+
+    if not context_entries:
         return prompt
 
-    context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in context_messages)
+    context_block = "\n".join(context_entries)
     return (
-        "Attached Slack thread context (chronological, oldest first; does not repeat the prompt below):\n"
+        "Attached Slack thread context (chronological, oldest first; the prompt below replaces the placeholder):\n"
         f"{context_block}\n"
         "---\n\n"
         f"{prompt}"
