@@ -809,6 +809,28 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_capital_F_template_string_only_in_full_template_context(self):
+        # The grammar has two template-string tokens:
+        #   `QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_TEMPLATE_STRING);`
+        #   `QUOTE_SINGLE_TEMPLATE_FULL: 'F\'' -> pushMode(IN_FULL_TEMPLATE_STRING);`
+        # The lowercase `f'` is reachable from `templateString` (a valid
+        # `columnExpr`); the uppercase `F'` is reachable only via the
+        # `fullTemplateString` entry rule (e.g. SQL template files), never
+        # as a column expression. Rust's lexer collapsed both into the same
+        # token and the parser accepted `F'…'` anywhere `f'…'` is allowed.
+        from posthog.hogql.errors import BaseHogQLError
+
+        for src in ("F'hello'", "F''", "F'{1+2}'"):
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # Guard: lowercase form remains a valid column expression.
+        for src in ("f'hello'", "f'{1+2}'"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_empty_paren_only_clauses_rejected(self):
         # Three places where the grammar requires at least one body element
         # when parens are present, but rust was accepting bare `()`:

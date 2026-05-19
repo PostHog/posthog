@@ -413,12 +413,22 @@ impl<'a> Parser<'a> {
                 ))))
             }
             TokenKind::TemplateString => {
-                // Lexer captured the whole `f'…'` span. Strip the `f'`
-                // prefix and trailing `'`, hand the body to the template
-                // splitter which interprets `{expr}` blocks and escapes.
-                self.bump()?;
+                // Lexer captured the whole `f'…'` or `F'…'` span. The
+                // grammar has two distinct tokens:
+                //   `QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_TEMPLATE_STRING);`
+                //   `QUOTE_SINGLE_TEMPLATE_FULL: 'F\'' -> pushMode(IN_FULL_TEMPLATE_STRING);`
+                // The lowercase `f'` is the regular template string —
+                // valid as a `columnExpr` per the `templateString` rule.
+                // The uppercase `F'` is the "full" template-string-only
+                // form reached only from `fullTemplateString` (an
+                // entry-rule for `parse_string_template`); it is *not*
+                // a `columnExpr`. Reject it here.
                 let raw = self.text(tok);
                 debug_assert!(raw.len() >= 3 && (raw.starts_with("f'") || raw.starts_with("F'")));
+                if raw.starts_with("F'") {
+                    return Err(self.err("mismatched input 'F''"));
+                }
+                self.bump()?;
                 let body = &raw[2..raw.len() - 1];
                 parse_template_body(body)
             }
