@@ -116,6 +116,10 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             key: 'type',
             width: '7rem',
             render: (_value: unknown, sub: SubscriptionApi) => {
+                // Render all three types as LemonTags so the column reads as one categorical
+                // dimension. AI gets `completion` (LLM-coloured) for visual differentiation;
+                // Insight and Dashboard share `default` since they belong to the same parent
+                // class of "snapshot of an existing resource".
                 if (sub.content_type === 'ai_prompt') {
                     return (
                         <LemonTag type="completion" size="small">
@@ -123,11 +127,21 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         </LemonTag>
                     )
                 }
-                return (
-                    <span className="whitespace-nowrap">
-                        {sub.insight ? 'Insight' : sub.dashboard ? 'Dashboard' : '—'}
-                    </span>
-                )
+                if (sub.insight) {
+                    return (
+                        <LemonTag type="default" size="small">
+                            Insight
+                        </LemonTag>
+                    )
+                }
+                if (sub.dashboard) {
+                    return (
+                        <LemonTag type="default" size="small">
+                            Dashboard
+                        </LemonTag>
+                    )
+                }
+                return <span className="text-secondary">—</span>
             },
         },
         {
