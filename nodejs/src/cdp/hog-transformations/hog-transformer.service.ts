@@ -518,7 +518,7 @@ export function createHogTransformerService(
     const hogWatcherMirror: HogWatcherService | null = valkeyShadow
         ? new HogWatcherService(
               deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false, useV3: true },
+              { ...hogWatcherConfig, sendEvents: false },
               valkeyShadow.writer,
               valkeyShadow.reader
           )
