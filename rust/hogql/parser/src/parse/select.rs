@@ -1265,13 +1265,31 @@ impl<'a> Parser<'a> {
         };
         if let Some(m) = frame_method {
             obj.insert("frame_method".into(), Value::String(m.into()));
-            if self.eat_kw(Kw::Between)? {
-                let start = self.parse_window_frame_bound()?;
-                self.expect_kw(Kw::And, "AND")?;
-                let end = self.parse_window_frame_bound()?;
+            // `BETWEEN` after ROWS / RANGE is ambiguous: the
+            // `frameBetween` alt (`BETWEEN bound AND bound`) or a
+            // `frameStart` bound whose `columnExpr` is the `between`
+            // keyword used as a Field (`RANGE BETWEEN PRECEDING` is
+            // the frame expr `Field(between)` PRECEDING). cpp's ALL(*)
+            // takes `frameBetween` only when it parses end-to-end;
+            // speculate, and on failure rewind so the `between` is
+            // re-read as the Field of a `frameStart` bound.
+            let cp = self.checkpoint();
+            let between_frame = if self.eat_kw(Kw::Between)? {
+                (|p: &mut Self| -> Result<(Value, Value), ParseError> {
+                    let start = p.parse_window_frame_bound()?;
+                    p.expect_kw(Kw::And, "AND")?;
+                    let end = p.parse_window_frame_bound()?;
+                    Ok((start, end))
+                })(self)
+                .ok()
+            } else {
+                None
+            };
+            if let Some((start, end)) = between_frame {
                 obj.insert("frame_start".into(), start);
                 obj.insert("frame_end".into(), end);
             } else {
+                self.restore(cp)?;
                 let start = self.parse_window_frame_bound()?;
                 obj.insert("frame_start".into(), start);
             }

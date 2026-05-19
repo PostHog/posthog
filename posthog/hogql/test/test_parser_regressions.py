@@ -380,6 +380,25 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_window_frame_between_falls_back_to_field(self):
+        # `winFrameExtend: winFrameBound | BETWEEN winFrameBound AND
+        # winFrameBound`. After ROWS / RANGE a `between` is ambiguous:
+        # the `frameBetween` alt, or a `frameStart` bound whose
+        # `columnExpr` is the `between` keyword used as a Field
+        # (`RANGE BETWEEN PRECEDING` → frame expr = Field(between)).
+        # The Rust parser committed to the `frameBetween` alt on
+        # seeing `between` and rejected the un-`AND`ed frame.
+        cases = (
+            "select 1 from a window w as (range between preceding)",
+            # guard: a real BETWEEN frame still parses
+            "select 1 from a window w as (range between 1 preceding and 2 following)",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`
