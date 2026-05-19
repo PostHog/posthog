@@ -843,7 +843,18 @@ export function LineGraph_({
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
                                 const dataset = processedDatasets[referenceDataPoint.datasetIndex]
-                                const date = dataset?.days?.[referenceDataPoint.dataIndex]
+                                // `tooltipOptions.itemSort` reorders dataPoints alphabetically by label,
+                                // so dataPoints[0] may resolve to a derived/overlay dataset (e.g. CI band,
+                                // moving average, trend line) that has no `days` array. Walk other hovered
+                                // datasets first for a date at this index, then fall back to the chart's
+                                // shared x-axis labels so the tooltip header always shows the hovered bucket.
+                                const referenceDataIndex = referenceDataPoint.dataIndex
+                                const date =
+                                    dataset?.days?.[referenceDataIndex] ??
+                                    tooltip.dataPoints
+                                        .map((dp) => processedDatasets[dp.datasetIndex]?.days?.[referenceDataIndex])
+                                        .find((d) => d !== undefined) ??
+                                    labels?.[referenceDataIndex]
                                 const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
                                     // For stacked bar charts when shift is pressed, show only the hovered bar
                                     if (isHighlightBarMode) {

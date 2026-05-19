@@ -13,6 +13,18 @@ import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 
 const NOOP = (): void => {}
 
+/** Picks the date string used in the tooltip header.
+ *  Derived overlays (CI bands, moving averages, trend lines) can land first in `seriesData`
+ *  and may lack a `meta.days` array, which would leave the header without a date. Search
+ *  across all visible series for one that carries `days` at the hovered index, and fall
+ *  back to the chart-level x-axis label so the header always shows the hovered bucket. */
+export function resolveTooltipDate(context: TooltipContext<TrendsSeriesMeta>): string | undefined {
+    const fromSeries = context.seriesData
+        .map((entry) => entry.series.meta?.days?.[context.dataIndex])
+        .find((d): d is string => d !== undefined)
+    return fromSeries ?? context.label
+}
+
 interface TrendsTooltipProps {
     context: TooltipContext<TrendsSeriesMeta>
     timezone?: string
@@ -71,7 +83,7 @@ export function TrendsTooltip({
         [context.seriesData, context.dataIndex]
     )
 
-    const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
+    const date = resolveTooltipDate(context)
 
     const renderCount = useCallback(
         (value: number): string => {

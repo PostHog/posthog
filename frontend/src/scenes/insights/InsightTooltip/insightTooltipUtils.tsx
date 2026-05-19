@@ -151,9 +151,15 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
         return input
     }
 
+    // Header rendering uses falsy checks on this string, so return '' (not 'undefined') when
+    // we have no usable date — callers without a date should produce an empty header, not the
+    // literal text "undefined".
+    if (input === undefined) {
+        return ''
+    }
     const tz = timezone ?? 'UTC'
     const day = typeof input === 'string' ? parseDateInTimezone(input, tz) : dayjs.tz(input, tz)
-    if (input === undefined || !day.isValid()) {
+    if (!day.isValid()) {
         return String(input)
     }
 

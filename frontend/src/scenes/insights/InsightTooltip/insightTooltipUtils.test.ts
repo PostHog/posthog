@@ -152,8 +152,9 @@ describe('getFormattedDate', () => {
             expect(getFormattedDate('invalid-date')).toEqual('invalid-date')
         })
 
-        it('expects undefined string if no inputs', () => {
-            expect(getFormattedDate()).toEqual('undefined')
+        it('returns empty string when input is undefined so the tooltip header collapses cleanly', () => {
+            expect(getFormattedDate()).toEqual('')
+            expect(getFormattedDate(undefined)).toEqual('')
         })
     })
 })
