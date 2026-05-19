@@ -213,13 +213,13 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         default=False,
         null=True,
         blank=True,
-        help_text="When True, the AI training opt-out setting cannot be modified through the UI or API. Set via Django admin only.",
+        help_text="When True, the AI training opt-out setting cannot be modified through the UI or API.",
     )
     is_ai_training_cta_shown = models.BooleanField(
         default=True,
         null=True,
         blank=True,
-        help_text="When True, in-app callouts inviting members to enable AI training are shown. Set False via Django admin to suppress the nag for specific customers.",
+        help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
