@@ -60,9 +60,8 @@ export function ExperimentsSettings(): JSX.Element {
                 <div>
                     <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
                     <p className="text-secondary mt-2">
-                        When enabled, new experiments will use CUPED variance reduction by default. CUPED uses
-                        pre-experiment data to detect significant effects faster on supported metrics. Can be overridden
-                        per experiment.
+                        When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to
+                        detect significant effects faster on supported metrics. Can be overridden per experiment.
                     </p>
                     <DefaultCupedEnabled />
                 </div>

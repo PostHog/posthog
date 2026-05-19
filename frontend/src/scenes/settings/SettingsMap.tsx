@@ -595,7 +595,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-experiment-cuped-enabled',
                 title: 'Default CUPED variance reduction',
                 description:
-                    'When enabled, new experiments will use CUPED variance reduction by default. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
+                    'When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
                 flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedEnabled />,
                 keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
