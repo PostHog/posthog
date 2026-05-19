@@ -174,3 +174,20 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "nested too deeply" in str(response.json()), response.json()
+
+    def test_create_path_drop_rejects_filter_group_with_too_many_nodes(self):
+        # A shallow group with 300 sibling leaves passes the depth check but
+        # forces the ingestion worker to evaluate every leaf on every log
+        # record. MAX_FILTER_GROUP_NODES (256) is enforced server-side.
+        leaves = [
+            {"key": "service.name", "operator": "exact", "value": f"svc-{i}", "type": "log_resource_attribute"}
+            for i in range(300)
+        ]
+        filter_group = {"type": "AND", "values": [{"type": "AND", "values": leaves}]}
+        response = self.client.post(
+            self.base_url,
+            self._payload(config={"patterns": [], "filter_group": filter_group}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "too many nodes" in str(response.json()), response.json()

@@ -24,11 +24,15 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsExclusionRule
 
-# Keep aligned with `MAX_FILTER_GROUP_DEPTH` in
-# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`. Both sides bound
-# recursion depth so an adversarially deep filter_group cannot stack-overflow
-# the per-record evaluator in the Node ingestion worker.
+# Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
+# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts` and
+# `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
+# deep or wide filter_group cannot stack-overflow or CPU-burn the per-record
+# evaluator in the Node ingestion worker. The breadth cap is the more
+# realistic abuse vector — depth 1 with 10k sibling leaves passes the depth
+# check but costs O(leaves) per log record.
 MAX_FILTER_GROUP_DEPTH = 16
+MAX_FILTER_GROUP_NODES = 256
 
 
 def _filter_group_depth(node: Any, depth: int = 0) -> int:
@@ -49,6 +53,22 @@ def _filter_group_depth(node: Any, depth: int = 0) -> int:
         if d > max_child:
             max_child = d
     return max_child
+
+
+def _filter_group_node_count(node: Any) -> int:
+    """Total node count across the filter group (groups + leaves). Short-circuits
+    once the cap is exceeded so adversarial payloads don't get fully traversed."""
+    if not isinstance(node, dict):
+        return 1
+    total = 1
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return total
+    for child in values:
+        total += _filter_group_node_count(child)
+        if total > MAX_FILTER_GROUP_NODES:
+            return total
+    return total
 
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
@@ -169,6 +189,19 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                         {
                             "config": {
                                 "filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."
+                            }
+                        }
+                    )
+                # Bound total node count — depth alone doesn't bound work per
+                # record. A single AND with thousands of sibling leaves is the
+                # more realistic abuse vector: it passes the depth check but
+                # costs O(leaves) on every log line through the ingestion
+                # worker. Matches `MAX_FILTER_GROUP_NODES` in `compile-rules.ts`.
+                if _filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
+                    raise ValidationError(
+                        {
+                            "config": {
+                                "filter_group": f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
                             }
                         }
                     )

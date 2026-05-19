@@ -317,6 +317,35 @@ describe('evaluateLogRecord', () => {
             expect(evaluateLogRecord(rules, baseRecord()).decision).not.toBe(SAMPLING_DECISION_DROP)
         })
 
+        it('filter_group with too many sibling nodes is dropped at compile time (legacy row above breadth cap)', () => {
+            // Pre-validator rows could have grown beyond the breadth cap. Walking
+            // them per record would amount to O(leaves) per log line, so
+            // parseFilterGroup discards the group entirely — the rule becomes a
+            // patterns-only rule. Matches MAX_FILTER_GROUP_NODES in compile-rules.ts.
+            const tooMany = Array.from({ length: 300 }, (_, i) => ({
+                key: 'service.name',
+                operator: 'exact',
+                value: `svc-${i}`,
+            }))
+            const rules = compileRuleSet([
+                {
+                    id: 'oversize',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: [],
+                        filter_group: wrap({ type: 'AND', values: tooMany }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'svc-1'
+            // Group was discarded → no patterns → rule never drops.
+            expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
+        })
+
         it('classifySamplingRecord drops via filter_group match', () => {
             const rules = compileRuleSet([
                 {

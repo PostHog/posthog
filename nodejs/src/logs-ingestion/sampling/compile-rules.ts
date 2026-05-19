@@ -4,6 +4,14 @@ import type { CompiledRuleSet, CompiledSamplingRule, SeverityAction } from './ev
 import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH } from './filter-group-match'
 import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-match'
 
+/**
+ * Bound on the total node count (groups + leaves) of a filter_group tree. Depth
+ * alone does not bound per-record work: a single AND with thousands of sibling
+ * leaves passes MAX_FILTER_GROUP_DEPTH but costs O(leaves) per log line. Kept
+ * in sync with `MAX_FILTER_GROUP_NODES` in `products/logs/backend/sampling_api.py`.
+ */
+export const MAX_FILTER_GROUP_NODES = 256
+
 export type SamplingRuleRow = {
     id: string
     rule_type: string
@@ -104,12 +112,33 @@ function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (filterGroupDepth(parsed, 0) > MAX_FILTER_GROUP_DEPTH) {
         return null
     }
+    // Also bound total breadth — a flat AND with thousands of sibling leaves
+    // passes the depth check but costs O(leaves) per record. Matches the
+    // server-side check in sampling_api.py and protects rows that predate it.
+    if (filterGroupNodeCount(parsed) > MAX_FILTER_GROUP_NODES) {
+        return null
+    }
     // Walk the tree once and stamp pre-compiled regex onto each regex leaf so
     // the per-record hot path doesn't allocate a fresh `RegExp` per match.
     // Legacy `pathDropPatterns` already follow this pattern; this brings the
     // filter-group path in line.
     compileRegexLeavesInPlace(parsed)
     return parsed
+}
+
+function filterGroupNodeCount(node: FilterGroupNode | PropertyFilterLeaf): number {
+    const maybe = node as { type?: unknown; values?: unknown }
+    if (!Array.isArray(maybe.values) || (maybe.type !== 'AND' && maybe.type !== 'OR')) {
+        return 1
+    }
+    let total = 1
+    for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+        total += filterGroupNodeCount(child)
+        if (total > MAX_FILTER_GROUP_NODES) {
+            return total
+        }
+    }
+    return total
 }
 
 function filterGroupDepth(node: FilterGroupNode | PropertyFilterLeaf, depth: number): number {
