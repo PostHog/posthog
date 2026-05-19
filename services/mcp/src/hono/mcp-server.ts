@@ -28,17 +28,10 @@ import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-import { type CloudRegion, type Context, type Env, type State, type Tool } from '@/tools/types'
+import { type Context, type Env, type State, type Tool } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import {
-    getCustomApiBaseUrl,
-    POSTHOG_EU_BASE_URL,
-    POSTHOG_US_BASE_URL,
-    getBaseUrlForRegion,
-    getEnv,
-    toCloudRegion,
-} from './constants'
+import { getCustomApiBaseUrl, getEnv } from './constants'
 import { initDurationSeconds, toolCallDurationSeconds, toolCallsTotal } from './metrics'
 
 export type { RequestProperties }
@@ -133,49 +126,15 @@ export class HonoMcpServer {
         }
     }
 
-    async detectRegion(): Promise<CloudRegion | undefined> {
-        const usClient = new ApiClient({
-            apiToken: this.props.apiToken,
-            baseUrl: POSTHOG_US_BASE_URL,
-        })
-
-        const euClient = new ApiClient({
-            apiToken: this.props.apiToken,
-            baseUrl: POSTHOG_EU_BASE_URL,
-        })
-
-        const [usResult, euResult] = await Promise.all([usClient.users().me(), euClient.users().me()])
-
-        if (usResult.success) {
-            await this.cache.set('region', 'us')
-            return 'us'
-        }
-
-        if (euResult.success) {
-            await this.cache.set('region', 'eu')
-            return 'eu'
-        }
-
-        return undefined
-    }
-
     async getBaseUrl(): Promise<string> {
         const customApiBaseUrl = getCustomApiBaseUrl()
         if (customApiBaseUrl) {
             return customApiBaseUrl
         }
-
-        const propsRegion = this.props.region
-        if (propsRegion) {
-            const region = toCloudRegion(propsRegion)
-            await this.cache.set('region', region)
-            return getBaseUrlForRegion(region)
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('POSTHOG_API_BASE_URL must be set in production — Hono deployments are regional and do not auto-detect.')
         }
-
-        const cachedRegion = await this.cache.get('region')
-        const region = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
-
-        return getBaseUrlForRegion(region || 'us')
+        return 'http://localhost:8010'
     }
 
     async api(): Promise<ApiClient> {
@@ -424,13 +383,6 @@ export class HonoMcpServer {
         }
 
         const context = await this.getContext()
-        // Sticky session: skip default resolution if a previous init for this
-        // userHash already picked a project (cache survives across requests).
-        // Without this guard, switching the active org in the user's browser
-        // would silently reshuffle an established session — `users/@me`
-        // returns whatever team the browser currently has selected, and
-        // setDefaultOrganizationAndProject would overwrite the cache with it.
-        // Headers always win because they were applied to the cache above.
         if (!cachedProjectId) {
             cachedProjectId = await this.cache.get('projectId')
         }

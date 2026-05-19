@@ -53,37 +53,25 @@ describe('HonoMcpServer', () => {
     })
 
     describe('getBaseUrl', () => {
-        it('should return US base URL by default', async () => {
-            const server = new HonoMcpServer(mockRedis, baseProps)
-            vi.spyOn(server, 'detectRegion').mockResolvedValue(undefined)
-            const url = await server.getBaseUrl()
-            expect(url).toBe('https://us.posthog.com')
-        })
-
-        it('should return EU base URL when region is eu', async () => {
-            const server = new HonoMcpServer(mockRedis, { ...baseProps, region: 'eu' })
-            const url = await server.getBaseUrl()
-            expect(url).toBe('https://eu.posthog.com')
-        })
-
-        it('should use cached region when available', async () => {
-            mockRedis._store.set('mcp:user:test-hash:region', '"eu"')
-            const server = new HonoMcpServer(mockRedis, baseProps)
-            const url = await server.getBaseUrl()
-            expect(url).toBe('https://eu.posthog.com')
-        })
-
-        it('should cache region from props', async () => {
-            const server = new HonoMcpServer(mockRedis, { ...baseProps, region: 'eu' })
-            await server.getBaseUrl()
-            expect(mockRedis.set).toHaveBeenCalledWith('mcp:user:test-hash:region', '"eu"', 'EX', expect.any(Number))
-        })
-
-        it('should use custom API base URL from env', async () => {
+        it('should return POSTHOG_API_BASE_URL from env', async () => {
             process.env.POSTHOG_API_BASE_URL = 'https://custom.posthog.com'
             const server = new HonoMcpServer(mockRedis, baseProps)
             const url = await server.getBaseUrl()
             expect(url).toBe('https://custom.posthog.com')
+        })
+
+        it('should default to localhost:8010 in dev when not set', async () => {
+            delete process.env.POSTHOG_API_BASE_URL
+            const server = new HonoMcpServer(mockRedis, baseProps)
+            const url = await server.getBaseUrl()
+            expect(url).toBe('http://localhost:8010')
+        })
+
+        it('should throw in production when not set', async () => {
+            delete process.env.POSTHOG_API_BASE_URL
+            process.env.NODE_ENV = 'production'
+            const server = new HonoMcpServer(mockRedis, baseProps)
+            await expect(server.getBaseUrl()).rejects.toThrow('POSTHOG_API_BASE_URL must be set')
         })
     })
 
@@ -127,7 +115,8 @@ describe('HonoMcpServer', () => {
 
     describe('api', () => {
         it('should cache the ApiClient instance', async () => {
-            const server = new HonoMcpServer(mockRedis, { ...baseProps, region: 'us' })
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            const server = new HonoMcpServer(mockRedis, baseProps)
             const api1 = await server.api()
             const api2 = await server.api()
             expect(api1).toBe(api2)

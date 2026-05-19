@@ -13,6 +13,7 @@ import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
+import { proxyToHono, shouldProxyToHono } from './proxy'
 
 function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
     const mcpServerLog: Record<string, unknown> = {
@@ -404,6 +405,11 @@ const handleRequest = async (
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
+        const proxyResult = await shouldProxyToHono(token, ctx.props.userHash, env.MCP_KV)
+        if (proxyResult.proxy) {
+            log.extend({ proxy: 'hono', region: proxyResult.region })
+            return proxyToHono(request, proxyResult.region)
+        }
         Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
     }
