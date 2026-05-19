@@ -163,7 +163,7 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
                 path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, ['results', 'hasMore', 'nextCursor']) as typeof result
             return filtered
         },
     })
