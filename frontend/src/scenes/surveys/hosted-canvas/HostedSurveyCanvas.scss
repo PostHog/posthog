@@ -1,8 +1,6 @@
 // Inline-editable affordances on the hosted survey canvas. The canvas should
 // feel like editing text in place — no input chrome, just the rendered text
-// with a cursor when active. Scoped inside .HostedSurveyCanvasStage so we
-// override the base hosted-survey input styles (which add hefty padding,
-// borders, and box-shadows for the respondent UI).
+// with a cursor when active.
 .HostedSurveyCanvasStage {
     display: flex;
     flex-direction: column;
@@ -14,10 +12,7 @@
     border-radius: var(--radius);
 
     // Force the survey frame to fill the stage so the question content can
-    // breathe inside a real viewport, not a tight 520px card. The base CSS
-    // auto-margins `.survey-stage` vertically — once the frame has real height,
-    // that auto-margin pushes the question content to the visual center and
-    // gives the progress bar real distance from the title.
+    // breathe inside a real viewport, not a tight 520px card.
     .PostHogHostedSurvey.HostedSurveyPreviewFrame {
         flex: 1;
         min-height: 0;
@@ -38,79 +33,28 @@
     }
 
     // Placeholder style helps distinguish "no content yet" from a real value
-    // for prose-like elements (title, description). For button-styled elements
-    // (.form-submit), the opacity drop fades the whole pill and the italic
-    // breaks the button typography — exclude them so the button reads as a
-    // real submit button even before the author renames it.
+    // for prose-like elements (title, description). Excluded on .form-submit
+    // so the empty submit button doesn't fade or italicize.
     .inline-editable--placeholder:not(.form-submit) {
         font-style: italic;
         opacity: 0.55;
     }
 
     .inline-editable--invalid {
-        // Subtle red wave under invalid text — keeps editing native.
         text-decoration: underline wavy var(--danger);
         text-underline-offset: 4px;
     }
 
-    // Focus indicator — outline ring instead of background tint, so it doesn't
-    // mask the rendered element's own background (e.g. the submit button's
-    // black pill). Sits 2px outside the rendered shape and respects the
-    // element's border-radius via inherit.
+    // Focus indicator — outline ring sits 2px outside the rendered shape so
+    // it never masks the element's own background (e.g. submit button pill).
     .inline-editable:focus,
     .inline-editable:focus-visible {
         outline: 2px solid var(--accent, rgb(17 17 17 / 28%));
         outline-offset: 2px;
     }
 
-    // Input/textarea editing chrome — strip browser defaults AND the base
-    // .PostHogHostedSurvey input[type='text'] / textarea styling (heavy
-    // padding, border, box-shadow) so the editor doesn't morph into a form
-    // field when you click into it. font:inherit picks up the surrounding
-    // rendered class (.survey-question, .form-submit, etc.) so the input
-    // looks identical to the text it replaces.
-    input.inline-editable,
-    textarea.inline-editable {
-        width: 100%;
-        min-width: 0;
-        max-width: 100%;
-
-        // Critical: the base `.PostHogHostedSurvey textarea` rule forces a
-        // min-height of 8rem for the respondent UI. We need to undo that or
-        // every click on the title or description blows up into a giant box.
-        min-height: 0;
-        padding: 0;
-        margin: 0;
-        font: inherit;
-        line-height: inherit;
-        color: inherit;
-        letter-spacing: inherit;
-        appearance: none;
-        cursor: text;
-        resize: none;
-        background: transparent;
-        border: none;
-        border-radius: 0;
-        outline: none;
-        box-shadow: none;
-
-        // Auto-size inputs/textareas to their content so the editor never
-        // shows a giant empty rectangle (supported in modern browsers).
-        /* stylelint-disable-next-line property-no-unknown */
-        field-sizing: content;
-    }
-
-    textarea.inline-editable {
-        // Browsers without field-sizing support still need a sane fallback —
-        // size in line-units, never the 8rem default.
-        height: auto;
-        overflow: hidden;
-    }
-
-    // Inline display contexts (e.g. choice text + ":" suffix, submit button
-    // label) need width: auto so the editable hugs its text and siblings sit
-    // flush. Block contexts (title, description, full submit button) still
-    // want width: 100%.
+    // Inline display contexts (choice text + ":" suffix, submit button) need
+    // width: auto. Block contexts (title, description) want width: 100%.
     span.inline-editable {
         display: inline-block;
     }
@@ -120,8 +64,7 @@
     }
 
     // The submit button uses a <span class="form-submit inline-editable"> in
-    // display mode. Spans default to inline layout with text aligned at the
-    // baseline — make it center its text the way <button> does so the pill
+    // display mode. Make it center its text the way <button> does so the pill
     // looks like a real button and not a left-aligned padded label.
     span.form-submit.inline-editable {
         display: inline-flex;
@@ -131,8 +74,7 @@
     }
 
     // Hover affordance for prose elements only — never alter the rendered
-    // background of pill-styled elements (the submit button has its own
-    // background; tinting it changes the apparent color).
+    // background of pill-styled elements.
     @media (hover: hover) {
         .inline-editable:not(.form-submit):hover:not(:focus) {
             background-color: rgb(17 17 17 / 4%);
@@ -142,10 +84,55 @@
     }
 }
 
-// Wrapper that anchors the canvas + settings layout. Lets the canvas grow
-// while the side panel stays fixed-width. Stretches both children to the same
-// row height so the canvas, settings panel, and flow rail share an aligned
-// baseline at the top and bottom.
+// Editing-mode chrome reset for inputs/textareas. Deliberately lives OUTSIDE
+// the .HostedSurveyCanvasStage block so it has class-only specificity (0,1,1).
+// Any `.PostHogHostedSurvey .form-submit` / `.PostHogHostedSurvey .survey-
+// question` rule at (0,2,0) then wins for font-size, font-weight, color, etc.
+// Result: clicking in swaps the rendered element for an input that visually
+// matches it — same font size, weight, color, and padding context.
+input.inline-editable,
+textarea.inline-editable {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+
+    // The base .PostHogHostedSurvey textarea forces min-height: 8rem for the
+    // respondent open-text input — undo here or every click on the title
+    // blows up into a giant box.
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+
+    // Font properties inherit from the rendered class. .survey-question /
+    // .form-submit etc. provide explicit values at higher specificity that
+    // win over these — so the input matches its display element's font.
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    appearance: none;
+    cursor: text;
+    resize: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    outline: none;
+    box-shadow: none;
+
+    /* stylelint-disable-next-line property-no-unknown */
+    field-sizing: content;
+}
+
+textarea.inline-editable {
+    height: auto;
+    overflow: hidden;
+}
+
+// Wrapper that anchors the canvas + settings layout. Stretches both children
+// to the same row height so canvas, settings panel, and flow rail share an
+// aligned baseline at the top and bottom.
 .HostedSurveyCanvasLayout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -162,8 +149,7 @@
 }
 
 // Choice rows on the canvas — always-visible delete + drag handle so the
-// affordances are discoverable without hover hunting. The handle dims when
-// reordering is locked (e.g. the open-ended choice that must stay last).
+// affordances are discoverable without hover hunting.
 .HostedSurveyCanvasChoice {
     position: relative;
     display: flex;
@@ -221,9 +207,8 @@
         }
     }
 
-    // Delete button — plain styled button so we have full control over the
-    // chrome. LemonButton's internal cascade kept overriding our colors and
-    // the result was invisible against the white survey card.
+    // Plain-button trash so we don't fight LemonButton's internal cascade —
+    // 32x32 outlined square with a clear red hover state.
     &__delete {
         display: inline-flex;
         flex-shrink: 0;

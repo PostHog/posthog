@@ -58,18 +58,6 @@ export function InlineEditable({
         }
     }, [editing])
 
-    // Auto-grow textareas to fit their content in browsers that don't yet
-    // support `field-sizing: content` (notably Safari < 17). Cheap noop on
-    // browsers that do — they'll recompute height the same way on next layout.
-    useEffect(() => {
-        if (!editing || !multiline || !inputRef.current) {
-            return
-        }
-        const el = inputRef.current as HTMLTextAreaElement
-        el.style.height = 'auto'
-        el.style.height = `${el.scrollHeight}px`
-    }, [editing, multiline, draft])
-
     const commit = (): void => {
         const trimmed = draft
         if (trimmed !== value) {
