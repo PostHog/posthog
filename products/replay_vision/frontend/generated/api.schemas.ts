@@ -205,6 +205,19 @@ export interface LensSnapshotApi {
 }
 
 /**
+ * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+ */
+export interface LensResultApi {
+    /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+    model_output: unknown
+    /**
+     * Number of PostHog Signals emitted from this observation.
+     * @minimum 0
+     */
+    signals_count: number
+}
+
+/**
  * * `schedule` - Schedule
  * `on_demand` - On demand
  */
@@ -233,7 +246,9 @@ export interface ReplayObservationApi {
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
     /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-    readonly lens_snapshot: LensSnapshotApi
+    readonly lens_snapshot: LensSnapshotApi | null
+    /** Result data persisted on success; null until the observation succeeds. */
+    readonly lens_result: LensResultApi | null
     /** Whether this observation came from the schedule or an on-demand request.
 
   * `schedule` - Schedule

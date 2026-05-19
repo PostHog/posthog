@@ -51,7 +51,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "provider_used": snapshot.provider.value,
         "emits_signals": snapshot.emits_signals,
         # Flatten lens output so HogQL can query individual fields without a JSON extract.
-        **{f"lens_output_{k}": v for k, v in inputs.model_output.items()},
+        **inputs.model_output.to_event_properties(),
     }
     distinct_id = (
         str(observation.triggered_by_user_id)
