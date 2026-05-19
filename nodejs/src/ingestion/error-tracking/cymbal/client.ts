@@ -6,9 +6,46 @@ import { FetchResponse, internalFetch } from '~/utils/request'
 
 import { CymbalRequest, CymbalResponse } from './types'
 
-// ────────────────────────────────────────────────────────────────────
-// Public types
-// ────────────────────────────────────────────────────────────────────
+/** Zod schema for validating Cymbal API responses */
+const CymbalResponseSchema = z.object({
+    uuid: z.string(),
+    event: z.string(),
+    team_id: z.number(),
+    timestamp: z.string(),
+    properties: z.record(z.string(), z.unknown()),
+})
+
+const CymbalResponseArraySchema = z.array(CymbalResponseSchema.nullable())
+
+const cymbalRequestDuration = new Histogram({
+    name: 'error_tracking_cymbal_request_duration_ms',
+    help: 'Duration of Cymbal API requests in milliseconds',
+    labelNames: ['status'],
+    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
+})
+
+const cymbalRequestCounter = new Counter({
+    name: 'error_tracking_cymbal_requests_total',
+    help: 'Total Cymbal API requests',
+    labelNames: ['status'],
+})
+
+const cymbalBatchSizeHistogram = new Histogram({
+    name: 'error_tracking_cymbal_batch_size',
+    help: 'Size of batches sent to Cymbal API',
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500],
+})
+
+const cymbalChunksPerBatchHistogram = new Histogram({
+    name: 'error_tracking_cymbal_chunks_per_batch',
+    help: 'Number of HTTP requests per batch (1 = no chunking needed)',
+    buckets: [1, 2, 3, 4, 5, 10],
+})
+
+const cymbalFanOutEventsCounter = new Counter({
+    name: 'error_tracking_cymbal_fan_out_events_total',
+    help: 'Events probed individually via fan-out (load amplification signal)',
+})
 
 /** Result for a single event from Cymbal processing. */
 export type CymbalEventResult =
@@ -29,11 +66,6 @@ export interface CymbalClientConfig {
     /** Custom fetch implementation for testing. Defaults to internalFetch. */
     fetch?: FetchFunction
 }
-
-// ────────────────────────────────────────────────────────────────────
-// Error model — two booleans drive caller behavior, set at throw site
-// so catchers don't need to re-categorize.
-// ────────────────────────────────────────────────────────────────────
 
 /**
  * Error class for failures from Cymbal.
@@ -72,68 +104,6 @@ function classifyClientError(error: unknown): { retriable: boolean; reason: stri
     return { retriable: true, reason: error instanceof Error ? error.message : String(error) }
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Response validation
-// ────────────────────────────────────────────────────────────────────
-
-const CymbalResponseSchema = z.object({
-    uuid: z.string(),
-    event: z.string(),
-    team_id: z.number(),
-    timestamp: z.string(),
-    properties: z.record(z.string(), z.unknown()),
-})
-
-const CymbalResponseArraySchema = z.array(CymbalResponseSchema.nullable())
-
-// ────────────────────────────────────────────────────────────────────
-// Metrics
-// ────────────────────────────────────────────────────────────────────
-
-const cymbalRequestDuration = new Histogram({
-    name: 'error_tracking_cymbal_request_duration_ms',
-    help: 'Duration of Cymbal API requests in milliseconds',
-    labelNames: ['status'],
-    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
-})
-
-const cymbalRequestCounter = new Counter({
-    name: 'error_tracking_cymbal_requests_total',
-    help: 'Total Cymbal API requests',
-    labelNames: ['status'],
-})
-
-const cymbalBatchSizeHistogram = new Histogram({
-    name: 'error_tracking_cymbal_batch_size',
-    help: 'Size of batches sent to Cymbal API',
-    buckets: [1, 5, 10, 25, 50, 100, 250, 500],
-})
-
-const cymbalChunksPerBatchHistogram = new Histogram({
-    name: 'error_tracking_cymbal_chunks_per_batch',
-    help: 'Number of HTTP requests per batch (1 = no chunking needed)',
-    buckets: [1, 2, 3, 4, 5, 10],
-})
-
-const cymbalFanOutEventsCounter = new Counter({
-    name: 'error_tracking_cymbal_fan_out_events_total',
-    help: 'Events probed individually via fan-out (load amplification signal)',
-})
-
-function recordRequestMetrics(status: string, durationMs: number, batchSize: number): void {
-    cymbalRequestDuration.labels({ status }).observe(durationMs)
-    cymbalRequestCounter.labels({ status }).inc()
-    logger.debug('📊', 'cymbal_batch_request_complete', {
-        status,
-        durationMs: Math.round(durationMs),
-        batchSize,
-    })
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Client
-// ────────────────────────────────────────────────────────────────────
-
 /**
  * HTTP client for communicating with the Cymbal symbolication service.
  *
@@ -141,6 +111,10 @@ function recordRequestMetrics(status: string, durationMs: number, batchSize: num
  * - Stack trace symbolication (source maps, debug symbols)
  * - Issue fingerprinting and grouping
  * - Issue suppression based on status
+ *
+ * Sticky routing (events from the same team to the same Cymbal pod for
+ * cache locality) is handled server-side by Cymbal — this client just
+ * posts to the configured base URL.
  *
  * Note: This client does not implement retry logic. Retries are handled at
  * the pipeline level using pipeBatchWithRetry(). The client returns per-event
@@ -238,13 +212,20 @@ export class CymbalClient {
         return results
     }
 
-    /** Process a single chunk of requests through Cymbal's HTTP API. */
+    /**
+     * Process a single chunk of requests through Cymbal's HTTP API.
+     */
     private async processChunk(requests: CymbalRequest[]): Promise<(CymbalResponse | null)[]> {
         const { response, durationMs } = await this.makeRequest(requests)
 
         if (response.status >= 400) {
-            recordRequestMetrics(`error_${response.status}`, durationMs, requests.length)
-            logger.warn('⚠️', 'cymbal_error_response', { status: response.status, batchSize: requests.length })
+            this.recordMetrics(`error_${response.status}`, durationMs, requests.length)
+
+            logger.warn('⚠️', 'cymbal_error_response', {
+                status: response.status,
+                batchSize: requests.length,
+            })
+
             // 5xx and 429 are retriable. Only 500 is worth fanning out for —
             // it maps to Cymbal's unhandled-error path, which can be triggered
             // by one event's data. Other 5xx (502/503/504) come from
@@ -257,14 +238,17 @@ export class CymbalClient {
         }
 
         const rawResults = await response.json()
+
+        // Validate response structure using Zod schema
         const parseResult = CymbalResponseArraySchema.safeParse(rawResults)
         if (!parseResult.success) {
-            recordRequestMetrics('error_invalid_response', durationMs, requests.length)
+            this.recordMetrics('error_invalid_response', durationMs, requests.length)
             throw new CymbalError(`Invalid Cymbal response: ${parseResult.error.message}`, false, false)
         }
 
+        // Validate response array length matches request
         if (parseResult.data.length !== requests.length) {
-            recordRequestMetrics('error_length_mismatch', durationMs, requests.length)
+            this.recordMetrics('error_length_mismatch', durationMs, requests.length)
             throw new CymbalError(
                 `Cymbal response length mismatch: got ${parseResult.data.length}, expected ${requests.length}`,
                 false,
@@ -272,31 +256,8 @@ export class CymbalClient {
             )
         }
 
-        recordRequestMetrics('success', durationMs, requests.length)
+        this.recordMetrics('success', durationMs, requests.length)
         return parseResult.data
-    }
-
-    /** Make HTTP request to Cymbal, wrapping network errors as retriable CymbalErrors. */
-    private async makeRequest(requests: CymbalRequest[]): Promise<{ response: FetchResponse; durationMs: number }> {
-        const startTime = performance.now()
-        try {
-            const response = await this.fetch(`${this.baseUrl}/process`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requests),
-                timeoutMs: this.timeoutMs,
-            })
-            return { response, durationMs: performance.now() - startTime }
-        } catch (error) {
-            const durationMs = performance.now() - startTime
-            recordRequestMetrics('error', durationMs, requests.length)
-            // Network/timeout errors are retriable. Only timeouts are worth
-            // fanning out for — a slow event might be the cause and per-event
-            // calls can isolate it. Non-timeout network errors hit every
-            // request equally; probing won't help.
-            const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
-            throw new CymbalError(error instanceof Error ? error.message : String(error), true, isTimeout)
-        }
     }
 
     /**
@@ -327,5 +288,40 @@ export class CymbalClient {
         }
 
         return chunks
+    }
+
+    /**
+     * Make HTTP request to Cymbal, wrapping network errors as retriable CymbalErrors.
+     */
+    private async makeRequest(requests: CymbalRequest[]): Promise<{ response: FetchResponse; durationMs: number }> {
+        const startTime = performance.now()
+        try {
+            const response = await this.fetch(`${this.baseUrl}/process`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requests),
+                timeoutMs: this.timeoutMs,
+            })
+            return { response, durationMs: performance.now() - startTime }
+        } catch (error) {
+            const durationMs = performance.now() - startTime
+            this.recordMetrics('error', durationMs, requests.length)
+            // Network/timeout errors are retriable. Only timeouts are worth
+            // fanning out for — a slow event might be the cause and per-event
+            // calls can isolate it. Non-timeout network errors hit every
+            // request equally; probing won't help.
+            const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+            throw new CymbalError(error instanceof Error ? error.message : String(error), true, isTimeout)
+        }
+    }
+
+    private recordMetrics(status: string, durationMs: number, batchSize: number): void {
+        cymbalRequestDuration.labels({ status }).observe(durationMs)
+        cymbalRequestCounter.labels({ status }).inc()
+        logger.debug('📊', 'cymbal_batch_request_complete', {
+            status,
+            durationMs: Math.round(durationMs),
+            batchSize,
+        })
     }
 }
