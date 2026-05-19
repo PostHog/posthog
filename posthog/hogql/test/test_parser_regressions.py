@@ -809,6 +809,33 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_bare_zero_x_prefix_lexes_as_zero_plus_ident(self):
+        # `HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+` — the grammar requires
+        # at least one hex digit after `0x`. Rust's `lex_number` was
+        # committing the `0x` prefix unconditionally and emitting an
+        # empty-body hex token, so `SELECT 0x AS y` lexed as `0x AS y`
+        # (an empty hex aliased to `y`) instead of `0 x AS y` (which cpp
+        # rejects because `x` is an ident in mid-expression position).
+        from posthog.hogql.errors import BaseHogQLError
+
+        cases = (
+            "SELECT 0x AS y",
+            "SELECT 0x + 1",
+        )
+        for src in cases:
+            with self.assertRaises((BaseHogQLError, SyntaxError), msg=src):
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises((BaseHogQLError, SyntaxError), msg=src):
+                parse_select(src, backend="rust-json")
+            with self.assertRaises((BaseHogQLError, SyntaxError), msg=src):
+                parse_select(src, backend="python")
+        # Valid hex literals (≥ 1 hex digit) must keep working.
+        for src in ("SELECT 0x1", "SELECT 0xFF", "SELECT 0xaB"):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_cast_type_param_group_mode_classification(self):
         # cpp's ANTLR commits an `IDENT(...)` type expression to a single
         # alternative — Nested / Complex / Param / Enum — based on what's

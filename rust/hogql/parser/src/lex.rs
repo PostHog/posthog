@@ -793,7 +793,15 @@ impl<'a> Lexer<'a> {
         // Hex / octal prefix.
         if self.peek_byte(0) == Some(b'0') {
             match self.peek_byte(1) {
-                Some(b'x') | Some(b'X') => {
+                Some(b'x') | Some(b'X')
+                    if self.peek_byte(2).is_some_and(|b| b.is_ascii_hexdigit()) =>
+                {
+                    // Require at least one hex digit after `0x` — the
+                    // grammar token is `'0' X HEX_DIGIT+`. A bare `0x`
+                    // lexes as `0` + ident `x` (matches the `0b` / `0o`
+                    // arms below); cpp's `HEXADECIMAL_LITERAL` rejects
+                    // an empty body, so `SELECT 0x AS y` is a parse
+                    // error, not a `0x` literal aliased to `y`.
                     self.pos += 2;
                     let prefix_end = self.pos;
                     while self.peek_byte(0).is_some_and(|b| b.is_ascii_hexdigit()) {
