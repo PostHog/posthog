@@ -51,7 +51,13 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
     return (
         <div className="flex items-center gap-3 max-w-165">
             <div className="flex-[3]">
-                <LemonSlider value={displayValue} onChange={handleChange} min={1} max={100} step={1} />
+                <LemonSlider
+                    value={displayValue}
+                    onChange={restrictionReason ? undefined : handleChange}
+                    min={1}
+                    max={100}
+                    step={1}
+                />
             </div>
             <div className="flex-1 flex items-center gap-1">
                 <LemonInput
