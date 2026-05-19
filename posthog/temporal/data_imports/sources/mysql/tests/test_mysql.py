@@ -8,6 +8,7 @@ import pymysql
 
 from posthog.temporal.data_imports.sources.common.sql import Table
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     _build_query,
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
+    get_schemas,
     mysql_source,
 )
 from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
@@ -228,6 +230,79 @@ class TestStreamingConnectionTimeouts:
         _drain_source()
 
         assert ss_cursor.execute.called
+
+
+class TestGetSchemasTimeouts:
+    """Verify the schema-discovery path is bounded so a slow information_schema
+    query can't sit on a blocking socket read until Temporal cancels the
+    activity worker (which surfaces as an opaque CancelledError)."""
+
+    def _patch_connect(self, mocker):
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchall.return_value = []
+
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            return_value=connection,
+        )
+        return mock_connect, cursor
+
+    def _call_get_schemas(self):
+        get_schemas(
+            host="h",
+            user="u",
+            password="p",
+            database="d",
+            schema="mydb",
+            port=3306,
+            using_ssl=False,
+        )
+
+    def test_read_timeout_is_passed_to_discovery_connection(self, mocker):
+        mock_connect, _ = self._patch_connect(mocker)
+        self._call_get_schemas()
+        kwargs = mock_connect.call_args.kwargs
+        assert kwargs["read_timeout"] == DISCOVERY_STATEMENT_TIMEOUT_SECONDS
+
+    def test_set_session_timeouts_are_executed_before_schema_query(self, mocker):
+        _, cursor = self._patch_connect(mocker)
+        self._call_get_schemas()
+        executed = [c.args[0] for c in cursor.execute.call_args_list if c.args]
+        assert any(
+            "SET SESSION" in sql
+            and f"net_write_timeout = {DISCOVERY_STATEMENT_TIMEOUT_SECONDS}" in sql
+            and f"net_read_timeout = {DISCOVERY_STATEMENT_TIMEOUT_SECONDS}" in sql
+            for sql in executed
+        )
+        # The catalog lookup must still run after the SET SESSION.
+        assert any("information_schema.columns" in sql for sql in executed)
+        set_session_idx = next(i for i, sql in enumerate(executed) if "SET SESSION" in sql)
+        info_schema_idx = next(i for i, sql in enumerate(executed) if "information_schema.columns" in sql)
+        assert set_session_idx < info_schema_idx
+
+    def test_discovery_continues_when_set_session_raises(self, mocker):
+        _, cursor = self._patch_connect(mocker)
+
+        def execute_side_effect(sql, *args, **kwargs):
+            if "SET SESSION" in sql:
+                raise Exception("SET SESSION denied")
+
+        cursor.execute.side_effect = execute_side_effect
+
+        self._call_get_schemas()
+
+        executed = [c.args[0] for c in cursor.execute.call_args_list if c.args]
+        assert any("information_schema.columns" in sql for sql in executed)
+
+    def test_discovery_timeout_is_under_activity_deadline(self):
+        # The DiscoverSchemasWorkflow activity has a 10-minute start-to-close
+        # deadline. The client-side read_timeout must fire before that so
+        # PyMySQL raises a clean error instead of being killed externally.
+        assert DISCOVERY_STATEMENT_TIMEOUT_SECONDS < 600
 
 
 def _show_index_rows(*triples: tuple[str, str, int]) -> list[tuple]:

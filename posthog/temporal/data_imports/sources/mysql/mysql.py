@@ -41,6 +41,13 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
+# Applied to schema-discovery connections (information_schema lookups). Kept
+# safely under the DiscoverSchemasWorkflow activity's 10-minute start-to-close
+# deadline so a slow catalog query surfaces as a clean PyMySQL timeout that
+# the retry policy can handle, instead of a Temporal-issued CancelledError
+# when the activity is forcibly killed.
+DISCOVERY_STATEMENT_TIMEOUT_SECONDS = 300  # 5 mins
+
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
     """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
@@ -123,10 +130,24 @@ def get_schemas(
         user=user,
         password=password,
         connect_timeout=10,
+        read_timeout=DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
         ssl_ca=ssl_ca,
     )
 
     with connection.cursor() as cursor:
+        # Bound server-side wait time on the same query path. Mirrors the
+        # streaming connection's SET SESSION pattern so the server gives up
+        # before Temporal cancels the activity worker thread externally.
+        try:
+            cursor.execute(
+                f"SET SESSION net_write_timeout = {DISCOVERY_STATEMENT_TIMEOUT_SECONDS},"
+                f" net_read_timeout = {DISCOVERY_STATEMENT_TIMEOUT_SECONDS}"
+            )
+        except Exception as e:
+            structlog.get_logger().warning(
+                "Failed to set session timeouts on MySQL discovery connection", exc_info=e
+            )
+
         params: dict = {"schema": schema}
         names_filter = ""
         if names:
