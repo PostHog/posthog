@@ -6833,6 +6833,11 @@ export namespace Schemas {
       settings?: Settings | null;
     }
 
+    /**
+     * Per-breakdown-value color overrides for the series-breakdown column. Keyed by the raw breakdown value as a string. The literal "__null__" is used as the key for null / undefined values. Hex color string (matches `color` on yAxis series display settings). When multiple Y series exist, rows for the same breakdown value share the override.
+     */
+    export type ChartSettingsSeriesBreakdownColorOverrides = {[key: string]: string} | null;
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -6891,6 +6896,8 @@ export namespace Schemas {
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
       rightYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color overrides for the series-breakdown column. Keyed by the raw breakdown value as a string. The literal "__null__" is used as the key for null / undefined values. Hex color string (matches `color` on yAxis series display settings). When multiple Y series exist, rows for the same breakdown value share the override. */
+      seriesBreakdownColorOverrides?: ChartSettingsSeriesBreakdownColorOverrides;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
       showNullsAsZero?: boolean | null;

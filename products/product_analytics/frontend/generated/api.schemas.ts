@@ -6549,11 +6549,18 @@ export interface ChartAxisApi {
     settings?: SettingsApi | null
 }
 
+/**
+ * Per-breakdown-value color overrides for the series-breakdown column. Keyed by the raw breakdown value as a string. The literal "__null__" is used as the key for null / undefined values. Hex color string (matches `color` on yAxis series display settings). When multiple Y series exist, rows for the same breakdown value share the override.
+ */
+export type ChartSettingsApiSeriesBreakdownColorOverrides = { [key: string]: string } | null
+
 export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
     rightYAxisSettings?: YAxisSettingsApi | null
+    /** Per-breakdown-value color overrides for the series-breakdown column. Keyed by the raw breakdown value as a string. The literal "__null__" is used as the key for null / undefined values. Hex color string (matches `color` on yAxis series display settings). When multiple Y series exist, rows for the same breakdown value share the override. */
+    seriesBreakdownColorOverrides?: ChartSettingsApiSeriesBreakdownColorOverrides
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
