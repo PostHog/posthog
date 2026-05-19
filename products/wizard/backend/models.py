@@ -10,11 +10,12 @@ disallow reverse relations with related_name='+'.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
 from products.wizard.backend.facade.enums import RunPhase
 
 
-class WizardSession(TeamScopedRootMixin):
+class WizardSession(UUIDModel, TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     session_id = models.CharField(max_length=255)
