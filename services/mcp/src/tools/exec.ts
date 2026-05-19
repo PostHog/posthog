@@ -16,12 +16,12 @@ import {
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
-// Surfaced on every truncated/summarized `schema` response to push the model
-// to keep drilling instead of guessing the shape from sibling fields or
+// Surfaced on every truncated/summarized schema view to push the model to
+// keep drilling instead of guessing the shape from sibling fields or
 // pre-training. Phrased as an instruction, not a description, because models
 // observably treat declarative notes as advisory.
 const SCHEMA_DRILLDOWN_DIRECTIVE =
-    'SUMMARIZED — DO NOT GUESS. Each property below with a `hint` is a complex sub-schema whose real shape is one level deeper. Run the exact `schema` command in each `hint` for every field you intend to populate, and keep drilling until neither this `note` nor any remaining `hint` covers the path you need. Inferring shape from sibling tools, field names, or pre-training is forbidden.'
+    'SUMMARIZED - DO NOT GUESS. For any field you plan to populate that has a `hint`, run the exact `schema` command in that hint. Keep drilling until the needed path has neither a `note` nor a `hint`. Do not infer shape from names, sibling tools, or prior knowledge.'
 
 export interface ExecInnerCallProperties {
     duration_ms: number
@@ -213,8 +213,14 @@ export function createExecTool(
                         return fullOutput
                     }
 
-                    // Schema too large — return summary with drill-down hints
-                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
+                    // Schema too large — return summary with drill-down hints.
+                    // Attach the same directive used by `schema` so agents don't
+                    // treat `info` summaries as enough to construct nested fields.
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    if (summaryHasHints(summary)) {
+                        return serialize({ ...topShape, note: SCHEMA_DRILLDOWN_DIRECTIVE }, summary)
+                    }
+                    return serialize(topShape, summary)
                 }
 
                 case 'schema': {

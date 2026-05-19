@@ -303,6 +303,29 @@ describe('exec tool', () => {
             expect(typeof parsed.inputSchema).toBe('object')
         })
 
+        it('attaches the drill-down directive when info returns a summarized schema with hints', async () => {
+            const wideShape: Record<string, z.ZodType> = {}
+            for (let i = 0; i < 1500; i++) {
+                wideShape[`field_${i}`] = z.string().describe(`Description for field ${i} with extra padding text`)
+            }
+            const tool = makeMockTool({
+                schema: z.object({
+                    name: z.string(),
+                    filter: z.object({ key: z.string() }),
+                    wide: z.object(wideShape),
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
+            const envelope = parseYaml(result) as { note?: string; inputSchema: string }
+            expect(envelope.note).toContain('SUMMARIZED')
+            expect(envelope.note).toContain('DO NOT GUESS')
+            expect(envelope.note).toContain('exact `schema` command in that hint')
+            const parsedSchema = JSON.parse(envelope.inputSchema)
+            expect(parsedSchema.properties.filter.hint).toContain('schema mock-tool filter')
+            expect(parsedSchema.properties.wide.hint).toContain('schema mock-tool wide')
+        })
+
         it('throws usage error for bare info', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
