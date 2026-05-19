@@ -60,9 +60,6 @@ tools:
     external-data-schemas-cancel-create:
         operation: external_data_schemas_cancel_create
         enabled: false
-    external-data-schemas-create:
-        operation: external_data_schemas_create
-        enabled: false
     external-data-schemas-delete-data-destroy:
         operation: external_data_schemas_delete_data_destroy
         enabled: false
