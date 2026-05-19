@@ -31,9 +31,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
@@ -494,8 +492,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['user', 'hasAvailableFeature'],
             preflightLogic,
             ['preflight'],
-            featureFlagLogic,
-            ['featureFlags'],
             exportsLogic,
             ['hasReachedExportFullVideoLimit'],
         ],
@@ -1338,82 +1334,36 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                     replayer.on('fullsnapshot-rebuilded', () => {
                         const iframeContentWindow = replayer.iframe.contentWindow
-                        const iframeDocument = iframeContentWindow?.document
                         const iframeFetch = iframeContentWindow?.fetch
 
-                        const setupErrorHandlers = (): void => {
-                            if (
-                                iframeFetch &&
-                                !(iframeFetch as any).__isWrappedForErrorReporting &&
-                                iframeContentWindow
-                            ) {
-                                const originalFetch = iframeFetch
-                                const windowRef = new WeakRef(iframeContentWindow)
+                        if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
+                            const originalFetch = iframeFetch
+                            const windowRef = new WeakRef(iframeContentWindow)
 
-                                iframeContentWindow.fetch = wrapFetchAndReport({
-                                    fetch: iframeFetch,
-                                    onError: (errorDetails: ResourceErrorDetails) => {
-                                        actions.caughtAssetErrorFromIframe(errorDetails)
-                                    },
-                                })
-                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
-
-                                iframeCleanups.push(() => {
-                                    const window = windowRef.deref()
-                                    if (window && window.fetch) {
-                                        window.fetch = originalFetch
-                                        delete (window.fetch as any).__isWrappedForErrorReporting
-                                    }
-                                })
-                            }
-
-                            if (iframeContentWindow) {
-                                iframeCleanups.push(
-                                    registerErrorListeners({
-                                        iframeWindow: iframeContentWindow,
-                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                                    })
-                                )
-                            }
-                        }
-
-                        if (
-                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                            iframeDocument &&
-                            iframeDocument.readyState === 'loading'
-                        ) {
-                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                            const onReady = (): void => {
-                                setupErrorHandlers()
-
-                                if (
-                                    replayer &&
-                                    values.currentTimestamp !== undefined &&
-                                    values.sessionPlayerData.start
-                                ) {
-                                    const currentTime =
-                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                    replayer.pause(currentTime)
-                                    pauseTimeoutId = setTimeout(() => {
-                                        if (replayer) {
-                                            replayer.pause(currentTime)
-                                        }
-                                    }, 0)
-                                }
-
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                            }
-                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
+                            iframeContentWindow.fetch = wrapFetchAndReport({
+                                fetch: iframeFetch,
+                                onError: (errorDetails: ResourceErrorDetails) => {
+                                    actions.caughtAssetErrorFromIframe(errorDetails)
+                                },
+                            })
+                            ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
 
                             iframeCleanups.push(() => {
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                                if (pauseTimeoutId !== null) {
-                                    clearTimeout(pauseTimeoutId)
+                                const window = windowRef.deref()
+                                if (window && window.fetch) {
+                                    window.fetch = originalFetch
+                                    delete (window.fetch as any).__isWrappedForErrorReporting
                                 }
                             })
-                        } else {
-                            setupErrorHandlers()
+                        }
+
+                        if (iframeContentWindow) {
+                            iframeCleanups.push(
+                                registerErrorListeners({
+                                    iframeWindow: iframeContentWindow,
+                                    onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                })
+                            )
                         }
                     })
 
