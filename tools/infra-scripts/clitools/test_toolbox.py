@@ -276,6 +276,54 @@ class TestToolbox(unittest.TestCase):
         )
 
     @patch("subprocess.run")
+    def test_get_toolbox_pod_extra_selector(self, mock_run):
+        """extra_selector= is ANDed onto the base name= selector passed to kubectl."""
+        mock_response = MagicMock()
+        mock_response.stdout = json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "toolbox-pod-1",
+                            "resourceVersion": "12345",
+                            "labels": {
+                                "app.kubernetes.io/name": "posthog-toolbox-django",
+                                "app.kubernetes.io/component": "app",
+                            },
+                            "deletionTimestamp": None,
+                        },
+                        "status": {"phase": "Running"},
+                    }
+                ]
+            }
+        )
+        mock_run.return_value = mock_response
+
+        get_toolbox_pod(
+            "michael.k_at_posthog.com",
+            app_label="posthog-toolbox-django",
+            claimed_label_key="toolbox-claimed",
+            namespace="posthog-toolbox-django",
+            extra_selector="app.kubernetes.io/component=app",
+        )
+        mock_run.assert_called_once_with(
+            [
+                "kubectl",
+                "get",
+                "pods",
+                "-n",
+                "posthog-toolbox-django",
+                "-l",
+                "app.kubernetes.io/name=posthog-toolbox-django,app.kubernetes.io/component=app",
+                "-o",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    @patch("subprocess.run")
     def test_get_toolbox_pod_returns_existing_claim_with_rv(self, mock_run):
         """An already-claimed pod returns is_claimed=True and the observed resourceVersion."""
         mock_response = MagicMock()
@@ -807,7 +855,13 @@ class TestToolbox(unittest.TestCase):
         """POOLS contains both pools with the expected app and claim labels."""
         self.assertEqual(
             toolbox_script.POOLS["toolbox-django"],
-            {"app_label": "posthog-toolbox-django", "claimed_label_key": "toolbox-claimed"},
+            {
+                "app_label": "posthog-toolbox-django",
+                "claimed_label_key": "toolbox-claimed",
+                "extra_selectors_by_namespace": {
+                    "posthog-toolbox-django": "app.kubernetes.io/component=app",
+                },
+            },
         )
         self.assertEqual(
             toolbox_script.POOLS["flags-cache-jumphost"],
@@ -1137,6 +1191,7 @@ class TestToolbox(unittest.TestCase):
             claimed_label_key="flags-jumphost-claimed",
             namespace="posthog",
             context="posthog-dev",
+            extra_selector=None,
         )
         # claim_pod gets namespace, context, and resource_version from get_toolbox_pod's return.
         self.assertEqual(
@@ -1170,7 +1225,37 @@ class TestToolbox(unittest.TestCase):
             claimed_label_key="toolbox-claimed",
             namespace="posthog",
             context="posthog-dev",
+            extra_selector=None,
         )
+
+    def test_main_toolbox_django_in_per_app_namespace_adds_component_selector(self):
+        """Targeting the golden-chart namespace adds `component=app` to the kubectl selector.
+
+        Under the golden chart, the toolbox release also owns pgbouncer Deployments in the
+        per-app namespace, and they share `app.kubernetes.io/name=posthog-toolbox-django`
+        with the toolbox itself. Without the extra `component=app` filter, the wrapper
+        could pick up a pgbouncer pod.
+        """
+        patches = self._patch_main_collaborators()
+
+        with (
+            patches["get_current_user"],
+            patches["get_toolbox_pod"] as m_get_pod,
+            patches["claim_pod"],
+            patches["connect_to_pod"],
+            patches["delete_pod"],
+            patches["select_context"],
+            patches["validate_context"],
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
+            patch.dict(os.environ, {"KUBE_NAMESPACE": "posthog-toolbox-django"}, clear=False),
+        ):
+            os.environ.pop("KUBE_CONTEXT", None)
+            os.environ.pop("FLOX_ENV", None)
+            with self.assertRaises(SystemExit):
+                toolbox_script.main()
+
+        self.assertEqual(m_get_pod.call_args.kwargs["namespace"], "posthog-toolbox-django")
+        self.assertEqual(m_get_pod.call_args.kwargs["extra_selector"], "app.kubernetes.io/component=app")
 
     def test_main_kube_context_env_validates_without_switching(self):
         """When KUBE_CONTEXT is set, main() validates it and threads it as --context, never calling switch_context."""
