@@ -117,8 +117,8 @@ export function getToolbarBuildConfig(dirname) {
         format: 'iife',
         outfile: path.resolve(dirname, 'dist', 'toolbar.js'),
         // The IIFE wrapper shadows `define` and `require` inside the closure so any
-        // UMD/CJS factory code that survives bundling (e.g. dompurify, transitive
-        // vendored deps) takes the global-assignment branch instead of throwing
+        // UMD/CJS factory code that survives bundling (e.g. transitive vendored deps)
+        // takes the global-assignment branch instead of throwing
         // `ReferenceError: require is not defined` on customer sites. Customer pages
         // that legitimately load AMD/CJS shims on the same page are unaffected
         // because the shadowing is scoped to the toolbar's own IIFE.
@@ -134,14 +134,6 @@ export function getToolbarBuildConfig(dirname) {
         define: {
             ...commonConfig.define,
             __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(toolbarPublicPathOverride),
-        },
-        // Force the ESM build of dompurify so the UMD/CJS wrapper (which references
-        // `require`) never enters the IIFE bundle. The `require = undefined` banner
-        // above is a belt-and-braces backstop; this alias removes the source of the
-        // problem rather than just neutralizing the call site.
-        alias: {
-            ...commonConfig.alias,
-            dompurify: 'dompurify/dist/purify.es.mjs',
         },
         writeMetaFile: true,
         extraPlugins: [createToolbarModulePlugin(dirname)],
