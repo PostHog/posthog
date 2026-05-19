@@ -1,89 +1,8 @@
-// Inline-editable affordances on the hosted survey canvas. We avoid altering
-// the rendered text styling itself so the canvas stays WYSIWYG — the only
-// visible thing about an editable target is a subtle hover outline.
-
-.inline-editable {
-    position: relative;
-    width: 100%;
-    min-width: 0;
-    padding: 2px 4px;
-    margin: 0;
-    font: inherit;
-    line-height: inherit;
-    color: inherit;
-    letter-spacing: inherit;
-
-    // Reset native input chrome — we restyle to match the surrounding text.
-    appearance: none;
-    cursor: text;
-    resize: none;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    outline: 1px dashed transparent;
-    outline-offset: 2px;
-    transition:
-        outline-color 120ms ease,
-        background-color 120ms ease;
-
-    &--placeholder {
-        font-style: italic;
-        opacity: 0.6;
-    }
-
-    &--invalid {
-        outline-color: var(--danger);
-    }
-
-    &:focus {
-        background-color: var(--surface-tertiary, rgb(17 17 17 / 3%));
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-    }
-
-    // Show a faint outline by default so authors know everything is editable —
-    // upgrades to a bolder color on hover, then to the accent on focus.
-    @media (hover: hover) {
-        outline-color: var(--border, rgb(17 17 17 / 10%));
-
-        &:hover:not(:focus) {
-            background-color: var(--surface-tertiary, rgb(17 17 17 / 3%));
-            outline-color: var(--border-bold, rgb(17 17 17 / 28%));
-        }
-    }
-}
-
-// Block-level display targets — keep the click-to-edit area generous.
-h1.inline-editable,
-h2.inline-editable,
-p.inline-editable,
-div.inline-editable {
-    display: block;
-}
-
-// Wrapper that anchors the canvas + settings layout. Lets the canvas grow
-// while the side panel stays fixed-width. Stretches both children to the same
-// row height so the canvas, settings panel, and flow rail share an aligned
-// baseline at the top and bottom.
-.HostedSurveyCanvasLayout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1rem;
-    align-items: stretch;
-
-    @media (min-width: 1024px) {
-        grid-template-columns: minmax(0, 1fr) 320px;
-    }
-
-    @media (min-width: 1440px) {
-        grid-template-columns: minmax(0, 1fr) 360px;
-    }
-}
-
-// The canvas stage is the styled survey frame itself — no extra wrapper padding
-// so the survey fills its column edge-to-edge and lines up with the rail and
-// settings panel siblings. Sized to fill most of the viewport so the editor
-// feels like a true full-screen surface.
+// Inline-editable affordances on the hosted survey canvas. The canvas should
+// feel like editing text in place — no input chrome, just the rendered text
+// with a cursor when active. Scoped inside .HostedSurveyCanvasStage so we
+// override the base hosted-survey input styles (which add hefty padding,
+// borders, and box-shadows for the respondent UI).
 .HostedSurveyCanvasStage {
     display: flex;
     flex-direction: column;
@@ -106,6 +25,104 @@ div.inline-editable {
         border: none;
         border-radius: 0;
     }
+
+    .inline-editable,
+    input.inline-editable,
+    textarea.inline-editable {
+        display: inline-block;
+        width: auto;
+        min-width: 0;
+        max-width: 100%;
+        padding: 0;
+        margin: 0;
+        font: inherit;
+        font-size: inherit;
+        line-height: inherit;
+        color: inherit;
+        letter-spacing: inherit;
+
+        // Reset all input chrome — the surrounding rendered text supplies the styling.
+        appearance: none;
+        cursor: text;
+        resize: none;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        outline: none;
+        box-shadow: none;
+
+        // Auto-size single-line inputs to their content so the editor never
+        // shows a giant empty rectangle (supported in modern browsers).
+        /* stylelint-disable-next-line property-no-unknown */
+        field-sizing: content;
+    }
+
+    // Display targets that should occupy a full block — question title,
+    // description, thank-you screen text. These match the rendered shape
+    // of the hosted survey so the swap to edit mode is invisible.
+    h1.inline-editable,
+    h2.inline-editable,
+    p.inline-editable,
+    div.inline-editable,
+    textarea.inline-editable {
+        display: block;
+        width: 100%;
+    }
+
+    .inline-editable--placeholder {
+        font-style: italic;
+        opacity: 0.55;
+    }
+
+    .inline-editable--invalid {
+        // Subtle red wave under invalid text — keeps editing native.
+        text-decoration: underline wavy var(--danger);
+        text-underline-offset: 4px;
+    }
+
+    .inline-editable {
+        border-radius: 3px;
+        transition:
+            background-color 120ms ease,
+            box-shadow 120ms ease;
+    }
+
+    // Focus: a minimal accent rule beneath the text — no boxed outline,
+    // no padding shift. Feels like editing native text.
+    .inline-editable:focus,
+    .inline-editable:focus-visible {
+        background-color: rgb(17 17 17 / 4%);
+        border-radius: 3px;
+        box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
+    }
+
+    // Hover: barely-there tint so authors know what's clickable without
+    // ever showing input chrome.
+    @media (hover: hover) {
+        .inline-editable:hover:not(:focus) {
+            background-color: rgb(17 17 17 / 4%);
+            box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
+        }
+    }
+}
+
+// Wrapper that anchors the canvas + settings layout. Lets the canvas grow
+// while the side panel stays fixed-width. Stretches both children to the same
+// row height so the canvas, settings panel, and flow rail share an aligned
+// baseline at the top and bottom.
+.HostedSurveyCanvasLayout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+
+    @media (min-width: 1024px) {
+        grid-template-columns: minmax(0, 1fr) 320px;
+    }
+
+    @media (min-width: 1440px) {
+        grid-template-columns: minmax(0, 1fr) 360px;
+    }
 }
 
 // Choice rows on the canvas — always-visible delete + drag handle so the
@@ -115,35 +132,61 @@ div.inline-editable {
     position: relative;
     display: flex;
     gap: 0.5rem;
-    align-items: center;
+    align-items: stretch;
     width: 100%;
 
     &--dragging {
         opacity: 0.5;
     }
 
+    // The label is the survey-styled pill — flex-fill the row while keeping
+    // grip and delete buttons at fixed widths beside it.
     & > label {
         flex: 1;
         min-width: 0;
     }
 
+    // The InlineEditable inside .response-choice should hug its content so
+    // the colon suffix and the open-ended text input sit right next to the
+    // editable label, not pushed to the far right.
+    .response-choice .inline-editable {
+        display: inline-block;
+        flex: 0 1 auto;
+        width: auto;
+    }
+
+    // Wrap the editable choice text + the optional ":" suffix so the colon
+    // sits flush against the text, not separated by the .response-choice
+    // flex gap.
+    &__label {
+        display: inline-flex;
+        gap: 0;
+        align-items: baseline;
+        min-width: 0;
+    }
+
+    &__grip,
+    &__delete {
+        flex-shrink: 0;
+        align-self: center;
+        opacity: 0.85;
+        transition:
+            opacity 120ms ease,
+            color 120ms ease;
+
+        &:hover,
+        &:focus-visible {
+            opacity: 1;
+        }
+    }
+
     &__grip {
         display: inline-flex;
-        flex-shrink: 0;
         align-items: center;
         justify-content: center;
         width: 1.5rem;
         color: var(--text-secondary);
         cursor: grab;
-        opacity: 0.6;
-        transition:
-            opacity 120ms ease,
-            color 120ms ease;
-
-        &:hover {
-            color: var(--text-primary);
-            opacity: 1;
-        }
 
         &:active {
             cursor: grabbing;
@@ -152,16 +195,6 @@ div.inline-editable {
         &--locked {
             cursor: not-allowed;
             opacity: 0.3;
-        }
-    }
-
-    &__delete {
-        flex-shrink: 0;
-        opacity: 0.6;
-        transition: opacity 120ms ease;
-
-        &:hover {
-            opacity: 1;
         }
     }
 }

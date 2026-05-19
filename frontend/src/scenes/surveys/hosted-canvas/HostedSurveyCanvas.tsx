@@ -498,14 +498,16 @@ function ChoiceRow({
                         aria-hidden
                         tabIndex={-1}
                     />
-                    <InlineEditable
-                        value={choice}
-                        onChange={(value) => onChoiceChange(choiceIndex, value)}
-                        placeholder={`Choice ${choiceIndex + 1}`}
-                        ariaLabel={`Choice ${choiceIndex + 1}`}
-                        data-attr={`canvas-question-${questionIndex}-choice-${choiceIndex}`}
-                    />
-                    {isOpenChoice ? <span aria-hidden>:</span> : null}
+                    <span className="HostedSurveyCanvasChoice__label">
+                        <InlineEditable
+                            value={choice}
+                            onChange={(value) => onChoiceChange(choiceIndex, value)}
+                            placeholder={`Choice ${choiceIndex + 1}`}
+                            ariaLabel={`Choice ${choiceIndex + 1}`}
+                            data-attr={`canvas-question-${questionIndex}-choice-${choiceIndex}`}
+                        />
+                        {isOpenChoice ? <span aria-hidden>:</span> : null}
+                    </span>
                 </div>
                 {isOpenChoice ? (
                     <input
