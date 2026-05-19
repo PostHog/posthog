@@ -10487,6 +10487,13 @@
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "resultCustomizations": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ResultCustomizationByValue"
+                    },
+                    "description": "Per-breakdown-value color customizations. Keyed by the raw breakdown column value.",
+                    "type": "object"
+                },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },

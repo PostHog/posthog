@@ -32,6 +32,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `read_write` - read_write
+    * `read` - read
+    * `none` - none
+     */
+    export type AccessLevelEnum = typeof AccessLevelEnum[keyof typeof AccessLevelEnum];
+
+
+    export const AccessLevelEnum = {
+      ReadWrite: 'read_write',
+      Read: 'read',
+      None: 'none',
+    } as const;
+
+    /**
      * * `warehouse` - warehouse
     * `direct` - direct
      */
@@ -6880,6 +6894,11 @@ export namespace Schemas {
       settings?: Settings | null;
     }
 
+    /**
+     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+     */
+    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -6937,6 +6956,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+      resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
@@ -19763,6 +19784,19 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+     */
+    export interface LensResult {
+      /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+    }
+
+    /**
      * * `monitor` - Monitor
     * `classifier` - Classifier
     * `scorer` - Scorer
@@ -22807,7 +22841,9 @@ export namespace Schemas {
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
       /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-      readonly lens_snapshot: LensSnapshot;
+      readonly lens_snapshot: LensSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly lens_result: LensResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
@@ -31814,6 +31850,72 @@ export namespace Schemas {
       values: PropertyItem[];
     }
 
+    /**
+     * Serializes a single access control rule DTO.
+     */
+    export interface PropertyAccessControlRule {
+      readonly id: string;
+      /** The access level for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID this rule applies to, if any.
+         * @nullable
+         */
+      organization_member: string | null;
+      /**
+         * The role UUID this rule applies to, if any.
+         * @nullable
+         */
+      role: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * Serializes the aggregate state for a property definition.
+
+    Preserves the existing API shape: ``access_controls`` is the list
+    of rules, plus the available levels and the computed default.
+     */
+    export interface PropertyAccessControlState {
+      /** List of all access control rules for this property definition. */
+      access_controls: PropertyAccessControlRule[];
+      /** Available access levels that can be assigned. */
+      available_access_levels: string[];
+      /** The default access level when no rules match. */
+      default_access_level: string;
+    }
+
+    /**
+     * Request body for upserting a rule (create or update).
+     */
+    export interface PropertyAccessControlUpdate {
+      /** The property definition ID this rule applies to. */
+      property_definition_id: string;
+      /** The access level to set for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID to set an override for.
+         * @nullable
+         */
+      organization_member?: string | null;
+      /**
+         * The role UUID to set an override for.
+         * @nullable
+         */
+      role?: string | null;
+    }
+
     export type PropertyType = typeof PropertyType[keyof typeof PropertyType];
 
 
@@ -40011,6 +40113,28 @@ export namespace Schemas {
      * Filter by recipient target type (e.g. `user`, `team`)
      */
     target_type?: string;
+    };
+
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
     };
 
     export type QuickFiltersListParams = {
