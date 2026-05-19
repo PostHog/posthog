@@ -3,6 +3,7 @@
 // visible thing about an editable target is a subtle hover outline.
 
 .inline-editable {
+    position: relative;
     width: 100%;
     min-width: 0;
     padding: 2px 4px;
@@ -19,8 +20,8 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    outline: 2px dashed transparent;
-    outline-offset: 1px;
+    outline: 1px dashed transparent;
+    outline-offset: 2px;
     transition:
         outline-color 120ms ease,
         background-color 120ms ease;
@@ -35,12 +36,19 @@
     }
 
     &:focus {
-        outline-color: var(--accent);
+        background-color: var(--surface-tertiary, rgb(17 17 17 / 3%));
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
     }
 
+    // Show a faint outline by default so authors know everything is editable —
+    // upgrades to a bolder color on hover, then to the accent on focus.
     @media (hover: hover) {
+        outline-color: var(--border, rgb(17 17 17 / 10%));
+
         &:hover:not(:focus) {
-            outline-color: var(--border-bold, rgb(17 17 17 / 18%));
+            background-color: var(--surface-tertiary, rgb(17 17 17 / 3%));
+            outline-color: var(--border-bold, rgb(17 17 17 / 28%));
         }
     }
 }
@@ -100,7 +108,9 @@ div.inline-editable {
     }
 }
 
-// Choice rows on the canvas get a hover delete affordance.
+// Choice rows on the canvas — always-visible delete + drag handle so the
+// affordances are discoverable without hover hunting. The handle dims when
+// reordering is locked (e.g. the open-ended choice that must stay last).
 .HostedSurveyCanvasChoice {
     position: relative;
     display: flex;
@@ -108,14 +118,51 @@ div.inline-editable {
     align-items: center;
     width: 100%;
 
-    &__delete {
-        opacity: 0;
-        transition: opacity 120ms ease;
+    &--dragging {
+        opacity: 0.5;
     }
 
-    &:hover &__delete,
-    &:focus-within &__delete {
-        opacity: 1;
+    & > label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    &__grip {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        color: var(--text-secondary);
+        cursor: grab;
+        opacity: 0.6;
+        transition:
+            opacity 120ms ease,
+            color 120ms ease;
+
+        &:hover {
+            color: var(--text-primary);
+            opacity: 1;
+        }
+
+        &:active {
+            cursor: grabbing;
+        }
+
+        &--locked {
+            cursor: not-allowed;
+            opacity: 0.3;
+        }
+    }
+
+    &__delete {
+        flex-shrink: 0;
+        opacity: 0.6;
+        transition: opacity 120ms ease;
+
+        &:hover {
+            opacity: 1;
+        }
     }
 }
 

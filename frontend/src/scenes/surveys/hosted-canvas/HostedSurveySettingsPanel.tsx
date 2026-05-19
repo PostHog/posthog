@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGitBranch, IconPhone, IconTrash } from '@posthog/icons'
+import { IconGitBranch, IconPhone, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconMonitor } from 'lib/lemon-ui/icons'
@@ -166,10 +166,27 @@ export function HostedSurveySettingsPanel({
 
                     {(question.type === SurveyQuestionType.SingleChoice ||
                         question.type === SurveyQuestionType.MultipleChoice) && (
-                        <LemonCheckbox
-                            label="Allow respondents to add their own answer"
-                            checked={!!(question as MultipleSurveyQuestion).hasOpenChoice}
-                            onChange={(checked) => updateQuestionField('hasOpenChoice', checked)}
+                        <OpenChoiceControl
+                            question={question as MultipleSurveyQuestion}
+                            onAdd={() => {
+                                const choices = (question as MultipleSurveyQuestion).choices || []
+                                const next = survey.questions.map((q, idx) =>
+                                    idx === activePageIndex
+                                        ? { ...q, choices: [...choices, 'Other'], hasOpenChoice: true }
+                                        : q
+                                )
+                                setSurveyValue('questions', next)
+                            }}
+                            onRemove={() => {
+                                const choices = (question as MultipleSurveyQuestion).choices || []
+                                // Strip the trailing open-ended option and clear the flag.
+                                const next = survey.questions.map((q, idx) =>
+                                    idx === activePageIndex
+                                        ? { ...q, choices: choices.slice(0, -1), hasOpenChoice: false }
+                                        : q
+                                )
+                                setSurveyValue('questions', next)
+                            }}
                         />
                     )}
 
@@ -275,5 +292,25 @@ function RatingSettings({
                 />
             ) : null}
         </>
+    )
+}
+
+function OpenChoiceControl({
+    question,
+    onAdd,
+    onRemove,
+}: {
+    question: MultipleSurveyQuestion
+    onAdd: () => void
+    onRemove: () => void
+}): JSX.Element {
+    return question.hasOpenChoice ? (
+        <LemonButton type="tertiary" size="small" status="danger" icon={<IconTrash />} onClick={onRemove}>
+            Remove open-ended choice
+        </LemonButton>
+    ) : (
+        <LemonButton type="secondary" size="small" icon={<IconPlusSmall />} onClick={onAdd}>
+            Add open-ended choice
+        </LemonButton>
     )
 }

@@ -1,11 +1,15 @@
 import './HostedSurveyCanvas.scss'
 
+import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { type CSSProperties } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { sanitizeHTML } from 'scenes/surveys/utils'
@@ -210,34 +214,72 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
         setSurveyValue('questions', next)
     }
 
-    const updateChoices = (choices: string[]): void => {
-        if (question.type !== SurveyQuestionType.SingleChoice && question.type !== SurveyQuestionType.MultipleChoice) {
+    const isChoiceQuestion =
+        question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+    const choiceQuestion = isChoiceQuestion ? (question as MultipleSurveyQuestion) : null
+
+    const commitChoices = (choices: string[]): void => {
+        if (!choiceQuestion) {
             return
         }
         updateField('choices', choices)
     }
 
     const updateChoice = (choiceIndex: number, value: string): void => {
-        if (question.type !== SurveyQuestionType.SingleChoice && question.type !== SurveyQuestionType.MultipleChoice) {
+        if (!choiceQuestion) {
             return
         }
-        const choices = [...((question as MultipleSurveyQuestion).choices || [])]
+        const choices = [...(choiceQuestion.choices || [])]
         choices[choiceIndex] = value
-        updateChoices(choices)
+        commitChoices(choices)
     }
 
     const deleteChoice = (choiceIndex: number): void => {
-        if (question.type !== SurveyQuestionType.SingleChoice && question.type !== SurveyQuestionType.MultipleChoice) {
+        if (!choiceQuestion) {
             return
         }
-        updateChoices(((question as MultipleSurveyQuestion).choices || []).filter((_, i) => i !== choiceIndex))
+        const choices = choiceQuestion.choices || []
+        const isDeletingOpen = !!choiceQuestion.hasOpenChoice && choiceIndex === choices.length - 1
+        const remaining = choices.filter((_, i) => i !== choiceIndex)
+        if (isDeletingOpen) {
+            // Deleting the open-ended option also unsets the flag so the bookkeeping stays consistent.
+            const next = survey.questions.map((q, idx) =>
+                idx === index ? { ...q, choices: remaining, hasOpenChoice: false } : q
+            )
+            setSurveyValue('questions', next)
+            return
+        }
+        commitChoices(remaining)
     }
 
     const addChoice = (): void => {
-        if (question.type !== SurveyQuestionType.SingleChoice && question.type !== SurveyQuestionType.MultipleChoice) {
+        if (!choiceQuestion) {
             return
         }
-        updateChoices([...((question as MultipleSurveyQuestion).choices || []), 'New option'])
+        const choices = choiceQuestion.choices || []
+        if (choiceQuestion.hasOpenChoice && choices.length > 0) {
+            // Insert before the trailing open-ended choice so it stays last.
+            const head = choices.slice(0, -1)
+            const open = choices[choices.length - 1]
+            commitChoices([...head, 'New option', open])
+            return
+        }
+        commitChoices([...choices, 'New option'])
+    }
+
+    const reorderChoices = (from: number, to: number): void => {
+        if (!choiceQuestion) {
+            return
+        }
+        const choices = [...(choiceQuestion.choices || [])]
+        // The open-ended option must always remain last — guard against accidental swaps.
+        const lastIndex = choices.length - 1
+        if (choiceQuestion.hasOpenChoice && (from === lastIndex || to === lastIndex)) {
+            return
+        }
+        const [moved] = choices.splice(from, 1)
+        choices.splice(to, 0, moved)
+        commitChoices(choices)
     }
 
     const buttonTextDefault = question.type === SurveyQuestionType.Link ? 'Continue' : 'Submit'
@@ -292,80 +334,15 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                         />
                     ) : null}
 
-                    {(question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice) && (
-                        <fieldset>
-                            <legend className="sr-only">{question.question}</legend>
-                            <div className="multiple-choice-options">
-                                {(question as MultipleSurveyQuestion).choices.map((choice, choiceIndex) => {
-                                    const choices = (question as MultipleSurveyQuestion).choices || []
-                                    // When hasOpenChoice is enabled, posthog-js renders the LAST choice with a
-                                    // ":" suffix plus an adjacent text input. Mirror that on the canvas so authors
-                                    // can see what respondents will see.
-                                    const isOpenChoice =
-                                        !!(question as MultipleSurveyQuestion).hasOpenChoice &&
-                                        choiceIndex === choices.length - 1
-                                    return (
-                                        <div className="HostedSurveyCanvasChoice" key={choiceIndex}>
-                                            <label className={isOpenChoice ? 'choice-option-open' : undefined}>
-                                                <div className="response-choice">
-                                                    <input
-                                                        type={
-                                                            question.type === SurveyQuestionType.SingleChoice
-                                                                ? 'radio'
-                                                                : 'checkbox'
-                                                        }
-                                                        checked={false}
-                                                        onChange={() => {}}
-                                                        aria-hidden
-                                                        tabIndex={-1}
-                                                    />
-                                                    <InlineEditable
-                                                        value={choice}
-                                                        onChange={(value) => updateChoice(choiceIndex, value)}
-                                                        placeholder={`Choice ${choiceIndex + 1}`}
-                                                        ariaLabel={`Choice ${choiceIndex + 1}`}
-                                                        data-attr={`canvas-question-${index}-choice-${choiceIndex}`}
-                                                    />
-                                                    {isOpenChoice ? <span aria-hidden>:</span> : null}
-                                                </div>
-                                                {isOpenChoice ? (
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Respondent types their own answer…"
-                                                        readOnly
-                                                        aria-hidden
-                                                        tabIndex={-1}
-                                                    />
-                                                ) : null}
-                                            </label>
-                                            <LemonButton
-                                                type="tertiary"
-                                                size="xsmall"
-                                                icon={<IconTrash />}
-                                                aria-label={`Delete choice ${choiceIndex + 1}`}
-                                                className="HostedSurveyCanvasChoice__delete"
-                                                onClick={() => deleteChoice(choiceIndex)}
-                                                disabledReason={
-                                                    choices.length <= 1
-                                                        ? 'A choice question needs at least one option'
-                                                        : undefined
-                                                }
-                                            />
-                                        </div>
-                                    )
-                                })}
-                                <button
-                                    type="button"
-                                    className="HostedSurveyCanvasAddChoice"
-                                    onClick={addChoice}
-                                    data-attr={`canvas-question-${index}-add-choice`}
-                                >
-                                    <IconPlus />
-                                    Add choice
-                                </button>
-                            </div>
-                        </fieldset>
+                    {choiceQuestion && (
+                        <ChoicesEditor
+                            question={choiceQuestion}
+                            questionIndex={index}
+                            onChoiceChange={updateChoice}
+                            onChoiceDelete={deleteChoice}
+                            onChoiceAdd={addChoice}
+                            onChoiceReorder={reorderChoices}
+                        />
                     )}
 
                     {question.type === SurveyQuestionType.Rating ? (
@@ -390,6 +367,166 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                 </div>
             </div>
         </form>
+    )
+}
+
+function ChoicesEditor({
+    question,
+    questionIndex,
+    onChoiceChange,
+    onChoiceDelete,
+    onChoiceAdd,
+    onChoiceReorder,
+}: {
+    question: MultipleSurveyQuestion
+    questionIndex: number
+    onChoiceChange: (choiceIndex: number, value: string) => void
+    onChoiceDelete: (choiceIndex: number) => void
+    onChoiceAdd: () => void
+    onChoiceReorder: (from: number, to: number) => void
+}): JSX.Element {
+    const choices = question.choices || []
+    const lastIndex = choices.length - 1
+    const choiceItemIds = choices.map((_, idx) => idx.toString())
+
+    const handleDragEnd = ({ active, over }: DragEndEvent): void => {
+        if (!over || active.id === over.id) {
+            return
+        }
+        const from = choiceItemIds.indexOf(active.id.toString())
+        const to = choiceItemIds.indexOf(over.id.toString())
+        if (from < 0 || to < 0) {
+            return
+        }
+        onChoiceReorder(from, to)
+    }
+
+    return (
+        <fieldset>
+            <legend className="sr-only">{question.question}</legend>
+            <div className="multiple-choice-options">
+                <DndContext onDragEnd={handleDragEnd}>
+                    <SortableContext items={choiceItemIds} strategy={verticalListSortingStrategy}>
+                        {choices.map((choice, choiceIndex) => {
+                            // When hasOpenChoice is enabled, the LAST choice renders with a ":" suffix and
+                            // an adjacent text input — mirroring what respondents see in the shipped survey.
+                            const isOpenChoice = !!question.hasOpenChoice && choiceIndex === lastIndex
+                            return (
+                                <ChoiceRow
+                                    key={choiceIndex}
+                                    id={choiceIndex.toString()}
+                                    choice={choice}
+                                    choiceIndex={choiceIndex}
+                                    isOpenChoice={isOpenChoice}
+                                    isCheckbox={question.type === SurveyQuestionType.MultipleChoice}
+                                    canReorder={choices.length > 1 && !isOpenChoice}
+                                    canDelete={choices.length > 1}
+                                    questionIndex={questionIndex}
+                                    onChoiceChange={onChoiceChange}
+                                    onChoiceDelete={onChoiceDelete}
+                                />
+                            )
+                        })}
+                    </SortableContext>
+                </DndContext>
+                <button
+                    type="button"
+                    className="HostedSurveyCanvasAddChoice"
+                    onClick={onChoiceAdd}
+                    data-attr={`canvas-question-${questionIndex}-add-choice`}
+                >
+                    <IconPlus />
+                    Add choice
+                </button>
+            </div>
+        </fieldset>
+    )
+}
+
+function ChoiceRow({
+    id,
+    choice,
+    choiceIndex,
+    isOpenChoice,
+    isCheckbox,
+    canReorder,
+    canDelete,
+    questionIndex,
+    onChoiceChange,
+    onChoiceDelete,
+}: {
+    id: string
+    choice: string
+    choiceIndex: number
+    isOpenChoice: boolean
+    isCheckbox: boolean
+    canReorder: boolean
+    canDelete: boolean
+    questionIndex: number
+    onChoiceChange: (choiceIndex: number, value: string) => void
+    onChoiceDelete: (choiceIndex: number) => void
+}): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id,
+        animateLayoutChanges: () => false,
+    })
+
+    return (
+        <div
+            ref={setNodeRef}
+            {...attributes}
+            className={`HostedSurveyCanvasChoice ${isDragging ? 'HostedSurveyCanvasChoice--dragging' : ''}`}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                transform: CSS.Translate.toString(transform),
+                transition,
+            }}
+        >
+            <span
+                className={`HostedSurveyCanvasChoice__grip ${canReorder ? '' : 'HostedSurveyCanvasChoice__grip--locked'}`}
+                aria-label={canReorder ? `Reorder choice ${choiceIndex + 1}` : 'Open-ended choice stays last'}
+                {...(canReorder ? listeners : {})}
+            >
+                <SortableDragIcon />
+            </span>
+            <label className={isOpenChoice ? 'choice-option-open' : undefined}>
+                <div className="response-choice">
+                    <input
+                        type={isCheckbox ? 'checkbox' : 'radio'}
+                        checked={false}
+                        onChange={() => {}}
+                        aria-hidden
+                        tabIndex={-1}
+                    />
+                    <InlineEditable
+                        value={choice}
+                        onChange={(value) => onChoiceChange(choiceIndex, value)}
+                        placeholder={`Choice ${choiceIndex + 1}`}
+                        ariaLabel={`Choice ${choiceIndex + 1}`}
+                        data-attr={`canvas-question-${questionIndex}-choice-${choiceIndex}`}
+                    />
+                    {isOpenChoice ? <span aria-hidden>:</span> : null}
+                </div>
+                {isOpenChoice ? (
+                    <input
+                        type="text"
+                        placeholder="Respondent types their own answer…"
+                        readOnly
+                        aria-hidden
+                        tabIndex={-1}
+                    />
+                ) : null}
+            </label>
+            <LemonButton
+                type="tertiary"
+                size="xsmall"
+                icon={<IconTrash />}
+                aria-label={`Delete choice ${choiceIndex + 1}`}
+                className="HostedSurveyCanvasChoice__delete"
+                onClick={() => onChoiceDelete(choiceIndex)}
+                disabledReason={canDelete ? undefined : 'A choice question needs at least one option'}
+            />
+        </div>
     )
 }
 
