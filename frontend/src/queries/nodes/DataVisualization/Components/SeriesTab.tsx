@@ -684,8 +684,7 @@ const BreakdownSeries = ({
                     })
                 }}
                 onClearColorToken={() => {
-                    const { [series.breakdownValue]: _removed, ...rest } =
-                        chartSettings.resultCustomizations ?? {}
+                    const { [series.breakdownValue]: _removed, ...rest } = chartSettings.resultCustomizations ?? {}
                     updateChartSettings({ resultCustomizations: rest })
                 }}
             />
