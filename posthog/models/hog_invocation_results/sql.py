@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     finished_at Nullable(DateTime64(6, 'UTC')),
     duration_ms Nullable(UInt32),
     error_kind LowCardinality(String),
-    error_message String CODEC(ZSTD(3)),
+    error_message String,
     event_uuid String,
     distinct_id String,
     person_id String,
