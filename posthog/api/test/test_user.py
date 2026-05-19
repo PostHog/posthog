@@ -221,64 +221,58 @@ class TestUserAPI(APIBaseTest):
         assert "active_realtime_notification_types" in body
         assert "comment_mention" in body["active_realtime_notification_types"]
 
-    def test_requires_credential_review_false_when_no_keys(self):
-        self.user.credentials_reviewed_at = None
+    @parameterized.expand(
+        [
+            ("unreviewed_no_keys", False, False, False),
+            ("unreviewed_with_keys", False, True, True),
+            ("reviewed_with_keys", True, True, False),
+            ("reviewed_no_keys", True, False, False),
+        ]
+    )
+    def test_requires_credential_review(self, _name: str, reviewed: bool, with_key: bool, expected: bool):
+        self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
+        if with_key:
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Test key",
+                secure_value=hash_key_value("phx_test_value_1234567890"),
+                scopes=["*"],
+            )
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
-        assert response.json()["requires_credential_review"] is False
-
-    def test_requires_credential_review_true_when_unreviewed_with_keys(self):
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-
-        self.user.credentials_reviewed_at = None
-        self.user.save(update_fields=["credentials_reviewed_at"])
-        PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Test key",
-            secure_value=hash_key_value("phx_test_value_1234567890"),
-            scopes=["*"],
-        )
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == 200
-        assert response.json()["requires_credential_review"] is True
-
-    def test_requires_credential_review_false_after_review_marked(self):
-        from django.utils import timezone as django_timezone
-
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-
-        self.user.credentials_reviewed_at = django_timezone.now()
-        self.user.save(update_fields=["credentials_reviewed_at"])
-        PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Test key",
-            secure_value=hash_key_value("phx_test_value_1234567890"),
-            scopes=["*"],
-        )
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == 200
-        assert response.json()["requires_credential_review"] is False
+        assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
         self.user.credentials_reviewed_at = None
         self.user.save(update_fields=["credentials_reviewed_at"])
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_1234567890"),
+            scopes=["*"],
+        )
 
-        response = self.client.post(f"/api/users/@me/credentials_review_complete/")
+        response = self.client.get("/api/users/@me/")
+        assert response.json()["requires_credential_review"] is True
+
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == 204
         self.user.refresh_from_db()
         assert self.user.credentials_reviewed_at is not None
 
-        # Idempotent: calling again is a no-op and doesn't change the timestamp
+        response = self.client.get("/api/users/@me/")
+        assert response.json()["requires_credential_review"] is False
+
         first_ts = self.user.credentials_reviewed_at
-        response = self.client.post(f"/api/users/@me/credentials_review_complete/")
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == 204
         self.user.refresh_from_db()
         assert self.user.credentials_reviewed_at == first_ts
 
     def test_credentials_review_complete_requires_auth(self):
         self.client.logout()
-        response = self.client.post(f"/api/users/@me/credentials_review_complete/")
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_can_only_list_yourself(self):
