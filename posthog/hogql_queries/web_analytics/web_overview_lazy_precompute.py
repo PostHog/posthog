@@ -145,15 +145,26 @@ def _events_session_id_expr(runner: "WebOverviewQueryRunner") -> ast.Expr:
     return runner.events_session_property
 
 
+# Width of the boundary pad on each side of the per-job event-scan window.
+# The lazy_computation framework chunks the precompute span into daily UTC jobs;
+# each job covers `[time_window_min, time_window_max)`. A session that starts at
+# 23:30 with events spilling past midnight would lose its trailing events without
+# a pad — the HAVING clause attributes the session to its start hour, but the
+# events table scan needs to actually see those trailing events.
+#
+# The pad must be wide enough to capture a single session's longest realistic
+# inactivity window. PostHog sessions cap at ~30 min of inactivity (with the
+# default `inactivity_threshold_seconds`), so 60 min is a 2x safety margin while
+# keeping over-scan tiny — much cheaper than the original ±1 day pad (3x scan
+# cost per job). The HAVING clause ensures no duplicate attribution even if a
+# session straddles two jobs' pads.
+SESSION_BOUNDARY_PAD_MINUTES = 60
+
+
 # HogQL template for the precompute INSERT. The lazy_computation framework
 # substitutes the listed placeholders (including `time_window_min`/`time_window_max`),
 # parses the result, and INSERTs into `web_overview_preaggregated`. The framework
 # automatically prepends `team_id`, `job_id` and appends `expires_at` to the SELECT.
-#
-# We widen the event-scan window by 1 day on each side so sessions that straddle
-# the job boundary still contribute all their events to the session's hourly
-# bucket. The HAVING clause keeps each session attributed only to its start hour,
-# so over-scan affects INSERT cost but never produces duplicate rows.
 INSERT_QUERY_TEMPLATE = """
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
@@ -174,8 +185,8 @@ FROM (
     WHERE and(
         {events_session_id} IS NOT NULL,
         {event_type_filter},
-        timestamp >= ({time_window_min} - toIntervalDay(1)),
-        timestamp < ({time_window_max} + toIntervalDay(1)),
+        timestamp >= ({time_window_min} - toIntervalMinute({pad_minutes})),
+        timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
         {user_filter},
         {test_account_filter}
     )
@@ -199,6 +210,7 @@ def ensure_web_overview_precomputed(
         "event_type_filter": runner.event_type_expr,
         "user_filter": _user_filter_expr(runner),
         "test_account_filter": _test_account_filter_expr(runner),
+        "pad_minutes": ast.Constant(value=SESSION_BOUNDARY_PAD_MINUTES),
     }
 
     return ensure_precomputed(
@@ -231,16 +243,17 @@ WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
 
 
 _READ_SETTINGS = {
-    # Both INSERT (via `_get_insert_settings`) and SELECT route to the same replica
-    # so the read sees data the INSERT just wrote.
+    # Approach E from `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`:
+    # both INSERT (via `_get_insert_settings`) and SELECT use `in_order` so they
+    # deterministically prefer the same replica. Combined with the global
+    # `distributed_foreground_insert=1`, the SELECT sees data the INSERT just wrote.
+    #
+    # `select_sequential_consistency=1` was tried here and is documented broken in
+    # CONSISTENCY.md when combined with `insert_quorum_parallel=1` (the default).
     "load_balancing": "in_order",
     # Shard pruning: sharding key is `sipHash64(job_id)`; `job_id IN (...)` matches
     # exactly the shards we wrote to.
     "optimize_skip_unused_shards": 1,
-    # Force a quorum read against ZK to guarantee freshly-INSERTed parts are visible.
-    # The INSERT side uses `insert_quorum_parallel=1` so each INSERT carries its own
-    # quorum reference, which the SELECT respects via this setting.
-    "select_sequential_consistency": 1,
 }
 
 
