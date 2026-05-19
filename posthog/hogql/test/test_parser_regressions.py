@@ -190,6 +190,24 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_zero_arg_lambda_as_clause_body(self):
+        # `() -> body` is a zero-arg lambda. After a trailing comma a
+        # clause keyword followed by `( )` is normally an empty call on
+        # the keyword-as-Field (`select 1, where ()`), but `( ) ->` is
+        # a lambda parameter list — a valid clause body — so the
+        # keyword stays a clause introducer.
+        cases = (
+            "select 1, limit () -> 2",
+            "select 1, where () -> 2",
+            "select 1, offset () -> 3",
+            "select 1, limit ()",  # bare () — keyword is a column
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

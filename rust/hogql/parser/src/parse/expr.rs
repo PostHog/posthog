@@ -2918,8 +2918,14 @@ impl<'a> Parser<'a> {
         // ALL(*) emits `Call(name="from", args=[])` etc.). Empty parens
         // can't open a valid clause body for FROM / WHERE / etc., so
         // the surrounding clause keyword falls back to a Field.
+        // Exception: `( ) ->` is a zero-arg lambda parameter list — a
+        // valid clause body (`LIMIT () -> 2`) — so the keyword stays a
+        // clause introducer there.
         if p1 == TokenKind::LParen && p2 == TokenKind::RParen {
-            return true;
+            let p3 = probe.next_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            if p3 != TokenKind::Arrow {
+                return true;
+            }
         }
         // `UNION` / `INTERSECT` / `EXCEPT` followed by a select-stmt
         // starter or set-op modifier — the set operator binds the
