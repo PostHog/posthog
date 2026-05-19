@@ -63,12 +63,12 @@ describe('KeyedRateLimiterService', () => {
         return result ?? { ts: null, pool: null }
     }
 
-    describe('rateLimitMany (V2 pipelined per-call)', () => {
+    describe('rateLimitGrouped', () => {
         it('uses tokens for an id', async () => {
             const limiter = buildLimiter('test-basic')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
+            const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
 
             expect(res).toEqual([['team-1', { tokens: 99, isRateLimited: false }]])
         })
@@ -77,13 +77,13 @@ describe('KeyedRateLimiterService', () => {
             const limiter = buildLimiter('test-exceed')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 99 }])
+            let res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 99 }])
             expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
 
-            res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
+            res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
             expect(res[0][1]).toEqual({ tokens: 0, isRateLimited: true })
 
-            res = await limiter.rateLimitMany([{ id: 'team-1', cost: 20 }])
+            res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 20 }])
             expect(res[0][1].isRateLimited).toBe(true)
         })
 
@@ -91,11 +91,11 @@ describe('KeyedRateLimiterService', () => {
             const limiter = buildLimiter('test-refill')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 50 }])
+            let res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 50 }])
             expect(res[0][1].tokens).toBe(50)
 
             advanceTime(1000)
-            res = await limiter.rateLimitMany([{ id: 'team-1', cost: 0 }])
+            res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 0 }])
             expect(res[0][1].tokens).toBe(60)
         })
 
@@ -103,7 +103,7 @@ describe('KeyedRateLimiterService', () => {
             const limiter = buildLimiter('test-multi')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            const res = await limiter.rateLimitMany([
+            const res = await limiter.rateLimitGrouped([
                 { id: 'team-1', cost: 1 },
                 { id: 'team-2', cost: 5 },
             ])
@@ -120,12 +120,12 @@ describe('KeyedRateLimiterService', () => {
             await deleteKeysWithPrefix(redis, limiterA.getKeyPrefix())
             await deleteKeysWithPrefix(redis, limiterB.getKeyPrefix())
 
-            await limiterA.rateLimitMany([{ id: 'shared-id', cost: 100 }])
-            const drainedA = await limiterA.rateLimitMany([{ id: 'shared-id', cost: 1 }])
+            await limiterA.rateLimitGrouped([{ id: 'shared-id', cost: 100 }])
+            const drainedA = await limiterA.rateLimitGrouped([{ id: 'shared-id', cost: 1 }])
             expect(drainedA[0][1].isRateLimited).toBe(true)
 
             // Same id under limiter B is untouched — confirms prefix isolation.
-            const freshB = await limiterB.rateLimitMany([{ id: 'shared-id', cost: 1 }])
+            const freshB = await limiterB.rateLimitGrouped([{ id: 'shared-id', cost: 1 }])
             expect(freshB[0][1]).toEqual({ tokens: 99, isRateLimited: false })
         })
 
@@ -134,50 +134,21 @@ describe('KeyedRateLimiterService', () => {
             expect(limiter.getKeyPrefix().startsWith('@posthog-test/')).toBe(true)
         })
 
-        it('returns empty array for empty input without touching Redis', async () => {
-            const limiter = buildLimiter('test-empty')
-            const res = await limiter.rateLimitMany([])
-            expect(res).toEqual([])
-        })
-
-        it('fails open when the Redis pipeline fails', async () => {
-            const limiter = new KeyedRateLimiterService(
-                { name: 'test-fail-open', bucketSize: 50, refillRate: 1, ttlSeconds: 60 },
-                {
-                    useClient: jest.fn(),
-                    usePipeline: jest.fn().mockResolvedValue(null),
-                } as unknown as RedisV2
-            )
-
-            const res = await limiter.rateLimitMany([
-                { id: 'a', cost: 1 },
-                { id: 'b', cost: 2 },
-            ])
-
-            expect(res).toEqual([
-                ['a', { tokens: 50, isRateLimited: false }],
-                ['b', { tokens: 50, isRateLimited: false }],
-            ])
-        })
-
         it('honours per-call bucketSize and refillRate overrides', async () => {
             const limiter = buildLimiter('test-per-call')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
             // Per-call override: tiny bucket of 5, despite the service's default of 100.
-            const res = await limiter.rateLimitMany([{ id: 'tiny-team', cost: 6, bucketSize: 5, refillRate: 1 }])
+            const res = await limiter.rateLimitGrouped([{ id: 'tiny-team', cost: 6, bucketSize: 5, refillRate: 1 }])
 
             expect(res[0][1].isRateLimited).toBe(true)
         })
-
-        // The following tests are migrated from redis-token-bucket-v2.lua.test.ts —
-        // they exercise the V2 lua via the keyed service rather than the raw client.
 
         it('returns -1 when first cost exceeds pool size', async () => {
             const limiter = buildLimiter('test-first-exceed')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 150 }])
+            const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 150 }])
             expect(res[0][1].tokens).toBe(-1)
             expect(res[0][1].isRateLimited).toBe(true)
         })
@@ -186,99 +157,21 @@ describe('KeyedRateLimiterService', () => {
             const limiter = buildLimiter('test-cost-zero')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            await limiter.rateLimitMany([{ id: 'team-1', cost: 30 }])
-            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 0 }])
+            await limiter.rateLimitGrouped([{ id: 'team-1', cost: 30 }])
+            const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 0 }])
             expect(res[0][1].tokens).toBe(70)
-        })
-
-        it('allows a single catch-up call to spend more than poolMax (PR 57920)', async () => {
-            const limiter = buildLimiter('test-catchup')
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-
-            await limiter.rateLimitMany([{ id: 'team-1', cost: 100 }]) // pool=0
-            advanceTime(20_000) // 20s × 10/s = 200 accrued credit
-            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 199 }])
-            // Spent 199 of the accrued 200; stored pool capped at poolMax (=100).
-            expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
         })
 
         it('still rate-limits when a catch-up cost exceeds accrued credit', async () => {
             const limiter = buildLimiter('test-catchup-exceeds')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            await limiter.rateLimitMany([{ id: 'team-1', cost: 100 }]) // pool=0
+            await limiter.rateLimitGrouped([{ id: 'team-1', cost: 100 }]) // pool=0
             advanceTime(5_000) // 5s × 10/s = 50 accrued
-            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 60 }])
+            const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 60 }])
             expect(res[0][1].isRateLimited).toBe(true)
         })
 
-        it('threads state through pipelined repeats of the same id', async () => {
-            const limiter = buildLimiter('test-thread')
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-
-            // After call 3 (cost=2) is denied with pool=1, the bucket retains its 1
-            // token — leftover budget shouldn't be discarded just because a request
-            // overshot. So call 4 (cost=1) can spend it and lands at tokens=0.
-            const res = await limiter.rateLimitMany([
-                { id: 'team-1', cost: 90 },
-                { id: 'team-1', cost: 9 },
-                { id: 'team-1', cost: 2 },
-                { id: 'team-1', cost: 1 },
-            ])
-
-            expect(res).toEqual([
-                ['team-1', { tokens: 10, isRateLimited: false }],
-                ['team-1', { tokens: 1, isRateLimited: false }],
-                ['team-1', { tokens: -1, isRateLimited: true }],
-                ['team-1', { tokens: 0, isRateLimited: true }],
-            ])
-        })
-
-        // Regression for the V2 lua wedge: with sub-2 fractional fillRates, V2 used to
-        // store -1 in `pool` on every denial, which threw away the fractional refill
-        // that had just accrued. Subsequent 1 req/s calls would re-read -1, accrue the
-        // fillRate, fail to afford cost=1, and re-clamp to -1 — wedged forever. The fix
-        // keeps the public return contract (`tokensAfter = -1` on denial) but stores the
-        // un-clamped balance so partial refills accumulate across calls.
-        it('recovers from overdraft under sustained sub-2 fillRate (V2 wedge regression)', async () => {
-            const limiter = buildLimiter('test-v2-wedge', { bucketSize: 10, refillRate: 1.5 })
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-
-            // Drain into denial: 100 cost-1 calls against a 10-token bucket.
-            let lastDuringDrain = 0
-            for (let i = 0; i < 100; i++) {
-                const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-                lastDuringDrain = res[0][1].tokens
-            }
-            expect(lastDuringDrain).toBe(-1)
-
-            // 1 req/s with refillRate=1.5 should recover within ~10s.
-            let lastAfterRecovery = -1
-            for (let i = 0; i < 10; i++) {
-                advanceTime(1000)
-                const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-                lastAfterRecovery = res[0][1].tokens
-            }
-            expect(lastAfterRecovery).toBeGreaterThanOrEqual(0)
-        })
-
-        it('refreshes the V2 TTL on every call', async () => {
-            const limiter = buildLimiter('test-v2-ttl', { ttlSeconds: 60 })
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-            const key = `${limiter.getKeyPrefix()}/team-1`
-
-            await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-            // Bump the TTL way down; the next call should refresh it back to ttlSeconds.
-            await redis.useClient({ name: 'pexpire' }, async (client) => await client.pexpire(key, 5_000))
-
-            await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-            const ttl = await redis.useClient({ name: 'ttl-check' }, async (client) => await client.ttl(key))
-            expect(ttl).toBeGreaterThan(5)
-            expect(ttl).toBeLessThanOrEqual(60)
-        })
-    })
-
-    describe('rateLimitGrouped (V3 + coalesced + per-input fan-out)', () => {
         it('returns one decision per input request (parallel to input order)', async () => {
             const limiter = buildLimiter('grouped-shape')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
@@ -296,10 +189,9 @@ describe('KeyedRateLimiterService', () => {
         })
 
         it('allows the first N inputs of an over-budget batch and denies the rest', async () => {
-            // The user case: 10 cost-1 requests against a bucket of 4. Per the
-            // V2/V3 contract, `isRateLimited = tokens <= 0`, so the 4th request
-            // (which brings tokens to exactly 0) is flagged as rate-limited
-            // even though its cost was paid. The remaining 6 hit tokens=-1.
+            // 10 cost-1 requests against a bucket of 4. `isRateLimited = tokens <= 0`,
+            // so the 4th request (which brings tokens to exactly 0) is flagged as
+            // rate-limited even though its cost was paid. The remaining 6 hit tokens=-1.
             const limiter = buildLimiter('grouped-fanout', { bucketSize: 4, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
@@ -319,27 +211,6 @@ describe('KeyedRateLimiterService', () => {
                 true,
                 true,
             ])
-        })
-
-        it('per-input decisions match rateLimitMany for uniform-cost batches', async () => {
-            const ungrouped = buildLimiter('grouped-vs-many-a')
-            const grouped = buildLimiter('grouped-vs-many-b')
-            await deleteKeysWithPrefix(redis, ungrouped.getKeyPrefix())
-            await deleteKeysWithPrefix(redis, grouped.getKeyPrefix())
-
-            // 200 events for 50 ids — realistic CDP shape.
-            const ids = Array.from({ length: 50 }, (_, i) => `fn-${i}`)
-            const requests = Array.from({ length: 200 }, () => ({
-                id: ids[Math.floor(Math.random() * ids.length)],
-                cost: 1,
-            }))
-
-            const manyRes = await ungrouped.rateLimitMany(requests)
-            const groupedRes = await grouped.rateLimitGrouped(requests)
-
-            // Same length, same id ordering, same isRateLimited flags.
-            expect(groupedRes.map(([id]) => id)).toEqual(manyRes.map(([id]) => id))
-            expect(groupedRes.map(([, r]) => r.isRateLimited)).toEqual(manyRes.map(([, r]) => r.isRateLimited))
         })
 
         it('keeps independent budgets per id', async () => {
@@ -365,7 +236,7 @@ describe('KeyedRateLimiterService', () => {
         })
 
         it('issues exactly one Redis dispatch per unique id (call-count win)', async () => {
-            // 10 cost-1 requests for the same id → 1 evalsha (vs 10 with rateLimitMany).
+            // 10 cost-1 requests for the same id → 1 evalsha.
             const limiter = buildLimiter('grouped-dispatch-count')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 

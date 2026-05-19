@@ -2,9 +2,12 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.models import DataWarehouseTable
+
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
+@admin.register(DataWarehouseTable)
 class DataWarehouseTableAdmin(admin.ModelAdmin):
     list_display = (
         "id",

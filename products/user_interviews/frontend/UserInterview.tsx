@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { UserInterviewTopicApi } from './generated/api.schemas'
+import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
 export const scene: SceneExport<UserInterviewLogicProps> = {
@@ -237,6 +238,7 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>
                                 Responded
