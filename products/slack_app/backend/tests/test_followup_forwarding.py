@@ -326,9 +326,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         # Initiator is not duplicated in the context block
         assert task.description.count("do something") == 1
         # The initiator's chronological slot is preserved as a placeholder
-        assert "georgiy: [see prompt below]" in task.description
+        assert "georgiy: <original user message was here>" in task.description
         # The placeholder sits between the surrounding messages, not at the end
-        placeholder_pos = task.description.index("[see prompt below]")
+        placeholder_pos = task.description.index("<original user message was here>")
         last_context_pos = task.description.index("we just need to inject those better")
         assert placeholder_pos < last_context_pos
 

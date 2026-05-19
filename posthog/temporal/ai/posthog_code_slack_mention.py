@@ -33,7 +33,7 @@ POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 
 
-_INITIATOR_PLACEHOLDER = "[see prompt below]"
+_INITIATOR_PLACEHOLDER = "<original user message was here>"
 
 
 def _build_posthog_code_task_description(
@@ -78,7 +78,7 @@ def _build_posthog_code_task_description(
 
     context_block = "\n".join(context_entries)
     return (
-        "Attached Slack thread context (chronological, oldest first; the prompt below replaces the placeholder):\n"
+        "Attached Slack thread context (chronological, oldest first; the prompt below fills the placeholder):\n"
         f"{context_block}\n"
         "---\n\n"
         f"{prompt}"
