@@ -114,26 +114,37 @@ def _extract_type_str(entry: Any) -> str | None:
     return None
 
 
-def _parse_temporal_value(value: str, team_tz: "ZoneInfo | None") -> datetime:
-    """Parquet drops the timezone metadata from ClickHouse `DateTime('Europe/...')` columns,
-    so naive parsed values are treated as UTC and converted to team_tz before strftime.
-    Already-aware values are converted directly so the function is correct either way."""
-    parsed = datetime.fromisoformat(value)
-    if team_tz is not None:
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        parsed = parsed.astimezone(team_tz)
-    return parsed
+def _to_team_tz(value: Any, team_tz: "ZoneInfo | None") -> Any:
+    """Coerce a temporal value into something downstream ``strftime`` can render.
+
+    ISO strings are always parsed to ``datetime`` so ``.strftime()`` calls don't blow up.
+    When ``team_tz`` is given (DateTime columns), naive values are treated as UTC and
+    converted to team_tz; aware values are converted directly. When ``team_tz`` is None
+    (Date columns), the parsed value passes through unchanged. Non-temporal values pass
+    through untouched.
+    """
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value)
+    elif isinstance(value, datetime):
+        parsed = value
+    else:
+        return value
+    if team_tz is None:
+        return parsed
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(team_tz)
 
 
 def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None = None) -> None:
-    """Parse ISO strings into ``datetime`` objects for every Date/DateTime column.
+    """Parse/coerce temporal values for every Date/DateTime column.
 
-    HogQL's response pipeline stringifies all Date/DateTime values regardless of name,
-    but the insight runners call .strftime() on them. We use the ``types`` metadata to
-    find temporal columns so this works for any column name (``date``, ``timestamp``,
-    custom aliases), not just ``date``. Rows can be tuples, so we replace the row in
-    the outer list.
+    For DateTime columns, ISO strings and tz-aware UTC datetimes are re-anchored to the
+    team timezone so downstream strftime renders the correct local day. For Date columns
+    (no tz conversion needed), string values are parsed to naive ``datetime`` objects so
+    that downstream ``.strftime()`` calls succeed. We use the ``types`` metadata to find
+    temporal columns so this works for any column name (``date``, ``timestamp``, custom
+    aliases). Rows can be tuples, so we replace the row in the outer list.
     """
     if not types:
         return
@@ -154,11 +165,9 @@ def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None =
             value = row[col_idx]
             convert_tz = team_tz if is_datetime else None
             if isinstance(value, list):
-                coerced: Any = [
-                    _parse_temporal_value(item, convert_tz) if isinstance(item, str) else item for item in value
-                ]
-            elif isinstance(value, str):
-                coerced = _parse_temporal_value(value, convert_tz)
+                coerced: Any = [_to_team_tz(item, convert_tz) for item in value]
+            elif isinstance(value, str | datetime):
+                coerced = _to_team_tz(value, convert_tz)
             else:
                 continue
             if new_row is None:

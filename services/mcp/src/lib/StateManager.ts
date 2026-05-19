@@ -1,13 +1,12 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
-import { getPostHogClient } from '@/lib/analytics'
+import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
+import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
-
-import type { ScopedCache } from './cache/ScopedCache'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
