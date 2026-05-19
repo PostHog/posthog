@@ -77,7 +77,7 @@ export const getSessionRecordingPlaylistsListUrl = (
 }
 
 /**
- * Override list to include synthetic playlists
+ * Override list to include synthetic playlists.
  */
 export const sessionRecordingPlaylistsList = async (
     projectId: string,

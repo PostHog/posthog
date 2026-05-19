@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Override list to include synthetic playlists
+ * Override list to include synthetic playlists.
  */
 export const SessionRecordingPlaylistsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
