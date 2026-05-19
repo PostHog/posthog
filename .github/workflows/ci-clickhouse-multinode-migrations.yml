@@ -7,7 +7,6 @@ on:
     pull_request:
         paths:
             - 'posthog/clickhouse/migrations/**'
-            - 'posthog/models/**/sql.py'
             - 'posthog/settings/data_stores.py'
             - 'posthog/clickhouse/cluster.py'
             - 'posthog/clickhouse/client/migration_tools.py'
