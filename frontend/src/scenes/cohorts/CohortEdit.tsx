@@ -594,6 +594,14 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </Link>
                                         </LemonBanner>
                                     )}
+                                    {!isNewCohort && (
+                                        <LemonBanner type="info">
+                                            Manually adding people or uploading a CSV is only available for static
+                                            cohorts. This is a dynamic cohort, so membership is recalculated from the
+                                            matching criteria below. To add people manually,{' '}
+                                            <Link to={urls.cohort('new')}>create a new static cohort</Link>.
+                                        </LemonBanner>
+                                    )}
                                     <SceneSection
                                         // TODO: @adamleithp Add a number of matching persons to the title "Matching criteria (100)"
                                         title="Matching criteria"
