@@ -224,6 +224,21 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_pivot_tuple_or_single_parenthesised_operand(self):
+        # `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
+        # columnExpr` — a parenthesised PIVOT/UNPIVOT operand is always
+        # a `Tuple`, even for one element (`(x)` → Tuple([x])). The
+        # Rust parser stripped the parens for the single-element case.
+        cases = (
+            "select 1 from a unpivot ((x) for (c) in (d))",
+            "select 1 from a pivot (s for (c) in (1))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

@@ -921,11 +921,12 @@ impl<'a> Parser<'a> {
             self.bump()?;
             let exprs = self.parse_expr_list_until_paren()?;
             self.expect(TokenKind::RParen, ")")?;
-            return Ok(if exprs.len() == 1 {
-                exprs.into_iter().next().unwrap()
-            } else {
-                emit::tuple_(exprs)
-            });
+            // `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
+            // columnExpr` — the parenthesised alternative is always a
+            // `Tuple`, even for a single element (`(x)` → Tuple([x])).
+            // cpp's ALL(*) takes that alt over the bare-`columnExpr`
+            // (parenthesised-expression) reading.
+            return Ok(emit::tuple_(exprs));
         }
         self.parse_expr_bp(BP_COMPARE + 1)
     }
