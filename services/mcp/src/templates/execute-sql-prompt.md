@@ -20,7 +20,7 @@ Before writing any SQL, read the PostHog `querying-posthog-data` skill. It is th
 
 ### Discovery workflow (mandatory)
 
-1. **Warehouse schema** — call `read-data-warehouse-schema` to verify tables, views, and columns. Do not guess names. For a specific custom warehouse table, inspect its columns with:
+1. **Warehouse schema** — call `read-data-warehouse-schema` to verify tables, views, and columns. Do not guess names. **This applies to `system.*` tables too** (`system.insights`, `system.dashboards`, `system.cohorts`, …); their column sets differ per entity and drift over time. For a specific custom warehouse table, inspect its columns with:
 
    ```sql
    SELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'
@@ -53,13 +53,15 @@ Prefer `query-llm-trace` / `query-llm-traces-list` whenever you need any of thos
 <example>
 User: Do we have any insights tracking revenue or payments?
 Assistant: I'll search existing insights and dashboards via SQL.
-1. Search insights by name: `execute-sql` with `SELECT id, name, short_id, description FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY last_modified_at DESC LIMIT 20`
-2. If results are sparse, broaden to dashboards: `execute-sql` with `SELECT id, name, description FROM system.dashboards WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%')`
-3. Validate promising insights with `insight-retrieve`.
-4. Summarize with links.
+1. Discover columns: `read-data-warehouse-schema` to confirm `system.insights` and `system.dashboards` expose `name`, `description`, `deleted`, `last_modified_at`, and the ID columns I plan to project. Without this step I'd be guessing — column sets differ per system table.
+2. Search insights by name (using only confirmed columns): `execute-sql` with `SELECT id, name, short_id, description FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY last_modified_at DESC LIMIT 20`.
+3. If results are sparse, broaden to dashboards (re-using the same schema lookup — `system.dashboards` has its own column set, e.g. no `short_id`): `execute-sql` with `SELECT id, name, description FROM system.dashboards WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY last_modified_at DESC LIMIT 20`.
+4. Validate promising insights with `insight-retrieve`.
+5. Summarize with links.
 <reasoning>
-1. SQL against `system.*` tables is the fastest way to discover existing entities — no `query-*` tool covers entity search.
-2. ILIKE with multiple terms catches naming variants ("Monthly Revenue", "MRR", "Payment Events").
-3. `insight-retrieve` confirms the insight's query configuration still matches intent.
+1. `read-data-warehouse-schema` is mandatory step 1 of the discovery workflow above; `system.*` tables are warehouse tables and their column sets differ per entity (e.g. not every system table has `last_modified_at` or `short_id`).
+2. SQL against `system.*` tables is the fastest way to discover existing entities — no `query-*` tool covers entity search.
+3. ILIKE with multiple terms catches naming variants ("Monthly Revenue", "MRR", "Payment Events").
+4. `insight-retrieve` confirms the insight's query configuration still matches intent.
 </reasoning>
 </example>
