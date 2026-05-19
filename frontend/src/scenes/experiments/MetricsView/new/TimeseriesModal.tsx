@@ -14,7 +14,7 @@ import type { Experiment } from '~/types'
 
 import { hasEnded, isLaunched } from '../../experimentsLogic'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
-import { VariantTag } from '../../ExperimentView/components'
+import { VariantTag } from '../../ExperimentView/VariantTag'
 import { MetricTitle } from '../shared/MetricTitle'
 import { ExperimentVariantResult } from '../shared/utils'
 import { ElapsedTime } from './ElapsedTime'
