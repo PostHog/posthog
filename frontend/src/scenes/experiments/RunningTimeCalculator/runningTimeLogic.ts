@@ -33,7 +33,7 @@ export interface RunningTimeConfig {
 }
 
 export const runningTimeLogic = kea<runningTimeLogicType>([
-    path(['scenes', 'experiments', 'RunningTimeCalculatorNew', 'runningTimeLogic']),
+    path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeLogic']),
     props({} as RunningTimeLogicProps),
     key((props) => `${props.experimentId}-${props.tabId}`),
 

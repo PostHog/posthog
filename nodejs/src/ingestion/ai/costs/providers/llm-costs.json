@@ -39,14 +39,14 @@
         "model": "~google/gemini-flash-latest",
         "cost": {
             "default": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.000003,
-                "cache_read_token": 5e-8,
+                "prompt_token": 0.0000015,
+                "completion_token": 0.000009,
+                "cache_read_token": 1.5e-7,
                 "cache_write_token": 8.333333333e-8,
                 "web_search": 0.014,
-                "image": 5e-7,
-                "audio": 0.000001,
-                "internal_reasoning": 0.000003
+                "image": 0.0000015,
+                "audio": 0.000003,
+                "internal_reasoning": 0.000009
             }
         }
     },
@@ -2304,6 +2304,43 @@
         }
     },
     {
+        "model": "google/gemini-3.5-flash",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.000009,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 8.333333333e-8,
+                "web_search": 0.014,
+                "image": 0.0000015,
+                "audio": 0.000003,
+                "internal_reasoning": 0.000009
+            },
+            "google-ai-studio": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.000009,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 8.333333333e-8,
+                "web_search": 0.014,
+                "image": 0.0000015,
+                "audio": 0.000003,
+                "input_audio_cache": 3e-7,
+                "internal_reasoning": 0.000009
+            },
+            "google-vertex-global": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.000009,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 8.333333333e-8,
+                "web_search": 0.014,
+                "image": 0.0000015,
+                "audio": 0.000003,
+                "input_audio_cache": 3e-7,
+                "internal_reasoning": 0.000009
+            }
+        }
+    },
+    {
         "model": "google/gemma-2-27b-it",
         "cost": {
             "default": {
@@ -2332,7 +2369,7 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 3.5e-7,
+                "prompt_token": 2.2e-7,
                 "completion_token": 5.9e-7
             }
         }
@@ -6563,9 +6600,8 @@
         "model": "qwen/qwen3.5-35b-a3b",
         "cost": {
             "default": {
-                "prompt_token": 1.4e-7,
-                "completion_token": 0.000001,
-                "cache_read_token": 5e-8
+                "prompt_token": 1.39e-7,
+                "completion_token": 0.000001
             },
             "akashml-fp8": {
                 "prompt_token": 1.6e-7,
@@ -6586,7 +6622,7 @@
                 "cache_read_token": 5e-8
             },
             "dekallm-fp8": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 1.39e-7,
                 "completion_token": 0.000001
             },
             "nextbit-fp8": {
@@ -6749,6 +6785,10 @@
                 "cache_read_token": 2.5e-7
             },
             "deepinfra-fp8": {
+                "prompt_token": 3.2e-7,
+                "completion_token": 0.0000032
+            },
+            "io-net-fp8": {
                 "prompt_token": 3.2e-7,
                 "completion_token": 0.0000032
             },
@@ -7617,9 +7657,8 @@
         "model": "z-ai/glm-5.1",
         "cost": {
             "default": {
-                "prompt_token": 9.8e-7,
-                "completion_token": 0.00000308,
-                "cache_read_token": 1.82e-7
+                "prompt_token": 0,
+                "completion_token": 0
             },
             "ambient-fp8": {
                 "prompt_token": 0.0000014,
@@ -7634,6 +7673,10 @@
                 "prompt_token": 9.8e-7,
                 "completion_token": 0.00000308,
                 "cache_read_token": 1.82e-7
+            },
+            "baseten-fp4": {
+                "prompt_token": 0,
+                "completion_token": 0
             },
             "chutes-fp8": {
                 "prompt_token": 0.00000105,

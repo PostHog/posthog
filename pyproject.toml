@@ -407,7 +407,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|tools/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

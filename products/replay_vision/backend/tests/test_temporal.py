@@ -38,6 +38,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.lenses.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -54,6 +55,7 @@ from products.replay_vision.backend.temporal.types import (
     FetchSessionEventsInputs,
     LensCallOutput,
     LensLlmInputs,
+    LensResult,
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
@@ -298,15 +300,19 @@ class TestObservationStateActivities:
         observation.refresh_from_db()
         assert observation.started_at == first_started_at
 
-    def test_mark_succeeded_stamps_lifecycle_metadata(self) -> None:
+    def test_mark_succeeded_stamps_lifecycle_metadata_and_persists_result(self) -> None:
         lens = _make_lens()
         observation = _make_observation(lens, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = LensResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9))
 
-        mark_observation_succeeded_activity(MarkObservationSucceededInputs(observation_id=observation.id))
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(observation_id=observation.id, lens_result=result)
+        )
 
         observation.refresh_from_db()
         assert observation.status == ObservationStatus.SUCCEEDED
         assert observation.completed_at is not None
+        assert observation.lens_result == result.model_dump(mode="json")
 
     def test_mark_succeeded_does_not_overwrite_terminal_status(self) -> None:
         # Bounded UPDATE: failed/succeeded rows are sticky.
@@ -314,12 +320,16 @@ class TestObservationStateActivities:
         observation = _make_observation(
             lens, status=ObservationStatus.FAILED, error_reason="prior", completed_at=timezone.now()
         )
+        result = LensResult(model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.9))
 
-        mark_observation_succeeded_activity(MarkObservationSucceededInputs(observation_id=observation.id))
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(observation_id=observation.id, lens_result=result)
+        )
 
         observation.refresh_from_db()
         assert observation.status == ObservationStatus.FAILED
         assert observation.completed_at is not None
+        assert observation.lens_result == {}  # not overwritten
 
 
 @pytest.mark.django_db(transaction=True)
@@ -614,7 +624,7 @@ async def _run_workflow(inputs: ApplyLensInputs, mocks: _WorkflowMocks, workflow
 @pytest.mark.asyncio
 async def test_apply_lens_workflow_drives_full_success_pipeline() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = {"verdict": True, "reasoning": "user exported", "confidence": 0.9}
+    model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
@@ -714,7 +724,7 @@ async def test_apply_lens_workflow_succeeds_even_when_cleanup_fails() -> None:
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
             call_lens_provider_activity: LensCallOutput(
-                model_output={"verdict": True, "reasoning": "ok", "confidence": 0.9},
+                model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9),
             ),
         },
         activity_errors={cleanup_gemini_file_activity: RuntimeError("cleanup failed")},
