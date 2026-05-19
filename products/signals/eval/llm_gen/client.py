@@ -49,5 +49,6 @@ async def generate_canonical_signals(
         user_prompt=user_prompt,
         validate=_validator(CanonicalSignalBatch),
         temperature=temperature,
+        ai_feature="generate_canonical_signals",
     )
     return batch.signals

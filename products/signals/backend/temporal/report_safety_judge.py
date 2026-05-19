@@ -93,6 +93,7 @@ async def judge_report_safety(
         user_prompt=user_prompt,
         validate=validate,
         thinking=True,
+        ai_feature="judge_report_safety",
     )
 
 

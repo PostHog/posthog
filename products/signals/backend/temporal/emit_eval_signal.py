@@ -108,6 +108,7 @@ async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalS
         user_prompt=user_prompt,
         validate=validate,
         thinking=True,
+        ai_feature="summarize_eval_for_signal",
     )
 
 

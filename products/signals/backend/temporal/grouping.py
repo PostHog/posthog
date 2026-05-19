@@ -170,6 +170,7 @@ async def generate_search_queries(
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.7,
+        ai_feature="generate_search_queries",
     )
 
 
@@ -460,6 +461,7 @@ async def match_signal_to_report(
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.2,
+        ai_feature="match_signal_to_report",
     )
 
 
@@ -582,6 +584,7 @@ async def verify_match_specificity(
         user_prompt=specificity_prompt,
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
+        ai_feature="verify_match_specificity",
     )
 
     return VerifyMatchSpecificityOutput(

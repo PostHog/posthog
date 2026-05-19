@@ -1,6 +1,6 @@
 import os
 from collections.abc import Callable
-from typing import Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 from django.conf import settings
 
@@ -13,6 +13,15 @@ from posthoganalytics.ai.anthropic import AsyncAnthropic
 logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
+
+# Stable tag attached to every signals internal LLM call so PostHog's own LLM analytics
+# evaluations (e.g. user-dissatisfaction judges) can filter out these meta calls. The
+# prompts embed raw customer signal descriptions, which third-party evaluators otherwise
+# mistake for real user complaints.
+SIGNALS_INTERNAL_AI_PROPERTIES: dict[str, Any] = {
+    "ai_product": "signals",
+    "$ai_internal": True,
+}
 
 # Models that support Anthropic extended thinking. Keep in sync with the models we actually use.
 ANTHROPIC_THINKING_MODELS = {
@@ -99,6 +108,7 @@ async def call_llm(
     thinking: bool = False,
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
+    ai_feature: Optional[str] = None,
 ) -> T:
     # Worth noting a lot of this code only really works for the Anthropic API, I think (prefilling and thinking in particular). Haven't
     # looked into the OpenAI SDK yet - that'll be for the switch to the LLM gateway.
@@ -114,12 +124,17 @@ async def call_llm(
     if not thinking:
         messages.append({"role": "assistant", "content": "{"})
 
+    posthog_properties: dict[str, Any] = {**SIGNALS_INTERNAL_AI_PROPERTIES}
+    if ai_feature:
+        posthog_properties["ai_feature"] = ai_feature
+
     create_kwargs: dict = {
         "model": MATCHING_MODEL,
         "system": system_prompt,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "temperature": temperature,
+        "posthog_properties": posthog_properties,
     }
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
