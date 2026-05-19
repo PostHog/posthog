@@ -11561,6 +11561,7 @@ export namespace Schemas {
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
     * `Resend` - Resend
+    * `PgAnalyze` - PgAnalyze
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -11710,6 +11711,7 @@ export namespace Schemas {
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
       Resend: 'Resend',
+      PgAnalyze: 'PgAnalyze',
     } as const;
 
     /**
@@ -11865,7 +11867,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -15987,7 +15990,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -23435,6 +23439,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
+    * `pganalyze` - pganalyze
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -23447,6 +23452,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
+      Pganalyze: 'pganalyze',
     } as const;
 
     /**
