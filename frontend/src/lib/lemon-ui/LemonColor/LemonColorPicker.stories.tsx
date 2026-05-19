@@ -68,3 +68,33 @@ export const CustomButton: Story = {
         )
     },
 }
+
+export const WithUnset: Story = {
+    render: () => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const [color, setColor] = useState<string | null>('#ff0000')
+        return (
+            <LemonColorPicker
+                colors={colors}
+                selectedColor={color}
+                onSelectColor={setColor}
+                onClearColor={() => setColor(null)}
+            />
+        )
+    },
+}
+
+export const WithUnsetToken: Story = {
+    render: () => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const [colorToken, setColorToken] = useState<DataColorToken | null>('preset-1')
+        return (
+            <LemonColorPicker
+                colorTokens={colorTokens}
+                selectedColorToken={colorToken}
+                onSelectColorToken={setColorToken}
+                onClearColorToken={() => setColorToken(null)}
+            />
+        )
+    },
+}
