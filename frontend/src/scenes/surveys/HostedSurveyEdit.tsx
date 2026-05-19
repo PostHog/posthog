@@ -340,74 +340,58 @@ function HostedSurveyEditorHeader({
     onConvertToInApp: () => void
 }): JSX.Element {
     return (
-        <header className="rounded border bg-surface-primary p-3">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                        <span className="rounded bg-accent-highlight px-2 py-0.5 text-xs font-semibold text-accent">
-                            Hosted survey
-                        </span>
-                        <span className="text-xs text-secondary">One question at a time</span>
-                    </div>
-                    <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(260px,0.55fr)_minmax(220px,0.45fr)]">
-                        <LemonField.Pure label="Survey name" htmlFor="hosted-survey-name">
-                            <LemonInput
-                                id="hosted-survey-name"
-                                value={survey.name}
-                                onChange={onNameChange}
-                                placeholder="Untitled hosted survey"
-                                className="font-semibold"
-                            />
-                        </LemonField.Pure>
-                        <LemonField.Pure
-                            label="Internal description"
-                            info="Not shown to respondents. Helps your team find this survey later."
-                            htmlFor="hosted-survey-description"
-                        >
-                            <LemonInput
-                                id="hosted-survey-description"
-                                value={survey.description ?? ''}
-                                onChange={onDescriptionChange}
-                                placeholder="What this survey is for"
-                            />
-                        </LemonField.Pure>
-                    </div>
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <LemonButton type="secondary" size="small" onClick={onConvertToInApp}>
-                        Convert to in-app
+        <header className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div className="grid min-w-0 flex-1 gap-3 lg:grid-cols-[minmax(260px,0.55fr)_minmax(220px,0.45fr)]">
+                <LemonField.Pure label="Survey name" htmlFor="hosted-survey-name">
+                    <LemonInput
+                        id="hosted-survey-name"
+                        value={survey.name}
+                        onChange={onNameChange}
+                        placeholder="Untitled hosted survey"
+                        className="font-semibold"
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure
+                    label="Internal description"
+                    info="Not shown to respondents. Helps your team find this survey later."
+                    htmlFor="hosted-survey-description"
+                >
+                    <LemonInput
+                        id="hosted-survey-description"
+                        value={survey.description ?? ''}
+                        onChange={onDescriptionChange}
+                        placeholder="What this survey is for"
+                    />
+                </LemonField.Pure>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <LemonButton type="secondary" size="small" onClick={onConvertToInApp}>
+                    Convert to in-app
+                </LemonButton>
+                {hostedSurveyUrl ? (
+                    <LemonButton type="secondary" size="small" icon={<IconExternal />} to={hostedSurveyUrl} targetBlank>
+                        Open
                     </LemonButton>
-                    {hostedSurveyUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconExternal />}
-                            to={hostedSurveyUrl}
-                            targetBlank
-                        >
-                            Open
-                        </LemonButton>
-                    ) : null}
-                    <LemonButton
-                        data-attr="cancel-survey"
-                        type="secondary"
-                        loading={surveyLoading}
-                        onClick={onCancel}
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        data-attr="save-survey"
-                        htmlType="submit"
-                        loading={surveyLoading}
-                        form="survey"
-                        size="small"
-                    >
-                        {id === 'new' ? 'Save as draft' : 'Save'}
-                    </LemonButton>
-                </div>
+                ) : null}
+                <LemonButton
+                    data-attr="cancel-survey"
+                    type="secondary"
+                    loading={surveyLoading}
+                    onClick={onCancel}
+                    size="small"
+                >
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    data-attr="save-survey"
+                    htmlType="submit"
+                    loading={surveyLoading}
+                    form="survey"
+                    size="small"
+                >
+                    {id === 'new' ? 'Save as draft' : 'Save'}
+                </LemonButton>
             </div>
         </header>
     )
