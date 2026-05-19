@@ -1607,20 +1607,36 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
                     raise
                 time.sleep(0.1 * (2**attempt))
 
-    with ThreadPoolExecutor(max_workers=settings.CLICKHOUSE_CONN_POOL_MAX) as pool:
-        futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]
+    # Surface hangs in CI: if any statement blocks longer than the threshold we abort with a
+    # message naming the still-pending statements, instead of leaking up as an opaque pytest
+    # timeout 10 minutes later. The pool is not used as a context manager because its __exit__
+    # waits for all futures (including the hanging one) before propagating the timeout.
+    per_call_timeout = float(getattr(settings, "CLICKHOUSE_PARALLEL_STATEMENT_TIMEOUT", 300))
+    pool = ThreadPoolExecutor(max_workers=settings.CLICKHOUSE_CONN_POOL_MAX)
+    future_to_stmt = {pool.submit(_execute_with_retry, stmt): stmt for stmt in statements}
 
-        exceptions: list[BaseException] = []
-        for future in as_completed(futures):
+    exceptions: list[BaseException] = []
+    try:
+        for future in as_completed(future_to_stmt, timeout=per_call_timeout):
             try:
                 future.result()
             except Exception as exc:
                 if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
                     continue
                 exceptions.append(exc)
+    except TimeoutError:
+        pending = [stmt for fut, stmt in future_to_stmt.items() if not fut.done()]
+        preview = "\n---\n".join(s[:500] for s in pending[:5])
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise TimeoutError(
+            f"run_clickhouse_statement_in_parallel: {len(pending)} statement(s) did not complete within "
+            f"{per_call_timeout:.0f}s. First few pending statements:\n{preview}"
+        )
+    else:
+        pool.shutdown(wait=True)
 
-        if exceptions:
-            raise exceptions[0]
+    if exceptions:
+        raise exceptions[0]
 
 
 def reset_clickhouse_database() -> None:
