@@ -80,7 +80,7 @@ export interface CdpCoreServices {
      */
     hogWatcherMirror: HogWatcherService | null
     hogExecutor: HogExecutorService
-    /** Rebuilds the templated/resolved input bundle for a hog function — used by the replay path to re-derive `inputs` after they're stripped from the persisted payload. */
+    /** Rebuilds the templated/resolved input bundle for a hog function — used by the rerun path to re-derive `inputs` after they're stripped from the persisted payload. */
     hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
@@ -88,7 +88,7 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
-    /** Per-invocation lifecycle row producer for the new runs/invocations UI + replay path. */
+    /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
     hogInvocationResultsService: HogInvocationResultsService
     /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
     invocationResultsService: InvocationResultsService

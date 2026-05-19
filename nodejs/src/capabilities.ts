@@ -17,7 +17,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed
-    cdpReplayWorker: true,
+    cdpRerunWorker: true,
 }
 
 /** CDP + Workflows - full CDP with HogFlow workflow automation */
@@ -167,9 +167,9 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronV2Janitor: true,
             }
-        case PluginServerMode.cdp_replay_worker:
+        case PluginServerMode.cdp_rerun_worker:
             return {
-                cdpReplayWorker: true,
+                cdpRerunWorker: true,
             }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_testing:

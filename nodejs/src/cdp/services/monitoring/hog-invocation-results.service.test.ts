@@ -102,9 +102,9 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].invocation_globals).not.toContain('abc123')
         })
 
-        it('marks is_retry=1 and attempts=N when state.replayAttempts is set', async () => {
+        it('marks is_retry=1 and attempts=N when state.rerunAttempts is set', async () => {
             const invocation = createExampleInvocation()
-            invocation.state.replayAttempts = 1
+            invocation.state.rerunAttempts = 1
             service.queueLifecycleRow(invocation, 'running')
             await service.flush()
 
@@ -113,7 +113,7 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].attempts).toBe(1)
         })
 
-        it('leaves is_retry=0 and attempts=0 when state.replayAttempts is unset (original run)', async () => {
+        it('leaves is_retry=0 and attempts=0 when state.rerunAttempts is unset (original run)', async () => {
             const invocation = createExampleInvocation()
             // Fetch-retry counter is bumped by the executor — it must NOT bleed
             // into the lifecycle row's `attempts`/`is_retry` fields.
