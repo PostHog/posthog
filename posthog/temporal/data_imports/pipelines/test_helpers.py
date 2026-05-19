@@ -1,9 +1,9 @@
-import pytest
-from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+import pytest
 import structlog
 
+from posthog.test.base import BaseTest
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_operator, sync_revenue_analytics_views
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 
