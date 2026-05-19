@@ -1,7 +1,7 @@
 import re
 import json
 from functools import cached_property
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -32,6 +32,7 @@ from posthog.api.embedding_worker import generate_embedding
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.user import User
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -1103,7 +1104,7 @@ class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IntervieweeContext(
                 team_id=team_id,
                 topic_id=topic_id,
-                created_by=request.user,
+                created_by=cast(User, request.user),
                 interviewee_identifier=item["interviewee_identifier"],
                 agent_context=item["agent_context"],
             )
