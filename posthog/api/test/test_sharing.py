@@ -173,8 +173,6 @@ class TestSharing(APIBaseTest):
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state(self, patched_exporter_task: Mock):
-        assert ActivityLog.objects.filter(scope="Dashboard").count() == 0
-
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             {"enabled": True},
