@@ -390,7 +390,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         "Your organization must approve AI data processing before creating AI subscriptions."
                     )
 
-                if not posthoganalytics.feature_enabled(
+                # DEBUG-mode dev environments skip the network feature-flag check so
+                # local testing doesn't require provisioning a flag in the PostHog
+                # analytics backend. The cloud + consent gates above still apply.
+                if not settings.DEBUG and not posthoganalytics.feature_enabled(
                     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
                     str(organization.id),
                     groups={"organization": str(organization.id)},
@@ -1068,7 +1071,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 {"detail": "Your organization must approve AI data processing before generating AI reports."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if not posthoganalytics.feature_enabled(
+        if not settings.DEBUG and not posthoganalytics.feature_enabled(
             SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
             str(organization.id),
             groups={"organization": str(organization.id)},

@@ -98,6 +98,11 @@ tools:
     subscriptions-ai-report-create:
         operation: subscriptions_ai_report_create
         enabled: true
+        # Gated by the same flag as the underlying ad-hoc endpoint — the tool is
+        # hidden from MCP clients (Claude Desktop, Cursor, etc.) until the org has
+        # `subscription-ai-prompt` enabled. Behavior is `enable` by default: tool
+        # visible only when the flag is on. Fail-closed if flag eval errors.
+        feature_flag: subscription-ai-prompt
         scopes:
             - subscription:write
         annotations:
