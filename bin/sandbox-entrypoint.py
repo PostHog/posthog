@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import stat
 import time
 import shutil
@@ -184,6 +185,28 @@ def start_sshd(uid: int, gid: int) -> None:
     log("sshd listening on port 2222")
 
 
+def _force_sandbox_claude_defaults(settings_path: Path) -> None:
+    """Make the sandbox's Claude default to max effort + bypass permissions.
+
+    The sandbox is a disposable, isolated container — the safety friction that
+    justifies permission prompts on the host doesn't apply here, and the Claude
+    window boots unattended in tmux. We merge over (not replace) the copied host
+    settings so the user's allow/deny lists, plugins, and theme are preserved.
+    """
+    try:
+        settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        settings = {}
+
+    settings["effortLevel"] = "max"
+    # Equivalent of --dangerously-skip-permissions; the second key suppresses
+    # the one-time confirmation so the unattended tmux window doesn't block.
+    settings.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
+    settings["skipDangerousModePermissionPrompt"] = True
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+
 def copy_claude_auth(uid: int, gid: int) -> None:
     """Copy Claude Code auth files into the sandbox home."""
     claude_dir = SANDBOX_HOME / ".claude"
@@ -193,6 +216,8 @@ def copy_claude_auth(uid: int, gid: int) -> None:
         src = Path(f"/tmp/claude-auth/{name}")
         if src.exists():
             shutil.copy2(src, claude_dir / name)
+
+    _force_sandbox_claude_defaults(claude_dir / "settings.json")
 
     src = Path("/tmp/claude-auth.json")
     if src.exists():
