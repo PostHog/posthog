@@ -45,7 +45,7 @@ export function LemonColorList({
                 {onClearColorToken && (
                     <LemonColorButton
                         color={null}
-                        type={selectedColorToken == null ? 'secondary' : 'tertiary'}
+                        type={selectedColorToken === null ? 'secondary' : 'tertiary'}
                         tooltip="No color"
                         onClick={(e) => {
                             e.preventDefault()
@@ -79,7 +79,7 @@ export function LemonColorList({
                 {onClearColor && (
                     <LemonColorButton
                         color={null}
-                        type={selectedColor == null ? 'secondary' : 'tertiary'}
+                        type={selectedColor === null ? 'secondary' : 'tertiary'}
                         tooltip="No color"
                         onClick={(e) => {
                             e.preventDefault()

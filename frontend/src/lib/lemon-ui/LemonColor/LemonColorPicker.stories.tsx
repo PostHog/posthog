@@ -83,18 +83,3 @@ export const WithUnset: Story = {
         )
     },
 }
-
-export const WithUnsetToken: Story = {
-    render: () => {
-        // eslint-disable-next-line react-hooks/rules-of-hooks
-        const [colorToken, setColorToken] = useState<DataColorToken | null>('preset-1')
-        return (
-            <LemonColorPicker
-                colorTokens={colorTokens}
-                selectedColorToken={colorToken}
-                onSelectColorToken={setColorToken}
-                onClearColorToken={() => setColorToken(null)}
-            />
-        )
-    },
-}
