@@ -103,7 +103,7 @@ export interface ErrorTrackingPipelineConfig {
     errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
-    /** Retry and circuit breaker options for Cymbal batch processing. */
+    /** Retry policy + lane-aware terminal routing for Cymbal batch processing. */
     cymbalRetryOptions?: BatchRetryOptions
 }
 

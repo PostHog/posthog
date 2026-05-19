@@ -651,9 +651,9 @@ describe('ErrorTrackingPipeline', () => {
             const message = createKafkaMessage({})
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // All retriable failures are overflowed after retries exhaust —
-            // the client's circuit breaker is responsible for blocking when
-            // the service is fully down.
+            // All retriable failures are overflowed after retries exhaust.
+            // Service-wide outage handling is the responsibility of a separate
+            // circuit breaker (forthcoming), not the retry wrapper.
             await runErrorTrackingPipeline(pipeline, [message])
 
             // Cymbal was retried (default 3 attempts)

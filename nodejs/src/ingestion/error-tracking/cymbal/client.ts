@@ -174,10 +174,10 @@ export class CymbalClient {
      * chunks still run — failure in one chunk never discards another
      * chunk's results, so the wrapper can target its retries precisely.
      *
-     * Load amplification from fan-out is bounded by the wrapper's
-     * backpressure-ratio threshold: when too many events come back
-     * retriable across the whole batch, the wrapper crashes the batch
-     * and the consumer backpressures rather than escalating.
+     * Fan-out load amplification is observable via the
+     * `error_tracking_cymbal_fan_out_events_total` counter. A separate
+     * circuit breaker (forthcoming) will pace consumption when the
+     * dependency is degraded service-wide.
      *
      * @param items - Array of requests paired with their estimated byte size
      * @returns Array of results maintaining 1:1 position correspondence with input.
