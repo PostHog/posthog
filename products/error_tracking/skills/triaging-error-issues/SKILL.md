@@ -83,7 +83,7 @@ by server-side errors (each invocation often gets a fresh `distinct_id`). Narrow
 the `library` filter — values match the SDK's `$lib`, not the npm package name, examples:
 
 - `web` — posthog-js (browser)
-- `posthog-node`, `posthog-python`, `posthog-ruby`, `posthog-go`, `posthog-php`, `posthog-java`, `posthog-dotnet`, `posthog-rs` — server SDKs
+- `posthog-node`, `posthog-python`, `posthog-ruby`, `posthog-go`, `posthog-php`, `posthog-java`, `posthog-elixir` — server SDKs
 - `posthog-edge` — Cloudflare Workers / edge runtime
 - `posthog-ios`, `posthog-android`, `posthog-react-native`, `posthog-flutter` — mobile
 
@@ -91,8 +91,6 @@ the `library` filter — values match the SDK's `$lib`, not the npm package name
 
 The list will include known noise. Before presenting, drop or call out:
 
-- Issues already assigned to a user actively working on them (check `assignee`
-  on the list result, or call `posthog:query-error-tracking-issue` for the full record).
 - Issues whose volume is flat over the window — they're not new, the user already
   lives with them. Surface them only if they're in the top by users.
 - Bot-only issues — if all events come from headless browsers or crawler user agents,
