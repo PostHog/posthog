@@ -20,11 +20,11 @@ import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
-import { CdpReplayWorkerConsumer } from '../consumers/cdp-replay-worker.consumer'
+import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { ReplayJobManager } from './replay-job.manager'
-import { REPLAY_QUEUE_NAME } from './replay-job.types'
+import { RerunJobManager } from './rerun-job.manager'
+import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
 
@@ -94,24 +94,24 @@ const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promi
 }
 
 /**
- * End-to-end exercise of the runs/replay pipeline.
+ * End-to-end exercise of the runs/rerun pipeline.
  *
  * Everything is real: real Kafka, real ClickHouse Kafka MV, real cyclotron-v2
- * postgres, real cyclotron worker, real replay wrapper-job loop. The ONLY thing
- * mocked is the inbound Django request — we call `ReplayJobManager.enqueue(...)`
+ * postgres, real cyclotron worker, real rerun wrapper-job loop. The ONLY thing
+ * mocked is the inbound Django request — we call `RerunJobManager.enqueue(...)`
  * directly with the same payload the Django view would proxy through.
  *
  * Flow under test:
  *   1. Hog function runs -> producer writes a 'succeeded' lifecycle row to
  *      Kafka -> MV lands it in `hog_invocation_results`.
- *   2. Simulated Django POST: `replayManager.enqueue({ invocation_ids })`.
- *   3. Real `CdpReplayWorkerConsumer` dequeues the wrapper job, queries the
+ *   2. Simulated Django POST: `rerunManager.enqueue({ invocation_ids })`.
+ *   3. Real `CdpRerunWorkerConsumer` dequeues the wrapper job, queries the
  *      real `hog_invocation_results`, rehydrates globals (rebuilding inputs),
  *      and re-enqueues onto the regular cyclotron queue.
- *   4. The real cyclotron worker picks up the replayed invocation and writes a
+ *   4. The real cyclotron worker picks up the rerun invocation and writes a
  *      second lifecycle row, this time with `is_retry=1` and `attempts > 1`.
  */
-describe('CDP hog invocation replay e2e', () => {
+describe('CDP hog invocation rerun e2e', () => {
     jest.setTimeout(60_000)
 
     let hub: Hub
@@ -122,8 +122,8 @@ describe('CDP hog invocation replay e2e', () => {
     let mockProducerObserver: KafkaProducerObserver
     let eventsConsumer: CdpEventsConsumer
     let cyclotronWorker: CdpCyclotronWorker
-    let replayManager: ReplayJobManager
-    let replayWorker: CdpReplayWorkerConsumer
+    let rerunManager: RerunJobManager
+    let rerunWorker: CdpRerunWorkerConsumer
     let nodeAssertPool: Pool
     let clickhouse: Clickhouse
 
@@ -163,14 +163,14 @@ describe('CDP hog invocation replay e2e', () => {
         hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
         hub.CYCLOTRON_NODE_DATABASE_URL = NODE_DB_URL
         hub.HOG_INVOCATION_RESULTS_ENABLED = true
-        // Route via cyclotron-v2 so the replay path exercises the ON CONFLICT
-        // upsert (replay re-enqueue uses the original invocation_id, which
+        // Route via cyclotron-v2 so the rerun path exercises the ON CONFLICT
+        // upsert (rerun re-enqueue uses the original invocation_id, which
         // would otherwise collide on the cyclotron_jobs PK).
         hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres-v2'
 
-        // Clean any stale replay wrapper jobs from prior runs.
+        // Clean any stale rerun wrapper jobs from prior runs.
         nodeAssertPool = new Pool({ connectionString: NODE_DB_URL })
-        await nodeAssertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [REPLAY_QUEUE_NAME])
+        await nodeAssertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [RERUN_QUEUE_NAME])
 
         const hog = `
         let res := fetch(inputs.url, {
@@ -206,8 +206,8 @@ describe('CDP hog invocation replay e2e', () => {
         cyclotronWorker = new CdpCyclotronWorker(cyclotronConfig, createCdpConsumerDeps(hub, kafkaProducer))
         await cyclotronWorker.start()
 
-        replayManager = new ReplayJobManager({ dbUrl: NODE_DB_URL, maxCount: 10000 })
-        await replayManager.connect()
+        rerunManager = new RerunJobManager({ dbUrl: NODE_DB_URL, maxCount: 10000 })
+        await rerunManager.connect()
 
         globals = createHogExecutionGlobals({
             project: { id: team.id } as any,
@@ -224,8 +224,8 @@ describe('CDP hog invocation replay e2e', () => {
         await Promise.all([
             eventsConsumer?.stop().catch(() => undefined),
             cyclotronWorker?.stop().catch(() => undefined),
-            replayWorker?.stop().catch(() => undefined),
-            replayManager?.disconnect().catch(() => undefined),
+            rerunWorker?.stop().catch(() => undefined),
+            rerunManager?.disconnect().catch(() => undefined),
         ])
         await kafkaProducer?.disconnect()
         await closeHub(hub)
@@ -233,7 +233,7 @@ describe('CDP hog invocation replay e2e', () => {
         mockProducerObserver?.resetKafkaProducer()
     })
 
-    it('produces a succeeded lifecycle row, then replays the invocation via the wrapper-job pipeline', async () => {
+    it('produces a succeeded lifecycle row, then reruns the invocation via the wrapper-job pipeline', async () => {
         // ── 1. Original invocation succeeds ─────────────────────────────────
         mockFetch.mockResolvedValue({
             status: 200,
@@ -265,14 +265,14 @@ describe('CDP hog invocation replay e2e', () => {
         expect(originalRows[0].is_retry).toBe(0)
         expect(originalRows[0].function_kind).toBe('hog_function')
         // The prior cyclotron_jobs row is in a terminal 'completed' state by
-        // this point. The replay path's `overwriteExisting: true` upsert
+        // this point. The rerun path's `overwriteExisting: true` upsert
         // (cyclotron-v2 ON CONFLICT) handles the PK collision without us
         // having to manually delete the row.
 
-        // ── 2. Mimic Django POST /replay — only the request itself is faked ──────
-        // The replay request requires a time window; we use a wide one and
+        // ── 2. Mimic Django POST /rerun — only the request itself is faked ──────
+        // The rerun request requires a time window; we use a wide one and
         // restrict to a specific invocation_id via the optional filter field.
-        const replayJobId = await replayManager.enqueue(team.id, 'hog_function', fnFetch.id, {
+        const rerunJobId = await rerunManager.enqueue(team.id, 'hog_function', fnFetch.id, {
             filter: {
                 window_start: '2026-05-01T00:00:00Z',
                 window_end: '2026-05-31T00:00:00Z',
@@ -284,33 +284,33 @@ describe('CDP hog invocation replay e2e', () => {
         // Wrapper job is real and durable in test_cyclotron_node postgres.
         const wrapperRow = await nodeAssertPool.query(
             'SELECT id, queue_name, status FROM cyclotron_jobs WHERE id = $1',
-            [replayJobId]
+            [rerunJobId]
         )
         expect(wrapperRow.rows[0]).toMatchObject({
-            id: replayJobId,
-            queue_name: REPLAY_QUEUE_NAME,
+            id: rerunJobId,
+            queue_name: RERUN_QUEUE_NAME,
             status: 'available',
         })
 
-        // ── 3. Replay worker drains the wrapper job ────────────────────────────────
-        replayWorker = new CdpReplayWorkerConsumer(
+        // ── 3. Rerun worker drains the wrapper job ────────────────────────────────
+        rerunWorker = new CdpRerunWorkerConsumer(
             { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
             createCdpConsumerDeps(hub, kafkaProducer)
         )
-        await replayWorker.start()
+        await rerunWorker.start()
 
         // ── 4. Wait for the wrapper job to complete ────────────────────────────────
         await waitForExpect(async () => {
-            const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [replayJobId])
+            const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [rerunJobId])
             // 'completed' = the paginator marked done=true and the worker acked.
             expect(res.rows[0]?.status).toBe('completed')
         }, 30_000)
 
-        // ── 5. Replayed invocation flows through the real cyclotron worker ─────────
+        // ── 5. Reruned invocation flows through the real cyclotron worker ─────────
         // The paginator emits a 'running' row at re-enqueue time and the worker
-        // emits the terminal row when the replayed invocation completes. Both
+        // emits the terminal row when the rerun invocation completes. Both
         // rows now correctly carry `is_retry=1` / `attempts=1` because the
-        // paginator sets `state.replayAttempts=1` on the rehydrated invocation
+        // paginator sets `state.rerunAttempts=1` on the rehydrated invocation
         // and `queueLifecycleRow` derives those columns from that field.
         await waitForExpect(async () => {
             const rows = await clickhouse.query<PersistedRow>(
@@ -329,7 +329,7 @@ describe('CDP hog invocation replay e2e', () => {
             }
         }, 30_000)
 
-        // ── 6. The hog function's fetch was called twice — once original, once replayed ─
+        // ── 6. The hog function's fetch was called twice — once original, once rerun ─
         expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
     })
 })

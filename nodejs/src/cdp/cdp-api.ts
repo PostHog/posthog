@@ -24,8 +24,8 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
-import { ReplayJobManager } from './replay/replay-job.manager'
-import { ReplayRequest } from './replay/replay-job.types'
+import { RerunJobManager } from './rerun/rerun-job.manager'
+import { RerunRequest } from './rerun/rerun-job.types'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
@@ -83,7 +83,7 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
-    private replayJobManager: ReplayJobManager | null = null
+    private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private cyclotronJobQueue: CyclotronJobQueue
     private emailTrackingService: EmailTrackingService
@@ -145,17 +145,17 @@ export class CdpApi {
         await this.cdpSourceWebhooksConsumer.start()
         await this.cyclotronJobQueue.startAsProducer()
 
-        // Replay endpoints don't run the work — they just enqueue a wrapper
-        // job onto the cyclotron-v2 'replay' queue. A dedicated consumer
-        // (`CdpReplayWorkerConsumer`) deployed as PLUGIN_SERVER_MODE=cdp-replay
+        // Rerun endpoints don't run the work — they just enqueue a wrapper
+        // job onto the cyclotron-v2 'rerun' queue. A dedicated consumer
+        // (`CdpRerunWorkerConsumer`) deployed as PLUGIN_SERVER_MODE=cdp-rerun-worker
         // pages ClickHouse, rehydrates invocations, and commits progress back
         // to the wrapper job via reschedule(state).
         if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
-            this.replayJobManager = new ReplayJobManager({
+            this.rerunJobManager = new RerunJobManager({
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
-                maxCount: this.config.HOG_INVOCATION_REPLAY_MAX_COUNT,
+                maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
             })
-            await this.replayJobManager.connect()
+            await this.rerunJobManager.connect()
         }
     }
 
@@ -164,7 +164,7 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
-            this.replayJobManager?.disconnect() ?? Promise.resolve(),
+            this.rerunJobManager?.disconnect() ?? Promise.resolve(),
         ])
     }
 
@@ -197,10 +197,10 @@ export class CdpApi {
             asyncHandler(this.postHogflowBulkReplayInvocations)
         )
         router.post(
-            '/api/projects/:team_id/hog_functions/:id/replay',
-            asyncHandler(this.postReplayInvocations('hog_function'))
+            '/api/projects/:team_id/hog_functions/:id/rerun',
+            asyncHandler(this.postRerunInvocations('hog_function'))
         )
-        router.post('/api/projects/:team_id/hog_flows/:id/replay', asyncHandler(this.postReplayInvocations('hog_flow')))
+        router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -736,17 +736,17 @@ export class CdpApi {
         }
     }
 
-    // Replay endpoints don't run the work — they just enqueue a wrapper job
-    // onto the cyclotron-v2 'replay' queue. The dedicated `CdpReplayWorkerConsumer`
+    // Rerun endpoints don't run the work — they just enqueue a wrapper job
+    // onto the cyclotron-v2 'rerun' queue. The dedicated `CdpRerunWorkerConsumer`
     // picks it up, pages ClickHouse, rehydrates invocations onto the regular
     // queue, and commits progress back to the wrapper job's state.
-    private postReplayInvocations =
+    private postRerunInvocations =
         (functionKind: 'hog_function' | 'hog_flow') =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                if (!this.replayJobManager) {
+                if (!this.rerunJobManager) {
                     return res.status(503).json({
-                        error: 'Replay manager not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                        error: 'Rerun manager not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
                     })
                 }
 
@@ -768,22 +768,22 @@ export class CdpApi {
                     }
                 }
 
-                const replayRequest = req.body as ReplayRequest
-                const replayJobId = await this.replayJobManager.enqueue(team.id, functionKind, id, replayRequest)
+                const rerunRequest = req.body as RerunRequest
+                const rerunJobId = await this.rerunJobManager.enqueue(team.id, functionKind, id, rerunRequest)
 
                 // Surface the wrapper job in the Invocations list immediately —
-                // a 'running' lifecycle row + a `replay_queued` log line. Both
-                // share the same `instance_id = replay_job_id` so the logs
+                // a 'running' lifecycle row + a `rerun_queued` log line. Both
+                // share the same `instance_id = rerun_job_id` so the logs
                 // viewer in the row's expand panel picks them up automatically.
                 const now = new Date()
-                this.invocationResultsService.invocationResultsRowsService.queueReplayWrapperRow({
+                this.invocationResultsService.invocationResultsRowsService.queueRerunWrapperRow({
                     teamId: team.id,
                     parentFunctionKind: functionKind,
                     functionId: id,
-                    replayJobId,
+                    rerunJobId,
                     status: 'running',
                     pagesProcessed: 0,
-                    filter: replayRequest.filter,
+                    filter: rerunRequest.filter,
                     scheduledAt: now,
                     startedAt: now,
                 })
@@ -793,25 +793,25 @@ export class CdpApi {
                             team_id: team.id,
                             log_source: functionKind,
                             log_source_id: id,
-                            instance_id: replayJobId,
+                            instance_id: rerunJobId,
                             timestamp: DateTime.fromJSDate(now),
                             level: 'info',
-                            message: `Re-run queued. Filter: ${JSON.stringify(replayRequest.filter)}`,
+                            message: `Re-run queued. Filter: ${JSON.stringify(rerunRequest.filter)}`,
                         },
                     ],
                     functionKind
                 )
                 await this.invocationResultsService.flush()
 
-                logger.info('⚡️', 'Replay job enqueued', {
+                logger.info('⚡️', 'Rerun job enqueued', {
                     function_kind: functionKind,
                     function_id: id,
                     team_id: team.id,
-                    replay_job_id: replayJobId,
+                    rerun_job_id: rerunJobId,
                 })
-                res.json({ replay_job_id: replayJobId, queued_count: 0, skipped_count: 0 })
+                res.json({ rerun_job_id: rerunJobId, queued_count: 0, skipped_count: 0 })
             } catch (e) {
-                logger.error('Error enqueueing replay job', {
+                logger.error('Error enqueueing rerun job', {
                     error: e instanceof Error ? e.message : String(e),
                 })
                 res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

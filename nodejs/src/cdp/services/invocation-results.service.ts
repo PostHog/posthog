@@ -12,7 +12,7 @@ import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service
  *
  * - `HogFunctionMonitoringService` — aggregated app metrics + log entries
  * - `HogInvocationResultsService`  — per-invocation lifecycle row in ClickHouse
- *                                    (powers the new runs UI + replay path)
+ *                                    (powers the new runs UI + rerun path)
  * - `WarehouseWebhooksService`    — warehouse source webhook payloads
  * - `CapturedEventsService`       — PostHog events emitted via posthog.capture()
  *

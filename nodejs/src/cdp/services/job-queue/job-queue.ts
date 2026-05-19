@@ -147,10 +147,10 @@ export class CyclotronJobQueue {
         // Always start v2 when it's been constructed (which only happens when
         // CYCLOTRON_NODE_DATABASE_URL is set). The routing mapping isn't the
         // only path that reaches v2 — `queueInvocations({ overwriteExisting:
-        // true })` routes through v2 unconditionally for the replay flow, so a
-        // service whose routing mapping doesn't reference v2 (the replay
+        // true })` routes through v2 unconditionally for the rerun flow, so a
+        // service whose routing mapping doesn't reference v2 (the rerun
         // worker, for instance) would still hit a 'CyclotronV2Manager not
-        // initialized' throw at first replay if we gated on the mapping alone.
+        // initialized' throw at first rerun if we gated on the mapping alone.
         if (this.jobQueuePostgresV2) {
             await this.jobQueuePostgresV2.startAsProducer()
         }
@@ -268,7 +268,7 @@ export class CyclotronJobQueue {
         for (const invocation of sanitized) {
             const target = this.getTarget(invocation)
 
-            // Replays carry `overwriteExisting: true` so a re-enqueue of an
+            // Reruns carry `overwriteExisting: true` so a re-enqueue of an
             // `invocation_id` that already has a cyclotron row doesn't fail
             // on the PK. v2 supports it via ON CONFLICT, kafka doesn't need
             // it (no PK at all), v1 has neither — so v1 + overwrite is an
@@ -276,7 +276,7 @@ export class CyclotronJobQueue {
             if (target === 'postgres') {
                 if (options.overwriteExisting) {
                     throw new Error(
-                        `Replay routing to postgres-v1 is unsupported (queue=${invocation.queue}). ` +
+                        `Rerun routing to postgres-v1 is unsupported (queue=${invocation.queue}). ` +
                             `Route hog workloads to kafka and hog_flow workloads to postgres-v2.`
                     )
                 }

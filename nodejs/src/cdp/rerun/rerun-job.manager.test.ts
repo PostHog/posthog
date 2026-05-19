@@ -2,19 +2,19 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '../../utils/json-parse'
-import { ReplayJobManager } from './replay-job.manager'
-import { REPLAY_QUEUE_NAME, ReplayJobState } from './replay-job.types'
+import { RerunJobManager } from './rerun-job.manager'
+import { RERUN_QUEUE_NAME, RerunJobState } from './rerun-job.types'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const TEST_MAX_COUNT = 1000
 
-describe('ReplayJobManager', () => {
+describe('RerunJobManager', () => {
     let assertPool: Pool
-    let manager: ReplayJobManager
+    let manager: RerunJobManager
 
     beforeAll(async () => {
         assertPool = new Pool({ connectionString: DB_URL })
-        manager = new ReplayJobManager({ dbUrl: DB_URL, maxCount: TEST_MAX_COUNT })
+        manager = new RerunJobManager({ dbUrl: DB_URL, maxCount: TEST_MAX_COUNT })
         await manager.connect()
     })
 
@@ -24,7 +24,7 @@ describe('ReplayJobManager', () => {
     })
 
     beforeEach(async () => {
-        await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [REPLAY_QUEUE_NAME])
+        await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [RERUN_QUEUE_NAME])
     })
 
     interface RawJobRow {
@@ -42,9 +42,9 @@ describe('ReplayJobManager', () => {
         return res.rows[0]
     }
 
-    const fetchState = (row: RawJobRow): ReplayJobState => {
+    const fetchState = (row: RawJobRow): RerunJobState => {
         expect(row.state).not.toBeNull()
-        return parseJSON(row.state!.toString('utf8')) as ReplayJobState
+        return parseJSON(row.state!.toString('utf8')) as RerunJobState
     }
 
     const baseFilter = {
@@ -52,7 +52,7 @@ describe('ReplayJobManager', () => {
         window_end: '2026-05-10T00:00:00Z',
     }
 
-    it('enqueues a wrapper job on the replay queue with correct identity columns', async () => {
+    it('enqueues a wrapper job on the rerun queue with correct identity columns', async () => {
         const functionId = uuidv7()
         const ids = ['inv-1', 'inv-2', 'inv-3']
 
@@ -61,7 +61,7 @@ describe('ReplayJobManager', () => {
         })
 
         const row = await queryJob(jobId)
-        expect(row.queue_name).toBe(REPLAY_QUEUE_NAME)
+        expect(row.queue_name).toBe(RERUN_QUEUE_NAME)
         expect(row.status).toBe('available')
         expect(row.team_id).toBe(42)
         // function_id on the wrapper job lets metrics group it alongside the

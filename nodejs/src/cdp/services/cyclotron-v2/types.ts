@@ -36,7 +36,7 @@ export const CyclotronV2JobInitSchema = z.object({
     actionId: z.string().nullish(),
     // When `true`, the insert uses ON CONFLICT (id) DO UPDATE — the existing
     // row's status is reset to 'available', the lock is cleared, and state is
-    // replaced. Used by the replay path so a re-execution can reuse the
+    // replaced. Used by the rerun path so a re-execution can reuse the
     // original `invocation_id` (so lifecycle rows collapse under one
     // ReplacingMergeTree key) without colliding on the cyclotron_jobs PK.
     overwriteExisting: z.boolean().optional(),

@@ -7,7 +7,7 @@ import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import type { CdpOutput } from '../../cdp-services'
-import { ReplayFilter, ReplayFunctionKind, replayWrapperKindFor } from '../../replay/replay-job.types'
+import { RerunFilter, RerunFunctionKind, rerunWrapperKindFor } from '../../rerun/rerun-job.types'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -37,17 +37,17 @@ export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | Cdp
  * Lifecycle row produced to ClickHouse via Kafka. Mirrors the columns on the
  * hog_invocation_results_data table. Two such rows are produced per
  * invocation: one when execution starts (`status='running'`) and one when it
- * finishes (`status='succeeded' | 'failed'`). On a replay, the cycle repeats
+ * finishes (`status='succeeded' | 'failed'`). On a rerun, the cycle repeats
  * with the same `invocation_id`, `is_retry=1`, and `attempts` bumped — the
  * ReplacingMergeTree on `(team_id, function_kind, function_id, invocation_id)`
  * keyed by `version` collapses prior versions at merge time.
  */
 export interface HogInvocationResultRow {
     team_id: number
-    // `*_replay` kinds tag the wrapper row that drives a re-run, so the
+    // `*_rerun` kinds tag the wrapper row that drives a re-run, so the
     // Invocations list can surface in-flight re-runs alongside the function's
-    // normal invocations. See `replay-job.types.ts` for the helper.
-    function_kind: 'hog_function' | 'hog_flow' | 'hog_function_replay' | 'hog_flow_replay'
+    // normal invocations. See `rerun-job.types.ts` for the helper.
+    function_kind: 'hog_function' | 'hog_flow' | 'hog_function_rerun' | 'hog_flow_rerun'
     function_id: string
     invocation_id: string
     parent_run_id: string
@@ -176,9 +176,9 @@ const extractTriggerFields = (
 // holds resolved input values for the function — these can include user-
 // supplied secrets (API keys, OAuth tokens, etc.) that the function templated
 // in at execute time. Persisting them to ClickHouse for 30 days would expand
-// the blast radius of any leak. On replay we re-resolve inputs from the
+// the blast radius of any leak. On rerun we re-resolve inputs from the
 // current hog function config + integration store, so this is also a no-op
-// for replay correctness — we'll always pick up the latest secrets, not a
+// for rerun correctness — we'll always pick up the latest secrets, not a
 // snapshot from when the original invocation ran.
 const stripInputs = <T>(value: T): T => {
     if (value === null || typeof value !== 'object') {
@@ -201,7 +201,7 @@ const stripInputs = <T>(value: T): T => {
     return out as T
 }
 
-// The full payload that the replay path needs to rehydrate the invocation.
+// The full payload that the rerun path needs to rehydrate the invocation.
 // For hog functions this is the globals tree (event, person, groups, etc.) —
 // with `inputs` stripped, see `stripInputs`. For hog flows it's the workflow
 // context (event, personId, variables, actionStepCount). Worker-side ZSTD
@@ -237,7 +237,7 @@ const sumDurationMs = (invocation: CyclotronJobInvocation): number | null => {
  * Per-invocation lifecycle row producer. Lives next to
  * `HogFunctionMonitoringService` (which handles aggregated metrics + log
  * lines) — this one writes a single row per lifecycle event so the new
- * runs/invocations UI and the replay path can read it back via HogQL.
+ * runs/invocations UI and the rerun path can read it back via HogQL.
  *
  * Off by default behind `config.HOG_INVOCATION_RESULTS_ENABLED`. Producing
  * rows for filtered-out events is intentionally skipped — the worker only
@@ -270,8 +270,8 @@ export class HogInvocationResultsService {
      * worker dequeues an invocation and is about to execute it; `succeeded` /
      * `failed` are derived inside `queueInvocationResults` from the result.
      *
-     * `attempts` and `is_retry` are derived from `invocation.state.replayAttempts`
-     * — set by the replay paginator on rehydration and never touched by the
+     * `attempts` and `is_retry` are derived from `invocation.state.rerunAttempts`
+     * — set by the rerun paginator on rehydration and never touched by the
      * executor's fetch-retry counter (`state.attempts`).
      */
     queueLifecycleRow(
@@ -296,17 +296,17 @@ export class HogInvocationResultsService {
             startedAt && finishedAt
                 ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
                 : sumDurationMs(invocation)
-        // Both hog function and hog flow state carry a `replayAttempts`
-        // counter that the replay paginator increments on rehydration. Read
+        // Both hog function and hog flow state carry a `rerunAttempts`
+        // counter that the rerun paginator increments on rehydration. Read
         // from whichever shape this invocation is so the `max_attempts` guard
         // applies uniformly.
-        const replayAttempts = isHogFunctionInvocation(invocation)
-            ? (invocation.state?.replayAttempts ?? 0)
+        const rerunAttempts = isHogFunctionInvocation(invocation)
+            ? (invocation.state?.rerunAttempts ?? 0)
             : isHogFlowInvocation(invocation)
-              ? (invocation.state?.replayAttempts ?? 0)
+              ? (invocation.state?.rerunAttempts ?? 0)
               : 0
 
-        // `firstScheduledAt` is set by the replay paginator on rehydration so
+        // `firstScheduledAt` is set by the rerun paginator on rehydration so
         // retries inherit the original's value; for fresh invocations it's
         // unset and we fall back to the current `scheduled_at`.
         const firstScheduledAtRaw = isHogFunctionInvocation(invocation)
@@ -323,8 +323,8 @@ export class HogInvocationResultsService {
             invocation_id: invocation.id,
             parent_run_id: invocation.parentRunId ?? '',
             status,
-            attempts: replayAttempts,
-            is_retry: replayAttempts > 0 ? 1 : 0,
+            attempts: rerunAttempts,
+            is_retry: rerunAttempts > 0 ? 1 : 0,
             scheduled_at: scheduledAtIso,
             first_scheduled_at: firstScheduledAtRaw ?? scheduledAtIso,
             started_at: startedAt ? isoMicroseconds(startedAt) : null,
@@ -349,8 +349,8 @@ export class HogInvocationResultsService {
      * Queue a lifecycle row for a re-run wrapper job.
      *
      * Conceptually a wrapper is a meta-invocation: one row per re-run rather
-     * than one per replayed invocation. Stamping it on `hog_invocation_results`
-     * (with `function_kind = *_replay`) means the same Invocations tab is the
+     * than one per rerun invocation. Stamping it on `hog_invocation_results`
+     * (with `function_kind = *_rerun`) means the same Invocations tab is the
      * only debugging surface for both real invocations and the wrappers that
      * spawned them — no separate polling, no separate UI.
      *
@@ -359,14 +359,14 @@ export class HogInvocationResultsService {
      * blob goes in `invocation_globals` (never exposed via HogQL — same
      * security guarantee as for normal invocations).
      */
-    queueReplayWrapperRow(args: {
+    queueRerunWrapperRow(args: {
         teamId: number
-        parentFunctionKind: ReplayFunctionKind
+        parentFunctionKind: RerunFunctionKind
         functionId: string
-        replayJobId: string
+        rerunJobId: string
         status: 'running' | 'succeeded' | 'failed'
         pagesProcessed: number
-        filter: ReplayFilter
+        filter: RerunFilter
         scheduledAt: Date
         startedAt?: Date
         finishedAt?: Date
@@ -383,9 +383,9 @@ export class HogInvocationResultsService {
         const scheduledAtIso = isoMicroseconds(args.scheduledAt)
         const row: HogInvocationResultRow = {
             team_id: args.teamId,
-            function_kind: replayWrapperKindFor(args.parentFunctionKind),
+            function_kind: rerunWrapperKindFor(args.parentFunctionKind),
             function_id: args.functionId,
-            invocation_id: args.replayJobId,
+            invocation_id: args.rerunJobId,
             parent_run_id: '',
             status: args.status,
             attempts: args.pagesProcessed,
@@ -433,7 +433,7 @@ export class HogInvocationResultsService {
 
     /**
      * Discard any queued (un-flushed) lifecycle rows for the given invocation
-     * ids. Used by the replay paginator when a re-enqueue is refused (existing
+     * ids. Used by the rerun paginator when a re-enqueue is refused (existing
      * job is still in-flight) — we already queued a 'running' row for that
      * invocation_id; drop it so we don't surface a stale running marker.
      */

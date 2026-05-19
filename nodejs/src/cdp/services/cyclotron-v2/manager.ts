@@ -8,7 +8,7 @@ import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig 
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
  * that's still in an active state ('available' or 'running'). Callers should
  * treat this as a "skip and warn" rather than a hard failure — the user is
- * trying to replay an invocation that's still mid-flight, which the safer
+ * trying to rerun an invocation that's still mid-flight, which the safer
  * default is to refuse.
  */
 export class CyclotronJobConflictError extends Error {
@@ -75,14 +75,14 @@ export class CyclotronV2Manager {
 
         const id = job.id ?? uuidv7()
         const now = new Date()
-        // Replay re-uses the original invocation_id so lifecycle rows collapse
+        // Rerun re-uses the original invocation_id so lifecycle rows collapse
         // under the same ReplacingMergeTree key. The ON CONFLICT clause resets
         // a prior _terminal_ job row back to 'available' with fresh state. If
         // the existing row is still active ('available' or 'running'), the
         // UPDATE's WHERE fails, the row isn't returned, and we surface that as
         // a skip so the caller can warn rather than silently clobber in-flight
         // work. `transition_count` bumps so the janitor's poison-pill guard
-        // still applies across replays.
+        // still applies across reruns.
         const upsertClause = job.overwriteExisting
             ? `ON CONFLICT (id) DO UPDATE SET
                  status = 'available',
@@ -135,7 +135,7 @@ export class CyclotronV2Manager {
      * Bulk-insert jobs. If any input is flagged `overwriteExisting`, the entire
      * batch uses `ON CONFLICT (id) DO UPDATE` so existing rows are reset back
      * to 'available' rather than colliding on the primary key. This is how the
-     * replay path re-enqueues an invocation while preserving its
+     * rerun path re-enqueues an invocation while preserving its
      * `invocation_id` (so lifecycle rows collapse under one ReplacingMergeTree
      * key). Mixing overwrite + non-overwrite in the same batch isn't supported
      * — pre-split into separate calls if you need that.

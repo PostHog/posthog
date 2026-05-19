@@ -23,13 +23,13 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { REPLAY_PAGE_SIZE, ReplayJobState } from './replay-job.types'
-import { ReplayPaginatorService } from './replay-paginator.service'
+import { RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
+import { RerunPaginatorService } from './rerun-paginator.service'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
 
 /**
- * Integration test for ReplayPaginatorService.
+ * Integration test for RerunPaginatorService.
  *
  * Instead of mocking the ClickHouse client, this test seeds real lifecycle rows
  * through `HogInvocationResultsService.queueLifecycleRow` → Kafka → ClickHouse
@@ -41,7 +41,7 @@ const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').Ka
  * the worker uses, the Kafka MV's JSON parsing, and the paginator's argMax
  * collapse query all line up.
  */
-describe('ReplayPaginatorService integration', () => {
+describe('RerunPaginatorService integration', () => {
     jest.setTimeout(60_000)
 
     let hub: Hub
@@ -51,7 +51,7 @@ describe('ReplayPaginatorService integration', () => {
     let hogFunction: HogFunctionType
     let seedingService: HogInvocationResultsService
     let chClient: ClickHouseClient
-    let paginator: ReplayPaginatorService
+    let paginator: RerunPaginatorService
     let cyclotronJobQueue: jest.Mocked<CyclotronJobQueue>
     let paginatorLifecycleService: jest.Mocked<HogInvocationResultsService>
     let paginatorMonitoringService: jest.Mocked<HogFunctionMonitoringService>
@@ -181,12 +181,12 @@ describe('ReplayPaginatorService integration', () => {
         } as unknown as jest.Mocked<CyclotronJobQueue>
 
         // The paginator's lifecycle service is mocked so we can assert what it
-        // got asked to write (the 'running' row for each replay). The actual
+        // got asked to write (the 'running' row for each rerun). The actual
         // CH state for that running row is a flaky-on-Redpanda concern handled
         // in the e2e test — here we only care that the paginator queues it.
         paginatorLifecycleService = {
             queueLifecycleRow: jest.fn(),
-            queueReplayWrapperRow: jest.fn(),
+            queueRerunWrapperRow: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
             dropQueuedRowsFor: jest.fn(),
         } as unknown as jest.Mocked<HogInvocationResultsService>
@@ -196,7 +196,7 @@ describe('ReplayPaginatorService integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<HogFunctionMonitoringService>
 
-        paginator = new ReplayPaginatorService(
+        paginator = new RerunPaginatorService(
             chClient,
             hogFunctionManager,
             hogFlowManager,
@@ -213,10 +213,10 @@ describe('ReplayPaginatorService integration', () => {
         await closeHub(hub)
     })
 
-    const buildState = (overrides: Partial<ReplayJobState> = {}): ReplayJobState => ({
+    const buildState = (overrides: Partial<RerunJobState> = {}): RerunJobState => ({
         function_kind: 'hog_function',
         function_id: hogFunction.id,
-        // Window is required by the unified replay schema. Default to a wide
+        // Window is required by the unified rerun schema. Default to a wide
         // year-long window so the seeded test data falls inside.
         request: { filter: { window_start: '2026-01-01T00:00:00Z', window_end: '2027-01-01T00:00:00Z' } },
         progress: { queued: 0, skipped: 0, done: false },
@@ -242,7 +242,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
 
@@ -251,16 +251,16 @@ describe('ReplayPaginatorService integration', () => {
             const enqueuedIds = enqueued.map((i) => i.id).sort()
             expect(enqueuedIds).toEqual(['inv-a', 'inv-c'])
 
-            // Each replayed invocation gets a 'running' lifecycle row queued.
+            // Each rerun invocation gets a 'running' lifecycle row queued.
             // is_retry / attempts are derived inside queueLifecycleRow from
-            // state.replayAttempts (set by the rehydrator), not passed as an opt.
+            // state.rerunAttempts (set by the rehydrator), not passed as an opt.
             const runningCalls = paginatorLifecycleService.queueLifecycleRow.mock.calls.filter(
                 (c) => c[1] === 'running'
             )
             expect(runningCalls).toHaveLength(2)
-            // Each queued invocation's state should carry replayAttempts=1.
+            // Each queued invocation's state should carry rerunAttempts=1.
             for (const [invocation] of runningCalls) {
-                expect((invocation as CyclotronJobInvocationHogFunction).state.replayAttempts).toBe(1)
+                expect((invocation as CyclotronJobInvocationHogFunction).state.rerunAttempts).toBe(1)
             }
 
             expect(next.progress.queued).toBe(2)
@@ -282,7 +282,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
 
@@ -306,7 +306,7 @@ describe('ReplayPaginatorService integration', () => {
                 },
             })
 
-            await paginator.processPage(team.id, state, { jobId: 'test-replay-job', createdAt: DateTime.now() })
+            await paginator.processPage(team.id, state, { jobId: 'test-rerun-job', createdAt: DateTime.now() })
 
             expect(hogInputsService.buildInputsWithGlobals).toHaveBeenCalledTimes(1)
             const [fn, persistedGlobals] = hogInputsService.buildInputsWithGlobals.mock.calls[0]
@@ -334,7 +334,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
 
@@ -344,7 +344,7 @@ describe('ReplayPaginatorService integration', () => {
             expect(next.progress.queued).toBe(2)
         })
 
-        it('honours error_kind filter (only http_5xx rows are replayed)', async () => {
+        it('honours error_kind filter (only http_5xx rows are rerun)', async () => {
             await seedRows([
                 { invocation_id: 'inv-500', status: 'failed', error: new Error('500 server error') },
                 { invocation_id: 'inv-timeout', status: 'failed', error: new Error('Request timed out') },
@@ -361,7 +361,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0]?.[0] as
@@ -389,7 +389,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.queued).toBe(2)
@@ -406,7 +406,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.queued).toBe(0)
@@ -416,7 +416,7 @@ describe('ReplayPaginatorService integration', () => {
     })
 
     describe('rehydration', () => {
-        it('skips rows whose hog function has been deleted between original run and replay', async () => {
+        it('skips rows whose hog function has been deleted between original run and rerun', async () => {
             const orphanedFn = await _insertHogFunction(hub.postgres, team.id, {
                 type: 'destination',
                 hog: 'print("orphan")',
@@ -428,10 +428,10 @@ describe('ReplayPaginatorService integration', () => {
             await seedRows([{ invocation_id: 'inv-orphan', status: 'failed', error: new Error('5xx') }])
             hogFunction = prevFn
 
-            // ...then ask the paginator to replay it. The paginator's hog function
+            // ...then ask the paginator to rerun it. The paginator's hog function
             // manager (real) lazy-loads the orphaned function (still exists in PG)
             // — we explicitly stub `getHogFunction` to return null to simulate the
-            // "deleted between original run and replay" scenario.
+            // "deleted between original run and rerun" scenario.
             const realGetHogFunction = hogFunctionManager.getHogFunction.bind(hogFunctionManager)
             jest.spyOn(hogFunctionManager, 'getHogFunction').mockImplementation(async (id) => {
                 if (id === orphanedFn.id) {
@@ -440,7 +440,7 @@ describe('ReplayPaginatorService integration', () => {
                 return realGetHogFunction(id)
             })
 
-            const state: ReplayJobState = {
+            const state: RerunJobState = {
                 function_kind: 'hog_function',
                 function_id: orphanedFn.id,
                 request: {
@@ -454,7 +454,7 @@ describe('ReplayPaginatorService integration', () => {
             }
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.queued).toBe(0)
@@ -485,7 +485,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.queued).toBe(0)
@@ -502,7 +502,7 @@ describe('ReplayPaginatorService integration', () => {
             const brokenChClient = {
                 query: jest.fn().mockRejectedValue(new Error('clickhouse boom')),
             } as unknown as ClickHouseClient
-            const brokenPaginator = new ReplayPaginatorService(
+            const brokenPaginator = new RerunPaginatorService(
                 brokenChClient,
                 hogFunctionManager,
                 hogFlowManager,
@@ -525,7 +525,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await brokenPaginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.done).toBe(false)
@@ -545,13 +545,13 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
-            // 1 row < REPLAY_PAGE_SIZE → done.
+            // 1 row < RERUN_PAGE_SIZE → done.
             expect(next.progress.done).toBe(true)
-            // Sanity: REPLAY_PAGE_SIZE constant didn't regress to a tiny value.
-            expect(REPLAY_PAGE_SIZE).toBeGreaterThan(10)
+            // Sanity: RERUN_PAGE_SIZE constant didn't regress to a tiny value.
+            expect(RERUN_PAGE_SIZE).toBeGreaterThan(10)
         })
 
         it('carries first_scheduled_at from the stored row onto the rehydrated invocation state', async () => {
@@ -583,7 +583,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
 
@@ -597,7 +597,7 @@ describe('ReplayPaginatorService integration', () => {
 
         it('reads the latest row per invocation via argMax(_, version) collapse', async () => {
             // Same invocation_id, multiple lifecycle rows simulating: original
-            // failed → user clicked replay → replay running → replay succeeded.
+            // failed → user clicked rerun → rerun running → rerun succeeded.
             // The paginator should see the LATEST `succeeded` state, not the
             // earlier `failed`. (Filter mode defaults to status=failed, so an
             // invocation that's now succeeded should NOT be picked up.)
@@ -614,7 +614,7 @@ describe('ReplayPaginatorService integration', () => {
             })
 
             const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-replay-job',
+                jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.queued).toBe(0)
