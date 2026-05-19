@@ -131,6 +131,21 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     },
 }
 
+const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
+
+const FLAG_CHANGE_VERB_PHRASE =
+    "{event.properties.activity == 'created' ? 'created' " +
+    ": event.properties.activity == 'deleted' ? 'deleted' " +
+    ": event.properties.activity == 'restored' ? 'restored' " +
+    ": event.properties.detail.changes[1].field == 'active' ? (event.properties.detail.changes[1].after == 'true' ? 'enabled' : 'disabled') " +
+    ": event.properties.detail.changes[1].field == 'filters' ? (" +
+    "event.properties.detail.changes[1].after.multivariate != null ? 'updated variant rollout for' " +
+    ": length(event.properties.detail.changes[1].after.groups) > length(event.properties.detail.changes[1].before.groups) ? 'added a release condition to' " +
+    ": length(event.properties.detail.changes[1].after.groups) < length(event.properties.detail.changes[1].before.groups) ? 'removed a release condition from' " +
+    ": 'updated release conditions on'" +
+    ') ' +
+    ": 'updated'}"
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'survey-response': [
         {
@@ -327,7 +342,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Send a webhook when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -338,7 +353,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -349,7 +364,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -363,7 +378,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                                text: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -381,7 +396,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
