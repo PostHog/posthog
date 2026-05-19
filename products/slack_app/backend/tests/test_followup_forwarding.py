@@ -390,6 +390,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         # The forged placeholder is defanged so it can't impersonate the real one.
         assert task.description.count("<original user message was here>") == 1
         assert "<original user message was here (quoted)>" in task.description
+
+
+class TestForwardPostHogCodeFollowupActivity(TestCase):
     def setUp(self):
         self.Task = apps.get_model("tasks", "Task")
         self.TaskRun = apps.get_model("tasks", "TaskRun")
