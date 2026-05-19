@@ -766,8 +766,13 @@ def _populate_workspace_volume(
     base_sha: str | None,
     origin_branch_sha: str | None = None,
     branch_ref: str = "",
+    full_clone: bool = False,
 ) -> None:
-    """Populate volume with a shallow clone checked out to branch_sha.
+    """Populate volume with a clone checked out to branch_sha.
+
+    Shallow by default. When full_clone is set, fetches omit --depth so the
+    sandbox keeps the complete git history (git log/blame/bisect work, push
+    has full ancestry) at the cost of more disk and a slower clone.
 
     Fetches by ref name (not bare SHA) because --depth only works with named
     refs over file:// transport. Runs as sandbox user so files have correct ownership.
@@ -817,7 +822,17 @@ def _populate_workspace_volume(
             FILTER=""
         fi
 
-        $GIT fetch --depth=50 --no-tags $FILTER file:///host-git "$BRANCH_REF"
+        # A full clone keeps complete history (no .git/shallow); the default
+        # trades history for a smaller, faster clone.
+        if [ "$FULL_CLONE" = "true" ]; then
+            BRANCH_DEPTH=""
+            REF_DEPTH=""
+        else
+            BRANCH_DEPTH="--depth=50"
+            REF_DEPTH="--depth=1"
+        fi
+
+        $GIT fetch $BRANCH_DEPTH --no-tags $FILTER file:///host-git "$BRANCH_REF"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
         git update-ref refs/sandbox/start "$BRANCH_SHA"
 
@@ -834,15 +849,16 @@ def _populate_workspace_volume(
         git remote add origin "$ORIGIN_URL"
 
         if [ -n "$BASE_SHA" ]; then
-            $GIT fetch --depth=1 --no-tags $FILTER file:///host-git "$BASE_SHA"
+            $GIT fetch $REF_DEPTH --no-tags $FILTER file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
         # Set origin/<branch> so `sandbox destroy` can detect unpushed commits.
         if [ -n "$ORIGIN_BRANCH_SHA" ]; then
-            # Skip fetch if same as branch tip (already local); a redundant
-            # --depth=1 fetch would clobber the depth=50 shallow history.
+            # Skip fetch if same as branch tip (already local); in shallow
+            # mode a redundant --depth=1 fetch would also clobber the deeper
+            # shallow history.
             if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
-                $GIT fetch --depth=1 --no-tags $FILTER file:///host-git "$ORIGIN_BRANCH_SHA"
+                $GIT fetch $REF_DEPTH --no-tags $FILTER file:///host-git "$ORIGIN_BRANCH_SHA"
             fi
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
@@ -882,6 +898,8 @@ def _populate_workspace_volume(
             f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
             "-e",
             f"USE_FILTER={'true' if partial else 'false'}",
+            "-e",
+            f"FULL_CLONE={'true' if full_clone else 'false'}",
             GIT_HELPER_IMAGE,
             "-c",
             script,
@@ -1332,7 +1350,7 @@ def _restore_and_start(
 # ---------------------------------------------------------------------------
 
 
-def cmd_create(branch: str, base_branch: str = "master") -> None:
+def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = False) -> None:
     registry = Registry()
     slug = slugify(branch)
     project = project_name(slug)
@@ -1381,8 +1399,19 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     # volume, compose project, registry entry), so wrap in rollback.
     try:
         volume = workspace_volume_name(project)
+        if full_clone:
+            info("Full clone requested — fetching complete git history (slower, more disk).")
         info(f"Populating workspace volume {volume} with branch {branch}...")
-        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha, branch_ref)
+        _populate_workspace_volume(
+            volume,
+            branch,
+            branch_sha,
+            base_branch,
+            base_sha,
+            origin_branch_sha,
+            branch_ref,
+            full_clone=full_clone,
+        )
 
         profiles = resolve_docker_profiles(intents)
         if profiles:
@@ -1952,6 +1981,7 @@ def build_parser() -> argparse.ArgumentParser:
 examples:
   sandbox create aspicer/cool-feature
   sandbox create aspicer/bugfix main
+  sandbox create aspicer/cool-feature --full-clone
   sandbox ls
   sandbox shell aspicer/cool-feature
   sandbox ssh aspicer/cool-feature
@@ -1969,6 +1999,11 @@ examples:
         "--intents",
         default="product_analytics",
         help="Comma-separated hogli intents (default: product_analytics)",
+    )
+    p.add_argument(
+        "--full-clone",
+        action="store_true",
+        help="Clone full git history instead of shallow (more disk; enables git log/blame/bisect)",
     )
 
     for name, help_text in [
@@ -2044,7 +2079,7 @@ def main() -> None:
         os.environ["SANDBOX_INTENTS"] = args.intents
 
     dispatch = {
-        "create": lambda: cmd_create(args.branch, args.base_branch),
+        "create": lambda: cmd_create(args.branch, args.base_branch, full_clone=args.full_clone),
         "start": lambda: cmd_start(args.branch),
         "stop": lambda: cmd_stop(args.branch),
         "destroy": lambda: cmd_destroy(args.branch, force=args.force),
