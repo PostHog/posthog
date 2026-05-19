@@ -1,5 +1,6 @@
 import logging
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.organization import Organization
@@ -58,6 +59,17 @@ class TeamExperimentsConfig(models.Model):
         help_text=(
             "Default for enabling CUPED variance reduction on experiment metrics. "
             "Overridden by the experiment-level `stats_config.cuped.enabled` setting when set."
+        ),
+    )
+
+    default_cuped_lookback_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
+        help_text=(
+            "Default lookback window (in days) for CUPED variance reduction. "
+            "Overridden by the experiment-level `stats_config.cuped.lookback_days` setting when set. "
+            "Must be between 1 and 30 days."
         ),
     )
 

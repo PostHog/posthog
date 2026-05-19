@@ -4,6 +4,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { DefaultCupedEnabled } from 'scenes/settings/environment/DefaultCupedEnabled'
+import { DefaultCupedLookbackDays } from 'scenes/settings/environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from 'scenes/settings/environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from 'scenes/settings/environment/DefaultOnlyCountMaturedUsers'
@@ -57,14 +58,24 @@ export function ExperimentsSettings(): JSX.Element {
                 <DefaultOnlyCountMaturedUsers />
             </div>
             {showCupedOption && (
-                <div>
-                    <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
-                    <p className="text-secondary mt-2">
-                        When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to
-                        detect significant effects faster on supported metrics. Can be overridden per experiment.
-                    </p>
-                    <DefaultCupedEnabled />
-                </div>
+                <>
+                    <div>
+                        <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
+                        <p className="text-secondary mt-2">
+                            When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data
+                            to detect significant effects faster on supported metrics. Can be overridden per experiment.
+                        </p>
+                        <DefaultCupedEnabled />
+                    </div>
+                    <div>
+                        <LemonLabel className="text-base">Default CUPED lookback window</LemonLabel>
+                        <p className="text-secondary mt-2">
+                            Number of days before the experiment start to use as the pre-experiment window. Must be
+                            between 1 and 30 days. Can be overridden per experiment.
+                        </p>
+                        <DefaultCupedLookbackDays />
+                    </div>
+                </>
             )}
         </div>
     )

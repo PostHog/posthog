@@ -61,6 +61,7 @@ import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
+import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
@@ -599,6 +600,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedEnabled />,
                 keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
+            },
+            {
+                id: 'environment-experiment-cuped-lookback-days',
+                title: 'Default CUPED lookback window',
+                description:
+                    'Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between 1 and 30 days. Can be overridden per experiment.',
+                flag: 'EXPERIMENT_CUPED',
+                component: <DefaultCupedLookbackDays />,
+                keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
             },
         ],
     },

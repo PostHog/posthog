@@ -23,11 +23,11 @@ class CupedQueryConfig:
     lookback_days: int = DEFAULT_CUPED_LOOKBACK_DAYS
 
 
-def _parse_lookback_days(value: Any) -> int:
+def _parse_lookback_days(value: Any, fallback: int = DEFAULT_CUPED_LOOKBACK_DAYS) -> int:
     try:
         days = int(value)
     except (TypeError, ValueError):
-        return DEFAULT_CUPED_LOOKBACK_DAYS
+        return fallback
 
     if days < MIN_CUPED_LOOKBACK_DAYS:
         return MIN_CUPED_LOOKBACK_DAYS
@@ -63,6 +63,7 @@ def get_cuped_config(
     stats_config: dict | None,
     metric: object,
     team_default_enabled: bool = False,
+    team_default_lookback_days: int | None = None,
 ) -> CupedQueryConfig:
     if not _metric_supports_cuped(metric):
         return CupedQueryConfig()
@@ -78,7 +79,15 @@ def get_cuped_config(
     if not enabled:
         return CupedQueryConfig()
 
+    fallback_lookback_days = (
+        _parse_lookback_days(team_default_lookback_days)
+        if team_default_lookback_days is not None
+        else DEFAULT_CUPED_LOOKBACK_DAYS
+    )
     return CupedQueryConfig(
         enabled=True,
-        lookback_days=_parse_lookback_days(cuped_config.get("lookback_days", DEFAULT_CUPED_LOOKBACK_DAYS)),
+        lookback_days=_parse_lookback_days(
+            cuped_config.get("lookback_days", fallback_lookback_days),
+            fallback=fallback_lookback_days,
+        ),
     )
