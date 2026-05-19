@@ -52,6 +52,27 @@ def find_missing_manifest_entries() -> set[str]:
     return bin_scripts - manifest_scripts
 
 
+def find_orphan_manifest_entries() -> set[str]:
+    """Find manifest entries whose bin_script target does not exist in scripts_dir."""
+    manifest = get_manifest()
+    scripts_dir = manifest.scripts_dir
+    if not scripts_dir.exists():
+        return set()
+    orphans: set[str] = set()
+
+    for category, commands in manifest.data.items():
+        if category == "metadata" or not isinstance(commands, dict):
+            continue
+        for cmd_name, cmd_config in commands.items():
+            if not isinstance(cmd_config, dict):
+                continue
+            script = cmd_config.get("bin_script")
+            if script and not (scripts_dir / script).exists():
+                orphans.add(cmd_name)
+
+    return orphans
+
+
 def generate_missing_entries() -> dict[str, dict]:
     """Generate manifest entries for missing bin scripts.
 

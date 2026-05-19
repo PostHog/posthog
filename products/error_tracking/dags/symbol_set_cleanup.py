@@ -10,145 +10,110 @@ from posthog.dags.common import JobOwners
 from products.error_tracking.backend.models import ErrorTrackingSymbolSet
 
 
-class SymbolSetSelectionConfig(dagster.Config):
+class SymbolSetCleanupConfig(dagster.Config):
     days_old: int = 30
-    delete_unused: bool = False  # Delete symbol sets with null last_used
-    batch_size: int = 10000  # Maximum number of sets to process, to prevent ooms
-
-
-class SymbolSetDeletionConfig(dagster.Config):
+    delete_unused: bool = True
+    total_per_run: int = 50000
+    batch_size: int = 2000
     dry_run: bool = False
 
 
 @dagster.asset
-def symbol_sets_to_delete(config: SymbolSetSelectionConfig) -> list[ErrorTrackingSymbolSet]:
+def symbol_set_cleanup(
+    context: dagster.AssetExecutionContext,
+    config: SymbolSetCleanupConfig,
+) -> dagster.MaterializeResult:
+    """
+    Delete symbol sets older than the cutoff date in small chunks.
+    Each delete() also removes the underlying S3 object, so the loop is I/O bound.
+    """
     cutoff_date = timezone.now() - datetime.timedelta(days=config.days_old)
 
     query_filter = Q(last_used__isnull=False) & Q(last_used__lt=cutoff_date)
-
     if config.delete_unused:
         query_filter = query_filter | (Q(last_used__isnull=True) & Q(created_at__lt=cutoff_date))
 
-    symbol_sets = ErrorTrackingSymbolSet.objects.filter(query_filter).order_by("last_used")[: config.batch_size]
-
-    return list(symbol_sets)
-
-
-@dagster.op
-def delete_symbol_sets_batch(
-    context: dagster.OpExecutionContext,
-    symbol_sets: list[ErrorTrackingSymbolSet],
-    config: SymbolSetDeletionConfig,
-) -> int:
-    deleted_count = 0
-    failed_count = 0
-
-    for symbol_set in symbol_sets:
-        last_used_str = symbol_set.last_used.isoformat() if symbol_set.last_used else "never"
-
-        try:
-            if config.dry_run:
-                context.log.info(
-                    f"DRY RUN: Would delete symbol set {symbol_set.id} "
-                    f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}, "
-                    f"last_used: {last_used_str})"
-                )
-            else:
-                # The model's delete() method handles S3 cleanup automatically
-                context.log.info(
-                    f"Deleting symbol set {symbol_set.id} "
-                    f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}, "
-                    f"last_used: {last_used_str})"
-                )
-                symbol_set.delete()
-                context.log.info("Deleted symbol set")
-
-            deleted_count += 1
-
-        except Exception as e:
-            failed_count += 1
-            context.log.exception(
-                f"Failed to delete symbol set {symbol_set.id} "
+    if config.dry_run:
+        eligible_count = ErrorTrackingSymbolSet.objects.filter(query_filter).count()
+        sample_size = min(config.batch_size, config.total_per_run, eligible_count)
+        for symbol_set in ErrorTrackingSymbolSet.objects.filter(query_filter)[:sample_size]:
+            last_used_str = symbol_set.last_used.isoformat() if symbol_set.last_used else "never"
+            context.log.info(
+                f"DRY RUN: Would delete symbol set {symbol_set.id} "
                 f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}, "
-                f"last_used: {last_used_str}): {str(e)}"
+                f"last_used: {last_used_str})"
             )
-
-    context.add_output_metadata(
-        {
-            "deleted_count": dagster.MetadataValue.int(deleted_count),
-            "failed_count": dagster.MetadataValue.int(failed_count),
-            "dry_run": dagster.MetadataValue.bool(config.dry_run),
-        }
-    )
-
-    if failed_count > 0:
-        # We're mostly fine with failed deletes - deep in the "care about it eventually" bucket
-        context.log.warning(f"Failed to delete {failed_count} symbol sets out of {len(symbol_sets)} total")
-
-    return deleted_count
-
-
-@dagster.asset(deps=[symbol_sets_to_delete])
-def symbol_set_cleanup_results(
-    context: dagster.AssetExecutionContext,
-    symbol_sets_to_delete: list[ErrorTrackingSymbolSet],
-    config: SymbolSetDeletionConfig,
-) -> dagster.MaterializeResult:
-    """
-    Asset that performs the actual deletion and reports results.
-    """
-    if not symbol_sets_to_delete:
-        context.log.info("No symbol sets found for deletion")
+        context.log.info(
+            f"DRY RUN: {eligible_count} symbol set(s) eligible for deletion "
+            f"(would process up to {config.total_per_run} per run)"
+        )
         return dagster.MaterializeResult(
             metadata={
                 "objects_processed": dagster.MetadataValue.int(0),
                 "objects_deleted": dagster.MetadataValue.int(0),
-                "dry_run": dagster.MetadataValue.bool(config.dry_run),
+                "objects_failed": dagster.MetadataValue.int(0),
+                "eligible_count": dagster.MetadataValue.int(eligible_count),
+                "dry_run": dagster.MetadataValue.bool(True),
             }
         )
 
-    deleted_count = delete_symbol_sets_batch(
-        context=dagster.build_op_context(), symbol_sets=symbol_sets_to_delete, config=config
-    )
+    total_processed = 0
+    total_deleted = 0
+    total_failed = 0
+    failed_ids: set[int] = set()
+
+    while total_processed < config.total_per_run:
+        remaining = config.total_per_run - total_processed
+        chunk_size = min(config.batch_size, remaining)
+        symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(query_filter).exclude(id__in=failed_ids)[:chunk_size])
+
+        if not symbol_sets:
+            break
+
+        for symbol_set in symbol_sets:
+            try:
+                symbol_set.delete()
+                total_deleted += 1
+            except Exception as e:
+                total_failed += 1
+                failed_ids.add(symbol_set.id)
+                context.log.exception(
+                    f"Failed to delete symbol set {symbol_set.id} "
+                    f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}): {str(e)}"
+                )
+
+        total_processed += len(symbol_sets)
+        context.log.info(
+            f"Processed {total_processed} symbol sets so far (deleted: {total_deleted}, failed: {total_failed})"
+        )
+
+    if total_failed > 0:
+        context.log.warning(f"Failed to delete {total_failed} symbol sets out of {total_processed}")
 
     return dagster.MaterializeResult(
         metadata={
-            "objects_processed": dagster.MetadataValue.int(len(symbol_sets_to_delete)),
-            "objects_deleted": dagster.MetadataValue.int(deleted_count),
+            "objects_processed": dagster.MetadataValue.int(total_processed),
+            "objects_deleted": dagster.MetadataValue.int(total_deleted),
+            "objects_failed": dagster.MetadataValue.int(total_failed),
             "dry_run": dagster.MetadataValue.bool(config.dry_run),
         }
     )
 
 
-# Create the job
 symbol_set_cleanup_job = dagster.define_asset_job(
     name="symbol_set_cleanup_job",
-    selection=[symbol_sets_to_delete.key, symbol_set_cleanup_results.key],
+    selection=[symbol_set_cleanup.key],
     tags={"owner": JobOwners.TEAM_ERROR_TRACKING.value},
 )
 
 
-# Create schedule - runs daily at 3 AM
 @dagster.schedule(
     job=symbol_set_cleanup_job,
-    cron_schedule="0 * * * *",  # Run every hour
+    cron_schedule="0 * * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def daily_symbol_set_cleanup_schedule(context):
-    """Schedule the symbol set cleanup job to run daily at 3 AM UTC."""
+def hourly_symbol_set_cleanup_schedule(context):
     return dagster.RunRequest(
         run_key=f"symbol_set_cleanup_{context.scheduled_execution_time.strftime('%Y%m%d_%H%M%S')}",
-        run_config={
-            "ops": {
-                "symbol_sets_to_delete": {
-                    "config": SymbolSetSelectionConfig(
-                        days_old=30,
-                        delete_unused=True,
-                        batch_size=10000,
-                    ).model_dump()
-                },
-                "symbol_set_cleanup_results": {"config": SymbolSetDeletionConfig(dry_run=False).model_dump()},
-            }
-        },
     )

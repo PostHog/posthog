@@ -435,7 +435,8 @@ export function OverviewTab({
                                 {variants.map((variant) => (
                                     <span key={variant.key}>
                                         <LemonTag type="muted" size="small">
-                                            {variant.key}: {variant.rollout_percentage}%
+                                            {variant.key}:{' '}
+                                            <span className="tabular-nums">{variant.rollout_percentage}%</span>
                                         </LemonTag>
                                     </span>
                                 ))}
@@ -803,7 +804,7 @@ export function groupFilters(
                 `${rollout_percentage ?? 100}% of one group`
             ) : (
                 <div className="flex items-center">
-                    <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
+                    <span className="shrink-0 mr-2 tabular-nums">{rollout_percentage ?? 100}% of</span>
                     <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} compact />
                 </div>
             )

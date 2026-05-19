@@ -196,7 +196,8 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
             <div className="mt-3">
                 <LemonTag type={rollout === 100 ? 'highlight' : rollout === 0 ? 'caution' : 'none'}>
                     <span className="text-sm">
-                        Rolled out to <b>{rollout}%</b> of <b>{aggregationTargetName}</b> in this set.
+                        Rolled out to <b className="tabular-nums">{rollout}%</b> of <b>{aggregationTargetName}</b> in
+                        this set.
                     </span>
                 </LemonTag>
             </div>
