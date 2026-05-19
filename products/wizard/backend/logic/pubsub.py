@@ -65,7 +65,7 @@ def subscribe(team_id: int, workflow_id: str, skill_id: str) -> Iterator[Any]:
 
 
 def _json_default(value: Any) -> Any:
-    if dataclasses.is_dataclass(value):
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return dataclasses.asdict(value)
     if isinstance(value, Enum):
         return value.value
