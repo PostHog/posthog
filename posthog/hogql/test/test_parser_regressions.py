@@ -360,6 +360,26 @@ class TestParserRegressions(BaseTest):
             node = parse_select("select q, where * r", backend=backend)
             self.assertEqual(len(node.select), 2, msg=f"{backend}: where * r")
 
+    def test_pivot_tuple_or_single_operand_with_postfix(self):
+        # `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
+        # columnExpr`. A parenthesised PIVOT/UNPIVOT operand is a
+        # `Tuple` only when the matching `)` is followed by `FOR` /
+        # `IN` (the operand boundary). When a postfix follows — `(n)()`
+        # — it is the `columnExpr` alternative: a parenthesised
+        # expression extended by the postfix call. The Rust parser
+        # always took the Tuple branch and stranded the `()`.
+        cases = (
+            "select 1 from a unpivot (m for (n)() in (p))",
+            "select 1 from a pivot (m for (n)() in (p))",
+            # guard: a bare parenthesised operand stays a Tuple
+            "select 1 from a unpivot (m for (n) in (p))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

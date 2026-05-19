@@ -936,18 +936,50 @@ impl<'a> Parser<'a> {
     /// (values)` keyword isn't consumed as a comparison operator on the
     /// expression that precedes it.
     fn parse_expr_tuple_or_single(&mut self) -> Result<Value, ParseError> {
-        if self.peek() == TokenKind::LParen {
+        // `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
+        // columnExpr`. The parenthesised alternative is always a
+        // `Tuple` (even a single element — `(x)` → Tuple([x])), but
+        // only when the matching `)` is the end of the operand, i.e.
+        // it is followed by the `FOR` / `IN` that bounds it. When a
+        // postfix instead follows (`(n)()`), cpp's ALL(*) takes the
+        // `columnExpr` alternative — a parenthesised expression
+        // extended by the postfix — so we defer to the expression
+        // parser there.
+        if self.peek() == TokenKind::LParen && self.paren_group_followed_by_for_or_in() {
             self.bump()?;
             let exprs = self.parse_expr_list_until_paren()?;
             self.expect(TokenKind::RParen, ")")?;
-            // `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
-            // columnExpr` — the parenthesised alternative is always a
-            // `Tuple`, even for a single element (`(x)` → Tuple([x])).
-            // cpp's ALL(*) takes that alt over the bare-`columnExpr`
-            // (parenthesised-expression) reading.
             return Ok(emit::tuple_(exprs));
         }
         self.parse_expr_bp(BP_COMPARE + 1)
+    }
+
+    /// `self.peek()` is `(` — scan to its matching `)` and report
+    /// whether a `FOR` / `IN` keyword immediately follows it.
+    fn paren_group_followed_by_for_or_in(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 1;
+        loop {
+            let tok = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            match tok.kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let after = probe.next_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+                        return matches!(
+                            after,
+                            TokenKind::Keyword(Kw::For) | TokenKind::Keyword(Kw::In)
+                        );
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
     }
 
     /// Like parse_expr_list_until_terminators, but also stops at `FOR`
