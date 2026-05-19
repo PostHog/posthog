@@ -31,6 +31,9 @@ export function subscriptionEditHref(sub: SubscriptionApi): string | null {
     if (sub.dashboard) {
         return urls.dashboardSubscription(sub.dashboard, String(sub.id))
     }
+    if (sub.content_type === 'ai_prompt') {
+        return urls.subscriptionEdit(sub.id)
+    }
     return null
 }
 

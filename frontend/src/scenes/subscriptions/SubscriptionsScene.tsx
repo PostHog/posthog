@@ -128,6 +128,15 @@ export function SubscriptionsScene(): JSX.Element {
                 name={sceneConfigurations[Scene.Subscriptions].name}
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-subscription-button"
+                        onClick={() => router.actions.push(urls.subscriptionNew())}
+                    >
+                        New subscription
+                    </LemonButton>
+                }
             />
             <LemonTabs
                 activeKey={currentTab}
