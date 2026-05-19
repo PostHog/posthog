@@ -48,24 +48,27 @@ export function isLocalMinuteBlocked(minute: number, windows: ParsedWindow[]): b
     return false
 }
 
-/** Rough count of hourly evaluation slots in the next 24h that are not fully blocked at the hour start (team TZ). */
-export function estimateHourlyCheckSlotsNext24h(
+/** Rough count of evaluation slots in the next 24h that are not blocked at slot start (team TZ). */
+export function estimateCheckSlotsNext24h(
     blockedWindows: BlockedWindow[] | null | undefined,
-    teamTimezone: string
+    teamTimezone: string,
+    cadenceMinutes: 15 | 60
 ): number {
+    const totalSlots = (24 * 60) / cadenceMinutes
     if (!blockedWindows?.length) {
-        return 24
+        return totalSlots
     }
     let parsed: ParsedWindow[]
     try {
         parsed = parseBlockedWindowsForPreview(blockedWindows)
     } catch {
-        return 24
+        return totalSlots
     }
-    const start = dayjs().tz(teamTimezone).startOf('hour')
+    const start =
+        cadenceMinutes === 60 ? dayjs().tz(teamTimezone).startOf('hour') : dayjs().tz(teamTimezone).startOf('minute')
     let count = 0
-    for (let i = 0; i < 24; i++) {
-        const t = start.add(i, 'hour')
+    for (let i = 0; i < totalSlots; i++) {
+        const t = start.add(i * cadenceMinutes, 'minute')
         const minute = t.hour() * 60 + t.minute()
         if (!isLocalMinuteBlocked(minute, parsed)) {
             count++

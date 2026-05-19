@@ -4,10 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AlertCalculationInterval,
@@ -16,9 +19,15 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { AvailableFeature, InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, type AlertFormType } from './alertFormLogic'
+import {
+    alertFormLogic,
+    getDefaultSimulationRange,
+    isHighFrequencyAlertInterval,
+    selectAlertCalculationInterval,
+    type AlertFormType,
+} from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -229,5 +238,98 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
+    })
+
+    it('blocks save without opening upgrade modal for 15-minute interval without entitlement', async () => {
+        userLogic.mount()
+        upgradeModalLogic.mount()
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults(),
+            calculation_interval: AlertCalculationInterval.EVERY_15_MINUTES,
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBeNull()
+        expect(errorToastSpy).not.toHaveBeenCalled()
+        expect(successToastSpy).not.toHaveBeenCalled()
+    })
+})
+
+describe('getDefaultSimulationRange', () => {
+    it('returns 12 hours for 15-minute intervals', () => {
+        expect(getDefaultSimulationRange(AlertCalculationInterval.EVERY_15_MINUTES)).toBe('-12h')
+    })
+})
+
+describe('selectAlertCalculationInterval', () => {
+    beforeEach(() => {
+        userLogic.mount()
+        upgradeModalLogic.mount()
+    })
+
+    it('opens upgrade modal and does not update interval when 15-minute is selected without entitlement', () => {
+        const onSelect = jest.fn()
+
+        const applied = selectAlertCalculationInterval(AlertCalculationInterval.EVERY_15_MINUTES, {
+            guardAvailableFeature: upgradeModalLogic.values.guardAvailableFeature,
+            onSelect,
+            hasHighFrequencyAlertsEntitlement: false,
+        })
+
+        expect(applied).toBe(false)
+        expect(onSelect).not.toHaveBeenCalled()
+        expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+    })
+
+    it('updates interval when 15-minute is selected with entitlement', () => {
+        const onSelect = jest.fn()
+        const guardAvailableFeature: GuardAvailableFeatureFn = (_feature, callback) => {
+            callback?.()
+            return true
+        }
+
+        const applied = selectAlertCalculationInterval(AlertCalculationInterval.EVERY_15_MINUTES, {
+            guardAvailableFeature,
+            onSelect,
+            hasHighFrequencyAlertsEntitlement: true,
+        })
+
+        expect(applied).toBe(true)
+        expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.EVERY_15_MINUTES)
+    })
+
+    it('updates interval for non-15-minute options without calling the guard', () => {
+        const onSelect = jest.fn()
+        const guardAvailableFeature = jest.fn<ReturnType<GuardAvailableFeatureFn>, Parameters<GuardAvailableFeatureFn>>(
+            () => true
+        )
+
+        selectAlertCalculationInterval(AlertCalculationInterval.HOURLY, {
+            guardAvailableFeature,
+            onSelect,
+            hasHighFrequencyAlertsEntitlement: false,
+        })
+
+        expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.HOURLY)
+        expect(guardAvailableFeature).not.toHaveBeenCalled()
+    })
+})
+
+describe('isHighFrequencyAlertInterval', () => {
+    it('returns true for 15-minute and hourly intervals', () => {
+        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.EVERY_15_MINUTES)).toBe(true)
+        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.HOURLY)).toBe(true)
+    })
+
+    it('returns false for daily, weekly, and monthly intervals', () => {
+        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.DAILY)).toBe(false)
+        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.WEEKLY)).toBe(false)
+        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.MONTHLY)).toBe(false)
     })
 })
