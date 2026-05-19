@@ -144,9 +144,7 @@ def get_schemas(
                 f" net_read_timeout = {DISCOVERY_STATEMENT_TIMEOUT_SECONDS}"
             )
         except Exception as e:
-            structlog.get_logger().warning(
-                "Failed to set session timeouts on MySQL discovery connection", exc_info=e
-            )
+            structlog.get_logger().warning("Failed to set session timeouts on MySQL discovery connection", exc_info=e)
 
         params: dict = {"schema": schema}
         names_filter = ""
