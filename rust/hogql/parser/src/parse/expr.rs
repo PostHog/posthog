@@ -2935,7 +2935,7 @@ impl<'a> Parser<'a> {
     /// because the FIRST token of each pair (`USING`, `ARRAY`, `LEFT`,
     /// etc.) is also legitimately usable as a bare identifier or
     /// expression in other contexts.
-    fn peek_is_two_token_clause_terminator(&self) -> bool {
+    pub(crate) fn peek_is_two_token_clause_terminator(&self) -> bool {
         let p0 = self.peek();
         let p1 = self.peek_next();
         // `USING SAMPLE` — second select-level SAMPLE position.
@@ -3029,14 +3029,16 @@ impl<'a> Parser<'a> {
         // upcoming tokens form another columnExpr or whether the comma
         // was trailing (and the next clause starts).
         //
-        // When `peek_is_clause_terminator()` fires the keyword may still
-        // be the head of a Field-led arithmetic expression that cpp
-        // greedily extends the list with (`, qualify * columns('r')`
-        // → `Mul(Field("qualify"), ColumnsExpr)`). Speculatively parse
-        // and accept only when the result engaged structure beyond a
-        // bare keyword-as-Field — a single-chain Field for a clause
-        // keyword means cpp would have backed off the comma and
-        // dispatched the rest as the next clause instead.
+        // When `peek_is_clause_terminator()` fires after a comma the
+        // keyword can still be the next list item — cpp resolves the
+        // ambiguity in favour of another `columnExpr`, even a bare
+        // keyword-as-Field one (`GROUP BY a, window` keeps `window` as
+        // the second column, not the start of a WINDOW clause). The
+        // comma is only trailing when treating the keyword as a column
+        // would strand a clause body — which the post-parse boundary
+        // check below catches: `, FROM t` parses `from` as a Field but
+        // leaves the cursor on `t` (not a list boundary), and
+        // `, LIMIT (1) by (2)` parses `LIMIT(1)` but leaves it on `by`.
         while self.eat(TokenKind::Comma)? {
             if matches!(
                 self.peek(),
@@ -3045,19 +3047,13 @@ impl<'a> Parser<'a> {
                 break;
             }
             if self.peek_is_clause_terminator() {
-                // Same speculative-parse + post-parse boundary check
-                // as `parse_limit_by_exprs`: a successful parse that
-                // leaves an unparseable continuation (e.g. `, LIMIT (1)
-                // by (2)` where `by` doesn't extend the list) means
-                // cpp's adaptive prediction bailed; we mirror by
-                // requiring the post-parse cursor to land on a clean
-                // columnExprList boundary.
+                // Speculatively parse the next item; accept it only
+                // when the post-parse cursor lands on a clean
+                // `columnExprList` boundary. Otherwise cpp's adaptive
+                // prediction would have treated the comma as trailing
+                // and dispatched the keyword as the next clause.
                 let cp = self.checkpoint();
                 let speculated = match self.parse_expr_bp(0) {
-                    Ok(expr) if is_bare_field(&expr) => {
-                        self.restore(cp)?;
-                        None
-                    }
                     Ok(_) if !self.peek_is_column_expr_list_boundary() => {
                         self.restore(cp)?;
                         None

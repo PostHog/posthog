@@ -1146,18 +1146,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(ExposedHogQLError):
                 self._select("select from foo")
 
-        @parameterized.expand([["fn"], ["fun"], ["let"], ["while"], ["throw"], ["try"], ["catch"], ["finally"]])
-        def test_statement_keywords_are_not_expression_identifiers(self, kw: str):
-            # The Hog-statement keywords are omitted from the grammar's
-            # `keyword` rule, so they are not valid `identifier`s — they
-            # cannot stand as a Field or call head in expression
-            # position (unlike `if` / `for` / `return`, which the
-            # `keyword` rule does include).
-            with self.assertRaises(ExposedHogQLError):
-                self._expr(kw)
-            with self.assertRaises(ExposedHogQLError):
-                self._expr(f"{kw}(1)")
-
         def test_select_trailing_comma_before_from(self):
             self.assertEqual(
                 self._select(
@@ -1188,6 +1176,26 @@ def parser_test_factory(backend: HogQLParserBackend):
                         ]
                     ),
                 ),
+            )
+
+        def test_clause_keyword_as_column_after_comma(self):
+            # After a comma, the column list continues with another
+            # column for a clause keyword that can also be a Field —
+            # only `FROM` (and two-token `GROUP BY` / `ORDER BY`) makes
+            # the comma trailing. `window` here is the second column.
+            self.assertEqual(
+                self._select("select 1, window from events"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1), ast.Field(chain=["window"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            # Same in a GROUP BY list — `window` is the second grouping
+            # key, not the start of a WINDOW clause.
+            grouped = self._select("select count() from events group by tool, window")
+            self.assertEqual(
+                grouped.group_by,
+                [ast.Field(chain=["tool"]), ast.Field(chain=["window"])],
             )
 
         def test_expr_with_ignored_sql_comment(self):

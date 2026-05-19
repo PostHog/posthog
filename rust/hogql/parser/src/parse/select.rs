@@ -1282,14 +1282,21 @@ impl<'a> Parser<'a> {
             ) {
                 break;
             }
-            // `selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)*`
-            // — the leading `selectColumnExpr` is mandatory and
-            // unconditional, so the clause-terminator check (which guesses
-            // whether a clause keyword starts a column or a clause) must
-            // never fire for the first column. `select prewhere from t`
-            // parses `prewhere` as that mandatory first column. The check
-            // still gates columns *after* a comma.
-            if !cols.is_empty() && self.peek_is_clause_terminator() {
+            // `selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)*
+            // COMMA?` — after a comma the list continues with another
+            // column for any clause keyword that can also be a Field
+            // (`select 1, window from t` keeps `window` as the second
+            // column). The comma is only trailing when the next token
+            // is `FROM` — the clause that immediately follows the
+            // column list — or a two-token clause head (`GROUP BY` /
+            // `ORDER BY` / `ARRAY JOIN` / …), where treating the
+            // keyword as a column would strand the clause body. The
+            // leading `selectColumnExpr` is mandatory, so this never
+            // fires for the first column (`select prewhere from t`).
+            if !cols.is_empty()
+                && (matches!(self.peek(), TokenKind::Keyword(Kw::From))
+                    || self.peek_is_two_token_clause_terminator())
+            {
                 break;
             }
             // Alias-before: `IDENT : expr` or `"IDENT" : expr` or
