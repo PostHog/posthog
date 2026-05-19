@@ -56,6 +56,8 @@ def find_orphan_manifest_entries() -> set[str]:
     """Find manifest entries whose bin_script target does not exist in scripts_dir."""
     manifest = get_manifest()
     scripts_dir = manifest.scripts_dir
+    if not scripts_dir.exists():
+        return set()
     orphans: set[str] = set()
 
     for category, commands in manifest.data.items():
