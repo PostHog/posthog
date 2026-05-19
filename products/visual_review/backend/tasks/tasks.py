@@ -81,7 +81,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
 )
 @with_team_scope()
 def post_approval_comment(self, team_id: int, run_id: str) -> None:
-    """Update the PR comment in place with the approved-changes image gallery.
+    """Update the PR comment in place with the approved-changes summary.
 
     Best-effort: failures don't block the approval flow. Retries on GitHub
     rate-limit errors only.

@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -1597,45 +1598,18 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
-_APPROVAL_COMMENT_MAX_ROWS = 60
-_APPROVAL_COMMENT_IMG_WIDTH = 240
-
-
-def _result_label(result: str) -> str:
-    if result == SnapshotResult.CHANGED:
-        return "🔄 changed"
-    if result == SnapshotResult.NEW:
-        return "✨ new"
-    if result == SnapshotResult.REMOVED:
-        return "🗑️ removed"
-    return result
-
-
-def _img_cell(artifact: Artifact | None) -> str:
-    """Markdown cell for an artifact image, or `–` when absent."""
-    from .storage import build_public_artifact_url
-
-    if artifact is None:
-        return "–"
-    url = build_public_artifact_url(artifact.id)
-    return f'<img src="{url}" width="{_APPROVAL_COMMENT_IMG_WIDTH}" alt="">'
-
-
 def _build_approval_comment_body(run: Run, repo: Repo, approver_username: str | None) -> str:
     """Build the markdown body of the post-approval PR comment.
 
-    Single table with `Identifier | Before | After | Diff` columns.
-    Cell mapping by RunSnapshot.result:
-      - CHANGED  → before, after, diff
-      - NEW      → after only
-      - REMOVED  → before only
+    A short textual summary of what changed — reviewers go to PostHog to see
+    the actual snapshots.
     """
     from django.conf import settings
 
-    snapshots = list(
-        run.snapshots.select_related("baseline_artifact", "current_artifact", "diff_artifact")
-        .filter(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
-        .order_by("identifier")
+    counts = Counter(
+        run.snapshots.filter(
+            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+        ).values_list("result", flat=True)
     )
 
     run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
@@ -1645,28 +1619,19 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver_username: str | 
 
     header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
 
-    if not snapshots:
+    parts = []
+    for result, label in (
+        (SnapshotResult.CHANGED, "changed"),
+        (SnapshotResult.NEW, "new"),
+        (SnapshotResult.REMOVED, "removed"),
+    ):
+        if counts.get(result):
+            parts.append(f"{counts[result]} {label}")
+
+    if not parts:
         return header
 
-    truncated_count = max(0, len(snapshots) - _APPROVAL_COMMENT_MAX_ROWS)
-    visible = snapshots[:_APPROVAL_COMMENT_MAX_ROWS]
-
-    rows = ["| Identifier | Before | After | Diff |", "|---|---|---|---|"]
-    for snapshot in visible:
-        result = snapshot.result
-        before = snapshot.baseline_artifact if result in (SnapshotResult.CHANGED, SnapshotResult.REMOVED) else None
-        after = snapshot.current_artifact if result in (SnapshotResult.CHANGED, SnapshotResult.NEW) else None
-        diff = snapshot.diff_artifact if result == SnapshotResult.CHANGED else None
-        identifier_cell = f"`{snapshot.identifier}` ({_result_label(result)})"
-        rows.append(f"| {identifier_cell} | {_img_cell(before)} | {_img_cell(after)} | {_img_cell(diff)} |")
-
-    table = "\n".join(rows)
-    summary = f"\n<details><summary><strong>{len(visible)} snapshot(s)</strong></summary>\n\n{table}\n\n</details>\n"
-
-    if truncated_count:
-        summary += f"\n_+{truncated_count} more — [view all in PostHog]({run_url})._\n"
-
-    return header + summary
+    return header + f"\n{', '.join(parts)}.\n"
 
 
 def _resolve_approver_username(user_id: int | None) -> str | None:
@@ -1696,7 +1661,7 @@ def _resolve_approver_username(user_id: int | None) -> str | None:
 
 
 def _post_approval_comment(run: Run, repo: Repo) -> None:
-    """Update the existing PR comment in place with the approved-changes gallery.
+    """Update the existing PR comment in place with the approved-changes summary.
 
     Best-effort and never raises. Skips silently when the original review-prompt
     comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
@@ -1746,7 +1711,7 @@ def _post_approval_comment(run: Run, repo: Repo) -> None:
                 new_comment_id = create_response.json().get("id")
                 if isinstance(new_comment_id, int):
                     run.metadata["github_comment_id"] = new_comment_id
-                    run.save(update_fields=["metadata"])
+                    run.save(update_fields=["metadata"], using=WRITER_DB)
                 return
             logger.warning(
                 "visual_review.approval_comment_create_failed",
@@ -2134,7 +2099,6 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
       - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
       - 3 cheap aggregate queries for totals
     """
-    from collections import Counter
     from datetime import timedelta
 
     from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES

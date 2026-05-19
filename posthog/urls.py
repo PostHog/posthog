@@ -268,7 +268,6 @@ urlpatterns = [
     ),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
-    path("api/visual_review/public/", include("products.visual_review.backend.presentation.public_urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),

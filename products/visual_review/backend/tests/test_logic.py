@@ -1954,7 +1954,7 @@ class TestVerifyBaselineHashes:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApprovalComment:
-    """Tests for the post-approval PR comment that shows the diff gallery."""
+    """Tests for the post-approval PR comment summary."""
 
     @pytest.fixture
     def repo(self, team):
@@ -1966,21 +1966,7 @@ class TestApprovalComment:
         )
 
     @pytest.fixture
-    def artifact_factory(self, repo):
-        from products.visual_review.backend.models import Artifact
-
-        def make(content_hash: str = "h"):
-            return Artifact.objects.create(
-                team_id=repo.team_id,
-                repo=repo,
-                content_hash=content_hash,
-                storage_path=f"path/{content_hash}",
-            )
-
-        return make
-
-    @pytest.fixture
-    def run_with_snapshots(self, repo, artifact_factory):
+    def run_with_snapshots(self, repo):
         from products.visual_review.backend.facade.enums import ReviewDecision
 
         run = Run.objects.create(
@@ -1993,95 +1979,48 @@ class TestApprovalComment:
             metadata={"github_comment_id": 9001, "baseline_commit_sha": "abc1234567"},
         )
 
-        baseline_a = artifact_factory("base_a")
-        current_a = artifact_factory("curr_a")
-        diff_a = artifact_factory("diff_a")
         RunSnapshot.objects.create(
             team_id=repo.team_id,
             run=run,
             identifier="Login/Form",
             current_hash="curr_a",
             baseline_hash="base_a",
-            baseline_artifact=baseline_a,
-            current_artifact=current_a,
-            diff_artifact=diff_a,
             result=SnapshotResult.CHANGED,
         )
-
-        current_b = artifact_factory("curr_b")
         RunSnapshot.objects.create(
             team_id=repo.team_id,
             run=run,
             identifier="Settings/Tab",
             current_hash="curr_b",
             baseline_hash="",
-            current_artifact=current_b,
             result=SnapshotResult.NEW,
         )
-
-        baseline_c = artifact_factory("base_c")
         RunSnapshot.objects.create(
             team_id=repo.team_id,
             run=run,
             identifier="Old/Component",
             current_hash="",
             baseline_hash="base_c",
-            baseline_artifact=baseline_c,
             result=SnapshotResult.REMOVED,
         )
 
         return run
 
-    def test_build_approval_comment_body_shapes_table_per_result(self, repo, run_with_snapshots):
+    def test_build_approval_comment_body_summarizes_changes(self, repo, run_with_snapshots):
         body = logic._build_approval_comment_body(run_with_snapshots, repo, approver_username="alice")
 
         assert "✅ **Visual changes approved** by @alice" in body
         assert "abc1234" in body  # baseline SHA prefix
         assert f"/visual_review/runs/{run_with_snapshots.id}" in body
-        # Table header
-        assert "| Identifier | Before | After | Diff |" in body
-        # Changed row: all three image cells
-        changed_line = next(line for line in body.splitlines() if "Login/Form" in line)
-        assert changed_line.count("<img") == 3
-        # New row: only after
-        new_line = next(line for line in body.splitlines() if "Settings/Tab" in line)
-        assert new_line.count("<img") == 1
-        assert new_line.count("– |") == 2  # before + diff are dashes
-        # Removed row: only before
-        removed_line = next(line for line in body.splitlines() if "Old/Component" in line)
-        assert removed_line.count("<img") == 1
-        assert removed_line.count("– |") == 2  # after + diff are dashes
-        # Image src must point at our public artifact endpoint
-        assert "/api/visual_review/public/artifact/" in body
+        assert "1 changed, 1 new, 1 removed." in body
+        assert "<img" not in body
+        assert "<table" not in body
+        assert "/api/visual_review/public/" not in body
 
-    def test_build_approval_comment_body_caps_rows(self, repo, artifact_factory, mocker):
-        from products.visual_review.backend.facade.enums import ReviewDecision
+    def test_build_approval_comment_body_falls_back_to_a_reviewer(self, repo, run_with_snapshots):
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver_username=None)
 
-        run = Run.objects.create(
-            team_id=repo.team_id,
-            repo=repo,
-            commit_sha="cap",
-            branch="feature",
-            pr_number=42,
-            review_decision=ReviewDecision.HUMAN_APPROVED,
-        )
-        for i in range(70):
-            current = artifact_factory(f"c{i}")
-            RunSnapshot.objects.create(
-                team_id=repo.team_id,
-                run=run,
-                identifier=f"snap-{i:03}",
-                current_hash=f"c{i}",
-                current_artifact=current,
-                result=SnapshotResult.NEW,
-            )
-
-        mocker.patch.object(logic, "_APPROVAL_COMMENT_MAX_ROWS", 60)
-        body = logic._build_approval_comment_body(run, repo, approver_username=None)
-
-        assert body.count("| `snap-") == 60
-        assert "+10 more" in body
-        assert "by a reviewer" in body  # fallback when no username
+        assert "by a reviewer" in body
 
     def test_build_approval_comment_body_no_actionable_snapshots(self, repo):
         from products.visual_review.backend.facade.enums import ReviewDecision
@@ -2096,8 +2035,10 @@ class TestApprovalComment:
         )
         body = logic._build_approval_comment_body(run, repo, approver_username="bob")
         assert "✅ **Visual changes approved**" in body
-        assert "<details>" not in body
-        assert "<img" not in body
+        # No counts line when there's nothing to summarize
+        assert "changed" not in body
+        assert "new" not in body
+        assert "removed" not in body
 
     def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
         repo.enable_pr_comments = False
