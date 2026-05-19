@@ -1536,6 +1536,12 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
+
+        # Per-team monthly hard cap as a cost backstop is enforced inside
+        # `execute_summarize_session_video_stream`, just before a *fresh*
+        # workflow start — gating it here would 402 cached-summary fast-path
+        # hits and silent-attach (`id_conflict_policy=USE_EXISTING`) cases that
+        # don't issue any LLM work.
         tracking_id = generate_tracking_id()
         force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
         product_context, custom_tags = self._load_team_summary_config()

@@ -6340,6 +6340,14 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkNotificationIdsRequest {
+      /**
+         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
+         * @maxItems 500
+         */
+      notification_ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -15960,7 +15968,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -19959,6 +19967,7 @@ export namespace Schemas {
     * `snooze` - Snooze
     * `unsnooze` - Unsnooze
     * `threshold_change` - Threshold change
+    * `broken_config` - Broken config
      */
     export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
 
@@ -19971,6 +19980,7 @@ export namespace Schemas {
       Snooze: 'snooze',
       Unsnooze: 'unsnooze',
       ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
     } as const;
 
     export interface LogsAlertEvent {
@@ -20849,6 +20859,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      target_type: string;
+      target_id: string;
       /** @nullable */
       resource_type: string | null;
       resource_id: string;
@@ -26730,7 +26742,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -30120,11 +30132,21 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
       signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
       signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
       subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
       payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
     }
 
     export interface PatchedTeam {
@@ -30160,6 +30182,25 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
+      /** Filters used to identify internal/test users. Each entry is a property filter.
+
+                  Supported entry types and the exact shape each accepts:
+
+                  # Person property — match (or exclude) by a person property
+                  {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+                  # Event property — match by an event property
+                  {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+                  # Cohort membership — match (or exclude) members of a cohort.
+                  # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+                  # `negation` field here — `negation` is specific to cohort *definitions*
+                  # (the inner sub-filters that build a cohort) and is rejected by the
+                  # property-filter schema.
+                  {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+                  Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+                  "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -33996,8 +34037,10 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** The key of the variant to ship to 100% of users. */
+      /** The key of the variant to ship. */
       variant_key: string;
+      /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
+      release_to_everyone?: boolean;
     }
 
     export interface _User {
@@ -35230,6 +35273,25 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
+      /** Filters used to identify internal/test users. Each entry is a property filter.
+
+                  Supported entry types and the exact shape each accepts:
+
+                  # Person property — match (or exclude) by a person property
+                  {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+                  # Event property — match by an event property
+                  {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+                  # Cohort membership — match (or exclude) members of a cohort.
+                  # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+                  # `negation` field here — `negation` is specific to cohort *definitions*
+                  # (the inner sub-filters that build a cohort) and is rejected by the
+                  # property-filter schema.
+                  {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+                  Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+                  "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -39767,13 +39829,41 @@ export namespace Schemas {
 
     export type NotificationsListParams = {
     /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string;
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
     /**
+     * Filter by notification type
+     */
+    notification_type?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
+    resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
+    resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
+    target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
+    target_type?: string;
     };
 
     export type QuickFiltersListParams = {
@@ -43958,6 +44048,10 @@ export namespace Schemas {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean;
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean;
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1

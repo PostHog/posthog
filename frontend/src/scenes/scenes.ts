@@ -644,6 +644,7 @@ export const redirects: Record<
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
+    '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
