@@ -34,8 +34,13 @@ if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.en
 fi
 
 # Environment variables are defined in:
-#   .env.development  - committed defaults (edit to change defaults for everyone)
+#   .env.development  - dev-mode runtime defaults (committed)
 #   .env.local        - your overrides + 1Password secrets (gitignored)
+#
+# Service connection defaults (DATABASE_URL, REDIS_URL, KAFKA_HOSTS,
+# CLICKHOUSE_HOST, OBJECT_STORAGE_ENDPOINT, etc.) live in dev-services.env
+# — loaded into containers via docker-compose env_file, picked up host-side
+# via Django settings' DEBUG-gated defaults (see posthog/settings).
 #
 # Source env files respecting precedence: shell env > .env.local > .env.development
 # Only set vars that aren't already in the environment
