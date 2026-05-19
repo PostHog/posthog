@@ -144,6 +144,29 @@ run_step() {
   fi
 }
 
+# Waits for a step that was started earlier as a background subshell and
+# reports its outcome. Mirrors run_step's final status line without a
+# spinner -- the work has usually completed by the time wait is called.
+# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
+wait_bg_step() {
+  local label="$1"
+  local pid="$2"
+  local start_time="$3"
+  local tmpfile="$4"
+
+  local exit_code=0
+  wait "$pid" 2>/dev/null || exit_code=$?
+  local elapsed=$(( $(date +%s) - start_time ))
+
+  if [[ $exit_code -eq 0 ]]; then
+    printf "  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
+  else
+    printf "  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
+    _save_failure_log "$label" "$tmpfile"
+    return $exit_code
+  fi
+}
+
 # Inline step (instant, no spinner)
 done_step() {
   local label="$1"
@@ -220,6 +243,26 @@ echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
 
 _activation_start=$(date +%s)
 
+# ── Steps 1, 1b, 2 (kicked off in parallel) ────────────────────────
+# uv sync, pnpm install, and `make phrocs build` are independent -- none
+# of them reads or writes the other's outputs. Kick the two non-spinner
+# ones off in the background BEFORE foregrounding uv sync, so the wall
+# clock is bounded by the slowest single step instead of the sum. uv sync
+# stays foregrounded because the completion + man-page steps that follow
+# depend on the venv it populates, and because its run_step spinner remains
+# the user-visible progress indicator for activate.
+_BG_PNPM_LOG=$(mktemp)
+_ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
+( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+_BG_PNPM_PID=$!
+_BG_PNPM_START=$(date +%s)
+
+_BG_PHROCS_LOG=$(mktemp)
+_ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
+( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+_BG_PHROCS_PID=$!
+_BG_PHROCS_START=$(date +%s)
+
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 run_step "Python packages" uv sync
 
@@ -250,13 +293,13 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
-run_step "Build phrocs" make -C "$FLOX_ENV_PROJECT/tools/phrocs" build
+wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
 if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
 fi
 
 # ── Step 2: Node packages ──────────────────────────────────────────
-run_step "Node packages" pnpm install
+wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
 POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
