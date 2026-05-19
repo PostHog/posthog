@@ -1150,6 +1150,14 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    /**
+     * Per-breakdown-value color overrides for the series-breakdown column.
+     * Keyed by the raw breakdown value as a string. The literal "__null__"
+     * is used as the key for null / undefined values. Hex color string
+     * (matches `color` on yAxis series display settings). When multiple Y
+     * series exist, rows for the same breakdown value share the override.
+     */
+    seriesBreakdownColorOverrides?: Record<string, string>
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean

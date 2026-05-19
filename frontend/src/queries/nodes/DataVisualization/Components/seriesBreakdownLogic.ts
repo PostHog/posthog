@@ -182,10 +182,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         return []
                     }
 
+                    const overrides = chartSettings.seriesBreakdownColorOverrides ?? {}
+
                     return breakdownColumnValues.map<AxisBreakdownSeries<number | null>>((value) => {
                         const seriesName = multipleYSeries
                             ? `${selectedYAxis.name} - ${value || '[No value]'}`
                             : value || '[No value]'
+                        const overrideKey = value == null ? '__null__' : String(value)
+                        const colorOverride = overrides[overrideKey]
 
                         // first filter data by breakdown column value
                         const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
@@ -226,12 +230,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
-                            // breakdown series at the moment
+                            // breakdown series at the moment, except for the
+                            // per-value color override stored on chartSettings
                             settings: {
                                 formatting: selectedYAxis.settings.formatting,
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
+                                    ...(colorOverride ? { color: colorOverride } : {}),
                                 },
                             },
                         }

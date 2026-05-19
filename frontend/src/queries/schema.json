@@ -10489,6 +10489,13 @@
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "seriesBreakdownColorOverrides": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Per-breakdown-value color overrides for the series-breakdown column. Keyed by the raw breakdown value as a string. The literal \"__null__\" is used as the key for null / undefined values. Hex color string (matches `color` on yAxis series display settings). When multiple Y series exist, rows for the same breakdown value share the override.",
+                    "type": "object"
+                },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
                 },
