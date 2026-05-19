@@ -5,6 +5,7 @@ import { SessionBlockMetadata } from '../../session-replay/shared/metadata/sessi
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor, SessionKey } from '../../session-replay/shared/types'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
@@ -199,7 +200,11 @@ export class SessionBatchRecorder {
         const [sessionBlockRecorder, consoleLogRecorder, featureRecorder] = sessions.get(teamSessionKey)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
-        featureRecorder.recordMessage(message.message)
+        try {
+            featureRecorder.recordMessage(message.message)
+        } catch (e) {
+            captureException(e, { tags: { sessionId: message.message.metadata.sessionId } })
+        }
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
