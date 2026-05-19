@@ -1,15 +1,20 @@
 ---
-name: diagnosing-sourcemap-symbolication
+name: diagnosing-stacktrace-symbolication
 description: >
-  Help users debug PostHog Error Tracking symbolication setup for any supported platform — JavaScript/TypeScript web,
-  React Native (Hermes), Android (Proguard/R8), or iOS/macOS (dSYM). The symbol-set lookup flow is universal across
-  platforms; build-tool and artifact details live in per-platform references (JavaScript is fleshed out, others come
-  as we encounter them). Use when stack traces stay minified after symbols are uploaded, PostHog symbol sets show
-  last_used but frames are not readable, chunk IDs do not match, "Token not found" appears, uploaded maps look empty,
-  or bundler/sourcemap configuration needs troubleshooting.
+  Help users debug PostHog Error Tracking stack-trace symbolication for any supported platform — JavaScript/TypeScript
+  web, React Native (Hermes), Android (Proguard / R8), or iOS / macOS (dSYM). The PostHog symbol-set lookup flow is
+  universal across platforms; build-tool and artifact details live in per-platform references (JavaScript is fleshed
+  out, others come as we encounter them). Use when stack frames stay minified or obfuscated after symbols are
+  uploaded, PostHog symbol sets show last_used but frames are not readable, chunk IDs or dSYM UUIDs do not match,
+  "Token not found" appears, uploaded source maps / dSYMs / Proguard mappings look empty, or bundler /
+  symbol-upload configuration needs troubleshooting.
 ---
 
-# Diagnosing sourcemap symbolication
+# Diagnosing stack-trace symbolication
+
+Symbolication is the cross-platform name for what JavaScript source-map lookup, Hermes function-offset resolution,
+Proguard / R8 demangling, and dSYM address-to-line lookup all do — turn a minified or obfuscated frame back into a
+readable file, function, and line.
 
 Work through the user's build and PostHog symbol sets as one pipeline: build config -> generated symbol artifacts
 (JavaScript source maps, Hermes maps, Proguard mappings, or dSYM bundles) -> uploaded symbol set in PostHog ->
@@ -37,7 +42,9 @@ Look at the app repo's build scripts and PostHog upload config. Confirm which Po
 `posthog-cli`) and which directory or asset it processes. See the platform reference for build-tool-specific
 config inspection.
 
-For debugging, prefer a build where symbol artifacts remain on disk:
+For debugging, prefer a build where symbol artifacts remain on disk after upload so you can compare local
+artifacts against what PostHog received. JavaScript example with the Vite plugin (the platform reference covers
+the equivalent setting for other build tools):
 
 ```ts
 sourcemaps: {
@@ -95,10 +102,11 @@ Use the failure location to decide what to compare:
 
 - Local artifact empty and uploaded artifact empty: build tool emitted unusable symbols.
 - Local artifact valid but uploaded artifact empty: upload processing selected or packed the wrong data.
-- Uploaded artifact valid but production stack stays minified: compare deployed binary bytes to the binary that was
-  uploaded with the symbols.
-- `Token not found`: PostHog loaded the map, but the captured generated position did not match any token. Usually
-  points to changed binary after upload, wrong line/column capture, or a symbol-coverage bug.
+- Uploaded artifact valid but production stack stays minified or obfuscated: compare deployed binary bytes to the
+  binary that was uploaded with the symbols.
+- `Token not found`: PostHog loaded the symbol data but the captured generated position did not match any token in
+  the uploaded artifact. Usually points to a changed binary after upload, wrong line / column capture (JavaScript)
+  or wrong frame offset (Hermes / dSYM), or a symbol-coverage bug.
 
 ### Step 5 - Fix the most likely layer
 
@@ -128,14 +136,14 @@ captured generated position should point into the same binary that was uploaded 
 
 ## Failure matrix (cross-platform)
 
-| Evidence                                         | Likely cause                                                            | Next check                                                            |
-| ------------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| No `chunk_id` on frames                          | Chunk ID injection missing or SDK frame parser did not map the filename | Inspect deployed binary and raw frame filenames.                      |
-| Symbol set row missing                           | Upload went to another PostHog project/host or skipped this asset       | Compare plugin `projectId`, `host`, and `ref`.                        |
-| `has_uploaded_file: false`                       | Upload did not finish                                                   | Check build logs; compare `posthog-cli` output to the symbol set row. |
-| Non-null `failure_reason`                        | PostHog could not parse the uploaded symbol data                        | Download via Step 3 and inspect the extracted contents.               |
-| Uploaded artifact valid, deployed binary differs | Deployment/CDN/post-build transform changed the binary after upload     | Compare deployed bytes to local build output.                         |
-| `Token not found`                                | Captured position has no token in the uploaded map                      | Verify captured position, deployed binary identity, and map coverage. |
+| Evidence                                         | Likely cause                                                            | Next check                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| No `chunk_id` on frames                          | Chunk ID injection missing or SDK frame parser did not map the filename | Inspect deployed binary and raw frame filenames.                              |
+| Symbol set row missing                           | Upload went to another PostHog project/host or skipped this asset       | Compare plugin `projectId`, `host`, and `ref`.                                |
+| `has_uploaded_file: false`                       | Upload did not finish                                                   | Check build logs; compare `posthog-cli` output to the symbol set row.         |
+| Non-null `failure_reason`                        | PostHog could not parse the uploaded symbol data                        | Download via Step 3 and inspect the extracted contents.                       |
+| Uploaded artifact valid, deployed binary differs | Deployment/CDN/post-build transform changed the binary after upload     | Compare deployed bytes to local build output.                                 |
+| `Token not found`                                | Captured position has no token in the uploaded symbol data              | Verify captured position, deployed binary identity, and symbol-data coverage. |
 
 Platform-specific failure modes (empty `mappings`, missing `sourcesContent`, Hermes function-offset mismatch,
 Proguard class-name drift, dSYM UUID mismatch) live in the platform reference.
