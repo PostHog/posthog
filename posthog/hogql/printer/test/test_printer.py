@@ -4047,9 +4047,7 @@ class TestPrinter(BaseTest):
         for JSON-string columns, because ClickHouse rejects ``JSONExtractRaw``
         on a ``Tuple`` argument with ``illegal type: Tuple(...)``.
         """
-        credential = DataWarehouseCredential.objects.create(
-            team=self.team, access_key="key", access_secret="secret"
-        )
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         DataWarehouseTable.objects.create(
             team=self.team,
             name="members",

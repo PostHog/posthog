@@ -1526,6 +1526,12 @@ class ClickHousePrinter(BasePrinter):
         return table.table.to_printed_clickhouse(self.context)
 
     def visit_property_type(self, type: ast.PropertyType) -> str:
+        # Respect the joined-subquery projection: if the property has already been
+        # projected through a subquery, defer to base which renders the subquery alias
+        # correctly, rather than re-resolving against the original struct column.
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return super().visit_property_type(type)
+
         # Struct columns (e.g. Parquet structs from the data warehouse) are backed by a ClickHouse
         # Tuple, not a JSON string. Emit chained tupleElement() calls instead of JSONExtractRaw(),
         # which ClickHouse rejects on Tuple arguments. Closes #58480.
@@ -1535,4 +1541,5 @@ class ClickHousePrinter(BasePrinter):
             for link in type.chain:
                 expr = f"tupleElement({expr}, {self.context.add_value(str(link))})"
             return expr
+
         return super().visit_property_type(type)
