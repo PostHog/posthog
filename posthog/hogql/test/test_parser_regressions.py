@@ -340,6 +340,26 @@ class TestParserRegressions(BaseTest):
             self.assertEqual(len(node.select), 1, msg=f"{backend}: from t")
             self.assertIsNotNone(node.select_from, msg=f"{backend}: from t")
 
+    def test_clause_keyword_asterisk_then_postfix_is_a_clause(self):
+        # `<clause-kw> * <postfix-op>` — `qualify * ?. q` — is the
+        # clause whose body is the asterisk-spread `*` extended by the
+        # postfix op, not `<clause-kw-field> * …` arithmetic: the `*`'s
+        # multiplication RHS cannot begin with a postfix operator. The
+        # Rust `asterisk_after_offset_continues_arith` probe answered
+        # "continues arithmetic" for an operator token after `*`.
+        for backend in _BACKENDS:
+            for src in (
+                "select q, qualify * ?. q",
+                "select q, where * :: r",
+                "select q, having * ?. r",
+                "select q, offset * ?. r",
+            ):
+                node = parse_select(src, backend=backend)
+                self.assertEqual(len(node.select), 1, msg=f"{backend}: {src!r}")
+            # guard: `where * r` is `where` the column times `r`
+            node = parse_select("select q, where * r", backend=backend)
+            self.assertEqual(len(node.select), 2, msg=f"{backend}: where * r")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

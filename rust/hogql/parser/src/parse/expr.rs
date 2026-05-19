@@ -2861,6 +2861,12 @@ impl<'a> Parser<'a> {
                 };
                 p4 != TokenKind::LParen
             }
+            // A pure infix / postfix operator after `*` cannot be a
+            // multiplication RHS — `* ?.` / `* ::` is the asterisk
+            // spread extended by the postfix op, so the `*` does NOT
+            // continue arithmetic and the clause keyword stays a
+            // clause (`qualify * ?. q`).
+            _ if is_pure_infix_op(p3) => false,
             _ => true,
         }
     }
