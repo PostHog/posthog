@@ -1,3 +1,5 @@
+import { createTrackedRE2 } from '~/utils/tracked-re2'
+
 import type { CompiledRuleSet, CompiledSamplingRule, SeverityAction } from './evaluate'
 import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH } from './filter-group-match'
 import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-match'
@@ -164,15 +166,21 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
     const rules: CompiledSamplingRule[] = []
     let hasRateLimitRules = false
     for (const row of rows) {
-        let pathRegex: RegExp | null = null
+        // RE2 has linear-time matching; native RegExp here would expose the ingestion
+        // worker to catastrophic-backtracking ReDoS from any admin-authored pattern.
+        // Same engine choice as the new filter-group regex leaves and the rest of
+        // `nodejs/src/cdp/` regex sites.
+        let pathRegex: CompiledSamplingRule['pathRegex'] = null
         if (row.scope_path_pattern) {
             try {
-                pathRegex = new RegExp(row.scope_path_pattern)
+                pathRegex = createTrackedRE2(row.scope_path_pattern, undefined, 'logs-sampling:scope-path')
             } catch {
-                pathRegex = /^$/
+                // Treat invalid / RE2-rejected patterns as match-nothing so the rule
+                // never accidentally over-scopes. Mirrors prior `/^$/` sentinel.
+                pathRegex = createTrackedRE2('^$', undefined, 'logs-sampling:scope-path-fallback')
             }
         }
-        let pathDropPatterns: RegExp[] | null = null
+        let pathDropPatterns: CompiledSamplingRule['pathDropPatterns'] = null
         let pathDropMatchAttributeKey: string | null = null
         let filterGroup: FilterGroupNode | null = null
         if (row.rule_type === 'path_drop') {
@@ -183,9 +191,9 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
                     continue
                 }
                 try {
-                    pathDropPatterns.push(new RegExp(p))
+                    pathDropPatterns.push(createTrackedRE2(p, undefined, 'logs-sampling:path-drop-pattern'))
                 } catch {
-                    /* skip invalid */
+                    /* skip invalid (incl. RE2-rejected lookahead/backreference patterns) */
                 }
             }
             const mak = row.config.match_attribute_key

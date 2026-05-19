@@ -9,7 +9,14 @@
  *   the drop rule UI does not surface them and ingestion has no need.
  * - Unknown operators return false (no match → don't drop). Dropping is
  *   irreversible, so defaults are conservative.
+ * - Regex evaluation uses RE2 (linear-time, no catastrophic backtracking) via
+ *   `createTrackedRE2`, matching the rest of `nodejs/src/cdp/` for ReDoS safety.
+ *   RE2 does not support lookahead / lookbehind / backreferences — a pattern
+ *   using those fails to compile and the leaf permanently no-matches.
  */
+import type RE2 from 're2'
+
+import { createTrackedRE2 } from '~/utils/tracked-re2'
 
 export type SupportedPropertyOperator =
     | 'exact'
@@ -30,8 +37,9 @@ export type SupportedPropertyOperator =
 /**
  * Leaf filter shape — mirrors the AnyPropertyFilter wire format. `_compiledRegex`
  * is populated by `parseFilterGroup` for `regex` / `not_regex` leaves so the hot
- * path does not allocate a fresh `RegExp` per log record. `null` means the
- * pattern failed to compile; the leaf will never match.
+ * path does not allocate a fresh regex per log record. `null` means the pattern
+ * failed to compile under RE2 (invalid syntax, lookahead, etc.) and the leaf
+ * will never match.
  */
 export interface PropertyFilterLeaf {
     key: string
@@ -39,14 +47,14 @@ export interface PropertyFilterLeaf {
     value?: string | number | boolean | (string | number | boolean)[] | null
     type?: string
     /** Internal — set during compile, do not write from outside compile-rules. */
-    _compiledRegex?: RegExp | null
+    _compiledRegex?: RE2 | null
 }
 
 /** Pre-compile a regex pattern for a leaf with the same flags `matchPropertyFilter` uses. */
-export function compileLeafRegex(pattern: unknown): RegExp | null {
+export function compileLeafRegex(pattern: unknown): RE2 | null {
     try {
-        // Python source uses re.DOTALL | re.IGNORECASE — same as JS `s` + `i` flags.
-        return new RegExp(String(pattern), 'is')
+        // Python source uses re.DOTALL | re.IGNORECASE — same as RE2 `s` + `i` flags.
+        return createTrackedRE2(String(pattern), 'is', 'logs-sampling:property-filter-regex')
     } catch {
         return null
     }
@@ -98,7 +106,7 @@ export function matchPropertyFilter(
         // Prefer the compile-time regex if `parseFilterGroup` stamped one onto the
         // leaf. `_compiledRegex === null` means the pattern failed to compile and
         // the leaf should never match (mirrors the catch branch below).
-        let rx: RegExp | null | undefined = filter._compiledRegex
+        let rx: RE2 | null | undefined = filter._compiledRegex
         if (rx === undefined) {
             // Fallback for callers that didn't pre-compile (mostly tests).
             rx = compileLeafRegex(value)

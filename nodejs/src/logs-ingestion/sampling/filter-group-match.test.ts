@@ -88,6 +88,15 @@ describe('matchFilterGroup', () => {
             expect(matchFilterGroup(g, baseRecord({ service_name: 'api' }))).toBe(true)
             expect(matchFilterGroup(g, baseRecord({ resource_attributes: { 'service.name': 'api' } }))).toBe(true)
         })
+        it('service_name (underscore) key still resolves via the OTel-canonical service.name attribute', () => {
+            // Regression guard for the prior bug where the underscore-form filter
+            // looked up `resource_attributes['service_name']`, which OTel never
+            // populates — the value only lives under the dotted key.
+            const g = group({ values: [{ key: 'service_name', operator: 'exact', value: 'api' }] })
+            expect(matchFilterGroup(g, baseRecord({ service_name: 'api' }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ resource_attributes: { 'service.name': 'api' } }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ resource_attributes: { service_name: 'api' } }))).toBe(false)
+        })
         it('severity_text resolves to LogRecord.severity_text (first-class column)', () => {
             const g = group({ values: [{ key: 'severity_text', operator: 'in', value: ['error', 'fatal'] }] })
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(true)

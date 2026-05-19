@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import type RE2 from 're2'
 
 import type { LogRecord } from '../log-record-avro'
 import { type FilterGroupNode, matchFilterGroup } from './filter-group-match'
@@ -20,8 +21,8 @@ export type CompiledSamplingRule = {
     id: string
     ruleType: 'severity_sampling' | 'path_drop' | 'rate_limit'
     scopeService: string | null
-    pathRegex: RegExp | null
-    pathDropPatterns: RegExp[] | null
+    pathRegex: RE2 | null
+    pathDropPatterns: RE2[] | null
     /** When set, path_drop regexes match only this attribute; null uses pathForMatching(). */
     pathDropMatchAttributeKey: string | null
     /**

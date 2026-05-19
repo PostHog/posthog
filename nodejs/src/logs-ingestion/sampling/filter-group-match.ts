@@ -74,7 +74,11 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
     // onto first-class fields, but partial decodes / older records may have only
     // the resource/log attribute present.
     if (key === 'service_name' || key === 'service.name') {
-        return record.service_name ?? record.resource_attributes?.[key]
+        // Always fall back via the OTel-canonical dotted key — `service_name`
+        // (underscore) is only the in-memory Avro field name, never an OTel
+        // resource attribute. Looking up `resource_attributes['service_name']`
+        // would silently miss real data.
+        return record.service_name ?? record.resource_attributes?.['service.name']
     }
     if (key === 'severity_text' || key === 'level') {
         // The logs UI surfaces severity under the `level` attribute name (common
