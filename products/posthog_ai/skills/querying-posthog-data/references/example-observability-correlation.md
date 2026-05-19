@@ -2,9 +2,13 @@
 
 Use when investigating a metric anomaly (latency spike, error rate jump) and you want to inspect a representative trace and the logs from that request in one round trip.
 
-The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `logs` — share `trace_id` as a join key. `posthog.metrics` carries an exemplar `trace_id` on every point when the SDK attached one (OpenTelemetry exemplar pattern). Pulling all three together is one query.
+The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `logs` — share `trace_id` as a join key. The schema is wired so `posthog.metrics` can carry an exemplar `trace_id` on every point when the SDK attached one (OpenTelemetry exemplar pattern).
 
 **Namespacing:** `logs` is registered at the HogQL root level; `posthog.trace_spans` and `posthog.metrics` live under the `posthog.` namespace and must be referenced with the prefix. Bare names fail.
+
+**`trace_id` format:** All three tables store `trace_id` as base64-encoded 16 bytes. Joins are direct equality (no decoding needed). Use `hex(tryBase64Decode(trace_id))` to display in hex.
+
+> ⚠️ **Status (as of PR [#50936](https://github.com/PostHog/posthog/pull/50936)):** exemplar extraction is not yet wired up in `rust/capture-logs/src/metric_record.rs` — the `_exemplars` argument is prefixed with underscore (unused). Every metric row has `trace_id = ''` today. The example query below describes the intended pattern but returns empty until exemplars are populated. The "Works today" alternative further down uses `posthog.trace_spans` directly as the starting point and works against current data.
 
 ## Pattern
 
@@ -57,6 +61,50 @@ ORDER BY timestamp
 - **`UNION ALL` (not `UNION`)** — `UNION` deduplicates and adds cost.
 - **`status_code = 2` is Error** in `posthog.trace_spans` (OTel semantics). Use this column to flag error spans inline in the result.
 - If you need to drill into the span tree visually, take the resulting `trace_id` and call `posthog:apm-trace-get` to get the full waterfall.
+
+## Works today: span-anchored correlation
+
+Until metric exemplars are populated by ingestion, anchor on a span instead. Find an interesting trace (slowest error, longest duration, specific service), then pull its logs.
+
+```sql
+WITH slow_error_trace AS (
+    SELECT trace_id
+    FROM posthog.trace_spans
+    WHERE service_name = 'checkout'
+      AND is_root_span
+      AND status_code = 2
+      AND timestamp >= now() - INTERVAL 1 HOUR
+    ORDER BY duration_nano DESC
+    LIMIT 1
+)
+SELECT
+    'span' AS source,
+    name AS detail,
+    service_name,
+    duration_nano,
+    status_code,
+    NULL AS severity_number,
+    timestamp
+FROM posthog.trace_spans
+WHERE trace_id = (SELECT trace_id FROM slow_error_trace)
+
+UNION ALL
+
+SELECT
+    'log',
+    body,
+    service_name,
+    NULL,
+    NULL,
+    severity_number,
+    timestamp
+FROM logs
+WHERE trace_id = (SELECT trace_id FROM slow_error_trace)
+
+ORDER BY timestamp
+```
+
+`trace_id` is base64 in both tables, so the equality join works directly.
 
 ## Variants
 

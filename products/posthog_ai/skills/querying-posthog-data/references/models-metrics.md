@@ -6,6 +6,8 @@ The `posthog.metrics` table holds OpenTelemetry metric data points from instrume
 
 There is no typed `query-metrics` MCP tool yet — **HogQL is the primary interface for metrics**. The schema mirrors `logs` and `posthog.trace_spans` deliberately so cross-signal joins are cheap, and `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern).
 
+> ⚠️ **Exemplar extraction is not yet wired up in the ingestion pipeline as of PR [#50936](https://github.com/PostHog/posthog/pull/50936)**. The `trace_id` and `span_id` columns exist on `posthog.metrics`, but `rust/capture-logs/src/metric_record.rs` currently ignores the `_exemplars` field (prefixed with underscore → unused). Every ingested metric row has `trace_id = ''` and `span_id = ''` today. The exemplar-based cross-signal correlation patterns documented below describe the intended capability once exemplar ingestion lands.
+
 ## `posthog.metrics`
 
 OpenTelemetry metric points. One row per observation. Backed by ClickHouse `metrics1` (distributed alias `metrics`).
@@ -53,10 +55,10 @@ with `count() AS event_count`, `sum(value) AS total_value`, `min(value) AS min_v
 ### Important notes
 
 - **Unit is metric-dependent.** Always check `unit` — `http.server.duration` may be reported in `ms`, `s`, or `ns` depending on the SDK. Don't assume.
-- **`trace_id` is empty when no exemplar attached**, not null. Filter `trace_id != ''` when using metrics for exemplar lookup.
+- **`trace_id` is currently always empty string** because exemplar extraction isn't wired up (see warning above). The Rust ingestion uses `String::new()` for both `trace_id` and `span_id`. Filtering `trace_id != ''` correctly excludes unset rows once exemplars start landing.
+- **`trace_id` will be base64-encoded** (matching `logs` and `posthog.trace_spans`) once exemplars are populated. Joins to those tables will be direct equality on `trace_id`. Use `hex(tryBase64Decode(trace_id))` to display in hex.
 - **Histograms store `histogram_bounds` and `histogram_counts` per row** — you need to expand them for quantile estimation. For a quick p95-ish summary, `value / count` gives the mean per-point.
 - **Choose the right temporality.** `delta` metrics measure activity in the interval; `cumulative` metrics are running totals. Summing `value` over time only makes sense for `delta`.
-- Cross-signal joins by `trace_id` work against `logs` and `posthog.trace_spans` — same `trace_id` format.
 - User HogQL queries on `posthog.metrics` are capped at 50 GB read per query.
 
 ## `posthog.metric_attributes`

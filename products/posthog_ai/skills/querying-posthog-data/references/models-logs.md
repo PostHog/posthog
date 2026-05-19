@@ -36,9 +36,11 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 
 ### Important notes
 
-- **`trace_id` and `span_id` are zero-padded strings when unset**, not null. Filter `trace_id != '00000000000000000000000000000000'` to find logs with trace context.
+- **`trace_id` and `span_id` are base64-encoded bytes**, not hex. The displayed hex form (e.g. `21EDB3A025A9ECD32ADF3E5D7548A4F4`) comes from the API layer via `hex(tryBase64Decode(trace_id))`. Raw HogQL queries see the 24-character base64 form (e.g. `21EDB3A025A9ECD32ADF...` becomes `IepzoCWp7NMq3z5ddUik9A==`).
+- **Unset `trace_id` is `'AAAAAAAAAAAAAAAAAAAAAA=='`** (16 zero bytes encoded), not the hex zero-padded form. Use `trace_id != 'AAAAAAAAAAAAAAAAAAAAAA=='` to find logs with trace context. Or use the explicit decode: `tryBase64Decode(trace_id) != unhex('00000000000000000000000000000000')`.
+- **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
 - **Prefer `severity_text` over `severity_number` / `level`** for human-readable filters.
-- Cross-signal joins by `trace_id` work against `posthog.trace_spans` and `posthog.metrics`.
+- Cross-signal joins by `trace_id` work against `posthog.trace_spans` (both store base64) and `posthog.metrics` _once exemplar extraction is wired up in ingestion_ — see the metrics reference for the current state.
 - User HogQL queries on `logs` are capped at 50 GB read per query.
 
 ## `log_attributes`
@@ -157,12 +159,21 @@ ORDER BY errors DESC
 LIMIT 10
 ```
 
-**Logs in a specific trace:**
+**Logs in a specific trace** (input the hex form; convert internally):
 
 ```sql
 SELECT timestamp, severity_text, service_name, body
 FROM logs
-WHERE trace_id = '<hex_trace_id>'
+WHERE trace_id = base64Encode(unhex('<hex_trace_id>'))
+ORDER BY timestamp
+```
+
+If you already have the trace_id in base64 form (e.g. selected directly from the table), compare it as-is:
+
+```sql
+SELECT timestamp, severity_text, service_name, body
+FROM logs
+WHERE trace_id = 'IepzoCWp7NMq3z5ddUik9A=='
 ORDER BY timestamp
 ```
 

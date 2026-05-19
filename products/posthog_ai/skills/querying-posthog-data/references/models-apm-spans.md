@@ -16,9 +16,9 @@ OpenTelemetry spans. One row per span. Backed by ClickHouse `trace_spans_distrib
 | ----------------------- | ----------------------------------- | ------------------------------------------------------------------------------------ |
 | `uuid`                  | String                              | Row UUID (not the OTel span_id)                                                      |
 | `team_id`               | Int32                               | Team this span belongs to                                                            |
-| `trace_id`              | String                              | OTel trace ID (hex). Same on every span in the trace                                 |
-| `span_id`               | String                              | OTel span ID (hex). Unique within a trace                                            |
-| `parent_span_id`        | String                              | OTel parent span ID. Zero-padded `00000…000` for root spans                          |
+| `trace_id`              | String                              | OTel trace ID (24-char base64-encoded 16 bytes). Same on every span in the trace     |
+| `span_id`               | String                              | OTel span ID (12-char base64-encoded 8 bytes). Unique within a trace                 |
+| `parent_span_id`        | String                              | OTel parent span ID (12-char base64). `'AAAAAAAAAAA='` (8 zero bytes) for root spans |
 | `is_root_span`          | Bool                                | Convenience flag — prefer this over string-matching `parent_span_id`                 |
 | `name`                  | LowCardinality(String)              | Span name (operation name)                                                           |
 | `kind`                  | Int8                                | OTel SpanKind: 0 Unspecified, 1 Internal, 2 Server, 3 Client, 4 Producer, 5 Consumer |
@@ -42,8 +42,10 @@ OpenTelemetry spans. One row per span. Backed by ClickHouse `trace_spans_distrib
 
 - **Durations are nanoseconds.** Filter `duration_nano > 1000000000` for spans longer than 1 second.
 - **`status_code == 2` is Error.** Use `status_code = 2` (not the string `"ERROR"`).
-- **`parent_span_id` of a root span** is `"00000000000000000000000000000000"`, not null. Use `is_root_span` to find trace entries.
-- Cross-signal joins by `trace_id` work against `logs` and `posthog.metrics` — all three share the same `trace_id` format.
+- **`trace_id`, `span_id`, `parent_span_id` are base64-encoded bytes**, not hex. The MCP layer (`posthog:query-apm-spans`, `posthog:apm-trace-get`) converts to hex via `hex(tryBase64Decode(...))` for display. Raw HogQL queries against this table see the base64 form.
+- **`parent_span_id` of a root span** is `'AAAAAAAAAAA='` (12-char base64 of 8 zero bytes), not null. **Use `is_root_span` to find trace entries** — don't string-match the padding.
+- **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
+- Cross-signal joins by `trace_id` work against `logs` (both store base64). For `posthog.metrics`, exemplar extraction is not yet wired up in the ingestion pipeline — see the metrics reference for the current state.
 - User HogQL queries on `posthog.trace_spans` are capped at 50 GB read per query.
 
 ## `posthog.trace_attributes`
@@ -67,10 +69,10 @@ Prefer `posthog:apm-attributes-list` / `posthog:apm-attribute-values-list` over 
 
 ## Common query patterns
 
-**Top-10 slowest root spans for a service in the last hour:**
+**Top-10 slowest root spans for a service in the last hour** (convert `trace_id` to hex for display):
 
 ```sql
-SELECT name, duration_nano, trace_id, timestamp
+SELECT name, duration_nano, hex(tryBase64Decode(trace_id)) AS trace_id, timestamp
 FROM posthog.trace_spans
 WHERE service_name = 'checkout'
   AND is_root_span
@@ -97,7 +99,7 @@ ORDER BY error_rate DESC
 **Find traces touching both `payments` and `inventory` services:**
 
 ```sql
-SELECT trace_id, min(timestamp) AS started, count() AS span_count
+SELECT hex(tryBase64Decode(trace_id)) AS trace_id, min(timestamp) AS started, count() AS span_count
 FROM posthog.trace_spans
 WHERE service_name IN ('payments', 'inventory')
   AND timestamp >= now() - INTERVAL 1 HOUR
