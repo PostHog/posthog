@@ -46,7 +46,6 @@ ActivityScope = Literal[
     "Experiment",
     "ExperimentHoldout",
     "ExperimentSavedMetric",
-    "ExperimentToSavedMetric",
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
@@ -346,7 +345,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
 ]
 
-field_exclusions: dict[ActivityScope, list[str]] = {
+field_exclusions: dict[str, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
