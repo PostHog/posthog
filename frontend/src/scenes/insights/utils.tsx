@@ -829,7 +829,7 @@ export const getOverrideWarningPropsForButton = (
 }
 
 /** Checks for breakdown features that are unsupported by trend insights with a
- * data warehouse series. */
+ * data warehouse series. Mirrors backend `ValidateDataWarehouseBreakdown`. */
 export const hasUnsupportedBreakdownForDataWarehouseTrends = (
     filtersOverride: DashboardFilter | TileFilters | null | undefined
 ): boolean => {
@@ -839,10 +839,16 @@ export const hasUnsupportedBreakdownForDataWarehouseTrends = (
         return false
     }
 
+    const supportedTypes = new Set(['data_warehouse', 'hogql'])
+
+    if (breakdownFilter.breakdowns?.length) {
+        return breakdownFilter.breakdowns.some((b) => !b.type || !supportedTypes.has(b.type))
+    }
+
     return !!(
-        breakdownFilter.breakdowns?.length ||
-        breakdownFilter.breakdown_type !== 'data_warehouse' ||
         !breakdownFilter.breakdown ||
-        Array.isArray(breakdownFilter.breakdown)
+        Array.isArray(breakdownFilter.breakdown) ||
+        !breakdownFilter.breakdown_type ||
+        !supportedTypes.has(breakdownFilter.breakdown_type)
     )
 }
