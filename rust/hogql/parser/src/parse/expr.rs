@@ -3085,7 +3085,7 @@ impl<'a> Parser<'a> {
     /// parsed expression item indicates the speculative parse
     /// over-consumed (e.g. `LIMIT (1)` absorbed `LIMIT` as a Field
     /// when `LIMIT (1) by (2)` was the intended LIMIT-BY clause).
-    fn peek_is_column_expr_list_boundary(&self) -> bool {
+    pub(crate) fn peek_is_column_expr_list_boundary(&self) -> bool {
         matches!(
             self.peek(),
             TokenKind::Eof

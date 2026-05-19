@@ -1299,6 +1299,29 @@ impl<'a> Parser<'a> {
             {
                 break;
             }
+            // A clause keyword after the trailing comma starts its
+            // clause — not another column — when a valid clause body
+            // follows (`select a, where b` → one column + WHERE b).
+            // With no body it stays a column (`select a, where` → two
+            // columns); `peek_is_clause_terminator` already encodes
+            // that split (incl. the `WINDOW <ident>` / arith-`*`
+            // carve-outs). Speculatively parse the keyword as a
+            // columnExpr: a cursor landing on a clean column-list
+            // boundary means it really was a column, otherwise the
+            // comma was trailing. The `:` guard keeps the alias-before
+            // form (`select a, where : 1`) out of this path.
+            if !cols.is_empty()
+                && self.peek_next() != TokenKind::Colon
+                && self.peek_is_clause_terminator()
+            {
+                let cp = self.checkpoint();
+                let is_column =
+                    self.parse_expr_bp(0).is_ok() && self.peek_is_column_expr_list_boundary();
+                self.restore(cp)?;
+                if !is_column {
+                    break;
+                }
+            }
             // Alias-before: `IDENT : expr` or `"IDENT" : expr` or
             // `<keyword> : expr`. The grammar's `identifier` rule admits
             // any keyword (per the `keyword` production), so e.g.
