@@ -127,9 +127,8 @@ def generate_query_plan(
     ai_config: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> QueryPlan:
-    if user is None:
-        raise PromptRejectedError("AI report must have a user to run.")
-
+    # `user is None` is enforced at the public entry point (`generate_ai_report`)
+    # which is the only caller path into here. Don't repeat the check.
     model_name = resolve_ai_model(ai_config, "planner_model", DEFAULT_PLANNER_MODEL)
     posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
     if trace_correlation_id is not None:

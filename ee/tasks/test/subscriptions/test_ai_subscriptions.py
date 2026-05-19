@@ -5,21 +5,29 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core import mail
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.subscription import Subscription
+from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
+from posthog.temporal.subscriptions.types import DeliverSubscriptionInputs, DeliverSubscriptionResult
 
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.tasks.subscriptions.ai_subscription.delivery import (
+    SlackIntegrationMissingError,
     _split_into_slack_sections,
     generate_ai_subscription_markdown,
+    render_ai_email_html,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
-from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec, QueryPlan, QueryPlanStep
+from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec, HogQLFix, QueryPlan, QueryPlanStep
 from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError, sanitize_prompt
+from ee.tasks.subscriptions.auto_disable import AI_PROMPT_INVALID_DISABLE_REASON
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -144,8 +152,6 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
     @patch("ee.hogai.ai_reports.build_enriched_prompt")
     def test_retries_query_on_hogql_syntax_error_and_succeeds(self, mock_build, mock_executor_cls, mock_llm_cls):
         """A retryable HogQL error → planner is re-invoked for a fix → next execution succeeds."""
-        from ee.hogai.tool_errors import MaxToolRetryableError
-        from ee.tasks.subscriptions.ai_subscription.schemas import HogQLFix
 
         sub = self._make_ai_sub()
         mock_build.return_value = EnrichedPromptSpec(
@@ -184,8 +190,6 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
     @patch("ee.hogai.ai_reports.build_enriched_prompt")
     def test_query_fix_retries_capped_at_two(self, mock_build, mock_executor_cls, mock_llm_cls):
         """After 2 fix retries that still fail, the step falls through to the placeholder."""
-        from ee.hogai.tool_errors import MaxToolRetryableError
-        from ee.tasks.subscriptions.ai_subscription.schemas import HogQLFix
 
         sub = self._make_ai_sub()
         mock_build.return_value = EnrichedPromptSpec(
@@ -251,8 +255,6 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
     @patch("ee.hogai.ai_reports.build_enriched_prompt")
     def test_retry_loop_stops_when_llm_returns_identical_query(self, mock_build, mock_executor_cls, mock_llm_cls):
         """If the fix-LLM echoes the same broken query, the loop must not spin — break early."""
-        from ee.hogai.tool_errors import MaxToolRetryableError
-        from ee.tasks.subscriptions.ai_subscription.schemas import HogQLFix
 
         sub = self._make_ai_sub()
         mock_build.return_value = EnrichedPromptSpec(
@@ -286,15 +288,12 @@ class TestEmailHtmlSanitization(APIBaseTest):
     def test_sanitizes_disallowed_tags(self):
         # nh3 strips disallowed tags and dangerous attributes even if markdown_it ever
         # regresses on `html=False`. This guards the `{{ rendered_html|safe }}` path.
-        from ee.tasks.subscriptions.ai_subscription.delivery import render_ai_email_html
 
         out = render_ai_email_html("# Heading\n\n<script>alert(1)</script>")
         assert "<script" not in out.lower()
         assert "<h1" in out  # legitimate content survives
 
     def test_strips_disallowed_attributes(self):
-        from ee.tasks.subscriptions.ai_subscription.delivery import render_ai_email_html
-
         # If a future markdown extension ever attached an `onclick` to a link, nh3 strips it.
         out = render_ai_email_html("[click](https://example.com)")
         # Attributes allowlist for `a` is `href`, `title` only.
@@ -322,8 +321,6 @@ class TestEmailRendering(APIBaseTest):
         return sub
 
     def test_renders_markdown_to_html_email(self):
-        from django.core import mail
-
         sub = self._ai_sub()
         send_email_ai_subscription_report(
             email="user@posthog.com",
@@ -340,7 +337,6 @@ class TestEmailRendering(APIBaseTest):
 
     def test_campaign_key_uses_workflow_run_id_when_provided(self):
         """`delivery_run_id` takes precedence — same key across retries, fresh key per run."""
-        from posthog.models.messaging import MessagingRecord, get_email_hash
 
         sub = self._ai_sub()
         # First send for run "RUN_A" — succeeds.
@@ -417,7 +413,6 @@ class TestSlackRendering(APIBaseTest):
     def test_missing_integration_raises(self, _mock_team_lookup, mock_slack_integration_cls):
         # Caller (activity) catches SlackIntegrationMissingError and auto-disables;
         # a silent return would record a phantom "success" with no message sent.
-        from ee.tasks.subscriptions.ai_subscription.delivery import SlackIntegrationMissingError
 
         sub = self._ai_sub()
         with pytest.raises(SlackIntegrationMissingError):
@@ -452,8 +447,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
         )
 
     def _delivery_inputs(self, subscription_id: int, delivery_id=None):
-        from posthog.temporal.subscriptions.types import DeliverSubscriptionInputs
-
         return DeliverSubscriptionInputs(
             subscription_id=subscription_id,
             exported_asset_ids=[],
@@ -466,9 +459,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
     def test_prompt_rejected_error_auto_disables(self, mock_generate, mock_auto_disable):
         import asyncio
 
-        from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
-        from posthog.temporal.subscriptions.types import DeliverSubscriptionResult
-
         mock_generate.side_effect = PromptRejectedError("Prompt is empty.")
         mock_auto_disable.return_value = DeliverSubscriptionResult(recipient_results=[])
         sub = self._ai_email_sub()
@@ -476,7 +466,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
 
         assert mock_auto_disable.called, "PromptRejectedError must route through _auto_disable_and_return"
         _, called_reason, _ = mock_auto_disable.call_args.args
-        from ee.tasks.subscriptions.auto_disable import AI_PROMPT_INVALID_DISABLE_REASON
 
         assert called_reason is AI_PROMPT_INVALID_DISABLE_REASON
 
@@ -486,10 +475,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
     def test_missing_slack_integration_auto_disables(self, mock_generate, mock_send_slack, mock_auto_disable):
         import asyncio
 
-        from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
-        from posthog.temporal.subscriptions.types import DeliverSubscriptionResult
-
-        from ee.tasks.subscriptions.ai_subscription.delivery import SlackIntegrationMissingError
         from ee.tasks.subscriptions.auto_disable import SLACK_DISCONNECTED_DISABLE_REASON
 
         mock_generate.return_value = "# Report"
@@ -509,8 +494,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
     def test_cached_markdown_skips_llm_on_retry(self, mock_generate, mock_send_email, mock_load_cache, mock_persist):
         import uuid
         import asyncio
-
-        from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
 
         mock_load_cache.return_value = "# Cached"
         sub = self._ai_email_sub()

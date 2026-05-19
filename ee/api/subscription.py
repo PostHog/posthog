@@ -92,6 +92,59 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
+_AI_CONFIG_ALLOWED_KEYS = frozenset({"model", "planner_model"})
+
+
+def _validate_ai_config_dict(value):
+    """Reject unknown keys + non-whitelisted models at the API boundary so the only
+    values we ever persist are the ones `resolve_ai_model` actually consumes —
+    otherwise an attacker can stash arbitrary JSON that activates later if the
+    delivery-time allowlist grows. Shared between `AiReportRequestSerializer` and
+    `SubscriptionSerializer` so the two field validators don't drift."""
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise ValidationError("ai_config must be an object.")
+    unknown = set(value.keys()) - _AI_CONFIG_ALLOWED_KEYS
+    if unknown:
+        raise ValidationError(
+            f"ai_config keys must be a subset of {sorted(_AI_CONFIG_ALLOWED_KEYS)}; got unknown {sorted(unknown)}."
+        )
+    for key in _AI_CONFIG_ALLOWED_KEYS & value.keys():
+        model_val = value[key]
+        if not isinstance(model_val, str) or model_val not in ALLOWED_AI_MODELS:
+            raise ValidationError(f"ai_config.{key} must be one of {sorted(ALLOWED_AI_MODELS)}; got {model_val!r}.")
+    return value
+
+
+def _ai_create_gate_reason(organization, *, kind: str = "subscriptions", verb: str = "creating") -> Optional[str]:
+    """Returns the human-readable reason why creating an AI subscription / ad-hoc AI
+    report should be rejected, or `None` if all gates pass. Shared between
+    `SubscriptionSerializer`'s create-time validation and the ad-hoc `ai_report`
+    endpoint so the gate set stays in sync as new gates are added. Callers
+    translate the returned reason into the response shape appropriate for their
+    context (ValidationError vs. 403 Response).
+
+    `kind` and `verb` swap the noun in the messages so the caller controls user-facing
+    wording ("AI subscriptions" vs "AI reports", "creating" vs "generating").
+    """
+    if not settings.DEBUG and not is_cloud():
+        return f"AI {kind} are only available in PostHog Cloud."
+    if not organization.is_ai_data_processing_approved:
+        return f"Your organization must approve AI data processing before {verb} AI {kind}."
+    # DEBUG-mode dev environments skip the network feature-flag check so local
+    # testing doesn't require provisioning a flag in the analytics backend.
+    if not settings.DEBUG and not posthoganalytics.feature_enabled(
+        SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+        str(organization.id),
+        groups={"organization": str(organization.id)},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        return f"AI {kind} are not enabled for your organization."
+    return None
+
+
 class AiReportRequestSerializer(serializers.Serializer):
     """Input for the ad-hoc AI report endpoint — same prompt validation as a scheduled AI subscription."""
 
@@ -117,21 +170,7 @@ class AiReportRequestSerializer(serializers.Serializer):
     )
 
     def validate_ai_config(self, value):
-        if value is None:
-            return value
-        if not isinstance(value, dict):
-            raise ValidationError("ai_config must be an object.")
-        allowed_keys = {"model", "planner_model"}
-        unknown = set(value.keys()) - allowed_keys
-        if unknown:
-            raise ValidationError(
-                f"ai_config keys must be a subset of {sorted(allowed_keys)}; got unknown {sorted(unknown)}."
-            )
-        for key in allowed_keys & value.keys():
-            model_val = value[key]
-            if not isinstance(model_val, str) or model_val not in ALLOWED_AI_MODELS:
-                raise ValidationError(f"ai_config.{key} must be one of {sorted(ALLOWED_AI_MODELS)}; got {model_val!r}.")
-        return value
+        return _validate_ai_config_dict(value)
 
 
 class AiReportResponseSerializer(serializers.Serializer):
@@ -283,25 +322,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     def validate_ai_config(self, value):
-        # Reject unknown keys + non-whitelisted models at the API boundary so the only
-        # values we ever persist are the ones `resolve_ai_model` actually consumes —
-        # otherwise an attacker can stash arbitrary JSON that activates later if the
-        # delivery-time allowlist grows.
-        if value is None:
-            return value
-        if not isinstance(value, dict):
-            raise ValidationError("ai_config must be an object.")
-        allowed_keys = {"model", "planner_model"}
-        unknown = set(value.keys()) - allowed_keys
-        if unknown:
-            raise ValidationError(
-                f"ai_config keys must be a subset of {sorted(allowed_keys)}; got unknown {sorted(unknown)}."
-            )
-        for key in allowed_keys & value.keys():
-            model_val = value[key]
-            if not isinstance(model_val, str) or model_val not in ALLOWED_AI_MODELS:
-                raise ValidationError(f"ai_config.{key} must be one of {sorted(ALLOWED_AI_MODELS)}; got {model_val!r}.")
-        return value
+        return _validate_ai_config_dict(value)
 
     def validate(self, attrs):
         existing = self.instance
@@ -381,26 +402,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # consent revoke or flag-off — owners can still disable/delete them, and
             # the delivery path is the authoritative cost gate.
             if existing is None:
-                if not settings.DEBUG and not is_cloud():
-                    raise ValidationError("AI subscriptions are only available in PostHog Cloud.")
-
-                organization = self.context["get_organization"]()
-                if not organization.is_ai_data_processing_approved:
-                    raise ValidationError(
-                        "Your organization must approve AI data processing before creating AI subscriptions."
-                    )
-
-                # DEBUG-mode dev environments skip the network feature-flag check so
-                # local testing doesn't require provisioning a flag in the PostHog
-                # analytics backend. The cloud + consent gates above still apply.
-                if not settings.DEBUG and not posthoganalytics.feature_enabled(
-                    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-                    str(organization.id),
-                    groups={"organization": str(organization.id)},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                ):
-                    raise ValidationError("AI subscriptions are not enabled for your organization.")
+                gate_reason = _ai_create_gate_reason(self.context["get_organization"]())
+                if gate_reason is not None:
+                    raise ValidationError(gate_reason)
 
         self._validate_dashboard_export_subscription(attrs)
 
@@ -1058,30 +1062,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         and returns the rendered markdown. Subject to the same cloud + consent + feature-flag
         gates as creating an AI subscription. Each call burns LLM tokens — throttled.
         """
-        # Same gates as creating an AI subscription. Inlined rather than extracted because
-        # there are only two call sites and the values come from slightly different sources.
-        if not settings.DEBUG and not is_cloud():
-            return Response(
-                {"detail": "AI reports are only available in PostHog Cloud."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        organization = self.organization
-        if not organization.is_ai_data_processing_approved:
-            return Response(
-                {"detail": "Your organization must approve AI data processing before generating AI reports."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not settings.DEBUG and not posthoganalytics.feature_enabled(
-            SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-            str(organization.id),
-            groups={"organization": str(organization.id)},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        ):
-            return Response(
-                {"detail": "AI reports are not enabled for your organization."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # Same gate set as `SubscriptionSerializer` AI create, with response shape
+        # adapted: ValidationError there → 403 Response here. Helper-driven so a
+        # new gate (e.g. quota) only needs adding in one place.
+        gate_reason = _ai_create_gate_reason(self.organization, kind="reports", verb="generating")
+        if gate_reason is not None:
+            return Response({"detail": gate_reason}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = AiReportRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

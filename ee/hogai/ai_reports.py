@@ -147,7 +147,9 @@ async def _arun_plan(
     ai_config: Optional[dict],
     trace_correlation_id: Optional[Union[int, str]],
 ) -> list[str]:
-    executor = AssistantQueryExecutor(team, datetime.now(tz=UTC))
+    # Pass `user` so executor-internal permission checks and tracing match other
+    # call sites (see `ee/hogai/context/insight/query_executor.py` callers in master).
+    executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
 
     async def run_step(step: QueryPlanStep) -> str:
         current_hogql = step.hogql
