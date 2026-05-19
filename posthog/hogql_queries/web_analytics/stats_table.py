@@ -29,10 +29,11 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.events_prefilter import PrefilterHogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.stats_table_strategies import (
+    ChannelTypeStrategy,
     FrustrationMetricsStrategy,
-    MainQueryStrategy,
     PathBounceAvgTimeStrategy,
     PathBounceStrategy,
+    SimpleBreakdownStrategy,
     StatsTableQueryStrategy,
 )
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
@@ -134,15 +135,18 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return "stats_table_path_bounce_and_avg_time"
         if isinstance(strategy, PathBounceStrategy):
             return "stats_table_path_bounce"
+        # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
+        if isinstance(strategy, ChannelTypeStrategy):
+            return "stats_table_channel_type"
 
         if (
-            isinstance(strategy, MainQueryStrategy)
+            isinstance(strategy, SimpleBreakdownStrategy)
             and self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE
             and self.query.includeBounceRate
         ):
             return "stats_table_entry_bounce"
 
-        return "stats_table_main"
+        return "stats_table_simple_breakdown"
 
     def _get_strategy(self) -> StatsTableQueryStrategy:
         if self.query.breakdownBy == WebStatsBreakdown.FRUSTRATION_METRICS:
@@ -150,16 +154,19 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
-                return MainQueryStrategy(self)
+                return SimpleBreakdownStrategy(self)
             if self.query.includeAvgTimeOnPage:
                 return PathBounceAvgTimeStrategy(self)
             if self.query.includeBounceRate:
                 return PathBounceStrategy(self)
 
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
-            return MainQueryStrategy(self, breakdown_override=self._bounce_entry_pathname_breakdown())
+            return SimpleBreakdownStrategy(self, breakdown_override=self._bounce_entry_pathname_breakdown())
 
-        return MainQueryStrategy(self)
+        if self.query.breakdownBy == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+            return ChannelTypeStrategy(self)
+
+        return SimpleBreakdownStrategy(self)
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         column = None
