@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use super::expr::is_bare_field;
 use super::{
     check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
-    kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_COMPARE, BP_MULT,
+    kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_MULT,
 };
 use crate::emit;
 use crate::error::ParseError;
@@ -1337,8 +1337,13 @@ impl<'a> Parser<'a> {
                 json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": Value::Null}),
             );
         }
-        // <expr> PRECEDING/FOLLOWING
-        let val = self.parse_expr_bp(BP_COMPARE + 1)?;
+        // `winFrameBound: columnExpr PRECEDING | columnExpr FOLLOWING`
+        // — the value is a full `columnExpr`, so parse it at binding
+        // power 0. `PRECEDING` / `FOLLOWING` are keywords (never infix
+        // operators), so they always terminate the value parse; the
+        // `AND` separating two bounds of a `BETWEEN` frame sits after
+        // that keyword and is never swallowed.
+        let val = self.parse_expr_bp(0)?;
         let ty = if self.eat_kw(Kw::Preceding)? {
             "PRECEDING"
         } else if self.eat_kw(Kw::Following)? {

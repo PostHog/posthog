@@ -554,3 +554,39 @@ class TestParserRegressions(BaseTest):
             oracle = clear_locations(parse_select(src, backend="cpp-json"))
             got = clear_locations(parse_select(src, backend="rust-json"))
             self.assertEqual(got, oracle, msg=f"rust-json: {src!r}")
+
+    def test_boolean_keyword_as_call_name(self):
+        # `true`/`false` are ordinary identifiers in the grammar, not
+        # lexer tokens — they become Bool Constants only as a bare
+        # columnIdentifier. As a function-call name cpp builds a
+        # `Call(name=...)`. The Rust lexer makes them keywords, so the
+        # parser folded `true(1)` into `ExprCall(Constant(true), …)`.
+        # `null` differs — `NULL` is a real keyword, so `null(1)` stays
+        # an `ExprCall` on the Null constant in both parsers.
+        for src in ("true(1)", "false(1)", "null(1)"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # guard: bare true/false/null are still Constants
+        for src, val in (("true", True), ("false", False), ("null", None)):
+            node = parse_expr(src, backend="rust-json")
+            self.assertIsInstance(node, ast.Constant, msg=src)
+            self.assertEqual(node.value, val, msg=src)
+
+    def test_window_frame_bound_low_precedence_value(self):
+        # A window frame bound's value is a full `columnExpr`, so it
+        # admits comparison / AND / OR operators. The Rust parser
+        # parsed it above comparison binding power and rejected
+        # `ROWS a = b PRECEDING`.
+        cases = (
+            "SELECT count() OVER (ROWS a = b PRECEDING) FROM t",
+            "SELECT count() OVER (ROWS a AND b FOLLOWING) FROM t",
+            # guard: a BETWEEN frame still splits on its own AND
+            "SELECT count() OVER (ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")

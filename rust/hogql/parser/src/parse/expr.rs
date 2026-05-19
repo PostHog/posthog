@@ -422,6 +422,19 @@ impl<'a> Parser<'a> {
                 let body = &raw[2..raw.len() - 1];
                 parse_template_body(body)
             }
+            TokenKind::Keyword(Kw::True | Kw::False)
+                if self.peek_next() == TokenKind::LParen =>
+            {
+                // `true`/`false` are not lexer tokens in the grammar —
+                // they are ordinary identifiers, and become Bool
+                // Constants only as a bare `columnIdentifier`. As a
+                // function-call name (`true(…)`) cpp builds
+                // `Call(name='true')`, so route to the identifier path
+                // when a call paren immediately follows. `null` differs
+                // — `NULL` is a real keyword, so `null(…)` stays an
+                // `ExprCall` on the Null constant.
+                self.parse_ident_lead()
+            }
             TokenKind::Keyword(Kw::True) => {
                 self.bump()?;
                 Ok(emit::constant(Value::Bool(true)))
