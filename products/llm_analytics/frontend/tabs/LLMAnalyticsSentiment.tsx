@@ -164,6 +164,11 @@ function SentimentCardRow({
     // The classifier only sees the last CLASSIFIER_WINDOW chars — show that slice
     const classifierText = fullText.slice(-CLASSIFIER_WINDOW)
     const collapsedText = truncateMiddle(classifierText)
+    // Backend classified this message but the frontend couldn't extract human-readable text
+    // from any content block (e.g. image-only or unrecognized block shape). Surface a hint
+    // instead of an empty paragraph so the row isn't visually blank.
+    const hasText = classifierText.trim().length > 0
+    const fallbackText = '(no readable text)'
     const accentColor = SENTIMENT_BAR_COLOR[sentiment.label as SentimentLabel] ?? 'bg-border'
 
     return (
@@ -182,8 +187,10 @@ function SentimentCardRow({
                 )}
 
                 <div className="flex items-start gap-2">
-                    <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">
-                        {expanded ? classifierText : collapsedText}
+                    <p
+                        className={`flex-1 min-w-0 text-sm m-0 break-words leading-relaxed ${hasText ? 'text-default' : 'text-muted italic'}`}
+                    >
+                        {hasText ? (expanded ? classifierText : collapsedText) : fallbackText}
                     </p>
                     <div className="shrink-0 flex items-center gap-1">
                         {traceCount > 1 && (

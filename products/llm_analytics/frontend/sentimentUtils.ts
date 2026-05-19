@@ -49,8 +49,18 @@ export function computeExtremes(messages?: Record<string | number, MessageScore>
 }
 
 /**
- * Extract plain text from message content, mirroring the backend's _extract_content_text.
- * Handles string content, Anthropic-style content block arrays, and nested structures.
+ * Extract plain text from message content, mirroring the backend's `_extract_content_text`
+ * in `posthog/temporal/llm_analytics/message_utils.py`. Both sides must agree on what
+ * text exists at a given message index — otherwise the sentiment classifier labels a
+ * message that the sentiment card then renders blank.
+ *
+ * Resolution order for each block (matches the backend):
+ *   1. A `text` field — used regardless of the block's `type`, so non-standard or
+ *      missing types (`input_text`, `output_text`, no type at all, ...) still render.
+ *   2. A `content` field — recursed into so nested structures unwrap.
+ *   3. Otherwise the block has no human-readable text — skip it. The backend stringifies
+ *      unknown blocks as a last resort, but raw JSON in a sentiment card is worse than
+ *      a clean fallback indicator handled at the call site.
  */
 export function extractContentText(content: unknown): string {
     if (!content) {
@@ -66,7 +76,7 @@ export function extractContentText(content: unknown): string {
                     return block
                 }
                 if (block && typeof block === 'object') {
-                    if ('type' in block && block.type === 'text' && 'text' in block) {
+                    if ('text' in block && typeof (block as { text: unknown }).text === 'string') {
                         return (block as { text: string }).text
                     }
                     if ('content' in block) {
@@ -78,7 +88,16 @@ export function extractContentText(content: unknown): string {
             .filter(Boolean)
             .join(' ')
     }
-    return String(content)
+    if (typeof content === 'object') {
+        const obj = content as Record<string, unknown>
+        if (typeof obj.text === 'string') {
+            return obj.text
+        }
+        if ('content' in obj) {
+            return extractContentText(obj.content)
+        }
+    }
+    return ''
 }
 
 export function buildSentimentBarTooltip(

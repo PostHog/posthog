@@ -1,4 +1,11 @@
-import { buildSentimentBarTooltip, buildTagTooltip, capitalize, computeExtremes, formatScore } from './sentimentUtils'
+import {
+    buildSentimentBarTooltip,
+    buildTagTooltip,
+    capitalize,
+    computeExtremes,
+    extractContentText,
+    formatScore,
+} from './sentimentUtils'
 
 describe('sentimentUtils', () => {
     describe('capitalize', () => {
@@ -75,6 +82,50 @@ describe('sentimentUtils', () => {
             ['messages without scores', { 0: { label: 'positive' } }, { maxPositive: 0, maxNegative: 0 }],
         ] as const)('%s', (_name, messages, expected) => {
             expect(computeExtremes(messages as any)).toEqual(expected)
+        })
+    })
+
+    describe('extractContentText', () => {
+        it.each([
+            ['null', null, ''],
+            ['undefined', undefined, ''],
+            ['empty string', '', ''],
+            ['plain string', 'hello', 'hello'],
+            ['empty array', [], ''],
+            ['array of strings', ['a', 'b'], 'a b'],
+            // Anthropic-style text block
+            ['text block with type', [{ type: 'text', text: 'hello' }], 'hello'],
+            // OpenAI Responses API uses input_text / output_text — both have a `text` field.
+            // The previous implementation only looked at type='text' blocks, so these
+            // rendered as blank sentiment cards even though the backend classified them.
+            ['input_text block', [{ type: 'input_text', text: 'user said this' }], 'user said this'],
+            ['output_text block', [{ type: 'output_text', text: 'model said this' }], 'model said this'],
+            // Block with a `text` field but no recognized `type` — backend would still extract
+            // text via `_extract_content_text`, frontend must agree.
+            ['text block without type', [{ text: 'naked text' }], 'naked text'],
+            // Anthropic tool_result blocks carry the result under `content`, not `text`.
+            [
+                'tool_result-style block uses content fallback',
+                [{ type: 'tool_result', tool_use_id: 'X', content: 'fallback text' }],
+                'fallback text',
+            ],
+            // Multiple blocks join with a space.
+            [
+                'mixed text blocks join',
+                [
+                    { type: 'text', text: 'first' },
+                    { type: 'input_text', text: 'second' },
+                ],
+                'first second',
+            ],
+            // No text or content fields → empty string, signalling the call site to fall back.
+            ['image-only block', [{ type: 'image', image_url: 'data:...' }], ''],
+            ['tool_use block', [{ type: 'tool_use', id: 'X', name: 'fn' }], ''],
+            // Single-object content (not wrapped in an array) — also handled.
+            ['single object with text', { type: 'text', text: 'plain' }, 'plain'],
+            ['single object with content', { content: 'nested' }, 'nested'],
+        ] as const)('%s', (_name, content, expected) => {
+            expect(extractContentText(content)).toBe(expected)
         })
     })
 
