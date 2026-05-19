@@ -57,6 +57,13 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
     })
 
+    it('shows a date header in the tooltip', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(2)
+        expect(tooltip.title()).toMatch(/Jun/)
+    })
+
     it('opens the persons modal on click for a single series', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
 
@@ -143,6 +150,13 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
     })
 
+    it('omits the header from the tooltip', async () => {
+        renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(0)
+        expect(tooltip.title()).toBe('')
+    })
+
     it('opens the persons modal on click without resolving a day', async () => {
         renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
 
@@ -153,6 +167,19 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
         // Aggregated mode has no DateDisplay in the title.
         expect(personsModal.title()).not.toMatch(/Wednesday/)
+    })
+
+    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
+        renderInsight({
+            query: aggregatedBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(() => {
+            expect(personsModal.get()).toBeInTheDocument()
+        })
     })
 
     it('fires context.onDataPointClick without a day argument', async () => {
