@@ -601,11 +601,10 @@ impl<'a> Parser<'a> {
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
             let right = self.parse_stmt_rhs_expr()?;
-            // `varAssignment` has no trailing `SEMICOLON?` in the
-            // grammar (unlike `exprStmt`) — a `;` after it is a
-            // separate `emptyStmt`, or belongs to an enclosing
-            // construct (e.g. a `for`'s trailing `SEMICOLON?`, which
-            // affects dangling-`else` resolution). Do not consume it.
+            // The `:=` form is an `exprStmt` (`expression (COLONEQUALS
+            // expression)? SEMICOLON?`) — consume the optional trailing
+            // `;` so `if (c) a := b ; else d` sees the `else`.
+            let _ = self.eat(TokenKind::Semicolon)?;
             return Ok(json!({
                 "node": "VariableAssignment",
                 "left": json!({"node": "Field", "chain": [name]}),
@@ -621,11 +620,11 @@ impl<'a> Parser<'a> {
         let expr = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::ColonEquals)? {
             let right = self.parse_stmt_rhs_expr()?;
-            // `varAssignment` has no trailing `SEMICOLON?` in the
-            // grammar (unlike `exprStmt`) — a `;` after it is a
-            // separate `emptyStmt`, or belongs to an enclosing
-            // construct (e.g. a `for`'s trailing `SEMICOLON?`, which
-            // affects dangling-`else` resolution). Do not consume it.
+            // `exprStmt: expression (COLONEQUALS expression)? SEMICOLON?`
+            // — the `:=` form is an `exprStmt`, so it consumes an
+            // optional trailing `;`. Without it `if (c) a := b ; else
+            // d` would not see the `else` (the `;` would strand).
+            let _ = self.eat(TokenKind::Semicolon)?;
             return Ok(json!({
                 "node": "VariableAssignment",
                 "left": expr,

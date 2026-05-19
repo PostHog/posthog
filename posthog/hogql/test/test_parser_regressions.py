@@ -156,6 +156,24 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_assignment_statement_consumes_trailing_semicolon(self):
+        # `exprStmt: expression (COLONEQUALS expression)? SEMICOLON?` —
+        # the `:=` form is an exprStmt and consumes its optional
+        # trailing `;`. Without that, `if (c) a := b ; else d` strands
+        # the `;` and the `else` is parsed as a bare Field instead of
+        # binding to the `if`. (`varDecl`'s `LET …` form has no
+        # `SEMICOLON?` and must not consume it.)
+        cases = (
+            "if (c) a := b ; else d",
+            "if (c) (a) := b ; else d",
+            "if (c) a := b ;; else d",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`
