@@ -45,9 +45,15 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
+    // Snapshot the description when the modal opens, not on every external change to
+    // experiment.description — otherwise an auto-refresh (or another tab's save) mid-edit
+    // would clobber the user's draft.
     useEffect(() => {
-        setTempDescription(experiment.description || '')
-    }, [experiment.description])
+        if (isDescriptionModalOpen) {
+            setTempDescription(experiment.description || '')
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isDescriptionModalOpen])
 
     const { created_by } = experiment
 
