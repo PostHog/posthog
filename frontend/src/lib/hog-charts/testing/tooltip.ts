@@ -31,6 +31,9 @@ export function getHogChartTooltip(): HTMLElement | null {
 
 /** Wait until a chart tooltip is present in the document and return it. */
 export async function waitForHogChartTooltip(timeout = 3000): Promise<HTMLElement> {
+    // Flush pending microtasks so React portal commits complete before polling.
+    await new Promise((r) => setTimeout(r, 0))
+
     let tooltip!: HTMLElement
     await waitFor(
         () => {
@@ -40,7 +43,7 @@ export async function waitForHogChartTooltip(timeout = 3000): Promise<HTMLElemen
             }
             tooltip = el
         },
-        { timeout }
+        { timeout, interval: 10 }
     )
     return tooltip
 }
