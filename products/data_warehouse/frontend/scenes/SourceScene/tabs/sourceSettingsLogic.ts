@@ -622,10 +622,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         total_tables_seen,
                     })
                     // Connected and got an empty table list — almost always a permissions
-                    // gap or a typo in the schema name. Warn rather than silently succeed.
+                    // or configuration issue on the source. Warn rather than silently succeed.
+                    // If we also just removed previously-tracked schemas, call that out
+                    // explicitly so the user knows their tracking list changed.
                     if (total_tables_seen === 0) {
+                        const deletedSuffix =
+                            deleted > 0
+                                ? ` ${deleted} previously tracked table(s) were removed from the tracking list.`
+                                : ''
                         lemonToast.warning(
-                            'No tables found. Check that the configured user has SELECT access and that the schema name is correct.'
+                            `No tables found. Check the source credentials, permissions, and configuration.${deletedSuffix}`
                         )
                         return
                     }
