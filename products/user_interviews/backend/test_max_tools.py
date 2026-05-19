@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from products.user_interviews.backend.models import UserInterviewTopic
 
@@ -73,45 +74,32 @@ class TestCreateUserInterviewTopicTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_rejects_empty_topic(self):
+    @parameterized.expand(
+        [
+            (
+                "empty_topic",
+                {"topic": "   ", "interviewee_emails": ["alex@example.com"]},
+                "topic is required",
+            ),
+            (
+                "no_interviewees",
+                {"topic": "Some topic", "interviewee_emails": [], "interviewee_distinct_ids": []},
+                "interviewee",
+            ),
+            (
+                "invalid_emails",
+                {"topic": "Some topic", "interviewee_emails": ["not-an-email", "also bad"]},
+                "not-an-email",
+            ),
+        ]
+    )
+    async def test_arun_impl_rejects_invalid_input(self, _name, kwargs, expected_content_fragment):
         tool = self._tool()
 
-        content, artifact = await tool._arun_impl(
-            topic="   ",
-            interviewee_emails=["alex@example.com"],
-        )
-
-        assert "Topic is required" in content
-        assert artifact["error"] == "validation_failed"
-        assert not await sync_to_async(UserInterviewTopic.objects.filter(team=self.team).exists)()
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_arun_impl_rejects_no_interviewees(self):
-        tool = self._tool()
-
-        content, artifact = await tool._arun_impl(
-            topic="Some topic",
-            interviewee_emails=[],
-            interviewee_distinct_ids=[],
-        )
-
-        assert "interviewee" in content.lower()
-        assert artifact["error"] == "validation_failed"
-        assert not await sync_to_async(UserInterviewTopic.objects.filter(team=self.team).exists)()
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_arun_impl_rejects_invalid_emails(self):
-        tool = self._tool()
-
-        content, artifact = await tool._arun_impl(
-            topic="Some topic",
-            interviewee_emails=["not-an-email", "also bad"],
-        )
+        content, artifact = await tool._arun_impl(**kwargs)
 
         assert artifact["error"] == "validation_failed"
-        assert "not-an-email" in content
+        assert expected_content_fragment in content.lower()
         assert not await sync_to_async(UserInterviewTopic.objects.filter(team=self.team).exists)()
 
     @pytest.mark.django_db
