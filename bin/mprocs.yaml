@@ -35,10 +35,6 @@ procs:
             capability: pinned
 
     backend:
-        # uv sync runs in .flox/env/on-activate.sh before `hogli start` ever
-        # spawns this proc, so re-running it here is dead-weight cold-Python
-        # fork. The same applies to celery-worker, celery-beat, and
-        # webhook-s3-sink below.
         shell: 'bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
         groups:
