@@ -19818,6 +19818,12 @@ export namespace Schemas {
       cohorts: LocalEvaluationResponseCohorts;
     }
 
+    export interface LogsAlertFilters {
+      filterGroup?: PropertyGroupFilter | null;
+      serviceNames?: string[] | null;
+      severityLevels?: LogSeverityLevel[] | null;
+    }
+
     /**
      * * `above` - Above
     * `below` - Below
@@ -19891,7 +19897,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
@@ -20062,7 +20068,7 @@ export namespace Schemas {
 
     export interface LogsAlertSimulateRequest {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
-      filters: unknown;
+      filters: LogsAlertFilters;
       /**
          * Threshold count to evaluate against.
          * @minimum 1
@@ -27436,7 +27442,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
