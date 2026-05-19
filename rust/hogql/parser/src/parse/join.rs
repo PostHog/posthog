@@ -113,6 +113,16 @@ impl<'a> Parser<'a> {
             let mut outer = serde_json::Map::new();
             outer.insert("node".into(), Value::String("JoinExpr".into()));
             outer.insert("table".into(), wrapped);
+            // `tableExpr PIVOT (...)` is itself a `tableExpr`, so the
+            // `JoinExprTable: tableExpr FINAL? sampleClause?` wrapper can
+            // still decorate it — `FROM (t PIVOT (...) FINAL)`. cpp puts
+            // `table_final` / `sample` on this outer JoinExpr.
+            if self.eat_kw(Kw::Final)? {
+                outer.insert("table_final".into(), Value::Bool(true));
+            }
+            if let Some(s) = self.try_consume_sample()? {
+                outer.insert("sample".into(), s);
+            }
             return Ok(Value::Object(outer));
         }
         Ok(left)

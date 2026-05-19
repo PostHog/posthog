@@ -114,6 +114,24 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_final_after_pivot(self):
+        # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the
+        # `JoinExprTable: tableExpr FINAL? sampleClause?` wrapper can
+        # decorate it: `FROM (t PIVOT (…) FINAL)`. The Rust parser
+        # parsed PIVOT at the join level and stopped, rejecting a
+        # trailing FINAL / SAMPLE with "expected )".
+        cases = (
+            "SELECT 1 FROM (t PIVOT (a FOR b IN (c)) FINAL)",
+            "SELECT 1 FROM (t PIVOT (a FOR b IN (c)) SAMPLE 1)",
+            "SELECT 1 FROM (t UNPIVOT (a FOR b IN (c)) FINAL)",
+            "SELECT 1 FROM t PIVOT (a FOR b IN (c)) FINAL",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_clause_keyword_as_last_group_by_key(self):
         # `GROUP BY tool, window HAVING …` — `window` is the WINDOW
         # clause keyword and also a valid Field. As the last GROUP BY
