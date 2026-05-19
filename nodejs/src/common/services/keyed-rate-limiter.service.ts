@@ -71,66 +71,13 @@ export class KeyedRateLimiterService {
         return [`${this.keyPrefix}/${req.id}`, nowSeconds, req.cost, bucketSize, refillRate, ttlSeconds]
     }
 
-    public async rateLimitMany(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
-        if (requests.length === 0) {
-            return []
-        }
-
-        const bucketSizes = requests.map((req) => {
-            const bucketSize = req.bucketSize ?? this.config.bucketSize
-            if (bucketSize == null) {
-                throw new Error(`KeyedRateLimiterService(${this.config.name}): missing bucketSize for ${req.id}`)
-            }
-            return bucketSize
-        })
-
-        const res = await this.redis.usePipeline(
-            { name: `keyed-rate-limiter:${this.config.name}`, failOpen: true },
-            (pipeline) => {
-                requests.forEach((req) => {
-                    pipeline.checkRateLimitV2(...this.rateLimitArgs(req))
-                })
-            }
-        )
-
-        redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitMany' }, requests.length)
-
-        if (!res) {
-            // failOpen — Redis blipped; allow everything rather than dropping ingestion.
-            requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'allowed' }, requests.length)
-            return requests.map((req, i) => [req.id, { tokens: bucketSizes[i], isRateLimited: false }])
-        }
-
-        let allowed = 0
-        let limited = 0
-        const out: [string, KeyedRateLimit][] = requests.map((req, index) => {
-            const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensAfter = tokenRes[1]?.[1] ?? bucketSizes[index]
-            const isRateLimited = Number(tokensAfter) <= 0
-            if (isRateLimited) {
-                limited++
-            } else {
-                allowed++
-            }
-            return [req.id, { tokens: Number(tokensAfter), isRateLimited }]
-        })
-        if (allowed > 0) {
-            requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'allowed' }, allowed)
-        }
-        if (limited > 0) {
-            requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'limited' }, limited)
-        }
-        return out
-    }
-
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
-     * batches the per-input decisions match rateLimitMany exactly.
+     * Token-bucket rate limit decision for a batch of requests. N inputs across
+     * M unique ids dispatch only M Redis calls — per-input decisions are fanned
+     * out client-side from each id's `tokensBefore`. Per-id bucket params come
+     * from the first request seen for that id.
      *
      * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
-     * Per-id bucket params come from the first request seen for that id.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
