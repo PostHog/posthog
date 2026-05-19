@@ -7,57 +7,10 @@ Env vars:
   MAX_LEN  — truncation limit for span names (default 100, 0 = unlimited)
 """
 
-import json
 import os
 import sys
 
-
-SPAN_KIND = {0: "Unspecified", 1: "Internal", 2: "Server", 3: "Client", 4: "Producer", 5: "Consumer"}
-STATUS_CODE = {0: "Unset", 1: "OK", 2: "Error"}
-def is_zero_id(s):
-    return not s or set(s) == {"0"}
-
-
-def load_trace_file(path):
-    with open(path) as f:
-        raw = json.load(f)
-    if isinstance(raw, list) and raw and raw[0].get("type") == "text":
-        raw = json.loads(raw[0]["text"])
-    if isinstance(raw, dict):
-        for key in ("trace_spans", "spans", "results"):
-            if key in raw and isinstance(raw[key], list):
-                return raw[key]
-        return [raw]
-    return raw if isinstance(raw, list) else [raw]
-
-
-def fmt_duration(nanos):
-    if nanos is None:
-        return "?"
-    try:
-        n = int(nanos)
-    except (TypeError, ValueError):
-        return str(nanos)
-    if n >= 1_000_000_000:
-        return f"{n / 1_000_000_000:.2f}s"
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}ms"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}\u00b5s"
-    return f"{n}ns"
-
-
-def truncate(s, max_len):
-    if max_len <= 0 or len(s) <= max_len:
-        return s
-    return s[:max_len] + "..."
-
-
-def is_root(span):
-    if span.get("is_root_span"):
-        return True
-    parent = span.get("parent_span_id") or ""
-    return is_zero_id(parent)
+from _common import SPAN_KIND, fmt_duration, is_root, load_trace_file, truncate
 
 
 max_len = int(os.environ.get("MAX_LEN", "100"))

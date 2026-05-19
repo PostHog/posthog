@@ -3,13 +3,7 @@
 import json
 import sys
 
-
-def load_trace_data(source):
-    raw = json.load(source)
-    # Claude Code persists large MCP tool results as [{"type": "text", "text": "<json>"}] — unwrap to get the actual trace data.
-    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and raw[0].get("type") == "text":
-        raw = json.loads(raw[0]["text"])
-    return raw
+from _common import unwrap_text_envelope
 
 
 def structure(obj, depth=0, max_depth=3):
@@ -38,7 +32,7 @@ def structure(obj, depth=0, max_depth=3):
 
 if len(sys.argv) > 1:
     with open(sys.argv[1]) as f:
-        data = load_trace_data(f)
+        data = unwrap_text_envelope(json.load(f))
 else:
-    data = load_trace_data(sys.stdin)
+    data = unwrap_text_envelope(json.load(sys.stdin))
 structure(data)

@@ -15,45 +15,15 @@ Env vars:
   MAX_LEN  — truncation limit per match snippet (default 200, 0 = unlimited)
 """
 
-import json
 import os
 import sys
 
+from _common import SPAN_KIND, fmt_duration, load_trace_file
 
-SPAN_KIND = {0: "Unspecified", 1: "Internal", 2: "Server", 3: "Client", 4: "Producer", 5: "Consumer"}
 
 # Span fields scanned for the keyword. Excludes timestamp/duration/kind/status_code —
 # numeric/structural fields that are better matched via filterGroup, not free text.
 SEARCH_FIELDS = ("name", "service_name", "span_id", "trace_id", "parent_span_id", "uuid")
-
-
-def load_trace_file(path):
-    with open(path) as f:
-        raw = json.load(f)
-    if isinstance(raw, list) and raw and raw[0].get("type") == "text":
-        raw = json.loads(raw[0]["text"])
-    if isinstance(raw, dict):
-        for key in ("trace_spans", "spans", "results"):
-            if key in raw and isinstance(raw[key], list):
-                return raw[key]
-        return [raw]
-    return raw if isinstance(raw, list) else [raw]
-
-
-def fmt_duration(nanos):
-    if nanos is None:
-        return "?"
-    try:
-        n = int(nanos)
-    except (TypeError, ValueError):
-        return str(nanos)
-    if n >= 1_000_000_000:
-        return f"{n / 1_000_000_000:.2f}s"
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}ms"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}\u00b5s"
-    return f"{n}ns"
 
 
 def snippet(value, term, max_len):
