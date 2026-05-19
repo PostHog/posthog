@@ -1290,7 +1290,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": None,
                 "duplicated": False,
                 "from_template": True,
-                "has_description": False,
+                "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
