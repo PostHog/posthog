@@ -39,9 +39,9 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import absolute_uri
 
-from .facade.api import UserInterviewsAPI
-from .facade.enums import SEARCH_DOCUMENT_TYPES
-from .models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
+from ..facade.api import UserInterviewsAPI
+from ..facade.enums import SEARCH_DOCUMENT_TYPES
+from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
 
