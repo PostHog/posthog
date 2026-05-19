@@ -236,21 +236,35 @@ class TestCollectThreadMessages:
                     "bot_id": "B_GRAFANA",
                     "bot_profile": {"name": "Grafana"},
                     "text": "alert: latency p95 above 2s",
+                    "ts": "1.000",
                 }
             ]
         )
 
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
 
-        assert result == [{"user": "Grafana", "text": "alert: latency p95 above 2s"}]
+        assert result == [{"user": "Grafana", "text": "alert: latency p95 above 2s", "ts": "1.000"}]
         mock_get_user_info.assert_not_called()
 
     def test_bot_without_profile_falls_back_to_username_field(self, mock_get_user_info):
-        self._set_thread([{"bot_id": "B_HOOK", "username": "PostHog Webhook", "text": "ping"}])
+        self._set_thread([{"bot_id": "B_HOOK", "username": "PostHog Webhook", "text": "ping", "ts": "2.000"}])
 
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert result == [{"user": "PostHog Webhook", "text": "ping"}]
+        assert result == [{"user": "PostHog Webhook", "text": "ping", "ts": "2.000"}]
+
+    def test_includes_ts_for_initiator_disambiguation(self, mock_get_user_info):
+        self._set_thread(
+            [
+                {"user": "U_ANDY", "text": "context", "ts": "1.000"},
+                {"user": "U_ANDY", "text": "@PostHog fix this", "ts": "2.000"},
+            ]
+        )
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR")
+
+        assert [m["ts"] for m in result] == ["1.000", "2.000"]
 
     def test_preserves_user_mention_replacement(self, mock_get_user_info):
         self._set_thread([{"user": "U_ANDY", "text": "hey <@UBOT> can you help"}])
