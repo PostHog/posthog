@@ -207,6 +207,18 @@ class CreateUserInterviewTopicTool(MaxTool):
                 },
             )
 
+        if not questions:
+            return (
+                "At least one interview question is required.",
+                {
+                    "error": "validation_failed",
+                    "error_message": (
+                        "Provide at least one question in `questions`. "
+                        "The AI voice agent needs questions to ask during the interview."
+                    ),
+                },
+            )
+
         validator = EmailWithDisplayNameValidator()
         invalid_emails: list[str] = []
         for email in emails:

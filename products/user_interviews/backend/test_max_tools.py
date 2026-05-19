@@ -88,8 +88,17 @@ class TestCreateUserInterviewTopicTool(BaseTest):
             ),
             (
                 "invalid_emails",
-                {"topic": "Some topic", "interviewee_emails": ["not-an-email", "also bad"]},
+                {
+                    "topic": "Some topic",
+                    "interviewee_emails": ["not-an-email", "also bad"],
+                    "questions": ["A question?"],
+                },
                 "not-an-email",
+            ),
+            (
+                "no_questions",
+                {"topic": "Some topic", "interviewee_emails": ["alex@example.com"], "questions": []},
+                "question",
             ),
         ]
     )
