@@ -1776,18 +1776,18 @@
         }
     },
     "external-data-schemas-incremental-fields-create": {
-        "description": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema. The operation_id is external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.",
+        "description": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. If sync_type, incremental_field, incremental_field_type, primary_key_columns, or cdc_table_mode are included in the request body, the schema's sync configuration is updated in the same call. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Refresh candidate incremental fields for a schema",
-        "title": "Refresh candidate incremental fields for a schema",
+        "summary": "Inspect and optionally update incremental field configuration",
+        "title": "Inspect and optionally update incremental field configuration",
         "required_scopes": ["external_data_source:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-schemas-list": {

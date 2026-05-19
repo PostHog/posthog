@@ -109,16 +109,17 @@ tools:
         scopes:
             - external_data_source:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
-        title: Refresh candidate incremental fields for a schema
+        title: Inspect and optionally update incremental field configuration
         description: >
             Re-inspect the source for a single table schema and return the currently available incremental fields,
             detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available.
-            Use this when the source schema has changed, an incremental field has been dropped, or the user wants to
-            switch to a different incremental_field/sync_type on an existing schema. The operation_id is
-            external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.
+            If sync_type, incremental_field, incremental_field_type, primary_key_columns, or cdc_table_mode are
+            included in the request body, the schema's sync configuration is updated in the same call. Use this when
+            the source schema has changed, an incremental field has been dropped, or the user wants to switch to a
+            different incremental_field/sync_type on an existing schema.
     external-data-schemas-list:
         operation: external_data_schemas_list
         enabled: true

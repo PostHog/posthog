@@ -32,7 +32,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import Webhoo
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 pytestmark = [
     pytest.mark.django_db,
@@ -1616,9 +1616,9 @@ class TestIncrementalFieldsEndpoint:
             incremental_fields=[
                 {
                     "label": "id",
-                    "type": "integer",
+                    "type": IncrementalFieldType.Integer,
                     "field": "id",
-                    "field_type": "integer",
+                    "field_type": IncrementalFieldType.Integer,
                     "nullable": False,
                     "is_indexed": True,
                 }
