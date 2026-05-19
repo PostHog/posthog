@@ -116,6 +116,7 @@ export interface PaginatedSignalReportListApi {
  * `zendesk` - Zendesk
  * `conversations` - Conversations
  * `error_tracking` - Error tracking
+ * `web_analytics` - Web analytics
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -127,6 +128,7 @@ export const SourceProductEnumApi = {
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
+    WebAnalytics: 'web_analytics',
 } as const
 
 /**
@@ -137,6 +139,8 @@ export const SourceProductEnumApi = {
  * `issue_created` - Issue created
  * `issue_reopened` - Issue reopened
  * `issue_spiking` - Issue spiking
+ * `web_vitals_threshold_crossing` - Web vitals threshold crossing
+ * `web_vitals_regression` - Web vitals regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -149,6 +153,8 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueCreated: 'issue_created',
     IssueReopened: 'issue_reopened',
     IssueSpiking: 'issue_spiking',
+    WebVitalsThresholdCrossing: 'web_vitals_threshold_crossing',
+    WebVitalsRegression: 'web_vitals_regression',
 } as const
 
 export interface SignalSourceConfigApi {
