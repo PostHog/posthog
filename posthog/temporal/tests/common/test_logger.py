@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import operator
 import dataclasses
+from typing import cast
 
 import pytest
 import freezegun
@@ -797,7 +798,10 @@ def test_log_messages_renderer_event_level_log_source_override():
         "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",  # per-schema override
     }
 
-    rendered = renderer(logger=None, name="info", event_dict=event_dict)
+    # `LogMessagesRenderer.__call__` ignores the logger arg in this branch; cast to satisfy mypy.
+    from posthog.temporal.common.logger import Logger
+
+    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
     assert rendered["produce_message"] is not None
 
     payload = json.loads(rendered["produce_message"].decode("utf-8"))
