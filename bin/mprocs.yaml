@@ -216,7 +216,7 @@ procs:
             tech: Rust
 
     agent-core-watch:
-        shell: 'pnpm --filter @posthog/agent-core exec tsc -b --watch --preserveWatchOutput'
+        shell: 'pnpm --filter @posthog/agent-core start:dev'
         capability: agent_runtime
         ready_pattern: 'Watching for file changes'
         groups:

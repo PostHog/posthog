@@ -10,6 +10,7 @@
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "pnpm clean && tsc -b",
+        "start:dev": "tsc -b --watch --preserveWatchOutput",
         "clean": "rm -rf dist",
         "typescript:check": "tsc --noEmit -p .",
         "lint": "eslint .",
