@@ -2,7 +2,6 @@ from datetime import datetime
 
 from posthog.test.base import BaseTest
 
-from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -12,6 +11,7 @@ from posthog.hogql.escape_sql import (
     escape_postgres_identifier,
 )
 
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.models.utils import UUIDT
 
 
