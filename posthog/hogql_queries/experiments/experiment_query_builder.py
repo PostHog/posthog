@@ -247,13 +247,11 @@ class ExperimentQueryBuilder:
     def _get_maturity_window_seconds(self) -> int:
         """
         Returns the total maturity window in seconds.
-        For retention metrics: conversion_window + retention_window_end.
+        For retention metrics: conversion_window (may be 0) + retention_window_end.
         For other metrics: conversion_window.
-        Returns 0 if no conversion window is configured.
+        Returns 0 when no maturity window can be derived.
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
-        if conversion_window_seconds == 0:
-            return 0
 
         if isinstance(self.metric, ExperimentRetentionMetric):
             retention_window_end_seconds = conversion_window_to_seconds(

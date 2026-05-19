@@ -46,10 +46,10 @@ export function ExperimentsSettings(): JSX.Element {
                 <ExperimentRecalculationTime />
             </div>
             <div>
-                <LemonLabel className="text-base">Default conversion window filter</LemonLabel>
+                <LemonLabel className="text-base">Default participant measurability filter</LemonLabel>
                 <p className="text-secondary mt-2">
-                    When enabled, new experiments will only count participants whose full conversion window has elapsed.
-                    Can be overridden per experiment.
+                    When enabled, new experiments exclude participants who haven't been in the experiment long enough to
+                    be evaluated. Can be overridden per experiment.
                 </p>
                 <DefaultOnlyCountMaturedUsers />
             </div>

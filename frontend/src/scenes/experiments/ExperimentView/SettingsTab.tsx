@@ -65,10 +65,10 @@ export function SettingsTab(): JSX.Element {
                 </div>
             )}
             <div>
-                <h2 className="font-semibold text-lg">Conversion windows</h2>
+                <h2 className="font-semibold text-lg">Participant measurability</h2>
                 <div className="flex items-center gap-2">
                     <LemonCheckbox
-                        label="Require completed conversion window"
+                        label="Only count measurable participants"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
                             updateExperiment({ only_count_matured_users: checked })
@@ -76,8 +76,9 @@ export function SettingsTab(): JSX.Element {
                     />
                 </div>
                 <p className="text-muted text-xs mt-1">
-                    Only count participants whose full conversion window has elapsed. Applies to metrics with a custom
-                    time window. Default is set in{' '}
+                    Exclude participants who haven't been in the experiment long enough to be evaluated. For metrics
+                    with a conversion window, waits for the window to elapse. For retention metrics, waits for the
+                    retention window to close. Default is set in{' '}
                     <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
                         environment settings
                     </Link>
