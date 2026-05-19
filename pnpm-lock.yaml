@@ -735,6 +735,9 @@ importers:
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
+      '@posthog/products-wizard':
+        specifier: workspace:*
+        version: link:../products/wizard
       '@posthog/products-workflows':
         specifier: workspace:*
         version: link:../products/workflows
@@ -3501,6 +3504,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/wizard: {}
 
   products/workflows:
     dependencies:
