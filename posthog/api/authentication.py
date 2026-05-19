@@ -19,7 +19,7 @@ from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
 from django.dispatch import receiver
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -445,6 +445,62 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             if e.__class__.__name__ == "AxesBackendPermissionDenied":
                 return axes_locked_out(request)
             raise
+
+
+# Known good emails seeded by setup_dev / generate_demo_data so the frontend can
+# label them. Anything else is shown without a label.
+DEV_LOGIN_KNOWN_EMAIL_LABELS = {
+    "test@posthog.com": "Default test user",
+}
+
+
+class DevLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        write_only=True,
+        help_text="Email of the active user to log in as. Only honored when settings.DEBUG is True.",
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        return {"success": True}
+
+    def create(self, validated_data: dict[str, str]) -> Any:
+        if not settings.DEBUG:
+            raise Http404()
+
+        request = self.context["request"]
+        try:
+            user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User not found", code="user_not_found")
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(request)
+        request.session["reauth"] = "false"
+        request.session.save()
+        report_user_logged_in(user, social_provider="")
+        return user
+
+
+class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """
+    Dev-only convenience endpoint. Lists active users and lets the login UI
+    one-click sign in as any of them without a password. Returns 404 when
+    settings.DEBUG is False so this surface never exists in production.
+    """
+
+    queryset = User.objects.none()
+    serializer_class = DevLoginSerializer
+    permission_classes = (permissions.AllowAny,)
+
+    def list(self, request: Request) -> Response:
+        if not settings.DEBUG:
+            raise Http404()
+        users = list(
+            User.objects.filter(is_active=True).order_by("email").values("email", "first_name", "is_staff")[:50]
+        )
+        for entry in users:
+            entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
+        return Response({"users": users})
 
 
 class TwoFactorSerializer(serializers.Serializer):

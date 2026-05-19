@@ -30,6 +30,13 @@ export interface PrecheckResponseType {
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
 
+export interface DevUser {
+    email: string
+    first_name: string
+    is_staff: boolean
+    label: string | null
+}
+
 // Routes that should be handled by Django, not the React router
 const BACKEND_ONLY_ROUTES = [
     '/login/vercel/continue',
@@ -80,6 +87,7 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
+        devLogin: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -110,6 +118,22 @@ export const loginLogic = kea<loginLogicType>([
                     breakpoint()
                     const response = await api.create<any>('api/login/precheck', { email })
                     return { status: 'completed', ...response }
+                },
+            },
+        ],
+        devUsers: [
+            [] as DevUser[],
+            {
+                // Not on a loader because we only need this on the login page, and it's not used anywhere else.
+                loadDevUsers: async (_, breakpoint) => {
+                    breakpoint()
+                    try {
+                        const response = await api.get<{ users: DevUser[] }>('api/login/dev')
+                        return response.users
+                    } catch {
+                        // Endpoint is dev-only — silently no-op outside DEBUG.
+                        return []
+                    }
                 },
             },
         ],
@@ -190,10 +214,22 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+            window.location.reload()
+        },
+        devLogin: async ({ email }) => {
+            actions.clearGeneralError()
+            try {
+                await api.create<any>('api/login/dev', { email })
+            } catch (e) {
+                const { code, detail } = e as Record<string, any>
+                actions.setGeneralError(code || 'dev_login_failed', detail || 'Dev login failed')
+                return
+            }
+            handleLoginRedirect()
             window.location.reload()
         },
         precheckSuccess: async (_, breakpoint) => {
