@@ -74,6 +74,11 @@ export interface LemonButtonPropsBase
     noPadding?: boolean
     size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
+    /**
+     * Optional stable id for autocapture / action matching when the project includes `data-attr-id` in
+     * **Project settings → Data attributes**. Defaults to the same value as `data-attr` when omitted.
+     */
+    'data-attr-id'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
@@ -103,6 +108,7 @@ export type SideAction = Pick<
     | 'tooltip'
     | 'tooltipPlacement'
     | 'data-attr'
+    | 'data-attr-id'
     | 'aria-label'
     | 'status'
     | 'targetBlank'
@@ -208,7 +214,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             let tooltipContent: TooltipProps['title']
             if (disabledReason) {
                 disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
-                if (tooltipContent) {
+                if (tooltip) {
                     tooltipContent = (
                         <>
                             {tooltip}
@@ -252,28 +258,29 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={
-                        !disabled
-                            ? (event) => {
-                                  if (stopPropagation) {
-                                      event.stopPropagation()
-                                  }
-                                  onClick?.(event)
-                              }
-                            : undefined
-                    }
+                    onClick={(event) => {
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        if (disabled) {
+                            event.preventDefault()
+                            return
+                        }
+                        onClick?.(event)
+                    }}
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
-                    aria-disabled={disabled}
+                    aria-disabled={!!disabled}
                     {...linkDependentProps}
                     {...buttonProps}
+                    data-attr-id={buttonProps['data-attr-id'] ?? buttonProps['data-attr']}
                 >
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? (
                             <span className="LemonButton__icon">{sideIcon}</span>
-                        ) : targetBlank && !hideExternalLinkIcon ? (
+                        ) : targetBlank && !hideExternalLinkIcon && !icon ? (
                             <IconExternal />
                         ) : null}
                     </span>

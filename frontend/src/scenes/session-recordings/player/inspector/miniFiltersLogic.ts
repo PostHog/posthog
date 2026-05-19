@@ -116,6 +116,24 @@ export const MiniFilters: SharedListMiniFilter[] = [
         tooltip:
             'Comments can be made using annotations or notebooks. Includes project and org level annotations that are within this session.',
     },
+    {
+        type: 'logs',
+        key: 'logs-info',
+        name: 'Info',
+        tooltip: 'Log entries with info, debug, or trace severity',
+    },
+    {
+        type: 'logs',
+        key: 'logs-warn',
+        name: 'Warn',
+        tooltip: 'Log entries with warn severity',
+    },
+    {
+        type: 'logs',
+        key: 'logs-error',
+        name: 'Error',
+        tooltip: 'Log entries with error or fatal severity',
+    },
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
@@ -129,12 +147,16 @@ const defaultMinifilters = [
     'console-warn',
     'console-error',
     'comment',
+    'logs-info',
+    'logs-warn',
+    'logs-error',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
     path(['scenes', 'session-recordings', 'player', 'miniFiltersLogic']),
     actions({
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
+        setGroupRepeatedItems: (groupRepeatedItems: boolean) => ({ groupRepeatedItems }),
         setMiniFilter: (key: MiniFilterKey, enabled: boolean) => ({ key, enabled }),
         setMiniFilters: (keys: MiniFilterKey[], enabled: boolean) => ({ keys, enabled }),
         setSearchQuery: (search: string) => ({ search }),
@@ -150,6 +172,14 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             { persist: true },
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
+            },
+        ],
+
+        groupRepeatedItems: [
+            true,
+            { persist: true },
+            {
+                setGroupRepeatedItems: (_, { groupRepeatedItems }) => groupRepeatedItems,
             },
         ],
 
@@ -218,7 +248,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         miniFiltersByKey: [
             (s) => [s.miniFilters],
             (miniFilters): { [key: string]: SharedListMiniFilter } => {
-                return miniFilters.reduce((acc, filter) => {
+                return miniFilters.reduce<Record<string, SharedListMiniFilter>>((acc, filter) => {
                     acc[filter.key] = filter
                     return acc
                 }, {})
@@ -232,7 +262,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                 miniFiltersForType
             ): ((tab: FilterableInspectorListItemTypes) => { [key: string]: SharedListMiniFilter }) => {
                 return (tab) => {
-                    return miniFiltersForType(tab).reduce((acc, filter) => {
+                    return miniFiltersForType(tab).reduce<Record<string, SharedListMiniFilter>>((acc, filter) => {
                         acc[filter.key] = filter
                         return acc
                     }, {})

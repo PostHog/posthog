@@ -69,6 +69,8 @@ export function SessionReplayMenuItems({
                                                 savedFilterId: savedFilter.short_id,
                                             }).url
                                         )}
+                                        tooltip={savedFilter.name || savedFilter.derived_name || 'Unnamed'}
+                                        tooltipPlacement="right"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
                                     >
@@ -122,6 +124,8 @@ export function SessionReplayMenuItems({
                                             menuItem: true,
                                         }}
                                         to={urls.replayPlaylist(playlist.short_id)}
+                                        tooltip={playlist.name || playlist.derived_name || 'Unnamed'}
+                                        tooltipPlacement="right"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
                                     >

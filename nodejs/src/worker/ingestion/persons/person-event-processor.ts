@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
+import { ASYNC_OUTPUT, AsyncOutput } from '../../../ingestion/analytics/outputs'
 import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/results'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
@@ -20,7 +21,7 @@ export class PersonEventProcessor {
         private mergeService: PersonMergeService
     ) {}
 
-    async processEvent(): Promise<[PipelineResult<Person>, Promise<void>]> {
+    async processEvent(): Promise<PipelineResult<Person, AsyncOutput>> {
         // First, handle any identify/alias/merge operations
         const mergeResult = await this.mergeService.handleIdentifyOrAlias()
 
@@ -35,7 +36,7 @@ export class PersonEventProcessor {
         } else {
             const errorResult = this.handleMergeError(mergeResult.error, this.context.event)
             if (errorResult) {
-                return [errorResult, Promise.resolve()]
+                return errorResult
             }
             logger.warn('Merge operation failed, continuing with normal property updates', {
                 error: mergeResult.error.message,
@@ -48,7 +49,7 @@ export class PersonEventProcessor {
             try {
                 const [updatedPerson, updateKafkaAck] =
                     await this.propertyService.updatePersonProperties(personFromMerge)
-                return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+                return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
@@ -56,19 +57,19 @@ export class PersonEventProcessor {
         }
 
         if (personFromMerge && !needsPersonUpdate) {
-            return [ok(personFromMerge), identifyOrAliasKafkaAck]
+            return ok(personFromMerge, [identifyOrAliasKafkaAck])
         }
 
         // Handle regular property updates
         const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+        return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
     }
 
     getContext(): PersonContext {
         return this.context
     }
 
-    private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person> | null {
+    private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person, AsyncOutput> | null {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {
@@ -81,12 +82,12 @@ export class PersonEventProcessor {
             // Action depends on the configured merge mode
             switch (mergeMode.type) {
                 case 'ASYNC':
-                    logger.info('Redirecting to async merge topic', {
-                        topic: mergeMode.topic,
+                    logger.info('Redirecting to async merge output', {
+                        output: ASYNC_OUTPUT,
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
                     })
-                    return redirect('Event redirected to async merge topic', mergeMode.topic)
+                    return redirect('Event redirected to async merge topic', ASYNC_OUTPUT)
                 case 'LIMIT':
                     logger.warn('Limit exceeded, will be sent to DLQ', {
                         limit: mergeMode.limit,

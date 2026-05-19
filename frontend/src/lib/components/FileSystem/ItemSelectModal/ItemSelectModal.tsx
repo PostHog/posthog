@@ -85,7 +85,6 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
     )
     const { setSearchTerm, setExpandedSearchFolders, setExpandedFolders, setEditingItemId, rename, toggleFolderOpen } =
         useActions(projectTreeLogic(props))
-
     const treeRef = useRef<LemonTreeRef>(null)
 
     useOnMountEffect(() => {
@@ -136,7 +135,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                       : undefined
                             }
                         >
-                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName} shortcut
+                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName} to starred
                         </LemonButton>
                     </>
                 }
@@ -212,7 +211,6 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                         selectMode="all"
                                         className="px-0 py-1"
                                         data={fullFileSystemFiltered}
-                                        mode="tree"
                                         defaultSelectedFolderOrNodeId=""
                                         isItemActive={() => false}
                                         isItemEditing={(item) => {

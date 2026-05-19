@@ -66,6 +66,7 @@ class BatchExportDestination(UUIDTModel):
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
+        FILE_DOWNLOAD = "FileDownload"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -78,10 +79,11 @@ class BatchExportDestination(UUIDTModel):
         "HTTP": {"token"},
         "NoOp": set(),
         "Workflows": set(),
+        "FileDownload": set(),
     }
 
     type = models.CharField(
-        choices=Destination.choices,
+        choices=Destination,
         max_length=64,
         help_text="A choice of supported BatchExportDestination types.",
     )
@@ -135,8 +137,12 @@ class BatchExportRun(UUIDTModel):
         on_delete=models.CASCADE,
         help_text="The BatchExport this run belongs to.",
     )
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
+    records_failed = models.IntegerField(
+        null=True,
+        help_text="The number of records that failed downstream processing (e.g. hog function execution errors).",
+    )
     latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
     data_interval_start = models.DateTimeField(help_text="The start of the data interval.", null=True)
     data_interval_end = models.DateTimeField(help_text="The end of the data interval.")
@@ -180,7 +186,14 @@ BATCH_EXPORT_INTERVALS = [
     ("day", "day"),
     ("week", "week"),
     ("every 5 minutes", "every 5 minutes"),
+    ("every 15 minutes", "every 15 minutes"),
 ]
+
+BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
+    "hour": timedelta(minutes=15),
+    "day": timedelta(minutes=20),
+    "week": timedelta(minutes=30),
+}
 
 
 class BatchExport(ModelActivityMixin, UUIDTModel):
@@ -248,7 +261,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         max_length=64,
         null=True,
         blank=True,
-        choices=Model.choices,
+        choices=Model,
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
@@ -298,12 +311,8 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         the start hour of the export, therefore we don't want to make the jitter
         too large.
         """
-        if self.interval == "hour":
-            return timedelta(minutes=15)
-        elif self.interval == "day":
-            return timedelta(minutes=30)
-        elif self.interval == "week":
-            return timedelta(hours=1)
+        if self.interval in ("hour", "day", "week"):
+            return BATCH_EXPORT_INTERVAL_TO_START_JITTER[self.interval]
         elif self.interval.startswith("every"):
             # This yields 1 minute for 5 minute batch exports, which is the only
             # "every" interval in use currently.
@@ -385,7 +394,7 @@ class BatchExportBackfill(UUIDTModel):
     )
     start_at = models.DateTimeField(help_text="The start of the data interval.", null=True)
     end_at = models.DateTimeField(help_text="The end of the data interval.", null=True)
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this backfill.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this backfill.")
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportBackfill was created.",
@@ -398,11 +407,23 @@ class BatchExportBackfill(UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportBackfill was last updated.",
     )
+    total_records_count = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="The total number of records to export. Initially estimated, updated with actual count after completion.",
+    )
+    adjusted_start_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.",
+    )
 
     @property
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         end_at = self.end_at.astimezone(tz=dt.UTC).isoformat() if self.end_at else "END"
+        # we use the start_at rather than adjusted_start_at here since the workflow ID for this batch export is created
+        # before the backfill is started
         start_at = self.start_at.astimezone(tz=dt.UTC).isoformat() if self.start_at else "START"
 
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
@@ -410,9 +431,13 @@ class BatchExportBackfill(UUIDTModel):
     @property
     def total_expected_runs(self) -> int | None:
         """Return the total number of expected runs for this backfill, based on the number of intervals."""
+        start_at = self.adjusted_start_at or self.start_at
         # if no start_at then it means we're backfilling all data in a single run
-        if self.start_at is None:
+        if start_at is None:
             return 1
+
+        if self.total_records_count == 0:
+            return 0
 
         end_at = self.end_at
         # if the backfill has no end_at then it means it's backfilling everything up to the 'present' (whatever that
@@ -428,7 +453,7 @@ class BatchExportBackfill(UUIDTModel):
         elif not end_at:
             # we didn't always populated finished_at in the past, so probably don't have enough information
             return None
-        return ceil((end_at - self.start_at) / self.batch_export.interval_time_delta)
+        return ceil((end_at - start_at) / self.batch_export.interval_time_delta)
 
     def get_finished_runs(self) -> int:
         """Return the number of finished runs for this backfill.
@@ -446,3 +471,58 @@ class BatchExportBackfill(UUIDTModel):
                 BatchExportRun.Status.FAILED,
             ],
         ).count()
+
+
+class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
+    """Represents a file made available to download by a batch export.
+
+    When creating a "file-download" batch export, the output is a row in this table
+    containing pre-signed URLs to access the data exported.
+    """
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "key"], name="team_key_idx"),
+        ]
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export_run = models.ForeignKey(
+        "BatchExportRun",
+        on_delete=models.CASCADE,
+        help_text="The batch export run that generated this file downloads.",
+    )
+    key = models.TextField(help_text="The S3 key containing the file to download.")
+    expires_at = models.DateTimeField(null=True, help_text="When will this key expire, if available.")
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this was last updated.",
+    )
+
+    def is_expired(self) -> bool:
+        """Return whether this file download is expired.
+
+        If expired, then the file download should not be used to generate download URLs anymore.
+        """
+        if self.expires_at is None:
+            raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
+
+        return dt.datetime.now(dt.UTC) > self.expires_at
+
+    def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
+        """Return whether this file download is expired, or close to expiring."""
+        if self.is_expired():
+            return True
+
+        delta = self.expires_at - dt.datetime.now(dt.UTC)  # type: ignore
+
+        if isinstance(threshold, int):
+            threshold_delta = dt.timedelta(seconds=threshold)
+        else:
+            threshold_delta = threshold
+
+        return threshold_delta > delta

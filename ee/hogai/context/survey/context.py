@@ -1,8 +1,10 @@
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Survey, Team
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
+
+from products.surveys.backend.models import Survey
 
 from .prompts import SURVEY_CONTEXT_TEMPLATE
 
@@ -139,15 +141,12 @@ class SurveyContext:
             return "completed"
         return "draft"
 
-    async def execute_and_format(self) -> str:
+    async def execute_and_format(self, survey: Survey) -> str:
         """
         Execute the context gathering and format results for AI consumption.
 
         Returns a formatted string with all survey context.
         """
-        survey = await self.aget_survey()
-        if survey is None:
-            return f"Survey with ID '{self._survey_id}' not found."
 
         survey_name = self._survey_name or survey.name or f"Survey {self._survey_id}"
         status = self._get_status(survey)

@@ -29,10 +29,6 @@ export function OrganizationSecuritySettings(): JSX.Element | null {
     return (
         <>
             <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
-                <h3 className="mt-4">Public sharing</h3>
-
-                <p>Control external access to shared dashboards, insights, and recordings.</p>
-
                 <LemonSwitch
                     label={
                         <span>

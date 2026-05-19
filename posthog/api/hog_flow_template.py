@@ -1,7 +1,10 @@
 from typing import Optional, cast
 
+from django.db.models import Q
+
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -126,6 +129,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
     actions = serializers.ListField(child=HogFlowTemplateActionSerializer(), required=True)
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
     variables = HogFlowVariableSerializer(required=False)
+    tags = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
     class Meta:
         model = HogFlowTemplate
@@ -134,6 +138,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "image_url",
+            "tags",
             "scope",
             "created_at",
             "created_by",
@@ -149,6 +154,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by:
             from posthog.api.shared import UserBasicSerializer
@@ -209,6 +215,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
+@extend_schema(tags=["workflows"])
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()
@@ -220,8 +227,11 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
 
     def dangerously_get_queryset(self):
         # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
-        # Only return team-specific templates from DB (global templates now come from files)
-        qs = HogFlowTemplate.objects.filter(team_id=self.team_id).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
+        # Return team-specific templates and org-scoped templates from any team in the same org
+        qs = HogFlowTemplate.objects.filter(
+            Q(team_id=self.team_id)
+            | Q(scope=HogFlowTemplate.Scope.ORGANIZATION, team__organization_id=self.organization.id)
+        ).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
 
         if self.action == "list":
             qs = qs.order_by("-updated_at")

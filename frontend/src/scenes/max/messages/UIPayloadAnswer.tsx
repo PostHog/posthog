@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconCheck, IconNotebook } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -31,22 +32,31 @@ import {
 } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 
-import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
+import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
 import { maxLogic } from '../maxLogic'
 import { ErrorTrackingFiltersSummary } from './ErrorTrackingFiltersSummary'
 import { ErrorTrackingIssueCard } from './ErrorTrackingIssueCard'
+import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from './maxErrorTrackingWidgetLogic'
 import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
-import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from './maxErrorTrackingWidgetLogic'
 
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
+    'summarize_sessions',
     'create_form',
-    'upsert_dashboard',
 ]
 
+export function isRenderableUIPayloadTool(toolName: string, toolPayload: unknown): boolean {
+    return (
+        (RENDERABLE_UI_PAYLOAD_TOOLS as readonly string[]).includes(toolName) ||
+        isDangerousOperationResponse(toolPayload)
+    )
+}
+
+// Renders rich UI for a small set of tools that return structured payloads (recordings search,
+// error-tracking search, create_form, upsert_dashboard) and for dangerous-operation approval cards.
 export function UIPayloadAnswer({
     toolCallId,
     toolName,
@@ -88,6 +98,7 @@ export function RecordingsWidget({
     toolCallId: string
     filters: RecordingUniversalFilters
 }): JSX.Element {
+    const { onAcceptSessionFilters } = useValues(maxLogic)
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `ai-recordings-widget-${toolCallId}`,
         filters,
@@ -100,8 +111,25 @@ export function RecordingsWidget({
             <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
                 <RecordingsFiltersSummary filters={filters} />
                 <RecordingsListContent />
+                {onAcceptSessionFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptSessionFilters} />}
             </MessageTemplate>
         </BindLogic>
+    )
+}
+
+function AcceptFiltersBar({
+    filters,
+    onAccept,
+}: {
+    filters: RecordingUniversalFilters
+    onAccept: (filters: RecordingUniversalFilters) => void
+}): JSX.Element {
+    return (
+        <div className="border-t px-3 py-2 flex items-center justify-end">
+            <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={() => onAccept(filters)}>
+                Use these filters for session analysis
+            </LemonButton>
+        </div>
     )
 }
 
@@ -287,5 +315,30 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
                 )}
             </div>
         </MessageTemplate>
+    )
+}
+
+export function SummarizeSessionsWidget({
+    payload,
+    title,
+}: {
+    payload: { title?: string; session_group_summary_id?: string } | null | undefined
+    title?: string
+}): JSX.Element | null {
+    if (!payload?.session_group_summary_id) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            to={urls.sessionSummary(payload.session_group_summary_id)}
+            icon={<IconNotebook />}
+            size="small"
+            targetBlank
+            type="primary"
+            className="bg-surface-primary w-fit mx-1"
+        >
+            Open analysis of sessions{title && `: ${title}`}
+        </LemonButton>
     )
 }

@@ -14,6 +14,7 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     ShopifySourceConfig,
     SnowflakeSourceConfig,
     StripeSourceConfig,
+    SupabaseSourceConfig,
     TemporalIOSourceConfig,
     VitallySourceConfig,
     ZendeskSourceConfig,
@@ -222,6 +223,40 @@ def test_postgres_config():
     assert config.ssh_tunnel.auth.passphrase == ""
 
 
+def test_postgres_config_without_schema():
+    config = PostgresSourceConfig.from_dict(
+        {
+            "host": "host",
+            "port": 1433,
+            "database": "database",
+            "user": "user",
+            "password": "password",
+        }
+    )
+
+    assert config.schema is None
+
+
+def test_supabase_config():
+    config = SupabaseSourceConfig.from_dict(
+        {
+            "host": "host",
+            "port": 1433,
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "public",
+        }
+    )
+
+    assert config.host == "host"
+    assert config.port == 1433
+    assert config.database == "database"
+    assert config.user == "user"
+    assert config.password == "password"
+    assert config.schema == "public"
+
+
 def test_salesforce_config():
     config = SalesforceSourceConfig.from_dict({"salesforce_integration_id": 1})
     assert config.salesforce_integration_id == 1
@@ -258,9 +293,12 @@ def test_snowflake_config():
 
 
 def test_stripe_config():
-    config = StripeSourceConfig.from_dict({"stripe_account_id": "acct_id", "stripe_secret_key": "api_key"})
+    config = StripeSourceConfig.from_dict(
+        {"auth_method": {"selection": "api_key", "stripe_secret_key": "api_key"}, "stripe_account_id": "acct_id"}
+    )
     assert config.stripe_account_id == "acct_id"
-    assert config.stripe_secret_key == "api_key"
+    assert config.auth_method.selection == "api_key"
+    assert config.auth_method.stripe_secret_key == "api_key"
 
 
 def test_shopify_config():

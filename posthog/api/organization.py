@@ -1,13 +1,17 @@
-import json
 import dataclasses
+from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Union, cast
+from typing import Any, Literal, Union, cast
 
+from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Model, QuerySet
+from django.db.models.signals import post_delete, post_save
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -15,24 +19,31 @@ from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import groups, report_organization_action, report_organization_deleted
+from posthog.event_usage import (
+    groups,
+    report_organization_action,
+    report_organization_deleted,
+    report_organization_deletion_initiated,
+)
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import validate_display_name
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.project import Project
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
 )
@@ -41,6 +52,11 @@ from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from posthog.utils import get_safe_cache, safe_cache_set
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import RoleMembership
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -77,14 +93,147 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationPermissionsWithEnvRollback(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object, view)
+tracer = trace.get_tracer(__name__)
 
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
+
+ORG_SERIALIZER_CACHE_TTL_SECONDS = 60 * 60
+ORG_SERIALIZER_VERSION_TTL_SECONDS = 7 * 24 * 60 * 60
+_ORG_SERIALIZER_VERSION_KEY_PREFIX = "org_serializer_version:"
+
+
+def _org_serializer_version_key(organization_id: str) -> str:
+    return f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}"
+
+
+def _org_serializer_cache_version(organization_id: str) -> int:
+    key = _org_serializer_version_key(organization_id)
+    raw = get_safe_cache(key)
+    if raw is None:
+        try:
+            cache.add(key, 0, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
+        except Exception:
+            pass
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _bump_org_serializer_cache_version(organization_id: str) -> None:
+    key = _org_serializer_version_key(organization_id)
+    try:
+        cache.incr(key)
+    except ValueError:
+        try:
+            cache.add(key, 1, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+CacheField = Literal["teams", "projects"]
+OrgCacheField = Literal["member_count"]
+
+
+def _cached_org_serializer_field(cache_key: str, fetcher: Callable[[], Any]) -> Any:
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = fetcher()
+    safe_cache_set(cache_key, result, timeout=ORG_SERIALIZER_CACHE_TTL_SECONDS)
+    return result
+
+
+def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
+    return _cached_org_serializer_field(cache_key, fetcher)
+
+
+def _fetch_member_count(organization: Organization) -> int:
+    # The cache version is bumped on OrganizationMembership signals (see _INVALIDATION_SOURCES
+    # below), so add/remove of members invalidates immediately. User.is_active flips and email
+    # changes to/from INTERNAL_BOT_EMAIL_SUFFIX do NOT invalidate via signals — they rely on
+    # ORG_SERIALIZER_CACHE_TTL_SECONDS (1h) as the staleness bound.
+    return (
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        .filter(user__is_active=True, organization=organization)
+        .count()
+    )
+
+
+def _cached_per_org(field: OrgCacheField, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}"
+    return _cached_org_serializer_field(cache_key, fetcher)
+
+
+def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
+    request = serializer_context.get("request")
+    if request is None:
+        return None
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    return user.id
+
+
+def _instance_org_id(instance: Any) -> str | None:
+    organization_id = getattr(instance, "organization_id", None)
+    return str(organization_id) if organization_id is not None else None
+
+
+def _team_id_to_org_id(instance: Any) -> str | None:
+    team_id = getattr(instance, "team_id", None)
+    if team_id is None:
+        return None
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    return str(organization_id) if organization_id is not None else None
+
+
+def _role_id_to_org_id(instance: Any) -> str | None:
+    role = getattr(instance, "role", None)
+    if role is None:
+        return None
+    organization_id = getattr(role, "organization_id", None)
+    return str(organization_id) if organization_id is not None else None
+
+
+_VISIBILITY_RESOURCES = {"project", "organization"}
+
+
+def _access_control_to_org_id(instance: Any) -> str | None:
+    if getattr(instance, "resource", None) not in _VISIBILITY_RESOURCES:
+        return None
+    return _team_id_to_org_id(instance)
+
+
+_INVALIDATION_SOURCES: list[tuple[type[Model], Callable[[Any], str | None]]] = [
+    (Team, _instance_org_id),
+    (Project, _instance_org_id),
+    (OrganizationMembership, _instance_org_id),
+    (AccessControl, _access_control_to_org_id),
+    (ExplicitTeamMembership, _team_id_to_org_id),
+    (RoleMembership, _role_id_to_org_id),
+]
+
+
+def _connect_invalidation(model: type[Model], get_org_id: Callable[[Any], str | None]) -> None:
+    def receiver_fn(sender: type[Model], instance: Any, **kwargs: Any) -> None:
+        organization_id = get_org_id(instance)
+        if organization_id is None:
+            return
+        _bump_org_serializer_cache_version(organization_id)
+        transaction.on_commit(lambda: _bump_org_serializer_cache_version(organization_id))
+
+    post_save.connect(receiver_fn, sender=model, weak=False)
+    post_delete.connect(receiver_fn, sender=model, weak=False)
+
+
+for _model, _resolver in _INVALIDATION_SOURCES:
+    _connect_invalidation(_model, _resolver)
 
 
 class OrganizationSerializer(
@@ -95,13 +244,17 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    logo_media_id = serializers.PrimaryKeyRelatedField(
+    logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
     default_role_id = serializers.CharField(
         required=False,
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
+    )
+    is_member_join_email_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Legacy field; member-join emails are controlled per user in account notification settings.",
     )
 
     class Meta:
@@ -132,6 +285,7 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         read_only_fields = [
             "id",
@@ -149,6 +303,7 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         extra_kwargs = {
             "slug": {
@@ -156,17 +311,38 @@ class OrganizationSerializer(
             },  # slug is not required here as it's generated automatically for new organizations
         }
 
+    def validate_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
+        if value is None:
+            return value
+        if self.instance:
+            if value.team.organization_id != self.instance.id:
+                raise serializers.ValidationError("This media does not belong to this organization.")
+        else:
+            raise serializers.ValidationError("Cannot set logo media when creating an organization.")
+        return value
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         return organization
 
+    @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
 
+    @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
+        user_id = _resolve_cached_user_id(self.context)
+        if user_id is None:
+            return self._fetch_visible_teams(instance)
+        return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
+
+    def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system
         visible_teams = (
             self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
@@ -177,12 +353,22 @@ class OrganizationSerializer(
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
             "project"
         )
-        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
+        return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
+    @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
-        return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
+        user_id = _resolve_cached_user_id(self.context)
+        if user_id is None:
+            return self._fetch_visible_projects(instance)
+        return _cached_per_user_org(
+            "projects", user_id, str(instance.id), lambda: self._fetch_visible_projects(instance)
+        )
 
+    def _fetch_visible_projects(self, instance: Organization) -> list[dict[str, Any]]:
+        visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
+        return list(ProjectBasicSerializer(visible_projects, context=self.context, many=True).data)
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
         return {
             "instance_tag": settings.INSTANCE_TAG,
@@ -224,17 +410,17 @@ class OrganizationSerializer(
                 )
         return value
 
-    def get_member_count(self, organization: Organization):
-        return (
-            OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
-            .filter(
-                user__is_active=True,
-            )
-            .filter(organization=organization)
-            .count()
-        )
+    @extend_schema_field(serializers.IntegerField())
+    @tracer.start_as_current_span("organization_serializer.member_count")
+    def get_member_count(self, organization: Organization) -> int:
+        return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
+
+    @tracer.start_as_current_span("organization_serializer.to_representation")
+    def to_representation(self, instance):
+        return super().to_representation(instance)
 
 
+@extend_schema(tags=["platform_features"])
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
@@ -331,13 +517,21 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "Please cancel your subscription first in the billing page."
                     )
 
+        if organization.is_pending_deletion:
+            raise exceptions.ValidationError("This organization is already being deleted.")
+
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
+        report_organization_deletion_initiated(user, organization)
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
         organization_id = organization.pk
         organization_name = organization.name
+
+        # Mark as pending deletion
+        organization.is_pending_deletion = True
+        organization.save(update_fields=["is_pending_deletion"])
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email
@@ -425,73 +619,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
-
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="environments_rollback",
-        permission_classes=[
-            permissions.IsAuthenticated,
-            OrganizationMemberPermissions,
-            OrganizationPermissionsWithEnvRollback,
-        ],
-    )
-    def environments_rollback(self, request: Request, **kwargs) -> Response:
-        """
-        Trigger environments rollback migration for users previously on multi-environment projects.
-        The request data should be a mapping of source environment IDs to target environment IDs.
-        Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
-        """
-        from posthog.storage.environments_rollback_storage import (
-            add_organization_to_rollback_list,
-            is_organization_rollback_triggered,
-        )
-        from posthog.tasks.tasks import environments_rollback_migration
-
-        organization = self.get_object()
-
-        if is_organization_rollback_triggered(organization.id):
-            raise exceptions.ValidationError("Environments rollback has already been requested for this organization.")
-
-        environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
-        user = cast(User, request.user)
-        membership = user.organization_memberships.get(organization=organization)
-
-        if not environment_mappings:
-            raise exceptions.ValidationError("Environment mappings are required")
-
-        # Verify all environments exist and belong to this organization
-        all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
-        teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
-        found_team_ids = set(teams.values_list("id", flat=True))
-
-        missing_team_ids = all_environment_ids - found_team_ids
-        if missing_team_ids:
-            raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
-
-        # Trigger the async task to perform the migration
-        environments_rollback_migration.delay(
-            organization_id=organization.id,
-            environment_mappings=environment_mappings,
-            user_id=user.id,
-        )
-
-        # Mark organization as having triggered rollback in Redis
-        add_organization_to_rollback_list(organization.id)
-
-        posthoganalytics.capture(
-            "organization environments rollback started",
-            distinct_id=str(user.distinct_id),
-            properties={
-                "environment_mappings": json.dumps(environment_mappings),
-                "organization_id": str(organization.id),
-                "organization_name": organization.name,
-                "user_role": membership.level,
-            },
-            groups=groups(organization),
-        )
-
-        return Response({"success": True, "message": "Migration started"}, status=202)
 
 
 @mutable_receiver(model_activity_signal, sender=Organization)

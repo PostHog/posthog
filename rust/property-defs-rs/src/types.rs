@@ -148,6 +148,17 @@ impl GroupType {
             GroupType::Resolved(name, _) => GroupType::Resolved(name, index),
         }
     }
+
+    /// Returns the Unresolved form of this group type. The shared dedup cache
+    /// always stores entries as Unresolved (inserted by the producer before
+    /// resolution), so cache removal after a failed batch write must use this
+    /// form to match the original key.
+    pub fn as_unresolved(&self) -> Self {
+        match self {
+            GroupType::Unresolved(_) => self.clone(),
+            GroupType::Resolved(name, _) => GroupType::Unresolved(name.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -316,20 +327,30 @@ impl Event {
             }
 
             if !will_fit_in_postgres_column(key) {
+                let skipped = if parent_type == PropertyParentType::Event {
+                    2 // EventProperty + PropertyDefinition
+                } else {
+                    1 // PropertyDefinition only
+                };
                 metrics::counter!(
                     UPDATES_SKIPPED,
                     &[("reason", "property_name_wont_fit_in_postgres")]
                 )
-                .increment(2); // We're skipping one EventProperty, and one PropertyDefinition
+                .increment(skipped);
                 continue;
             }
 
-            updates.push(Update::EventProperty(EventProperty {
-                team_id: self.team_id,
-                project_id: self.project_id,
-                event: sanitize_string(&self.event),
-                property: key.clone(),
-            }));
+            // posthog_eventproperty only tracks which properties appear on which events —
+            // person, group, and session properties have no meaningful event association
+            // and no read path consumes those rows.
+            if parent_type == PropertyParentType::Event {
+                updates.push(Update::EventProperty(EventProperty {
+                    team_id: self.team_id,
+                    project_id: self.project_id,
+                    event: sanitize_string(&self.event),
+                    property: sanitize_string(key),
+                }));
+            }
 
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
@@ -337,7 +358,7 @@ impl Event {
             updates.push(Update::Property(PropertyDefinition {
                 team_id: self.team_id,
                 project_id: self.project_id,
-                name: key.clone(),
+                name: sanitize_string(key),
                 is_numerical,
                 property_type,
                 event_type: parent_type,
@@ -354,11 +375,13 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
     let key = key.to_lowercase();
 
     // There are a whole set of special cases here, taken from the TS
-    if key.starts_with("utm_") {
+    if key.starts_with("utm_") || key.starts_with("$initial_utm_") {
         // utm_ prefixed properties should always be detected as strings.
         // Sometimes the first value sent looks like a number, event though
         // subsequent values are not. See
         // https://github.com/PostHog/posthog/issues/12529 for more context.
+        // $initial_utm_* properties are the "initial" variants set by the SDK
+        // and must follow the same rule.
         return Some(PropertyValueType::String);
     }
     if key.starts_with("$feature/") {
@@ -536,5 +559,22 @@ impl EventDefinition {
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
 
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_unresolved_is_noop_for_unresolved() {
+        let gt = GroupType::Unresolved("company".into());
+        assert_eq!(gt.as_unresolved(), GroupType::Unresolved("company".into()));
+    }
+
+    #[test]
+    fn as_unresolved_strips_resolved_index() {
+        let gt = GroupType::Resolved("company".into(), 2);
+        assert_eq!(gt.as_unresolved(), GroupType::Unresolved("company".into()));
     }
 }

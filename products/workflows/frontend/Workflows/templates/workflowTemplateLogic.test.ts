@@ -432,7 +432,7 @@ describe('workflowTemplateLogic', () => {
 
         it('should update template, reload workflow, and reload template list', async () => {
             const workflow = createWorkflow()
-            const updatedTemplate = { ...workflow, id: 'template-id', scope: 'team' as const }
+            const updatedTemplate = { ...workflow, id: 'template-id', scope: 'team' as const, tags: [] }
             mockApi.updateHogFlowTemplate.mockResolvedValue(updatedTemplate)
             mockApi.getHogFlowTemplate.mockResolvedValue(updatedTemplate)
 
@@ -449,7 +449,7 @@ describe('workflowTemplateLogic', () => {
             const templateLogic = workflowTemplateLogic({ id: 'new', editTemplateId: 'template-id' })
             templateLogic.mount()
 
-            const workflowTemplate = { ...workflow, id: 'template-id' }
+            const workflowTemplate = { ...workflow, id: 'template-id', tags: [] }
             await expectLogic(workflowLogicInstance, () => {
                 templateLogic.actions.updateTemplate(workflowTemplate)
             }).toDispatchActions(['loadWorkflow', 'loadWorkflowSuccess'])

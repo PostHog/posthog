@@ -58,6 +58,23 @@ CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
     buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float("inf")),
 )
 
+CACHE_SYNC_SIZE_HISTOGRAM = Histogram(
+    "posthog_hypercache_sync_size_bytes",
+    "Size of hypercache entries in bytes",
+    labelnames=["result", "namespace", "value"],
+    buckets=(
+        10_000,  # 10KB - small caches
+        100_000,  # 100KB - medium caches
+        256_000,  # 256KB - half of per-flag limit
+        512_000,  # 512KB - per-flag limit (MAX_FEATURE_FLAG_FILTER_SIZE_BYTES)
+        1_000_000,  # 1MB - approaching total limit
+        1_500_000,  # 1.5MB
+        3_000_000,  # 3MB - 2x limit (for overhead/outliers)
+        5_000_000,  # 5MB - safety bucket
+        float("inf"),
+    ),
+)
+
 HYPERCACHE_CACHE_COUNTER = Counter(
     "posthog_hypercache_get_from_cache",
     "Metric tracking whether a hypercache was fetched from cache or not",
@@ -66,6 +83,36 @@ HYPERCACHE_CACHE_COUNTER = Counter(
 
 
 _HYPER_CACHE_EMPTY_VALUE = "__missing__"
+
+
+def emit_cache_sync_metrics(
+    result: str,
+    namespace: str,
+    value: str,
+    duration: float | None = None,
+    size: int | None = None,
+    increment_counter: bool = True,
+) -> None:
+    """
+    Emit cache sync metrics for HyperCache operations.
+
+    Args:
+        result: "success" or "failure"
+        namespace: Cache namespace (e.g., "feature_flags")
+        value: Cache value identifier (e.g., "flags_with_cohorts.json")
+        duration: Time taken in seconds; pass None to skip duration metric
+        size: Cache entry size in bytes; pass None to skip size metric
+        increment_counter: Whether to increment the sync counter (default True)
+
+    Duration and size histograms are only observed when their respective values
+    are provided. The counter is incremented unless increment_counter is False.
+    """
+    if duration is not None:
+        CACHE_SYNC_DURATION_HISTOGRAM.labels(result=result, namespace=namespace, value=value).observe(duration)
+    if size is not None:
+        CACHE_SYNC_SIZE_HISTOGRAM.labels(result=result, namespace=namespace, value=value).observe(size)
+    if increment_counter:
+        CACHE_SYNC_COUNTER.labels(result=result, namespace=namespace, value=value).inc()
 
 
 class HyperCacheStoreMissing:
@@ -185,47 +232,56 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
-    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str]]:
+    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str, str | None]]:
         """
         Batch get cached values for multiple teams using MGET.
 
         Only reads from Redis (no S3 or DB fallback). This is optimized for
         verification where we want to check what's in cache without side effects.
 
+        When ``enable_etag=True``, etag keys are fetched in the same MGET so
+        the per-chunk Redis cost is one round trip regardless of how many
+        callers in the verify loop need the etag. The returned etag is
+        ``None`` when the key is absent (which the verifier surfaces as a
+        ``MISSING_ETAG`` mismatch) or when ``enable_etag=False``.
+
         Args:
             teams: List of Team objects to get cached values for
 
         Returns:
-            Dict mapping team_id to (cached_data, source) tuples.
+            Dict mapping team_id to (cached_data, source, etag) tuples.
             source is "redis" for hits, "miss" for cache misses.
+            etag is the cached etag string (or None when absent / disabled).
             Teams not in the result had no cache entry.
         """
         if not teams:
             return {}
 
-        # Build cache keys for all teams
+        # Build cache keys for all teams. When etags are enabled, append the
+        # etag keys to the same get_many call so we pay one round trip total.
         cache_keys = [self.get_cache_key(team) for team in teams]
+        etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        # Batch get from Redis using get_many (Django cache's MGET wrapper)
-        cached_values = self.cache_client.get_many(cache_keys)
+        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
 
         # Map results back to team IDs, counting hits and misses for batch metrics
-        results: dict[int, tuple[dict | None, str]] = {}
+        results: dict[int, tuple[dict | None, str, str | None]] = {}
         hit_count = 0
         miss_count = 0
 
-        for team, cache_key in zip(teams, cache_keys):
+        for i, (team, cache_key) in enumerate(zip(teams, cache_keys)):
+            etag = cached_values.get(etag_keys[i]) if self.enable_etag else None
             data = cached_values.get(cache_key)
             if data is not None:
                 hit_count += 1
                 if data == _HYPER_CACHE_EMPTY_VALUE:
-                    results[team.id] = (None, "redis")
+                    results[team.id] = (None, "redis", etag)
                 else:
-                    results[team.id] = (json.loads(data), "redis")
+                    results[team.id] = (json.loads(data), "redis", etag)
             else:
                 # Cache miss - no S3/DB fallback in batch mode
                 miss_count += 1
-                results[team.id] = (None, "miss")
+                results[team.id] = (None, "miss", etag)
 
         # Batch increment Prometheus counters once per batch (avoids O(n) labels() overhead)
         if hit_count:
@@ -294,9 +350,10 @@ class HyperCache:
 
         start_time = time.time()
         success = False
+        size: int | None = None
         try:
             data = self.load_fn(key)
-            self.set_cache_value(key, data, ttl=ttl)
+            size = self.set_cache_value(key, data, ttl=ttl)
             success = True
             return True
         except Exception as e:
@@ -306,41 +363,71 @@ class HyperCache:
         finally:
             duration = time.time() - start_time
             result = "success" if success else "failure"
-            CACHE_SYNC_DURATION_HISTOGRAM.labels(result=result, namespace=self.namespace, value=self.value).observe(
-                duration
-            )
-            CACHE_SYNC_COUNTER.labels(result=result, namespace=self.namespace, value=self.value).inc()
+            emit_cache_sync_metrics(result, self.namespace, self.value, duration=duration, size=size)
 
     def set_cache_value(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
-    ) -> None:
-        self._set_cache_value_redis(key, data, ttl=ttl)
+    ) -> int | None:
+        """
+        Set cache value in Redis and S3, returning the serialized size in bytes.
+
+        Returns None for None/missing values.
+        """
+        size = self._set_cache_value_redis(key, data, ttl=ttl)
         self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
+        return size
+
+    def set_cache_value_redis_only(
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+    ) -> int | None:
+        """
+        Write only to the configured cache backend (self.cache_client), skipping S3
+        and expiry tracking.
+
+        Use this for backfills where S3 is known to already hold fresh data
+        (e.g. populated by the normal sync() path) and the only cold tier is the
+        cache backend. In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is
+        the dedicated flags Redis; in dev/test it's whatever the alias resolves to.
+        Returns the serialized size in bytes, or None for None/missing values.
+        """
+        return self._set_cache_value_redis(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
         Only meant for use in tests
         """
         kinds = kinds or ["redis", "s3"]
-        if "redis" in kinds:
-            self.cache_client.delete(self.get_cache_key(key))
-            # Always delete ETag key to clean up stale ETags from when enable_etag was True
-            self.cache_client.delete(self.get_etag_key(key))
-        if "s3" in kinds:
-            object_storage.delete(self.get_cache_key(key))
+        try:
+            if "redis" in kinds:
+                self.cache_client.delete(self.get_cache_key(key))
+                # Always delete ETag key to clean up stale ETags from when enable_etag was True
+                self.cache_client.delete(self.get_etag_key(key))
+            if "s3" in kinds:
+                object_storage.delete(self.get_cache_key(key))
+        finally:
+            self._remove_expiry_tracking(key)
 
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
-    ):
+    ) -> int | None:
+        """
+        Set cache value in Redis and return the serialized size in bytes.
+
+        Returns None for None/missing values, otherwise returns len(json_data).
+        """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
             self.cache_client.delete(etag_key)
+            return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
@@ -354,6 +441,7 @@ class HyperCache:
                 self.cache_client.set(cache_key, json_data, timeout=timeout)
                 # Clean up stale ETag if ETags were previously enabled
                 self.cache_client.delete(etag_key)
+            return len(json_data)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
         """
@@ -369,6 +457,38 @@ class HyperCache:
         else:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
+
+    def _remove_expiry_tracking(self, key: KeyType) -> None:
+        """
+        Remove cache expiration entry from Redis sorted set.
+
+        Mirrors _track_expiry but for removal. Derives the identifier from the key
+        type without requiring a DB lookup — mismatched types (int for token-based,
+        str for ID-based) are silently skipped since the identifier can't be resolved.
+        """
+        if not self.expiry_sorted_set_key:
+            return
+
+        try:
+            if isinstance(key, Team):
+                identifier = str(self.get_cache_identifier(key))
+            elif isinstance(key, int) and not self.token_based:
+                identifier = str(key)
+            elif isinstance(key, str) and self.token_based:
+                identifier = key
+            else:
+                return
+
+            redis_client = get_client(self.redis_url)
+            redis_client.zrem(self.expiry_sorted_set_key, identifier)
+        except Exception as e:
+            logger.warning(
+                "Failed to remove cache expiry tracking",
+                namespace=self.namespace,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            capture_exception(e)
 
     def _track_expiry(self, team: Team, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None) -> None:
         """

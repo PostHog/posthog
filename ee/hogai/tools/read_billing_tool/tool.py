@@ -35,6 +35,7 @@ USAGE_TYPES = [
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
     {"label": "Workflow Emails", "value": "workflow_emails_sent_in_period"},
     {"label": "Workflow Destinations", "value": "workflow_billable_invocations_in_period"},
+    {"label": "Logs Ingested (MB)", "value": "logs_mb_in_period"},
 ]
 
 

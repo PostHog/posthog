@@ -39,6 +39,7 @@ export const FF_ANCHOR = '#feature-flags'
 export const PAYLOADS_ANCHOR = '#feature-flag-payloads'
 export const LOCAL_EVAL_ANCHOR = '#local-evaluation'
 export const BOOTSTRAPPING_ANCHOR = '#bootstrapping-flags'
+export const REMOTE_CONFIG_DOC_URL = `${DOC_BASE_URL}feature-flags/remote-config`
 
 export interface InstructionOption {
     value: string
@@ -201,6 +202,10 @@ export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [
     SDKKey.GO,
     SDKKey.RUBY,
     SDKKey.DOTNET,
+    SDKKey.IOS,
+    SDKKey.ANDROID,
+    SDKKey.REACT_NATIVE,
+    SDKKey.FLUTTER,
 ]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [

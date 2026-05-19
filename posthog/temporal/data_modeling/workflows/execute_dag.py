@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 from collections import defaultdict
@@ -6,15 +7,29 @@ from collections import defaultdict
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
+from posthog.temporal.data_modeling.activities import (
+    GetDAGStructureInputs,
+    PreemptDAGRunInputs,
+    get_dag_structure_activity,
+    preempt_dag_run_activity,
+)
+from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
+from posthog.temporal.data_modeling.metrics import (
+    get_dag_duration_metric,
+    get_dag_finished_metric,
+    get_dag_node_count_metric,
+)
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+
+MAX_CONCURRENT_CHILDREN = 10
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -25,7 +40,7 @@ class EmptyDAGOrCycleError(Exception):
 
 @dataclasses.dataclass
 class ExecuteDAGInputs:
-    """Inputs for the DAGOrchestratorWorkflow.
+    """Inputs for the ExecuteDAGWorkflow.
 
     Attributes:
         team_id: the team ID that owns the DAG.
@@ -37,6 +52,8 @@ class ExecuteDAGInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
+    duckgres_only: bool = False
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -62,7 +79,7 @@ class NodeResult:
 
 @dataclasses.dataclass
 class ExecuteDAGResult:
-    """Result from the DAGOrchestratorWorkflow.
+    """Result from the ExecuteDAGWorkflow.
 
     Attributes:
         dag_id: The DAG that was orchestrated.
@@ -125,17 +142,29 @@ def _dag_execution_levels(
     edge_lookup: dict,
 ) -> list[list[str]]:
     """Compute execution levels using kahn's topological sort."""
-    # Initialize in_degree for all nodes, defaulting to 0 for nodes with no dependencies
-    in_degree = {node_id: len(edge_lookup.get(node_id, set())) for node_id in nodes}
-    # inverse of the edge_lookup
+    node_set = set(nodes)
+    in_degree = {}
+    for node_id in node_set:
+        # the intersection filters out nodes which may not be in the user requested node set
+        in_degree[node_id] = len(edge_lookup.get(node_id, set()) & node_set)
     dependents = _get_dependent_lookup(edge_lookup)
     levels: list[list[str]] = []
     remaining = nodes.copy()
     while remaining:
         current_level = [node_id for node_id in remaining if in_degree[node_id] == 0]
         if not current_level:
-            # the only cases where this is possible are an empty DAG or a cycle in the DAG
-            raise EmptyDAGOrCycleError(f"DAG is either empty or contains a cycle: team={team_id} dag={dag_id}")
+            # we have extensive checks for cycles in DAGs. this is precautionary and shouldn't happen
+            problem_nodes = {
+                node_id: {
+                    "in_degree": in_degree[node_id],
+                    "dependencies": list(edge_lookup.get(node_id, set())),
+                    "unfulfilled_dependencies": list(edge_lookup.get(node_id, set()) & set(remaining)),
+                }
+                for node_id in remaining
+            }
+            raise EmptyDAGOrCycleError(
+                f"DAG is empty or contains a cycle: team={team_id} dag={dag_id} problem_nodes={problem_nodes}"
+            )
         levels.append(current_level)
         for node_id in current_level:
             remaining.remove(node_id)
@@ -164,9 +193,31 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
-        temporalio.workflow.logger.info("Starting DAGOrchestratorWorkflow", extra=inputs.properties_to_log)
-        start_time = temporalio.workflow.now()
+        temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
+        # NOTE: this should be handled by temporal's cancellation policy but
+        # we leave this in to clean up any jobs left in a dirty state
+        await temporalio.workflow.execute_activity(
+            preempt_dag_run_activity,
+            PreemptDAGRunInputs(
+                team_id=inputs.team_id,
+                dag_id=inputs.dag_id,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=2,
+            ),
+        )
+        try:
+            return await self._execute_dag(inputs)
+        except asyncio.CancelledError:
+            temporalio.workflow.logger.warning(
+                "ExecuteDAGWorkflow was cancelled",
+                extra=inputs.properties_to_log,
+            )
+            raise
 
+    async def _execute_dag(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
+        start_time = temporalio.workflow.now()
         # fetch DAG structure
         dag_structure = await temporalio.workflow.execute_activity(
             get_dag_structure_activity,
@@ -174,9 +225,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=2,
             ),
         )
         executable_nodes = dag_structure.executable_nodes
@@ -212,8 +263,13 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         )
 
         node_results: list[NodeResult] = []
+        ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         downstreams = _get_downstream_lookup(edge_lookup)
+        # execute child workflows with bounded concurrency using a sliding window;
+        # the semaphore limits how many child workflows run simultaneously across
+        # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
                 f"Executing level {i + 1}/{len(levels)}",
@@ -221,6 +277,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             )
             execute_nodes = []
             skip_nodes = []
+            ephemeral_nodes = []
             for node_id in level:
                 should_skip = False
                 skip_reason = None
@@ -231,6 +288,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         break
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
+                elif node_id in ephemeral_node_set:
+                    ephemeral_nodes.append(node_id)
                 else:
                     execute_nodes.append(node_id)
 
@@ -243,82 +302,90 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         skip_reason=skip_reason,
                     )
                 )
+            for node_id in ephemeral_nodes:
+                node_results.append(
+                    NodeResult(
+                        node_id=node_id,
+                        success=True,
+                    )
+                )
+                temporalio.workflow.logger.info(
+                    f"Node {node_id} is ephemeral, skipping materialization",
+                    extra=inputs.properties_to_log,
+                )
 
             if not execute_nodes:
                 continue
 
-            # execute child workflows in parallel for this level
-            child_handles = []
-            for node_id in execute_nodes:
-                handle = await temporalio.workflow.start_child_workflow(
-                    MaterializeViewWorkflow.run,
-                    MaterializeViewWorkflowInputs(
-                        team_id=inputs.team_id,
-                        dag_id=inputs.dag_id,
-                        node_id=node_id,
-                    ),
-                    id=f"materialize-{inputs.dag_id}-{node_id}-{temporalio.workflow.now().isoformat()}",
-                    retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=1,  # retries handled within child workflow
-                    ),
-                )
-                child_handles.append((node_id, handle))
-
-            # wait for all child workflows in this level to complete
-            for node_id, handle in child_handles:
-                try:
-                    result: MaterializeViewWorkflowResult = await handle
-                    node_results.append(
-                        NodeResult(
+            async def _run_child(node_id: str) -> NodeResult:
+                async with semaphore:
+                    handle = await temporalio.workflow.start_child_workflow(
+                        MaterializeViewWorkflow.run,
+                        MaterializeViewWorkflowInputs(
+                            team_id=inputs.team_id,
+                            dag_id=inputs.dag_id,
+                            node_id=node_id,
+                            duckgres_only=inputs.duckgres_only,
+                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                        ),
+                        id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
+                        parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=1,  # retries handled within child workflow
+                        ),
+                    )
+                    try:
+                        result: MaterializeViewWorkflowResult = await handle
+                        temporalio.workflow.logger.info(
+                            f"Node {node_id} materialized successfully",
+                            extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
+                        )
+                        return NodeResult(
                             node_id=node_id,
                             success=True,
                             rows_materialized=result.rows_materialized,
                             duration_seconds=result.duration_seconds,
                         )
-                    )
-                    temporalio.workflow.logger.info(
-                        f"Node {node_id} materialized successfully",
-                        extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
-                    )
-                except temporalio.exceptions.ChildWorkflowError as e:
-                    failed_node_set.add(node_id)
-                    error_message = str(e.cause) if e.cause else str(e)
-                    node_results.append(
-                        NodeResult(
+                    except temporalio.exceptions.ChildWorkflowError as e:
+                        error_message = str(e.cause) if e.cause else str(e)
+                        temporalio.workflow.logger.error(
+                            f"Node {node_id} failed to materialize: {error_message}",
+                            extra=inputs.properties_to_log,
+                        )
+                        return NodeResult(
                             node_id=node_id,
                             success=False,
-                            error=error_message,
+                            error=strip_hostname_from_error(error_message),
                         )
-                    )
-                    temporalio.workflow.logger.error(
-                        f"Node {node_id} failed to materialize: {error_message}",
-                        extra=inputs.properties_to_log,
-                    )
-                except Exception as e:
-                    capture_exception(e)
-                    failed_node_set.add(node_id)
-                    node_results.append(
-                        NodeResult(
+                    except Exception as e:
+                        capture_exception(e)
+                        error_str = str(e)
+                        temporalio.workflow.logger.error(
+                            f"Node {node_id} failed with unexpected error: {error_str}",
+                            extra=inputs.properties_to_log,
+                        )
+                        return NodeResult(
                             node_id=node_id,
                             success=False,
-                            error=str(e),
+                            error=strip_hostname_from_error(error_str),
                         )
-                    )
-                    temporalio.workflow.logger.error(
-                        f"Node {node_id} failed with unexpected error: {str(e)}",
-                        extra=inputs.properties_to_log,
-                    )
+
+            level_results = await asyncio.gather(*[_run_child(node_id) for node_id in execute_nodes])
+            for nr in level_results:
+                node_results.append(nr)
+                if not nr.success:
+                    failed_node_set.add(nr.node_id)
 
         # compute summary
         end_time = temporalio.workflow.now()
         duration_seconds = (end_time - start_time).total_seconds()
 
-        successful_nodes = sum(1 for r in node_results if r.success)
+        successful_nodes = sum(1 for r in node_results if r.success and not r.skipped)
         failed_nodes = sum(1 for r in node_results if not r.success and not r.skipped)
         skipped_nodes = sum(1 for r in node_results if r.skipped)
 
         temporalio.workflow.logger.info(
-            "DAGOrchestratorWorkflow completed",
+            "ExecuteDAGWorkflow completed",
             extra={
                 "total_nodes": len(node_results),
                 "successful_nodes": successful_nodes,
@@ -328,6 +395,20 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 **inputs.properties_to_log,
             },
         )
+        # DAG-level metrics
+        if failed_nodes == 0 and skipped_nodes == 0:
+            dag_status = "completed"
+        elif successful_nodes == 0 and failed_nodes == 0:
+            dag_status = "skipped"
+        elif successful_nodes == 0:
+            dag_status = "failed"
+        else:
+            dag_status = "partial_failure"
+        get_dag_finished_metric(dag_status).add(1)
+        get_dag_duration_metric().record(duration_seconds)
+        get_dag_node_count_metric("successful").record(successful_nodes)
+        get_dag_node_count_metric("failed").record(failed_nodes)
+        get_dag_node_count_metric("skipped").record(skipped_nodes)
 
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,

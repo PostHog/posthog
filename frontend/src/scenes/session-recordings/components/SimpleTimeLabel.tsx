@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { memo } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -72,11 +71,7 @@ export function _SimpleTimeLabel({
                 size === 'small' && 'text-sm'
             )}
         >
-            {containerSize === 'small' ? (
-                <Tooltip title={formattedReplayTime(startTime, timestampFormat, false)}>{formattedTime}</Tooltip>
-            ) : (
-                formattedTime
-            )}
+            {formattedTime}
         </div>
     )
 }

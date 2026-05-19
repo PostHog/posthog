@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -8,16 +8,22 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsUsersLogicType } from './llmAnalyticsUsersLogicType'
 
+export interface LLMAnalyticsUsersLogicProps {
+    tabId?: string
+}
+
 export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsUsersLogic']),
-    connect({
+    key((props: LLMAnalyticsUsersLogicProps) => props.tabId || 'default'),
+    props({} as LLMAnalyticsUsersLogicProps),
+    connect((props: LLMAnalyticsUsersLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-    }),
+    })),
 
     actions({
         setUsersSort: (column: string, direction: SortDirection) => ({ column, direction }),
@@ -47,7 +53,7 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    argMax(user_tuple, timestamp) as user,
+                    argMax(user_tuple, timestamp) as __llm_person,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
                     count() as generations,
                     countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
@@ -83,7 +89,7 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
                         properties: propertyFilters,
                     },
                 },
-                columns: ['user', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
+                columns: ['__llm_person', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,

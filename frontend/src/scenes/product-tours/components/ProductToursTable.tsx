@@ -1,14 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCursorClick, IconMegaphone } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import {
+    IconArchive,
+    IconCheckCircle,
+    IconCircleDashed,
+    IconCopy,
+    IconCursorClick,
+    IconEye,
+    IconMegaphone,
+    IconRefresh,
+    IconRocket,
+    IconStopFilled,
+    IconTrash,
+} from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
@@ -23,7 +35,15 @@ import {
     productToursLogic,
 } from '../productToursLogic'
 
-export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
+export function ProductTourStatusTag({
+    tour,
+    isEditing,
+    draftSaveStatus,
+}: {
+    tour: ProductTour
+    isEditing?: boolean
+    draftSaveStatus?: 'unsaved' | 'saving' | 'saved' | null
+}): JSX.Element {
     const status = getProductTourStatus(tour)
 
     const statusConfig: Record<
@@ -36,12 +56,23 @@ export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Eleme
     }
 
     const config = statusConfig[status]
-    return <LemonTag type={config.type}>{config.label}</LemonTag>
+    return (
+        <LemonTag type={config.type}>
+            {isEditing && (
+                <>
+                    {draftSaveStatus === 'unsaved' && <IconCircleDashed />}
+                    {draftSaveStatus === 'saving' && <Spinner />}
+                    {draftSaveStatus === 'saved' && <IconCheckCircle className="text-success" />}
+                </>
+            )}
+            {config.label}
+        </LemonTag>
+    )
 }
 
 export function ProductToursTable(): JSX.Element {
     const { filteredProductTours, productToursLoading, searchTerm, tab } = useValues(productToursLogic)
-    const { deleteProductTour, updateProductTour, setSearchTerm } = useActions(productToursLogic)
+    const { deleteProductTour, updateProductTour, duplicateProductTour, setSearchTerm } = useActions(productToursLogic)
 
     return (
         <>
@@ -119,13 +150,27 @@ export function ProductToursTable(): JSX.Element {
                                         <>
                                             <LemonButton
                                                 fullWidth
+                                                icon={<IconEye className="w-4" />}
                                                 onClick={() => router.actions.push(urls.productTour(tour.id))}
                                             >
                                                 View
                                             </LemonButton>
+                                            <LemonButton
+                                                fullWidth
+                                                icon={<IconCopy className="w-4" />}
+                                                onClick={() => duplicateProductTour(tour)}
+                                            >
+                                                Duplicate
+                                            </LemonButton>
                                             {!tour.start_date && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconRocket className="w-4" />}
+                                                    disabledReason={
+                                                        tour.archived
+                                                            ? 'Restore your tour before launching.'
+                                                            : undefined
+                                                    }
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Launch this product tour?',
@@ -162,6 +207,7 @@ export function ProductToursTable(): JSX.Element {
                                             {isProductTourRunning(tour) && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconStopFilled className="w-4" />}
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Stop this product tour?',
@@ -197,6 +243,7 @@ export function ProductToursTable(): JSX.Element {
                                             {tour.end_date && !tour.archived && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconRefresh className="w-4" />}
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Resume this product tour?',
@@ -231,9 +278,10 @@ export function ProductToursTable(): JSX.Element {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            {tour.end_date && tour.archived && (
+                                            {tour.archived && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconArchive className="w-4" />}
                                                     onClick={() => {
                                                         updateProductTour({
                                                             id: tour.id,
@@ -241,15 +289,21 @@ export function ProductToursTable(): JSX.Element {
                                                         })
                                                     }}
                                                 >
-                                                    Unarchive
+                                                    Restore
                                                 </LemonButton>
                                             )}
-                                            {tour.end_date && !tour.archived && (
+                                            {!tour.archived && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconArchive className="w-4" />}
+                                                    disabledReason={
+                                                        isProductTourRunning(tour)
+                                                            ? 'Stop your tour before archiving.'
+                                                            : undefined
+                                                    }
                                                     onClick={() => {
                                                         LemonDialog.open({
-                                                            title: 'Archive this product tour?',
+                                                            title: `Archive tour ${tour.name}?`,
                                                             content: (
                                                                 <div className="text-sm text-secondary">
                                                                     This action will remove the tour from your active
@@ -282,9 +336,15 @@ export function ProductToursTable(): JSX.Element {
                                             )}
                                             <LemonButton
                                                 status="danger"
+                                                icon={<IconTrash className="w-4" />}
+                                                disabledReason={
+                                                    isProductTourRunning(tour)
+                                                        ? 'Stop your tour before deleting.'
+                                                        : undefined
+                                                }
                                                 onClick={() => {
                                                     LemonDialog.open({
-                                                        title: 'Delete this product tour?',
+                                                        title: `Delete tour ${tour.name}?`,
                                                         content: (
                                                             <div className="text-sm text-secondary">
                                                                 This action cannot be undone. All tour data will be

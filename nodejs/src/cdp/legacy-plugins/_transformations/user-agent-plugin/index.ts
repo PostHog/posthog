@@ -1,6 +1,6 @@
 import { detect } from 'detect-browser'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 
@@ -28,7 +28,7 @@ export function setupPlugin({ config, global }: UserAgentMeta) {
         global.enableSegmentAnalyticsJs = config.enableSegmentAnalyticsJs === 'true'
         global.overrideUserAgentDetails = config.overrideUserAgentDetails === 'true'
         global.debugMode = config.debugMode === 'true'
-    } catch (e: unknown) {
+    } catch {
         throw new Error('Failed to read the configuration')
     }
 }

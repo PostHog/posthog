@@ -1,3 +1,4 @@
+import { IconWarning } from '@posthog/icons'
 import { LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -98,23 +99,29 @@ export function openConfirmationModal({
                         ))}
                     </ul>
                     {isBeingDisabled && dependentFlags && dependentFlags.length > 0 && (
-                        <p className="mt-4">
-                            This flag is referenced by {dependentFlags.length} other feature flag
-                            {dependentFlags.length === 1 ? '' : 's'}. By disabling this flag,{' '}
-                            {dependentFlags.map((flag, index) => (
-                                <span key={flag.id}>
-                                    {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
-                                    <Link
-                                        to={urls.featureFlag(flag.id)}
-                                        target="_blank"
-                                        aria-label={`Open ${flag.key}`}
-                                    >
-                                        <strong>{flag.key}</strong>
-                                    </Link>
-                                </span>
-                            ))}{' '}
-                            will evaluate as <strong>false</strong> for all users.
-                        </p>
+                        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
+                            <p className="my-0 flex items-center gap-2">
+                                <IconWarning className="text-warning" />
+                                <strong>Cannot disable this feature flag</strong>
+                            </p>
+                            <p className="mb-0">
+                                This flag is referenced by {dependentFlags.length} other feature flag
+                                {dependentFlags.length === 1 ? '' : 's'}:{' '}
+                                {dependentFlags.map((flag, index) => (
+                                    <span key={flag.id}>
+                                        {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
+                                        <Link
+                                            to={urls.featureFlag(flag.id)}
+                                            target="_blank"
+                                            aria-label={`Open ${flag.key}`}
+                                        >
+                                            <strong>{flag.key}</strong>
+                                        </Link>
+                                    </span>
+                                ))}
+                                . Please update or disable the dependent flags first.
+                            </p>
+                        </div>
                     )}
                     {allMessages.map((message, index) => (
                         <p key={index} className="mt-4">
@@ -127,6 +134,9 @@ export function openConfirmationModal({
         }
     }
 
+    // Determine if the primary button should be disabled
+    const hasBlockingDependentFlags = isBeingDisabled && dependentFlags && dependentFlags.length > 0
+
     LemonDialog.open({
         title,
         description,
@@ -137,7 +147,8 @@ export function openConfirmationModal({
                     : type === 'rollout'
                       ? 'Update conditions'
                       : 'Save changes',
-            onClick: onConfirm,
+            onClick: hasBlockingDependentFlags ? undefined : onConfirm,
+            disabled: hasBlockingDependentFlags,
         },
         secondaryButton: {
             children: 'Cancel',

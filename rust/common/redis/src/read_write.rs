@@ -363,6 +363,10 @@ impl Client for ReadWriteClient {
         self.writer.set(k, v).await
     }
 
+    async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        self.writer.zadd(k, member, score).await
+    }
+
     async fn set_with_format(
         &self,
         k: String,
@@ -374,6 +378,16 @@ impl Client for ReadWriteClient {
 
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
         self.writer.setex(k, v, seconds).await
+    }
+
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.setex_with_format(k, v, seconds, format).await
     }
 
     async fn set_nx_ex(
@@ -419,12 +433,7 @@ impl Client for ReadWriteClient {
         self.writer.del(k).await
     }
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
+    async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
         self.writer.hincrby(k, v, count).await
     }
 
@@ -468,10 +477,9 @@ impl Client for ReadWriteClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
-        self.writer.batch_set_nx_ex(items, ttl_seconds).await
+        self.writer.batch_set_nx_ex(items).await
     }
 
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
@@ -595,7 +603,7 @@ mod tests {
         assert!(result.is_ok());
 
         let result = client
-            .hincrby("counter".to_string(), "field".to_string(), Some(5))
+            .hincrby("counter".to_string(), "field".to_string(), 5)
             .await;
         assert!(result.is_ok());
     }

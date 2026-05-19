@@ -1,6 +1,10 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
+import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
+import { createMockEncryptor, createMockKeyStore } from '../../session-replay/shared/test-helpers'
+import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
@@ -11,7 +15,6 @@ import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFilter } from './session-filter'
-import { SessionMetadataStore } from './session-metadata-store'
 import { SessionTracker } from './session-tracker'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
@@ -119,6 +122,53 @@ jest.mock('./session-console-log-recorder', () => ({
     })),
 }))
 
+jest.mock('./session-feature-recorder', () => ({
+    SessionFeatureRecorder: jest.fn().mockImplementation((_sessionId, _teamId, _batchId) => ({
+        recordMessage: jest.fn().mockReturnValue(undefined),
+        end: jest.fn().mockReturnValue({
+            startDateTime: null,
+            endDateTime: null,
+            eventCount: 0,
+            mousePositionCount: 0,
+            mouseSumX: 0,
+            mouseSumXSquared: 0,
+            mouseSumY: 0,
+            mouseSumYSquared: 0,
+            mouseDistanceTraveled: 0,
+            mouseDirectionChangeCount: 0,
+            mouseVelocitySum: 0,
+            mouseVelocitySumOfSquares: 0,
+            mouseVelocityCount: 0,
+            scrollEventCount: 0,
+            totalScrollMagnitude: 0,
+            scrollDirectionReversalCount: 0,
+            rapidScrollReversalCount: 0,
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            rageClickCount: 0,
+            deadClickCount: 0,
+            interActionGapCount: 0,
+            interActionGapSumMs: 0,
+            interActionGapSumOfSquaresMs: 0,
+            maxIdleGapMs: 0,
+            quickBackCount: 0,
+            pageVisitCount: 0,
+            visitedUrls: [],
+            consoleErrorCount: 0,
+            consoleErrorAfterClickCount: 0,
+            networkRequestCount: 0,
+            networkFailedRequestCount: 0,
+            networkRequestDurationSum: 0,
+            networkRequestDurationSumOfSquares: 0,
+            networkRequestDurationCount: 0,
+            maxScrollY: 0,
+            clickTargetIds: [],
+            textSelectionCount: 0,
+        }),
+    })),
+}))
+
 jest.setTimeout(1000)
 
 jest.mock('./metrics', () => ({
@@ -151,8 +201,11 @@ describe('SessionBatchRecorder', () => {
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
+    let mockKeyStore: jest.Mocked<KeyStore>
+    let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -185,6 +238,10 @@ describe('SessionBatchRecorder', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockFeatureStore = {
+            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFeatureStore>
+
         mockStorage = {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
@@ -198,13 +255,19 @@ describe('SessionBatchRecorder', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
+        mockKeyStore = createMockKeyStore()
+        mockEncryptor = createMockEncryptor()
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockFeatureStore,
             mockSessionTracker,
             mockSessionFilter,
+            mockKeyStore,
+            mockEncryptor,
             Number.MAX_SAFE_INTEGER
         )
     })
@@ -1424,8 +1487,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 Number.MAX_SAFE_INTEGER
             )
             await recorder.record(message)
@@ -1624,8 +1690,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 3
             )
 
@@ -1651,8 +1720,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1681,8 +1753,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1704,8 +1779,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1730,8 +1808,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1766,8 +1847,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1802,8 +1886,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1832,8 +1919,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1864,8 +1954,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 2
             )
 
@@ -1893,8 +1986,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1921,8 +2017,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1950,8 +2049,11 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockFeatureStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 1
             )
 
@@ -1979,6 +2081,65 @@ describe('SessionBatchRecorder', () => {
 
             expect(SessionBatchMetrics.incrementSessionsRateLimited).toHaveBeenCalledTimes(1)
             expect(SessionBatchMetrics.incrementEventsRateLimited).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('encryption key handling', () => {
+        it('should drop messages for sessions with deleted encryption keys', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(false)
+            mockKeyStore.getKey.mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'deleted',
+                deletedAt: 1700000000,
+            })
+
+            const message = createMessage(
+                'session1',
+                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
+                { partition: 1, offset: 42 }
+            )
+
+            const bytesWritten = await recorder.record(message)
+
+            expect(bytesWritten).toBe(0)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 42 })
+        })
+
+        it('should drop messages when session key changes between calls', async () => {
+            const keyA = Buffer.from('key-a')
+            const keyB = Buffer.from('key-b')
+
+            mockSessionTracker.trackSession.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+            mockKeyStore.generateKey.mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: keyA,
+                sessionState: 'cleartext',
+            })
+            mockKeyStore.getKey.mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: keyB,
+                sessionState: 'cleartext',
+            })
+
+            const message1 = createMessage(
+                'session1',
+                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
+                { partition: 1, offset: 0 }
+            )
+            const message2 = createMessage(
+                'session1',
+                [{ type: EventType.IncrementalSnapshot, timestamp: 2000, data: { source: 2 } }],
+                { partition: 1, offset: 1 }
+            )
+
+            const bytes1 = await recorder.record(message1)
+            const bytes2 = await recorder.record(message2)
+
+            expect(bytes1).toBeGreaterThan(0)
+            expect(bytes2).toBe(0)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 1 })
         })
     })
 

@@ -1,10 +1,13 @@
 {
     "name": "@posthog/products-user-interviews",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "posthog-js": "1.335.5"
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

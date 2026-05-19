@@ -1,13 +1,14 @@
 import { PluginKey } from '@tiptap/pm/state'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
+import { isKeyOf } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'
@@ -42,9 +43,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
     const fuse = useMemo(() => {
-        return new Fuse(meFirstMembers, {
+        return createFuse(meFirstMembers, {
             keys: ['id', 'user.email', 'user.first_name', 'user.last_name'],
-            threshold: 0.3,
         })
     }, [meFirstMembers])
 
@@ -99,7 +99,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                 Enter: onPressEnter,
             }
 
-            if (keyMappings[event.key]) {
+            if (isKeyOf(event.key, keyMappings)) {
                 keyMappings[event.key]()
                 return true
             }

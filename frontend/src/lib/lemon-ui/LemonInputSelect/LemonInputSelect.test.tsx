@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -285,5 +286,70 @@ describe('LemonInputSelect', () => {
 
         expect(testButtons.length).toBeGreaterThanOrEqual(1)
         expect(addTestButtons.length).toBe(0)
+    })
+
+    it('multiple-select mode: selecting an option freezes the displayed results until user types again', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[
+                    { key: 'apple', label: 'Apple' },
+                    { key: 'apricot', label: 'Apricot' },
+                    { key: 'zucchini', label: 'Zucchini' },
+                ]}
+                value={[]}
+                onChange={onChange}
+            />
+        )
+
+        const input = await openDropdown(container)
+
+        // Type to filter — "app" should match Apple and Apricot but not Zucchini
+        await userEvent.type(input, 'app')
+
+        const appleButton = await findDropdownButtonByText('Apple')
+        expect(appleButton).toBeInTheDocument()
+        expect(screen.queryByText('Zucchini')).not.toBeInTheDocument()
+
+        // Select "Apple" — input clears but results should stay frozen
+        await userEvent.click(appleButton!)
+
+        expect(input.value).toBe('')
+
+        // Zucchini should still not appear — the frozen filtered results persist
+        expect(screen.queryByText('Zucchini')).not.toBeInTheDocument()
+    })
+
+    it('multiple-select mode: clicking option matching search text does not toggle it off', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[
+                    { key: 'alice@example.com', label: 'alice@example.com' },
+                    { key: 'bob@example.com', label: 'bob@example.com' },
+                ]}
+                value={[]}
+                onChange={onChange}
+                allowCustomValues
+            />
+        )
+
+        const input = await openDropdown(container)
+
+        // Type a value that exactly matches an option
+        await userEvent.type(input, 'alice@example.com')
+
+        // Click the matching option in the dropdown
+        const optionButton = await findDropdownButtonByText('alice@example.com')
+        expect(optionButton).toBeInTheDocument()
+        await userEvent.click(optionButton!)
+
+        // The final onChange call should ADD the value, not remove it
+        const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]
+        expect(lastCall[0]).toContain('alice@example.com')
     })
 })

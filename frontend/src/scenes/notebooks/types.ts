@@ -40,6 +40,7 @@ export enum NotebookNodeType {
     Query = 'ph-query',
     Python = 'ph-python',
     DuckSQL = 'ph-duck-sql',
+    HogQLSQL = 'ph-hogql-sql',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
@@ -65,6 +66,8 @@ export enum NotebookNodeType {
     UsageMetrics = 'ph-usage-metrics',
     ZendeskTickets = 'ph-zendesk-tickets',
     RelatedGroups = 'ph-related-groups',
+    CustomerJourney = 'ph-customer-journey',
+    SupportTickets = 'ph-support-tickets',
 }
 
 export type NotebookNodeResource = {
@@ -152,6 +155,7 @@ export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
 
 export interface NotebookEditor extends RichContentEditorType {
     findCommentPosition: (markId: string) => number | null
+    getAllCommentTexts: () => Record<string, string>
     removeComment: (pos: number) => void
     getText: () => string
 }

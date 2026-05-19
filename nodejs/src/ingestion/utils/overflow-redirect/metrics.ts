@@ -45,3 +45,10 @@ export const overflowRedirectRateLimitDecisions = new Counter({
     help: 'Total number of rate limit decisions',
     labelNames: ['type', 'decision'], // decision: 'allowed' | 'exceeded'
 })
+
+// Redirect source metrics - tracks WHERE the redirect decision came from
+export const overflowRedirectSourceEventsTotal = new Counter({
+    name: 'overflow_redirect_source_events_total',
+    help: 'Total number of events redirected by source',
+    labelNames: ['type', 'source'], // source: 'redis' | 'rate_limiter'
+})

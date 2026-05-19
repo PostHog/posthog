@@ -1,6 +1,20 @@
 syntax = "proto3";
 package personhog.types.v1;
 
+// ConsistencyLevel specifies the consistency guarantee for read operations.
+// EVENTUAL: Read from replica (may have replication lag)
+// STRONG: Read from primary (guaranteed latest data)
+enum ConsistencyLevel {
+  CONSISTENCY_LEVEL_UNSPECIFIED = 0;
+  CONSISTENCY_LEVEL_EVENTUAL = 1;
+  CONSISTENCY_LEVEL_STRONG = 2;
+}
+
+// ReadOptions configures read operation behavior.
+message ReadOptions {
+  ConsistencyLevel consistency = 1;
+}
+
 // TeamDistinctId is a cross-team lookup key for person resolution
 message TeamDistinctId {
   int64 team_id = 1;

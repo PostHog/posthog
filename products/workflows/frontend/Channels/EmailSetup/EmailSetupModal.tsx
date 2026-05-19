@@ -13,6 +13,7 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
+import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -23,9 +24,12 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
     const { verifyDomain, submitEmailSender } = useActions(logic)
+
+    const emailDomain = savedIntegration?.config?.domain || ''
+
     return (
         <>
-            <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
+            <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
                         <FlaggedFeature flag="messaging-ses">
@@ -101,12 +105,23 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         <p className="mb-2 font-semibold">
                             Note: It can take up to 48 hours for DNS changes to propagate.
                         </p>
+
+                        {!isDomainVerified && emailDomain && (
+                            <DomainConnectBanner
+                                logicKey={`email-${savedIntegration.id}`}
+                                domain={emailDomain}
+                                context="email"
+                                integrationId={savedIntegration.id}
+                                className="mb-2"
+                            />
+                        )}
+
                         <div className="overflow-x-auto">
                             <table className="w-full border-collapse">
                                 <thead>
                                     <tr className="border-b">
                                         <th className="py-2 text-left">Type</th>
-                                        <th className="py-2 text-left">Target</th>
+                                        <th className="py-2 text-left">Name</th>
                                         <th className="py-2 text-left">Value</th>
                                         <th className="py-2 text-left">Status</th>
                                     </tr>
@@ -144,7 +159,14 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                 </td>
                                                 <td className="py-2 max-w-[8rem]">
                                                     <div className="flex gap-1 justify-between items-center break-all text-wrap">
-                                                        <span>{record.recordValue}</span>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span>{record.recordValue}</span>
+                                                            {record.priority != null && (
+                                                                <span className="text-muted text-xs">
+                                                                    Priority: {record.priority}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <LemonButton
                                                             size="small"
                                                             icon={<IconCopy />}

@@ -5,6 +5,7 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -21,14 +22,16 @@ import {
 } from './batchExportBackfillModalLogic'
 import { formatHourString } from './utils'
 
-export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicProps): JSX.Element {
-    const logic = batchExportBackfillModalLogic({ id })
+export function BatchExportBackfillModal({ id, context }: BatchExportBackfillModalLogicProps): JSX.Element {
+    const logic = batchExportBackfillModalLogic({ id, context })
+    const earliestBackfillEnabled = useFeatureFlag('BATCH_EXPORT_EARLIEST_BACKFILL')
 
     const {
         batchExportConfig,
         isBackfillModalOpen,
         isBackfillFormSubmitting,
         isEarliestBackfill,
+        isHogFunction,
         interval,
         timezone,
         dayOfWeek,
@@ -72,11 +75,10 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
             }
         >
             <p>
-                Backfilling a batch export will sequentially run all batch periods that fall within the range specified
-                below. The runs will export data in <b>{interval}</b> intervals, from the start date until the end date
-                is reached.
+                Backfilling will sequentially run all batch periods that fall within the range specified below. The runs
+                will export data in <b>{interval}</b> intervals, from the start date until the end date is reached.
             </p>
-            {interval === 'day' && hourOffset !== null && (
+            {!isHogFunction && interval === 'day' && hourOffset !== null && (
                 <p className="text-sm text-secondary">
                     Your batch export is configured to run at{' '}
                     <b>
@@ -85,7 +87,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                     .
                 </p>
             )}
-            {interval === 'week' && dayOfWeek !== null && hourOffset !== null && (
+            {!isHogFunction && interval === 'week' && dayOfWeek !== null && hourOffset !== null && (
                 <p className="text-sm text-secondary">
                     Your batch export is configured to run at{' '}
                     <b>
@@ -119,7 +121,8 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                     }
                 </LemonField>
 
-                {batchExportConfig?.model == 'persons' ? (
+                {/* Note: This is behind a feature flag while we improve backfilling behavior. */}
+                {earliestBackfillEnabled && batchExportConfig?.model == 'persons' ? (
                     <LemonField name="earliest_backfill">
                         {({ onChange }) => (
                             <LemonCheckbox

@@ -236,17 +236,23 @@ def mysql_partition_table(mysql_connection, partition_table_name, partition_tabl
 @SKIP_IF_MISSING_MYSQL_CREDENTIALS
 @pytest.mark.parametrize("partition_table_rows", [0], indirect=True)
 def test_get_partition_settings_with_empty_table(mysql_partition_table, mysql_connection):
+    logger = structlog.get_logger()
+
     with mysql_connection.cursor() as cursor:
-        partition_settings = _get_partition_settings(cursor, os.environ["MYSQL_DATABASE"], mysql_partition_table)
+        partition_settings = _get_partition_settings(
+            cursor, os.environ["MYSQL_DATABASE"], mysql_partition_table, logger
+        )
 
     assert partition_settings is None
 
 
 @SKIP_IF_MISSING_MYSQL_CREDENTIALS
 def test_get_partition_settings_with_one_size_partition(mysql_partition_table, mysql_connection, partition_table_rows):
+    logger = structlog.get_logger()
+
     with mysql_connection.cursor() as cursor:
         partition_settings = _get_partition_settings(
-            cursor, os.environ["MYSQL_DATABASE"], mysql_partition_table, partition_size_bytes=1
+            cursor, os.environ["MYSQL_DATABASE"], mysql_partition_table, partition_size_bytes=1, logger=logger
         )
 
     assert partition_settings is not None

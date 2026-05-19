@@ -2,16 +2,17 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { EndpointType } from '~/types'
+import { EndpointVersionType } from '~/types'
 
 import { CodeExampleTab, endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, generateEndpointPayload } from '../endpointSceneLogic'
@@ -61,7 +62,7 @@ function getEndpointUrl(endpointPath: string): string {
     return `${window.location.origin}${endpointPath}`
 }
 
-function generateTerminalExample(endpoint: EndpointType, selectedVersion: number | null): string {
+function generateTerminalExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
     const payload = generateEndpointPayload(endpoint)
     const hasPayload = Object.keys(payload).length > 0
     const versionParam =
@@ -86,7 +87,7 @@ ${dataContent}
   }'`
 }
 
-function generatePythonExample(endpoint: EndpointType, selectedVersion: number | null): string {
+function generatePythonExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
     const payload = generateEndpointPayload(endpoint)
     const hasPayload = Object.keys(payload).length > 0
     const versionParam =
@@ -129,7 +130,7 @@ response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(endpoint: EndpointType, selectedVersion: number | null): string {
+function generateNodeExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
     const payload = generateEndpointPayload(endpoint)
     const hasPayload = Object.keys(payload).length > 0
     const versionParam =
@@ -184,12 +185,17 @@ fetch(url, {
 
 export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading } = useValues(
+    const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading, viewingVersion, debugMode } =
+        useValues(endpointSceneLogic({ tabId }))
+    const { setPayloadJson, setPayloadJsonError, loadEndpointResult, setDebugMode } = useActions(
         endpointSceneLogic({ tabId })
     )
-    const { setPayloadJson, setPayloadJsonError, loadEndpointResult } = useActions(endpointSceneLogic({ tabId }))
     const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic({ tabId }))
     const { activeCodeExampleTab, selectedCodeExampleVersion } = useValues(endpointLogic({ tabId }))
+    const { superpowersEnabled } = useValues(superpowersLogic)
+
+    // When viewing a specific version, use that version for code examples
+    const effectiveVersion = viewingVersion?.version ?? selectedCodeExampleVersion
 
     const handleExecute = (): void => {
         if (!endpoint?.name) {
@@ -202,6 +208,10 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
         } catch {
             setPayloadJsonError('Invalid JSON in request payload')
             return
+        }
+
+        if (debugMode) {
+            data = { ...data, debug: true }
         }
 
         loadEndpointResult({ name: endpoint.name, data })
@@ -227,13 +237,13 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(endpoint, selectedCodeExampleVersion)
+                return generateTerminalExample(endpoint, effectiveVersion)
             case 'python':
-                return generatePythonExample(endpoint, selectedCodeExampleVersion)
+                return generatePythonExample(endpoint, effectiveVersion)
             case 'nodejs':
-                return generateNodeExample(endpoint, selectedCodeExampleVersion)
+                return generateNodeExample(endpoint, effectiveVersion)
             default:
-                return generateTerminalExample(endpoint, selectedCodeExampleVersion)
+                return generateTerminalExample(endpoint, effectiveVersion)
         }
     }
 
@@ -291,21 +301,26 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                     />
                     {payloadJsonError && <LemonField.Pure error={payloadJsonError} />}
 
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPlayCircle />}
-                        onClick={handleExecute}
-                        loading={endpointResultLoading}
-                        tooltip="Cmd/Ctrl + Enter"
-                        disabledReason={
-                            !endpoint?.is_active
-                                ? 'This endpoint is inactive. Activate it in the actions panel on the top right to execute.'
-                                : undefined
-                        }
-                    >
-                        Execute endpoint
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlayCircle />}
+                            onClick={handleExecute}
+                            loading={endpointResultLoading}
+                            tooltip="Cmd/Ctrl + Enter"
+                            disabledReason={
+                                !endpoint?.is_active
+                                    ? 'This endpoint is inactive. Activate it in the actions panel on the top right to execute.'
+                                    : undefined
+                            }
+                        >
+                            Execute endpoint
+                        </LemonButton>
+                        {superpowersEnabled && (
+                            <LemonSwitch checked={debugMode} onChange={setDebugMode} label="Debug" bordered />
+                        )}
+                    </div>
                     {endpointResult &&
                         !endpointResultLoading &&
                         (() => {
@@ -359,7 +374,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                     <LemonSelect
                         options={versionOptions}
                         onChange={setSelectedCodeExampleVersion}
-                        value={selectedCodeExampleVersion || endpoint.current_version}
+                        value={effectiveVersion || endpoint.current_version}
                         placeholder="Select version"
                     />
                     <LemonSelect
@@ -382,7 +397,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         icon={<IconExternal />}
                         targetBlank
                     >
-                        API keys
+                        Personal API keys
                     </LemonButton>
                 </div>
                 <div>

@@ -1,5 +1,6 @@
 import tk from 'timekeeper'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -8,12 +9,14 @@ import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
+    canAccessBilling,
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
     formatDisplayUsage,
     formatProductNames,
     formatWithDecimals,
+    getMinimumBillingAccessLevel,
     getProration,
     getUsageLimitConsequence,
     projectUsage,
@@ -438,6 +441,10 @@ describe('getUsageLimitConsequence', () => {
         expect(getUsageLimitConsequence('Feature flags & Experiments')).toEqual('feature flags will not evaluate')
     })
 
+    it('should return specific message for PostHog AI', () => {
+        expect(getUsageLimitConsequence('PostHog AI')).toEqual('PostHog AI will be unavailable')
+    })
+
     it('should return generic message for other products', () => {
         expect(getUsageLimitConsequence('Session replay')).toEqual('data loss may occur')
         expect(getUsageLimitConsequence('Product analytics')).toEqual('data loss may occur')
@@ -474,6 +481,25 @@ describe('buildUsageLimitExceededMessage', () => {
         )
     })
 
+    it('should build message for PostHog AI with specific consequence', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'PostHog AI', subscribed: true }])
+        expect(result.title).toEqual('Usage limit exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
+        )
+    })
+
+    it('should build message for PostHog AI with other products', () => {
+        const result = buildUsageLimitExceededMessage([
+            { name: 'PostHog AI', subscribed: true },
+            { name: 'Session replay', subscribed: true },
+        ])
+        expect(result.title).toEqual('Usage limits exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.'
+        )
+    })
+
     it('should deduplicate consequences for products with same consequence', () => {
         const result = buildUsageLimitExceededMessage([
             { name: 'Session replay', subscribed: true },
@@ -490,6 +516,49 @@ describe('buildUsageLimitExceededMessage', () => {
             { name: 'Feature flags & Experiments', subscribed: false },
         ])
         expect(result.message).toContain('upgrade your plan')
+    })
+
+    it.each([
+        {
+            hasBillingAccess: true,
+            subscribed: true,
+            expected: 'increase your billing limit',
+        },
+        {
+            hasBillingAccess: true,
+            subscribed: false,
+            expected: 'upgrade your plan',
+        },
+        {
+            hasBillingAccess: false,
+            subscribed: true,
+            expected: 'ask an organization admin to increase the billing limit',
+        },
+        {
+            hasBillingAccess: false,
+            subscribed: false,
+            expected: 'ask an organization admin to upgrade the plan',
+        },
+    ])(
+        'should use "$expected" when hasBillingAccess=$hasBillingAccess and subscribed=$subscribed',
+        ({ hasBillingAccess, subscribed, expected }) => {
+            const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed }], hasBillingAccess)
+            expect(result.message).toContain(expected)
+        }
+    )
+
+    it('should say "owner" when minimumBillingAccessLevel is Owner and user has no billing access', () => {
+        const result = buildUsageLimitExceededMessage(
+            [{ name: 'Session replay', subscribed: true }],
+            false,
+            OrganizationMembershipLevel.Owner
+        )
+        expect(result.message).toContain('ask an organization owner')
+    })
+
+    it('should default to admin message when hasBillingAccess is not provided', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
+        expect(result.message).toContain('increase your billing limit')
     })
 })
 
@@ -527,5 +596,70 @@ describe('buildUsageLimitApproachingMessage', () => {
             { name: 'Session replay', percentage_usage: 0.8567, usage_key: 'recordings' },
         ])
         expect(result.message).toContain('85.67%')
+    })
+
+    it.each([
+        {
+            hasBillingAccess: true,
+            expectedSuffix: false,
+        },
+        {
+            hasBillingAccess: false,
+            expectedSuffix: true,
+        },
+    ])(
+        'should include admin contact message when hasBillingAccess=$hasBillingAccess',
+        ({ hasBillingAccess, expectedSuffix }) => {
+            const result = buildUsageLimitApproachingMessage(
+                [{ name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' }],
+                hasBillingAccess
+            )
+            if (expectedSuffix) {
+                expect(result.message).toContain('Please ask an organization admin to increase the billing limit.')
+            } else {
+                expect(result.message).not.toContain('organization admin')
+            }
+        }
+    )
+
+    it('should say "owner" when minimumBillingAccessLevel is Owner and user has no billing access', () => {
+        const result = buildUsageLimitApproachingMessage(
+            [{ name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' }],
+            false,
+            OrganizationMembershipLevel.Owner
+        )
+        expect(result.message).toContain('ask an organization owner')
+    })
+
+    it('should default to no admin suffix when hasBillingAccess is not provided', () => {
+        const result = buildUsageLimitApproachingMessage([
+            { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
+        ])
+        expect(result.message).not.toContain('organization admin')
+    })
+})
+
+describe('getMinimumBillingAccessLevel', () => {
+    it('returns Admin when ownerOnlyBilling is false', () => {
+        expect(getMinimumBillingAccessLevel(false)).toBe(OrganizationMembershipLevel.Admin)
+    })
+
+    it('returns Owner when ownerOnlyBilling is true', () => {
+        expect(getMinimumBillingAccessLevel(true)).toBe(OrganizationMembershipLevel.Owner)
+    })
+})
+
+describe('canAccessBilling', () => {
+    it.each([
+        { level: OrganizationMembershipLevel.Owner, ownerOnly: false, expected: true },
+        { level: OrganizationMembershipLevel.Owner, ownerOnly: true, expected: true },
+        { level: OrganizationMembershipLevel.Admin, ownerOnly: false, expected: true },
+        { level: OrganizationMembershipLevel.Admin, ownerOnly: true, expected: false },
+        { level: OrganizationMembershipLevel.Member, ownerOnly: false, expected: false },
+        { level: OrganizationMembershipLevel.Member, ownerOnly: true, expected: false },
+        { level: null, ownerOnly: false, expected: false },
+        { level: null, ownerOnly: true, expected: false },
+    ])('returns $expected for level=$level, ownerOnly=$ownerOnly', ({ level, ownerOnly, expected }) => {
+        expect(canAccessBilling(level, ownerOnly)).toBe(expected)
     })
 })

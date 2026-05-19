@@ -24,23 +24,32 @@ class ScheduledChange(RootTeamMixin, models.Model):
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     record_id = models.CharField(max_length=200)
-    model_name = models.CharField(max_length=100, choices=AllowedModels.choices)
+    model_name = models.CharField(max_length=100, choices=AllowedModels)
     payload = models.JSONField(default=dict)
     scheduled_at = models.DateTimeField()
     executed_at = models.DateTimeField(null=True, blank=True)
-    failure_reason = models.CharField(max_length=400, null=True, blank=True)
+    failure_reason = models.TextField(null=True, blank=True)
     failure_count = models.IntegerField(default=0)
     is_recurring = models.BooleanField(default=False)
     recurrence_interval = models.CharField(
         max_length=20,
         null=True,
         blank=True,
-        choices=RecurrenceInterval.choices,
+        choices=RecurrenceInterval,
     )
     # Tracks when a recurring schedule last executed successfully (for audit/debugging)
     last_executed_at = models.DateTimeField(null=True, blank=True)
+    # Cron expression for flexible recurring schedules (e.g., "0 9 * * 1-5" for weekdays at 9am).
+    # Mutually exclusive with recurrence_interval — validation enforced at the API layer.
+    cron_expression = models.CharField(max_length=100, null=True, blank=True)
     # Optional end date for recurring schedules - stops recurring after this date
     end_date = models.DateTimeField(null=True, blank=True)
+    # IANA timezone name captured from the team at creation time. Cron recurrence resolves its
+    # wall-clock fields in this timezone so that "0 9 * * 1-5" keeps firing at 9am local time
+    # across DST transitions, rather than drifting by the project's UTC offset on each run.
+    # NULL on rows created before this column existed; those rows keep their historical
+    # UTC-wall-clock interpretation to avoid retroactively shifting any live schedule.
+    timezone = models.CharField(max_length=240, null=True, blank=True)
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)

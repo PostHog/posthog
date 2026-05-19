@@ -1,6 +1,7 @@
 import './NetworkView.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonTable, Link } from '@posthog/lemon-ui'
@@ -47,7 +48,8 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
                 <span className="whitespace-nowrap">
                     {entryType === 'navigation' ? url.hostname : null}
                     {url.pathname}
-                    {url.hash.length || url.search.length ? '...' : null}
+                    {url.search}
+                    {url.hash}
                 </span>
             </Tooltip>
         )
@@ -58,7 +60,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
 
 function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null {
     return (
-        <div className="flex flex-row justify-around">
+        <div className="flex flex-row gap-1 items-center whitespace-nowrap">
             <MethodTag item={item} label={false} />
             <StatusTag item={item} detailed={false} />
         </div>
@@ -122,10 +124,62 @@ function WaterfallMeta(): JSX.Element | null {
     )
 }
 
+const MIN_TIMINGS_WIDTH = 80
+
+function useColumnResize(
+    initialWidth: number,
+    containerRef: React.RefObject<HTMLDivElement | null>
+): [number, (e: React.MouseEvent) => void] {
+    const [width, setWidth] = useState(initialWidth)
+    const widthRef = useRef(initialWidth)
+    widthRef.current = width
+
+    const onMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            if (e.button !== 0) {
+                return
+            }
+            e.preventDefault()
+            const startX = e.pageX
+            const startWidth = widthRef.current
+            const containerWidth = containerRef.current?.offsetWidth ?? 800
+            // Measure actual Status + Duration column widths from the rendered table header
+            const ths = containerRef.current?.querySelectorAll('th')
+            let otherColumnsWidth = 0
+            if (ths && ths.length >= 4) {
+                // Status (index 2) + Duration (index 3)
+                otherColumnsWidth = ths[2].offsetWidth + ths[3].offsetWidth
+            }
+            const maxWidth = Math.max(200, containerWidth - otherColumnsWidth - MIN_TIMINGS_WIDTH)
+
+            const onMouseMove = (moveEvent: MouseEvent): void => {
+                const delta = moveEvent.pageX - startX
+                setWidth(Math.max(100, Math.min(maxWidth, startWidth + delta)))
+            }
+            const onMouseUp = (): void => {
+                document.removeEventListener('mousemove', onMouseMove)
+                document.removeEventListener('mouseup', onMouseUp)
+                document.body.style.cursor = ''
+                document.body.style.userSelect = ''
+            }
+
+            document.addEventListener('mousemove', onMouseMove)
+            document.addEventListener('mouseup', onMouseUp)
+            document.body.style.cursor = 'col-resize'
+            document.body.style.userSelect = 'none'
+        },
+        [containerRef]
+    )
+
+    return [width, onMouseDown]
+}
+
 export function NetworkView(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const logic = networkViewLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     const { isLoading, currentPage, hasPageViews } = useValues(logic)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [urlColumnWidth, onUrlHeaderMouseDown] = useColumnResize(250, containerRef)
 
     if (isLoading) {
         return (
@@ -137,10 +191,21 @@ export function NetworkView(): JSX.Element {
 
     return (
         <BindLogic logic={networkViewLogic} props={{ sessionRecordingId: logicProps.sessionRecordingId }}>
-            <div className="NetworkView overflow-auto py-2 px-4">
+            <div className="NetworkView overflow-y-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="deprecated-space-y-1 px-0">
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div
+                    ref={containerRef}
+                    className="relative deprecated-space-y-1 px-0"
+                    style={{ '--url-col-width': `${urlColumnWidth}px` } as React.CSSProperties}
+                >
+                    <div
+                        className="NetworkView__column-resize absolute top-0 bottom-0 z-10 cursor-col-resize"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ left: urlColumnWidth }}
+                        onMouseDown={onUrlHeaderMouseDown}
+                    />
                     <LemonTable
                         className="NetworkView__table"
                         size="small"
@@ -155,7 +220,7 @@ export function NetworkView(): JSX.Element {
                                 title: 'URL',
                                 key: 'url',
                                 dataIndex: 'name',
-                                width: 250,
+                                width: urlColumnWidth,
                                 render: function RenderUrl(_, item) {
                                     return <SimpleURL name={item.name} entryType={item.entry_type} />
                                 },
@@ -163,23 +228,25 @@ export function NetworkView(): JSX.Element {
                             {
                                 title: 'Timings',
                                 key: 'timings',
-                                render: function RenderUrl(_, item) {
+                                width: '100%',
+                                render: function RenderTimings(_, item) {
                                     return <NetworkBar item={item} />
                                 },
                             },
                             {
                                 title: 'Status',
                                 key: 'status',
-                                width: 128,
-                                render: function RenderUrl(_, item) {
+                                width: 0,
+                                render: function RenderStatus(_, item) {
                                     return <NetworkStatus item={item} />
                                 },
                             },
                             {
                                 title: 'Duration',
                                 key: 'duration',
-                                width: 86,
-                                render: function RenderUrl(_, item) {
+                                width: 0,
+                                align: 'right',
+                                render: function RenderDuration(_, item) {
                                     return <Duration item={item} />
                                 },
                             },

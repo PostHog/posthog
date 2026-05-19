@@ -4,19 +4,19 @@ import { Form } from 'kea-forms'
 import { IconCheck, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, lemonToast } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { AccessControlAction } from '../../AccessControlAction'
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
 
 export function UrlConfig({
     logic,
+    logicProps,
     formKey,
     addUrl,
     validationWarning,
@@ -28,6 +28,7 @@ export function UrlConfig({
     ...props
 }: {
     logic: LogicWrapper
+    logicProps: Record<string, any>
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
@@ -45,31 +46,35 @@ export function UrlConfig({
     onEdit: (index: number) => void
     onRemove: (index: number) => void
 }): JSX.Element {
-    const { resourceType, logicKey } = useValues(ingestionControlsLogic)
+    const { logicKey } = useValues(ingestionControlsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
+        <div className="flex flex-col gap-y-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
                     {title} <Since web={{ version: '1.171.0' }} />
                 </LemonLabel>
-                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    <LemonButton
-                        onClick={props.onAdd}
-                        type="secondary"
-                        icon={<IconPlus />}
-                        data-attr={`${logicKey}-add-url`}
-                        size="small"
-                    >
-                        Add
-                    </LemonButton>
-                </AccessControlAction>
+                <LemonButton
+                    onClick={props.onAdd}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    data-attr={`${logicKey}-add-url`}
+                    size="small"
+                    disabledReason={restrictedReason}
+                >
+                    Add
+                </LemonButton>
             </div>
             <p>{description}</p>
 
             {props.isAddFormVisible && (
                 <UrlConfigForm
                     logic={logic}
+                    logicProps={logicProps}
                     formKey={formKey}
                     addUrl={addUrl}
                     validationWarning={validationWarning}
@@ -104,6 +109,7 @@ export function UrlConfig({
             {props.config?.map((trigger, index) => (
                 <UrlConfigRow
                     logic={logic}
+                    logicProps={logicProps}
                     formKey={formKey}
                     addUrl={addUrl}
                     validationWarning={validationWarning}
@@ -114,7 +120,6 @@ export function UrlConfig({
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
                     checkUrlResult={checkUrlResults[index]}
-                    resourceType={resourceType}
                 />
             ))}
         </div>
@@ -129,10 +134,10 @@ function UrlConfigRow({
     onRemove,
     checkUrlResult,
     logic,
+    logicProps,
     formKey,
     addUrl,
     validationWarning,
-    resourceType,
 }: {
     trigger: UrlTriggerConfig
     index: number
@@ -141,16 +146,22 @@ function UrlConfigRow({
     onRemove: (index: number) => void
     checkUrlResult?: boolean
     logic: LogicWrapper
+    logicProps: Record<string, any>
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
-    resourceType: AccessControlResourceType
 }): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     if (editIndex === index) {
         return (
             <div className="border rounded p-2 bg-surface-primary">
                 <UrlConfigForm
                     logic={logic}
+                    logicProps={logicProps}
                     formKey={formKey}
                     addUrl={addUrl}
                     validationWarning={validationWarning}
@@ -191,35 +202,38 @@ function UrlConfigRow({
                 )}
             </span>
             <div className="Actions flex deprecated-space-x-1 shrink-0">
-                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center>
-                        Edit
-                    </LemonButton>
-                </AccessControlAction>
+                <LemonButton
+                    icon={<IconPencil />}
+                    onClick={() => onEdit(index)}
+                    tooltip="Edit"
+                    center
+                    disabledReason={restrictedReason}
+                >
+                    Edit
+                </LemonButton>
 
-                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    <LemonButton
-                        icon={<IconTrash />}
-                        tooltip="Remove URL"
-                        center
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: <>Remove URL</>,
-                                description: 'Are you sure you want to remove this URL?',
-                                primaryButton: {
-                                    status: 'danger',
-                                    children: 'Remove',
-                                    onClick: () => onRemove(index),
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                },
-                            })
-                        }}
-                    >
-                        Remove
-                    </LemonButton>
-                </AccessControlAction>
+                <LemonButton
+                    icon={<IconTrash />}
+                    tooltip="Remove URL"
+                    center
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: <>Remove URL</>,
+                            description: 'Are you sure you want to remove this URL?',
+                            primaryButton: {
+                                status: 'danger',
+                                children: 'Remove',
+                                onClick: () => onRemove(index),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                    }}
+                    disabledReason={restrictedReason}
+                >
+                    Remove
+                </LemonButton>
             </div>
         </div>
     )
@@ -229,6 +243,7 @@ function UrlConfigForm({
     onCancel,
     isSubmitting,
     logic,
+    logicProps,
     formKey,
     validationWarning,
     addUrl,
@@ -236,6 +251,7 @@ function UrlConfigForm({
     onCancel: () => void
     isSubmitting: boolean
     logic: LogicWrapper
+    logicProps: Record<string, any>
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
@@ -243,6 +259,7 @@ function UrlConfigForm({
     return (
         <Form
             logic={logic}
+            props={logicProps}
             formKey={formKey}
             enableFormOnSubmit
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"

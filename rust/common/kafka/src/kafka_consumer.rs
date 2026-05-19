@@ -56,6 +56,14 @@ impl SingleTopicConsumer {
                 &consumer_config.kafka_consumer_offset_reset,
             );
 
+        if !common_config.kafka_client_rack.is_empty() {
+            client_config.set("client.rack", &common_config.kafka_client_rack);
+        }
+
+        if !common_config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &common_config.kafka_client_id);
+        }
+
         // IMPORTANT: this means *by default* all consumers are
         // responsible for storing their own offsets, regardless
         // of whether automatic offset commit is enabled or disabled!
@@ -74,6 +82,35 @@ impl SingleTopicConsumer {
                     .kafka_consumer_auto_commit_interval_ms
                     .to_string(),
             );
+        }
+
+        if let Some(v) = consumer_config.kafka_consumer_fetch_wait_max_ms {
+            client_config.set("fetch.wait.max.ms", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_fetch_min_bytes {
+            client_config.set("fetch.min.bytes", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_fetch_max_bytes {
+            client_config.set("fetch.max.bytes", v.to_string());
+        }
+        if let Some(v) = consumer_config.kafka_consumer_max_partition_fetch_bytes {
+            client_config.set("max.partition.fetch.bytes", v.to_string());
+        }
+
+        if let Some(ref id) = consumer_config.kafka_consumer_group_instance_id {
+            client_config.set("group.instance.id", id);
+        }
+        if let Some(ref strategy) = consumer_config.kafka_consumer_partition_strategy {
+            client_config.set("partition.assignment.strategy", strategy);
+        }
+        if let Some(ref v) = consumer_config.kafka_consumer_socket_send_buffer_bytes {
+            client_config.set("socket.send.buffer.bytes", v);
+        }
+        if let Some(ref v) = consumer_config.kafka_consumer_socket_receive_buffer_bytes {
+            client_config.set("socket.receive.buffer.bytes", v);
+        }
+        if let Some(v) = consumer_config.kafka_consumer_metadata_refresh_interval_ms {
+            client_config.set("topic.metadata.refresh.interval.ms", v.to_string());
         }
 
         let consumer: StreamConsumer = client_config.create()?;
@@ -172,6 +209,14 @@ impl Offset {
 
     pub fn get_value(&self) -> i64 {
         self.offset
+    }
+
+    pub fn partition(&self) -> i32 {
+        self.partition
+    }
+
+    pub fn topic(&self) -> &str {
+        &self.topic
     }
 }
 

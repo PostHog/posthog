@@ -4,8 +4,9 @@ import urllib.parse
 from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests as http_requests
-from dlt.sources.helpers import requests
+from requests.exceptions import HTTPError
+
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
 from .auth import hubspot_refresh_access_token
 from .settings import OBJECT_TYPE_PLURAL
@@ -72,7 +73,7 @@ def fetch_property_history(
     params["propertiesWithHistory"] = props
     params["limit"] = 50
     # Make the API request
-    r = requests.get(url, headers=headers, params=params)
+    r = make_tracked_session().get(url, headers=headers, params=params)
     # Parse the API response and yield the properties of each result
 
     # Parse the response JSON data
@@ -86,14 +87,18 @@ def fetch_property_history(
         if _next:
             next_url = _next["link"]
             # Get the next page response
-            r = requests.get(next_url, headers=headers)
+            r = make_tracked_session().get(next_url, headers=headers)
             _data = r.json()
         else:
             _data = None
 
 
 def fetch_data(
-    endpoint: str, api_key: str, refresh_token: str, params: Optional[dict[str, Any]] = None
+    endpoint: str,
+    api_key: str,
+    refresh_token: str,
+    params: Optional[dict[str, Any]] = None,
+    source_id: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """
     Fetch data from HUBSPOT endpoint using a specified API key and yield the properties of each result.
@@ -126,14 +131,15 @@ def fetch_data(
     headers = _get_headers(api_key)
 
     # Make the API request
+    r = make_tracked_session().get(url, headers=headers, params=params)
     try:
-        r = requests.get(url, headers=headers, params=params)
-    except http_requests.exceptions.HTTPError as e:
+        r.raise_for_status()
+    except HTTPError as e:
         if e.response.status_code == 401:
-            # refresh token
-            api_key = hubspot_refresh_access_token(refresh_token)
+            api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
             headers = _get_headers(api_key)
-            r = requests.get(url, headers=headers, params=params)
+            r = make_tracked_session().get(url, headers=headers, params=params)
+            r.raise_for_status()
         else:
             raise
     # Parse the API response and yield the properties of each result
@@ -172,14 +178,15 @@ def fetch_data(
         if _next:
             next_url = _next["link"]
             # Get the next page response
+            r = make_tracked_session().get(next_url, headers=headers)
             try:
-                r = requests.get(next_url, headers=headers)
-            except http_requests.exceptions.HTTPError as e:
+                r.raise_for_status()
+            except HTTPError as e:
                 if e.response.status_code == 401:
-                    # refresh token
-                    api_key = hubspot_refresh_access_token(refresh_token)
+                    api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
                     headers = _get_headers(api_key)
-                    r = requests.get(next_url, headers=headers)
+                    r = make_tracked_session().get(next_url, headers=headers)
+                    r.raise_for_status()
                 else:
                     raise
             _data = r.json()
@@ -187,7 +194,7 @@ def fetch_data(
             _data = None
 
 
-def _get_property_names(api_key: str, refresh_token: str, object_type: str) -> list[str]:
+def _get_property_names(api_key: str, refresh_token: str, object_type: str, source_id: str | None = None) -> list[str]:
     """
     Retrieve property names for a given entity from the HubSpot API.
 
@@ -203,7 +210,7 @@ def _get_property_names(api_key: str, refresh_token: str, object_type: str) -> l
     properties = []
     endpoint = f"/crm/v3/properties/{OBJECT_TYPE_PLURAL[object_type]}"
 
-    for page in fetch_data(endpoint, api_key, refresh_token):
+    for page in fetch_data(endpoint, api_key, refresh_token, source_id=source_id):
         properties.extend([prop["name"] for prop in page])
 
     return properties

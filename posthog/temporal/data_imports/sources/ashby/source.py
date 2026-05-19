@@ -42,7 +42,14 @@ class AshbySource(SimpleSource[AshbySourceConfig]):
         # and if not, returns an error message to return to the user
         raise NotImplementedError()
 
-    def get_schemas(self, config: AshbySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: AshbySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
         raise NotImplementedError()
 
     def source_for_pipeline(self, config: AshbySourceConfig, inputs: SourceInputs) -> SourceResponse:

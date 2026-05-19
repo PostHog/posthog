@@ -1,37 +1,49 @@
 # End-to-End Testing
 
-## `/e2e/` directory contains all the end-to-end tests
+## Running tests
 
-to run the new playwright tests, run the following command:
+Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):
 
 ```bash
-./bin/e2e-test-runner
+hogli test:e2e
 ```
 
-to run the new playwright tests against an already locally running PostHog instance
+This uses `bin/phrocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
+
+To run tests against an already-running PostHog instance:
 
 ```bash
 LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test --ui
 ```
 
-### For all of these
+You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
-you might need to install playwright with `pnpm --filter=@posthog/playwright exec playwright install`
+## Writing tests with Claude Code
+
+Use the `/playwright-test` skill to have Claude Code write and validate end-to-end tests for you.
+It will explore the UI with Playwright MCP tools, plan the tests, implement them, and run them in a loop until they pass reliably (including a flakiness check with `--repeat-each 10`).
 
 ## Writing tests
 
-### Flaky tests are almost always due to not waiting for the right thing
+### Best practices
 
-Consider adding a better selector, an intermediate step like waiting for URL or page title to change, or waiting for a critical network request to complete.
+- Don't use CSS selectors — prefer accessibility roles (`getByRole`) or `getByTestId()` which maps to `data-attr` in our config. Add `data-attr` to components if needed.
+- Write fewer, longer tests that do multiple things. Split logical steps with `test.step()`.
+- Use page object models for common tasks and accessing common elements (see `page-models/`).
+- After UI interactions, assert on UI changes — don't assert on network requests resolving.
+- Never put conditional logic (`if`) in a test.
 
-### Useful output from playwright
+### Gotchas
 
-If you write a selector that is too loose and matches multiple elements, playwright will output all the matches. With a better selector for each
+**Flaky tests are almost always due to not waiting for the right thing.**
+Consider adding a better selector, an intermediate step like waiting for URL or page title to change,
+or waiting for a critical network request to complete.
+
+**Loose selectors cause strict mode violations.**
+If a selector matches multiple elements, Playwright will show all matches — use the output to narrow down:
 
 ```text
 Error: locator.click: Error: strict mode violation: locator('text=Set a billing limit') resolved to 2 elements:
 1) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-product_analytics').getByRole('button', { name: 'Set a billing limit' })
 2) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-session_replay').getByRole('button', { name: 'Set a billing limit' })
 ```
-
-<!-- Test 4-core runner performance -->

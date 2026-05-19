@@ -1,17 +1,15 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { AiFirstNavBar } from './AiFirstNavBar'
-import { PanelLayoutNavBar } from './PanelLayoutNavBar'
-import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
-import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
+import { Nav as AiFirstNavBar } from './ai-first/Nav'
 import { panelLayoutLogic } from './panelLayoutLogic'
+import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
+import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
     base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
@@ -69,7 +67,6 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
         isLayoutNavbarVisibleForDesktop,
-        activePanelIdentifier,
         isLayoutNavCollapsed,
         panelWidth,
     } = useValues(panelLayoutLogic)
@@ -77,7 +74,6 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     useMountedLogic(supportTicketCounterLogic) // Start polling for unread tickets on app load
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     return (
         <>
@@ -111,32 +107,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         : {}
                 }
             >
-                {isAIFirst ? (
-                    <AiFirstNavBar />
-                ) : (
-                    <PanelLayoutNavBar>
-                        {activePanelIdentifier === 'Project' && (
-                            <ProjectTree
-                                root="project://"
-                                logicKey={PROJECT_TREE_KEY}
-                                searchPlaceholder="Search by user, type, or name"
-                                showRecents
-                            />
-                        )}
-                        {activePanelIdentifier === 'Products' && (
-                            <ProjectTree root="products://" searchPlaceholder="Search apps" />
-                        )}
-                        {activePanelIdentifier === 'Shortcuts' && (
-                            <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
-                        )}
-                        {activePanelIdentifier === 'DataManagement' && (
-                            <ProjectTree root="data://" searchPlaceholder="Search data tools" />
-                        )}
-                        {activePanelIdentifier === 'People' && (
-                            <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
-                        )}
-                    </PanelLayoutNavBar>
-                )}
+                <AiFirstNavBar />
             </div>
 
             {/* Panel overlay - always rendered for exit animation */}

@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,
@@ -19,7 +20,8 @@ from posthog.schema import (
 
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import PropertyDefinition, Team
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class InputMessage(TypedDict):
@@ -199,9 +201,6 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self._create_properties()
 
-    def tearDown(self):
-        super().tearDown()
-
     def _create_properties(self):
         numeric_props = {
             "$ai_latency",
@@ -230,6 +229,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 for i, event in enumerate(value):
                     self.assertEventEqual(trace.events[i], event)
             elif field == "person":
+                assert trace.person is not None
                 self.assertLess(value.items(), trace.person.model_dump(mode="json", exclude={"uuid"}).items())
             else:
                 self.assertEqual(getattr(trace, field), value, f"Field {field} does not match")
@@ -284,7 +284,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person1")
+        self.assertEqual(trace.distinctId, "person1")
+        self.assertIsNone(trace.person)
 
         # Detail view returns all events
         self.assertEqual(len(trace.events), 2)
@@ -345,7 +346,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):
-        """Test that person properties are correctly included."""
+        """Test that person data is not loaded server-side (frontend handles it via lazy loader)."""
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
         _create_ai_generation_event(
             distinct_id="person1",
@@ -357,9 +358,57 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TraceQuery(traceId="trace1"),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
-        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        self.assertEqual(response.results[0].distinctId, "person1")
+        self.assertIsNone(response.results[0].person)
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_distinct_id_prefers_trace_event(self):
+        """When a $ai_trace event exists, its distinct_id should be used even if
+        other events in the trace have an earlier timestamp with a different distinct_id."""
+        _create_person(distinct_ids=["server-internal-id"], team=self.team)
+        _create_person(distinct_ids=["real-user-id"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="server-internal-id",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 0),
+        )
+        _create_ai_trace_event(
+            trace_id="trace1",
+            trace_name="my-trace",
+            input_state={},
+            output_state={},
+            distinct_id="real-user-id",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 30),
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(traceId="trace1"),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].distinctId, "real-user-id")
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_distinct_id_falls_back_without_trace_event(self):
+        """When no $ai_trace event exists, the distinct_id from the earliest event should be used."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 0),
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(traceId="trace1"),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].distinctId, "person1")
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):
@@ -425,6 +474,38 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(len(response.results[0].events), 2)
+
+    def test_overlap_semantics_trace_started_before_window(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # First event within capture range but before date_from
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 10, 55),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 30),
+        )
+
+        # Window: 11:00 to 12:00
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId="trace1",
+                dateRange=DateRange(
+                    date_from="2024-12-01T11:00:00Z",
+                    date_to="2024-12-01T12:00:00Z",
+                ),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
 
     @snapshot_clickhouse_queries
     def test_event_property_filters(self):
@@ -1408,3 +1489,55 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
         self.assertEqual(response.results[0].totalLatency, 300.0)
+
+    @freeze_time("2025-01-15T12:00:00Z")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
+    def test_fallback_to_events_when_ai_events_empty(self, _mock_flag):
+        """When ai_events has no data, the fallback to events returns correct results with proper numeric types."""
+        trace_id = "fallback-test-trace"
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="fallback-trace",
+            input_state=None,
+            output_state=None,
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input=[{"role": "user", "content": "Hello"}],
+            output=[{"role": "assistant", "content": "Hi there"}],
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 1),
+            properties={"$ai_parent_id": trace_id},
+        )
+
+        # Events are in the events table only (not ai_events).
+        # With flag on, ai_events is attempted first, finds nothing, falls back to events.
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        trace = response.results[0]
+        assert trace.id == trace_id
+        assert trace.traceName == "fallback-trace"
+
+        # Numeric fields must be actual numbers, not strings (validates toFloat wrapping)
+        assert isinstance(trace.totalLatency, (int, float))
+        assert isinstance(trace.inputTokens, (int, float))
+        assert isinstance(trace.outputTokens, (int, float))
+
+        # Heavy columns should be present in event properties (from events JSON blob)
+        assert len(trace.events) >= 1
+        gen_event = next(e for e in trace.events if e.event == "$ai_generation")
+        assert "$ai_input" in gen_event.properties
+        assert "$ai_output_choices" in gen_event.properties

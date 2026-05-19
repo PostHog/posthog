@@ -1,13 +1,23 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
+import {
+    IconBadge,
+    IconBolt,
+    IconCursor,
+    IconEye,
+    IconLeave,
+    IconList,
+    IconLogomark,
+    IconPlay,
+    IconServer,
+} from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LinkProps } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -121,6 +131,28 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
+    if (definition.is_action) {
+        return (
+            <IconWithBadge
+                icon={<IconPlay />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Custom action"
+                className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
+            />
+        )
+    }
+    if (definition.is_data_warehouse) {
+        return (
+            <IconWithBadge
+                icon={<IconServer />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Data warehouse event"
+                className="taxonomy-icon taxonomy-icon-muted"
+            />
+        )
+    }
     return (
         <IconWithBadge
             icon={<IconCursor />}
@@ -133,14 +165,14 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
 }
 
 export function getEventMetadataDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.id]) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.name]) {
         return <IconLogomark />
     }
     return <IconList />
 }
 
 export function getRevenueAnalyticsDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (CORE_FILTER_DEFINITIONS_BY_GROUP.revenue_analytics_properties[definition.id]) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.revenue_analytics_properties[definition.name]) {
         return <IconLogomark />
     }
 

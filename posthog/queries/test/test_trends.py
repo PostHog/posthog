@@ -325,7 +325,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 from posthog.models.team import util
 
-                util.can_enable_actor_on_events = True
+                util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
                 response = Trends().run(Filter(team=self.team, data=data), self.team)
                 self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0])
@@ -4293,6 +4293,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 # Persons with higher value come first
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person2"],
                     "id": str(person2.uuid),
                     "is_identified": False,
@@ -4305,6 +4306,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person1"],
                     "id": str(person1.uuid),
                     "is_identified": False,
@@ -4317,6 +4319,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person3"],
                     "id": str(person3.uuid),
                     "is_identified": False,
@@ -4336,6 +4339,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             assert people_value_2 == [
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person2"],
                     "id": str(person2.uuid),
                     "is_identified": False,
@@ -6780,7 +6784,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
-        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600
+        assert query_time.tzinfo is not None
+        utc_offset = query_time.tzinfo.utcoffset(query_time)
+        assert utc_offset is not None
+        utc_offset_hours = utc_offset.total_seconds() // 3600
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
             response = Trends().run(

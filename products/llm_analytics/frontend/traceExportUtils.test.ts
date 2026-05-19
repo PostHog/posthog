@@ -7,6 +7,7 @@ describe('traceExportUtils', () => {
     const mockTrace: LLMTrace = {
         id: 'trace-123',
         createdAt: '2024-01-01T12:00:00Z',
+        distinctId: 'user-123',
         person: {
             uuid: 'person-123',
             created_at: '2024-01-01T00:00:00Z',

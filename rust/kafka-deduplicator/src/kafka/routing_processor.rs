@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::async_trait;
+use async_trait::async_trait;
 use futures::future::join_all;
 use tracing::warn;
 
@@ -101,10 +101,9 @@ where
         for (partition, result) in results {
             if let Err(e) = result {
                 warn!(
-                    "Failed to route batch to partition {}:{}: {}",
+                    "Failed to route batch to partition {}:{}: {e:#}",
                     partition.topic(),
-                    partition.partition_number(),
-                    e
+                    partition.partition_number()
                 );
             }
         }

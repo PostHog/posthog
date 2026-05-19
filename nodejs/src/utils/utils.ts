@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, ISOTimestamp, TimestampFormat } from '../types'
 import { logger } from './logger'
@@ -182,8 +182,22 @@ export class UUID {
     }
 }
 
+// Lowercase UUID session IDs for consistency. Some mobile apps send uppercase
+// session IDs, which causes issues on query paths where the session ID is parsed
+// as a UUID and converted back to a string.
+// See https://github.com/PostHog/posthog/issues/46111
+export function normalizeSessionId(sessionId: string): string {
+    return UUID.validateString(sessionId, false) ? sessionId.toLowerCase() : sessionId
+}
+
 /**
  * UUID (mostly) sortable by generation time.
+ *
+ * Note: this class was created in 2020, before UUIDv7 was published in 2024 https://www.rfc-editor.org/rfc/rfc9562.
+ * Nowadays, you probably want to use UUIDv7 instead, as many DB engines have first-class support for them
+ * (e.g. clickhouse has [UUIDv7ToDateTime](https://clickhouse.com/docs/sql-reference/functions/uuid-functions#UUIDv7ToDateTime))
+ *
+ * Original comment from 2020 continues:
  *
  * This doesn't adhere to any official UUID version spec, but it is superior as a primary key:
  * to incremented integers (as they can reveal sensitive business information about usage volumes and patterns),
@@ -398,7 +412,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
     try {
         const response = await Promise.race([timeout, callback()])
         return response as T
-    } catch (error) {
+    } catch {
         captureException(`Had to run twice: ${errorMessage}`)
         // try one more time
         return await callback()
@@ -488,7 +502,7 @@ export function stringify(value: any): string {
 }
 
 export class IllegalOperationError extends Error {
-    name = 'IllegalOperationError'
+    override name = 'IllegalOperationError'
 
     constructor(operation: string) {
         super(operation)
@@ -549,7 +563,7 @@ export function intToBase(num: number, base: number): string {
 // For errors we want to explicitly throw
 // concerning race conditions across threads
 export class RaceConditionError extends Error {
-    name = 'RaceConditionError'
+    override name = 'RaceConditionError'
 }
 
 /** Get a value from a properties object by its path. This allows accessing nested properties. */

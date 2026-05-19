@@ -403,7 +403,7 @@ class TestProjectionPushdown(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_cte_with_asterisk_pushdown(self):
-        """CTEs with asterisk should have projection pushdown applied after CTE inlining"""
+        """CTEs with asterisk should have projection pushdown applied to the CTE"""
         optimized = self._optimize("""
             WITH events_cte AS (
                 SELECT * FROM events
@@ -412,16 +412,24 @@ class TestProjectionPushdown(BaseTest):
             WHERE timestamp > '2024-01-01'
         """)
 
-        # After CTE inlining, the CTE becomes a subquery
-        # The subquery should only have the columns we actually need
-        assert optimized.select_from is not None
-        subquery = optimized.select_from.table
-        column_names = {self._col_name(col) for col in subquery.select}
+        # CTEs are now kept as CTEs (not inlined), so check the CTE itself
+        # The CTE should only have the columns we actually need
+        assert optimized.ctes is not None
+        assert "events_cte" in optimized.ctes
+        cte_query = optimized.ctes["events_cte"].expr
+        assert isinstance(cte_query, ast.SelectQuery)
+        column_names = {self._col_name(col) for col in cte_query.select}
         assert column_names >= {"event", "distinct_id", "timestamp"}
         # Verify columns have from_asterisk marker
-        assert any(
-            col.from_asterisk if isinstance(col, ast.Field) else col.expr.from_asterisk for col in subquery.select
-        )
+
+        from_asterisk_arr = []
+        for col in cte_query.select:
+            if isinstance(col, ast.Field):
+                from_asterisk_arr.append(col.from_asterisk)
+            elif isinstance(col, ast.Alias) and isinstance(col.expr, ast.Field):
+                from_asterisk_arr.append(col.expr.from_asterisk)
+
+        assert any(from_asterisk_arr)
 
         assert optimized.to_hogql() == self.snapshot
 
@@ -440,8 +448,10 @@ class TestProjectionPushdown(BaseTest):
             limit 20
         """)
 
-        # The all_exports CTE should be a union subquery
-        union_query = optimized.select_from.table
+        # The all_exports CTE should be a union query in the CTEs (not inlined)
+        assert optimized.ctes is not None
+        assert "all_exports" in optimized.ctes
+        union_query = optimized.ctes["all_exports"].expr
         assert isinstance(union_query, ast.SelectSetQuery)
 
         # Both branches should have properties and timestamp (not just timestamp)
@@ -471,23 +481,115 @@ class TestProjectionPushdown(BaseTest):
             select * from all_exports union all select * from all_exports order by timestamp desc
         """)
 
-        # Both top-level branches should have subqueries selecting from all_exports
+        # The all_exports CTE should contain the union of us and eu
+        # Check CTEs instead of inlined subqueries
         first_branch = optimized.initial_select_query
         assert isinstance(first_branch, ast.SelectQuery)
 
-        assert first_branch.select_from is not None
-        all_exports_1 = first_branch.select_from.table
-        assert isinstance(all_exports_1, ast.SelectSetQuery)
+        # all_exports should be in the CTEs of the first branch
+        assert first_branch.ctes is not None
+        assert "all_exports" in first_branch.ctes
+        all_exports_cte = first_branch.ctes["all_exports"].expr
+        assert isinstance(all_exports_cte, ast.SelectSetQuery)
 
-        # Check that both branches of all_exports in first branch have properties and timestamp
-        branch_1_1 = all_exports_1.initial_select_query
+        # Check that both branches of all_exports have properties and timestamp
+        branch_1_1 = all_exports_cte.initial_select_query
         assert isinstance(branch_1_1, ast.SelectQuery)
         cols_1_1 = {self._col_name(col) for col in branch_1_1.select}
         assert cols_1_1 == {"properties", "timestamp"}, f"Expected properties and timestamp but got {cols_1_1}"
 
-        branch_1_2 = all_exports_1.subsequent_select_queries[0].select_query
+        branch_1_2 = all_exports_cte.subsequent_select_queries[0].select_query
         assert isinstance(branch_1_2, ast.SelectQuery)
         cols_1_2 = {self._col_name(col) for col in branch_1_2.select}
         assert cols_1_2 == {"properties", "timestamp"}, f"Expected properties and timestamp but got {cols_1_2}"
+
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_cte_direct_projection_pushdown(self):
+        """Test that projection pushdown works on CTEs that are kept as CTEs (not inlined)"""
+        optimized = self._optimize("""
+            WITH my_cte AS (SELECT * FROM events)
+            SELECT event FROM my_cte
+        """)
+
+        # The CTE should still be a CTE (not inlined as a subquery)
+        assert optimized.ctes is not None
+        assert len(optimized.ctes) == 1
+
+        # The CTE query should only select 'event' column
+        cte_query = optimized.ctes["my_cte"].expr
+        assert isinstance(cte_query, ast.SelectQuery)
+        column_names = {self._col_name(col) for col in cte_query.select}
+        assert column_names == {"event"}, f"Expected only 'event' but got {column_names}"
+
+        # Verify the column has from_asterisk marker
+        from_asterisk_arr = []
+        for col in cte_query.select:
+            if isinstance(col, ast.Field):
+                from_asterisk_arr.append(col.from_asterisk)
+            elif isinstance(col, ast.Alias) and isinstance(col.expr, ast.Field):
+                from_asterisk_arr.append(col.expr.from_asterisk)
+
+        assert any(from_asterisk_arr)
+
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_cte_with_join_projection_pushdown(self):
+        """Test projection pushdown with CTEs used in JOINs"""
+        optimized = self._optimize("""
+            WITH
+                exposures AS (SELECT * FROM events),
+                conversions AS (SELECT * FROM events)
+            SELECT e.event, c.timestamp
+            FROM exposures AS e
+            LEFT JOIN conversions AS c ON e.person_id = c.person_id
+        """)
+
+        # Both CTEs should be present
+        assert optimized.ctes is not None
+        assert len(optimized.ctes) == 2
+
+        # exposures CTE should have event and person_id (used in SELECT and JOIN)
+        exposures_cte = optimized.ctes["exposures"].expr
+        assert isinstance(exposures_cte, ast.SelectQuery)
+        exposures_cols = {self._col_name(col) for col in exposures_cte.select}
+        assert exposures_cols >= {"event", "person_id"}, f"Expected event and person_id but got {exposures_cols}"
+
+        # conversions CTE should have timestamp and person_id (used in SELECT and JOIN)
+        conversions_cte = optimized.ctes["conversions"].expr
+        assert isinstance(conversions_cte, ast.SelectQuery)
+        conversions_cols = {self._col_name(col) for col in conversions_cte.select}
+        assert conversions_cols >= {
+            "timestamp",
+            "person_id",
+        }, f"Expected timestamp and person_id but got {conversions_cols}"
+
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_cte_multiple_references_projection_pushdown(self):
+        """Test projection pushdown with CTE referenced multiple times"""
+        optimized = self._optimize("""
+            WITH base AS (SELECT * FROM events)
+            SELECT b1.event, b2.timestamp
+            FROM base AS b1
+            LEFT JOIN base AS b2 ON b1.person_id = b2.person_id
+        """)
+
+        # CTE should be present
+        assert optimized.ctes is not None
+        assert len(optimized.ctes) == 1
+
+        # base CTE should have all demanded columns: event, timestamp, person_id
+        base_cte = optimized.ctes["base"].expr
+        assert isinstance(base_cte, ast.SelectQuery)
+        base_cols = {self._col_name(col) for col in base_cte.select}
+        assert base_cols >= {
+            "event",
+            "timestamp",
+            "person_id",
+        }, f"Expected event, timestamp, and person_id but got {base_cols}"
 
         assert optimized.to_hogql() == self.snapshot

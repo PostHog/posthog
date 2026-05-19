@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.storage import object_storage
 from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
 
@@ -483,9 +485,11 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
 
         assert len(results) == 1
         assert self.team.id in results
-        data, source = results[self.team.id]
+        data, source, etag = results[self.team.id]
         assert source == "redis"
         assert data == self.sample_data
+        # enable_etag defaults to False, so the third element is None
+        assert etag is None
 
     def test_batch_get_from_cache_all_misses(self):
         """Test batch get when all teams have cache misses."""
@@ -499,9 +503,10 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
 
         assert len(results) == 1
         assert self.team.id in results
-        data, source = results[self.team.id]
+        data, source, etag = results[self.team.id]
         assert source == "miss"
         assert data is None
+        assert etag is None
 
     def test_batch_get_from_cache_partial_hits(self):
         """Test batch get with mix of hits and misses."""
@@ -522,12 +527,12 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         assert len(results) == 2
 
         # First team: hit
-        data1, source1 = results[self.team.id]
+        data1, source1, _ = results[self.team.id]
         assert source1 == "redis"
         assert data1 == self.sample_data
 
         # Second team: miss
-        data2, source2 = results[team2.id]
+        data2, source2, _ = results[team2.id]
         assert source2 == "miss"
         assert data2 is None
 
@@ -548,9 +553,9 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
 
         results = hc.batch_get_from_cache([self.team])
 
-        # Should return (None, "redis") not (None, "miss")
+        # Should return (None, "redis", None) not (None, "miss", ...)
         # This is the cached "empty" marker, not a cache miss
-        data, source = results[self.team.id]
+        data, source, _ = results[self.team.id]
         assert data is None
         assert source == "redis"
 
@@ -579,7 +584,7 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         assert cache_key in get_many_called_keys
         # Verify we got the expected result
         assert self.team.id in results
-        data, source = results[self.team.id]
+        data, source, _ = results[self.team.id]
         assert source == "redis"
         assert data == self.sample_data
 
@@ -594,9 +599,79 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         results = hc.batch_get_from_cache([self.team])
 
         # Should return miss, NOT load from S3
-        data, source = results[self.team.id]
+        data, source, _ = results[self.team.id]
         assert source == "miss"
         assert data is None
+
+    def test_batch_get_from_cache_returns_etag_when_enabled(self):
+        """When enable_etag=True the etag rides on the same MGET as the payload,
+        so callers (the verifier loop) get the etag without an extra Redis round
+        trip per team. This is the property that prevents an N+1 GET inside
+        verify_team_flags."""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="test_batch_etag", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc.set_cache_value(self.team, self.sample_data)
+
+        results = hc.batch_get_from_cache([self.team])
+
+        data, source, etag = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+        # Real 16-char hex etag, not None
+        assert etag is not None
+        assert len(etag) == 16
+        assert all(c in "0123456789abcdef" for c in etag)
+
+    def test_batch_get_from_cache_etag_is_none_when_payload_present_without_etag(self):
+        """The MISSING_ETAG verifier branch fires when payload exists but the etag
+        key is absent. Confirm the batch surfaces that state as etag=None on a
+        cache hit, so verify_team_flags can detect it without a per-team GET."""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="test_batch_no_etag", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc.set_cache_value(self.team, self.sample_data)
+        # Simulate the regression class: payload present, etag absent.
+        hc.cache_client.delete(hc.get_etag_key(self.team))
+
+        results = hc.batch_get_from_cache([self.team])
+
+        data, source, etag = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+        assert etag is None
+
+    def test_batch_get_from_cache_single_round_trip_with_etag(self):
+        """Etag fetch piggybacks on the existing get_many call — exactly one Redis
+        round trip per chunk regardless of whether enable_etag is True."""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="test_batch_one_call", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc.set_cache_value(self.team, self.sample_data)
+
+        original_get_many = hc.cache_client.get_many
+        get_many_call_count = 0
+        captured_keys: list[list[str]] = []
+
+        def counting_get_many(keys):
+            nonlocal get_many_call_count
+            get_many_call_count += 1
+            captured_keys.append(list(keys))
+            return original_get_many(keys)
+
+        with patch.object(hc.cache_client, "get_many", side_effect=counting_get_many):
+            hc.batch_get_from_cache([self.team])
+
+        assert get_many_call_count == 1
+        # The single MGET fetched both the payload key and the etag key.
+        assert hc.get_cache_key(self.team) in captured_keys[0]
+        assert hc.get_etag_key(self.team) in captured_keys[0]
 
 
 class TestHyperCacheETagDisabled(HyperCacheTestBase):
@@ -837,3 +912,105 @@ class TestHyperCacheETag(HyperCacheTestBase):
             # The caller (API endpoint) should handle None data appropriately
             assert etag is None  # Can't get ETag when Redis fails
             assert modified is True  # Signal that client should treat as modified
+
+
+class TestHyperCacheRemoveExpiryTracking(BaseTest):
+    """Tests for expiry tracking removal via clear_cache."""
+
+    SORTED_SET_KEY = "test_expiry_sorted_set"
+
+    def _make_hypercache(self, token_based: bool = False) -> HyperCache:
+        return HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda key: {"data": "test"},
+            token_based=token_based,
+            expiry_sorted_set_key=self.SORTED_SET_KEY,
+        )
+
+    @parameterized.expand(
+        [
+            ("team_id_based", False, lambda self: self.team, lambda self: str(self.team.id)),
+            ("team_token_based", True, lambda self: self.team, lambda self: str(self.team.api_token)),
+            ("int_id_based", False, lambda self: 42, lambda self: "42"),
+            ("str_token_based", True, lambda self: "phc_test_token", lambda self: "phc_test_token"),
+        ]
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking(self, _name, token_based, key_fn, expected_id_fn, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=token_based)
+        key = key_fn(self)
+        expected_id = expected_id_fn(self)
+
+        hc.clear_cache(key)
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, expected_id)
+
+    @parameterized.expand(
+        [
+            ("int_token_based", True, 42),
+            ("str_id_based", False, "some_string"),
+        ]
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_skips_expiry_tracking_for_mismatched_types(self, _name, token_based, key, mock_get_client):
+        hc = self._make_hypercache(token_based=token_based)
+
+        hc.clear_cache(key)
+
+        mock_get_client.assert_not_called()
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_skips_expiry_tracking_when_no_sorted_set_key(self, mock_get_client):
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda key: {"data": "test"},
+            expiry_sorted_set_key=None,
+        )
+
+        hc.clear_cache(42)
+
+        mock_get_client.assert_not_called()
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_logs_warning_on_redis_failure(self, mock_get_client):
+        mock_redis = Mock()
+        mock_redis.zrem.side_effect = ConnectionError("Redis unavailable")
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+
+        with patch("posthog.storage.hypercache.logger") as mock_logger:
+            hc.clear_cache(42)
+
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "Failed to remove cache expiry tracking"
+            assert kwargs["error_type"] == "ConnectionError"
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking_regardless_of_kinds(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+        hc.clear_cache(42, kinds=["redis"])
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking_despite_cache_deletion_failure(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+        hc.cache_client = Mock()
+        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
+
+        with pytest.raises(ConnectionError):
+            hc.clear_cache(42)
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")

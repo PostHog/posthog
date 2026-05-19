@@ -1,5 +1,6 @@
 import os
 import subprocess
+from typing import Any
 from urllib.parse import quote_plus
 
 import pytest
@@ -26,46 +27,46 @@ def create_clickhouse_tables():
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
         build_query,
+        get_table_name,
     )
 
-    num_expected_tables = (
-        len(CREATE_MERGETREE_TABLE_QUERIES)
-        + len(CREATE_DISTRIBUTED_TABLE_QUERIES)
-        + len(CREATE_MV_TABLE_QUERIES)
-        + len(CREATE_VIEW_QUERIES)
-        + len(CREATE_DICTIONARY_QUERIES)
-    )
+    existing_tables = {
+        row[0]
+        for row in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+    }
 
-    # Evaluation tests use Kafka for faster data ingestion.
-    if settings.IN_EVAL_TESTING:
-        num_expected_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+    def missing(queries):
+        return [q for q in queries if get_table_name(q) not in existing_tables]
 
-    [[num_tables]] = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s",
-        {"database": settings.CLICKHOUSE_DATABASE},
-    )
+    mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
+    if mergetree_queries:
+        run_clickhouse_statement_in_parallel(mergetree_queries)
 
-    # Check if all the tables have already been created. Views, materialized views, and dictionaries also count
-    if num_tables == num_expected_tables:
-        return
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
+    distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    if distributed_queries:
+        run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
-        kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
-        run_clickhouse_statement_in_parallel(kafka_table_queries)
+        kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
+        if kafka_table_queries:
+            run_clickhouse_statement_in_parallel(kafka_table_queries)
 
-    mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(mv_queries)
+    mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
+    if mv_queries:
+        run_clickhouse_statement_in_parallel(mv_queries)
 
-    view_queries = list(map(build_query, CREATE_VIEW_QUERIES))
-    run_clickhouse_statement_in_parallel(view_queries)
+    view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
+    if view_queries:
+        run_clickhouse_statement_in_parallel(view_queries)
 
-    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
-    run_clickhouse_statement_in_parallel(dictionary_queries)
+    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
+    if dictionary_queries:
+        run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
+    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
     run_clickhouse_statement_in_parallel(data_queries)
 
 
@@ -76,6 +77,7 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
+    from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
@@ -95,7 +97,10 @@ def reset_clickhouse_tables():
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
-    from products.error_tracking.backend.sql import TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL
+    from products.error_tracking.backend.sql import (
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
+        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+    )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
@@ -107,6 +112,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -121,6 +127,7 @@ def reset_clickhouse_tables():
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_AI_EVENTS_TABLE_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
@@ -139,7 +146,7 @@ def reset_clickhouse_tables():
 
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
-    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
+    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
 def run_persons_sqlx_migrations(keepdb: bool = False):
@@ -229,6 +236,16 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
+    # Update product database NAMEs to use test-prefixed names
+    from posthog.product_db_config import load_product_db_routes
+
+    for route in load_product_db_routes(settings.BASE_DIR):
+        test_product_db_name = test_db_name + f"_{route.database}"
+        for suffix in ("_db_writer", "_db_reader", "_db_direct"):
+            alias = f"{route.database}{suffix}"
+            if alias in settings.DATABASES:
+                settings.DATABASES[alias]["NAME"] = test_product_db_name
+
     # Drop Person-related tables from default database and all FK constraints
     # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
@@ -284,6 +301,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
 
     if not django_db_keepdb:
@@ -300,7 +319,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     if django_db_keepdb:
         # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
-        if not settings.IN_EVAL_TESTING:
+        # Also allow skipping reset via environment variable for faster development iteration
+        skip_ch_reset = os.environ.get("SKIP_CLICKHOUSE_RESET", "0").lower() in {"1", "true", "yes"}
+        if not settings.IN_EVAL_TESTING and not skip_ch_reset:
             reset_clickhouse_tables()
     else:
         database.drop_database()
@@ -311,40 +332,43 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
-@pytest.fixture(autouse=True)
-def patch_flush_command_for_persons_db(monkeypatch):
+def _patched_flush_handle(self, **options: Any) -> None:
     """
-    Patch Django's flush command to handle persons database properly.
+    Patched Django flush command for two reasons:
 
-    Persons database doesn't have Django's built-in tables (contenttypes, permissions, etc.),
-    so we need to skip emitting post_migrate signals that would try to create them.
+    1. Persons database doesn't have Django's built-in tables (contenttypes,
+       permissions), so we skip post_migrate signals by truncating manually.
 
-    This is needed for non-Django test classes (pytest, temporal, async tests).
-    Django test classes handle this in _fixture_teardown in test/base.py.
+    2. The schema cache can be newer than the branch code, introducing tables
+       Django doesn't know about. CASCADE lets TRUNCATE succeed even when
+       unknown FK constraints reference a table being flushed.
+
+    Applied at module level (not via monkeypatch) so it stays active during
+    pytest-django's _post_teardown, which runs flush AFTER function-scoped
+    fixture teardown.
     """
-    original_handle = FlushCommand.handle
+    database = options.get("database")
 
-    def patched_handle(self, **options):
-        database = options.get("database")
+    if database in ("persons_db_writer", "persons_db_reader"):
+        conn = connections[database]
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                AND tablename NOT LIKE 'pg_%'
+                AND tablename NOT LIKE '_sqlx_%'
+                AND tablename NOT LIKE '_persons_migrations'
+            """)
+            tables = [row[0] for row in cursor.fetchall()]
+            if tables:
+                cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+    else:
+        options["allow_cascade"] = True
+        return _original_flush_handle(self, **options)
 
-        if database in ("persons_db_writer", "persons_db_reader"):
-            # Manually truncate persons database tables without emitting signals
-            conn = connections[database]
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                    AND tablename NOT LIKE 'pg_%'
-                    AND tablename NOT LIKE '_sqlx_%'
-                    AND tablename NOT LIKE '_persons_migrations'
-                """)
-                tables = [row[0] for row in cursor.fetchall()]
-                if tables:
-                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-        else:
-            return original_handle(self, **options)
 
-    monkeypatch.setattr(FlushCommand, "handle", patched_handle)
+_original_flush_handle = FlushCommand.handle
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 @pytest.fixture

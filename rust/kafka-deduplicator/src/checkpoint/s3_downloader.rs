@@ -1,10 +1,14 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
+
+use tokio_util::bytes::Bytes;
 
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
-use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
-use super::s3_utils::create_s3_client;
+use super::error::DownloadCancelledError;
+use super::metadata::{hash_prefix_for_partition, DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
+use super::s3_client::create_s3_client;
 use crate::metrics_const::{
     CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
     CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM,
@@ -13,62 +17,108 @@ use crate::metrics_const::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_sdk_s3::Client;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
+use futures::stream;
+use futures::{StreamExt, TryStreamExt};
+use object_store::limit::LimitStore;
+use object_store::path::Path as ObjectPath;
+use object_store::{ObjectStore, ObjectStoreExt};
+use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+/// Result of attempting to read the next chunk from a stream with cancellation support
+enum ChunkResult {
+    Data(Bytes),
+    EndOfStream,
+    Cancelled,
+    Error(object_store::Error),
+}
+
+/// Read next chunk from stream with cancellation support.
+/// Uses `tokio::select!` with `biased;` to ensure cancellation is checked promptly,
+/// even if the stream is slow or stalled.
+async fn next_chunk_cancellable<S>(
+    stream: &mut S,
+    cancel_token: Option<&CancellationToken>,
+) -> ChunkResult
+where
+    S: futures::Stream<Item = Result<Bytes, object_store::Error>> + Unpin,
+{
+    match cancel_token {
+        Some(token) => {
+            tokio::select! {
+                biased;
+
+                _ = token.cancelled() => ChunkResult::Cancelled,
+
+                result = stream.try_next() => match result {
+                    Ok(Some(chunk)) => ChunkResult::Data(chunk),
+                    Ok(None) => ChunkResult::EndOfStream,
+                    Err(e) => ChunkResult::Error(e),
+                }
+            }
+        }
+        None => match stream.try_next().await {
+            Ok(Some(chunk)) => ChunkResult::Data(chunk),
+            Ok(None) => ChunkResult::EndOfStream,
+            Err(e) => ChunkResult::Error(e),
+        },
+    }
+}
+
 /// Build the S3 key prefix for listing checkpoints for a specific topic/partition.
+/// Includes the deterministic hash prefix so metadata and object files share the same path.
 /// The trailing slash is critical: ensures partition "41" doesn't prefix-match "410", "419", etc.
 fn format_checkpoint_list_prefix(
     s3_key_prefix: &str,
     topic: &str,
     partition_number: i32,
 ) -> String {
-    format!("{s3_key_prefix}/{topic}/{partition_number}/")
+    let hash = hash_prefix_for_partition(topic, partition_number);
+    format!("{hash}/{s3_key_prefix}/{topic}/{partition_number}/")
 }
 
-/// Build the S3 key used as lexicographic lower bound for listing recent checkpoints.
-/// S3 list_objects_v2 returns keys in lexicographic order, and checkpoint IDs are
-/// timestamp-formatted (YYYY-MM-DD-HH), so keys >= this bound are within the import window.
-fn format_checkpoint_list_start_after(partition_prefix: &str, cutoff: DateTime<Utc>) -> String {
-    format!(
-        "{}{}",
-        partition_prefix,
-        cutoff.format(DATE_PLUS_HOURS_ONLY_FORMAT)
-    )
+/// Classify an object_store error into a short, searchable label for structured logging.
+fn s3_error_kind(e: &object_store::Error) -> &'static str {
+    match e {
+        object_store::Error::NotFound { .. } => "not_found",
+        object_store::Error::PermissionDenied { .. } => "permission_denied",
+        object_store::Error::Unauthenticated { .. } => "unauthenticated",
+        object_store::Error::Precondition { .. } => "precondition",
+        object_store::Error::Generic { .. } => "generic",
+        _ => "other",
+    }
 }
 
-#[derive(Debug, Clone)]
+/// S3Downloader using `object_store` crate with `LimitStore` for bounded concurrency.
+/// The LimitStore wraps the S3 client with a semaphore that limits concurrent requests.
+/// Each download holds a permit for the entire stream duration, ensuring memory is bounded.
+#[derive(Debug)]
 pub struct S3Downloader {
-    client: Client,
+    store: Arc<LimitStore<object_store::aws::AmazonS3>>,
     s3_bucket: String,
     s3_key_prefix: String,
     checkpoint_import_window_hours: u32,
+    max_concurrent_file_downloads: usize,
 }
 
 impl S3Downloader {
     pub async fn new(config: &CheckpointConfig) -> Result<Self> {
-        let client = create_s3_client(config).await;
+        let store =
+            create_s3_client(config, config.max_concurrent_checkpoint_file_downloads).await?;
 
-        client
-            .head_bucket()
-            .bucket(&config.s3_bucket)
-            .send()
-            .await
-            .with_context(|| {
-                format!(
-                    "S3 bucket validation failed for: {}. Check credentials and bucket access.",
-                    config.s3_bucket,
-                )
-            })?;
-        info!("S3 bucket '{}' validated successfully", config.s3_bucket);
+        info!(
+            "S3 downloader initialized for bucket '{}' with max {} concurrent downloads",
+            config.s3_bucket, config.max_concurrent_checkpoint_file_downloads
+        );
 
         Ok(Self {
-            client,
+            store,
             s3_bucket: config.s3_bucket.clone(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
+            max_concurrent_file_downloads: config.max_concurrent_checkpoint_file_downloads,
         })
     }
 }
@@ -77,23 +127,26 @@ impl S3Downloader {
 impl CheckpointDownloader for S3Downloader {
     async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
         let start_time = Instant::now();
-        let get_object = match self
-            .client
-            .get_object()
-            .bucket(&self.s3_bucket)
-            .key(remote_key)
-            .send()
-            .await
-        {
-            Ok(get_object) => {
+        let path = ObjectPath::from(remote_key);
+
+        let result = match self.store.get(&path).await {
+            Ok(result) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success")
                     .increment(1);
-                get_object
+                result
             }
             Err(e) => {
+                let error_kind = s3_error_kind(&e);
+                error!(
+                    remote_key,
+                    bucket = %self.s3_bucket,
+                    error_kind,
+                    error = %e,
+                    "S3 object download failed"
+                );
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(e).with_context(|| {
+                return Err(anyhow::anyhow!(e)).with_context(|| {
                     format!(
                         "Failed to get object from S3 bucket {}: {remote_key}",
                         self.s3_bucket
@@ -102,7 +155,8 @@ impl CheckpointDownloader for S3Downloader {
             }
         };
 
-        let body = get_object.body.collect().await.with_context(|| {
+        // Buffer entire file into memory (used for small metadata.json files)
+        let body = result.bytes().await.with_context(|| {
             format!(
                 "Failed to read body data from S3 object from bucket {}: {remote_key}",
                 self.s3_bucket,
@@ -110,7 +164,7 @@ impl CheckpointDownloader for S3Downloader {
         })?;
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs_f64());
         Ok(body.to_vec())
     }
 
@@ -125,25 +179,32 @@ impl CheckpointDownloader for S3Downloader {
         // Check cancellation before starting the request
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
-                return Err(anyhow::anyhow!(
-                    "Download cancelled before starting: {remote_key}"
-                ));
+                warn!("Download cancelled before starting: {remote_key}");
+                return Err(DownloadCancelledError {
+                    reason: format!("before starting: {remote_key}"),
+                }
+                .into());
             }
         }
 
-        let get_object = match self
-            .client
-            .get_object()
-            .bucket(&self.s3_bucket)
-            .key(remote_key)
-            .send()
-            .await
-        {
-            Ok(get_object) => get_object,
+        let path = ObjectPath::from(remote_key);
+
+        // Get object - LimitStore automatically acquires semaphore permit
+        // The permit is held for the entire stream duration
+        let result = match self.store.get(&path).await {
+            Ok(result) => result,
             Err(e) => {
+                let error_kind = s3_error_kind(&e);
+                error!(
+                    remote_key,
+                    bucket = %self.s3_bucket,
+                    error_kind,
+                    error = %e,
+                    "S3 object download failed"
+                );
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(e).with_context(|| {
+                return Err(anyhow::anyhow!(e)).with_context(|| {
                     format!(
                         "Failed to get object from S3 bucket {}: {remote_key}",
                         self.s3_bucket
@@ -152,44 +213,58 @@ impl CheckpointDownloader for S3Downloader {
             }
         };
 
-        // Create the file and copy the remote stream into it
+        // Create the file to write chunks to
         let mut file = tokio::fs::File::create(local_filepath)
             .await
             .with_context(|| format!("Failed to create local file: {local_filepath:?}"))?;
-        let mut stream = get_object.body.into_async_read();
 
-        // If we have a cancellation token, race between the copy and cancellation.
-        // This ensures we drop the S3 stream immediately on cancellation rather than
-        // letting it complete in the background (which would waste bandwidth during
-        // overlapping rebalances).
-        let copy_result = if let Some(token) = cancel_token {
-            tokio::select! {
-                biased;
-                _ = token.cancelled() => {
-                    // Drop file handle before cleanup
+        // Stream chunks to disk - permit held until stream fully consumed
+        let mut stream = result.into_stream();
+
+        // Process stream with cancellation support
+        loop {
+            let chunk_result = next_chunk_cancellable(&mut stream, cancel_token).await;
+
+            match chunk_result {
+                ChunkResult::Data(chunk) => {
+                    if let Err(e) = file.write_all(&chunk).await {
+                        metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
+                            .increment(1);
+                        return Err(e).with_context(|| {
+                            format!("Failed to write chunk to local file: {local_filepath:?}")
+                        });
+                    }
+                }
+                ChunkResult::EndOfStream => break,
+                ChunkResult::Cancelled => {
                     drop(file);
                     let _ = tokio::fs::remove_file(local_filepath).await;
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
                         .increment(1);
                     warn!("Download of {remote_key} cancelled mid-stream");
-                    return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
+                    return Err(DownloadCancelledError {
+                        reason: format!("mid-stream: {remote_key}"),
+                    }
+                    .into());
                 }
-                result = tokio::io::copy(&mut stream, &mut file) => result,
+                ChunkResult::Error(e) => {
+                    metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
+                        .increment(1);
+                    return Err(anyhow::anyhow!(e)).with_context(|| {
+                        format!("Failed to read chunk from S3 stream: {remote_key}")
+                    });
+                }
             }
-        } else {
-            tokio::io::copy(&mut stream, &mut file).await
-        };
-
-        if let Err(e) = copy_result {
-            metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error").increment(1);
-            return Err(e).with_context(|| {
-                format!("Failed to write remote contents to local file: {local_filepath:?}")
-            });
         }
+
+        // Ensure all data is flushed to disk
+        file.flush()
+            .await
+            .with_context(|| format!("Failed to flush file: {local_filepath:?}"))?;
 
         metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success").increment(1);
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
 
         info!("Downloaded remote file {remote_key} to {local_filepath:?}");
         Ok(())
@@ -202,46 +277,75 @@ impl CheckpointDownloader for S3Downloader {
         cancel_token: Option<&CancellationToken>,
     ) -> Result<()> {
         let start_time = Instant::now();
+        let file_count = remote_keys.len();
 
         // Check cancellation before starting
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Download cancelled before starting");
-                return Err(anyhow::anyhow!("Download cancelled before starting"));
+                return Err(DownloadCancelledError {
+                    reason: "before starting batch".to_string(),
+                }
+                .into());
             }
         }
 
-        let mut download_futures = Vec::with_capacity(remote_keys.len());
-        for remote_key in remote_keys {
-            let remote_filename = remote_key
-                .rsplit('/')
-                .next()
-                .with_context(|| {
-                    format!("Failed to extract remote filename from key: {remote_key}")
-                })?
-                .to_string();
-            let local_filepath = local_base_path.join(&remote_filename);
+        // buffer_unordered(N) only polls N futures concurrently, preventing
+        // eager resource allocation for all files at once. Futures outside the
+        // window aren't started, so no file handles or write buffers are created
+        // until a slot opens up.
+        //
+        // Pre-collect owned (remote_key, local_filepath) pairs to avoid lifetime
+        // issues with buffer_unordered's lazy stream requiring closures general
+        // over all lifetimes.
+        let download_tasks: Vec<_> = remote_keys
+            .iter()
+            .map(|remote_key| {
+                let remote_filename = remote_key
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(remote_key)
+                    .to_string();
+                let local_filepath = local_base_path.join(&remote_filename);
+                (remote_key.clone(), local_filepath)
+            })
+            .collect();
 
-            // Pass cancel_token to each individual download so they can bail mid-stream
-            download_futures.push(async move {
-                match self
-                    .download_and_store_file_cancellable(remote_key, &local_filepath, cancel_token)
+        let mut stream = stream::iter(download_tasks)
+            .map(|(remote_key, local_filepath)| async move {
+                self.download_and_store_file_cancellable(&remote_key, &local_filepath, cancel_token)
                     .await
-                {
-                    Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
-                    Err(e) => Err::<String, anyhow::Error>(e.context("In download_files")),
+                    .with_context(|| format!("Failed to download: {remote_key}"))
+            })
+            .buffer_unordered(self.max_concurrent_file_downloads);
+
+        let mut first_error: Option<anyhow::Error> = None;
+
+        // Process completions, cancel siblings on first error
+        while let Some(result) = stream.next().await {
+            if let Err(e) = result {
+                first_error = Some(e);
+                // Cancel siblings via the attempt token - they'll exit on next chunk iteration
+                if let Some(token) = cancel_token {
+                    token.cancel();
                 }
-            });
+                break;
+            }
         }
 
-        // With cancellation now handled inside each download, we can just await all.
-        // Any cancellation will cause individual downloads to fail fast.
-        let results = futures::future::try_join_all(download_futures).await?;
+        // Drain remaining active futures - they'll exit quickly due to cancellation.
+        // Futures not yet started (outside the buffer window) will see cancellation
+        // immediately when polled and exit without allocating resources.
+        if first_error.is_some() {
+            while stream.next().await.is_some() {}
+        }
 
-        let file_count = results.len();
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM)
-            .record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
         info!("Successfully downloaded checkpoint with {file_count} files to local path: {local_base_path:?}");
 
         Ok(())
@@ -257,78 +361,50 @@ impl CheckpointDownloader for S3Downloader {
         let remote_key_prefix =
             format_checkpoint_list_prefix(&self.s3_key_prefix, topic, partition_number);
         let cutoff = Utc::now() - import_window_hours;
-        let start_after_key = format_checkpoint_list_start_after(&remote_key_prefix, cutoff);
+        let cutoff_id = cutoff.format(DATE_PLUS_HOURS_ONLY_FORMAT).to_string();
 
         info!(
-            "Listing checkpoint files newer than {} from S3 bucket: {}",
-            start_after_key, self.s3_bucket
+            "Listing checkpoint folders newer than {cutoff_id} from S3 bucket: {}",
+            self.s3_bucket
         );
 
-        // list_objects_v2 returns results in *lexicographic sort order*
-        // but we want the most recent by timestamp path elem. So, we cheat and
-        // use prefix() and start_after() to pull a recent window, that we can
-        // hopefully sort in memory to obtain the most recent metadata.json files
-        let mut keys_found = Vec::new();
-        let mut continuation_token = None;
-        let base_request = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.s3_bucket)
-            .prefix(remote_key_prefix)
-            .start_after(&start_after_key);
+        // Shallow list: returns only the checkpoint "folders" (common prefixes)
+        // under the partition prefix, NOT the individual files inside them.
+        // This is a single S3 ListObjectsV2 call with delimiter="/".
+        let prefix = ObjectPath::from(remote_key_prefix.as_str());
+        let result = self
+            .store
+            .list_with_delimiter(Some(&prefix))
+            .await
+            .context("listing checkpoint folders from S3")?;
 
-        loop {
-            let mut req = base_request.clone();
-            if let Some(token) = continuation_token {
-                req = req.continuation_token(&token);
-            }
+        // Each common_prefix is a checkpoint folder like:
+        //   <hash>/<s3_key_prefix>/<topic>/<partition>/2026-01-22T12-00-00Z
+        // Filter to folders newer than the cutoff, then construct metadata.json keys directly.
+        let mut metadata_keys: Vec<String> = result
+            .common_prefixes
+            .into_iter()
+            .filter(|cp| {
+                // Extract the checkpoint ID (last path segment) and compare to cutoff
+                let path_str = cp.as_ref();
+                let checkpoint_id = path_str.rsplit('/').find(|s| !s.is_empty()).unwrap_or("");
+                checkpoint_id >= cutoff_id.as_str()
+            })
+            .map(|cp| format!("{}/{}", cp.as_ref(), METADATA_FILENAME))
+            .collect();
 
-            let response = req.send().await.with_context(|| {
-                format!(
-                    "Failed to list remote objects after s3://{}/{start_after_key}",
-                    self.s3_bucket
-                )
-            })?;
-
-            response
-                .contents()
-                .iter()
-                .for_each(|object| match object.key() {
-                    Some(key) => {
-                        keys_found.push(key.to_string());
-                    }
-                    None => {
-                        error!("Failed to get object key from S3 object: {object:?}");
-                    }
-                });
-
-            if let Some(true) = response.is_truncated() {
-                if let Some(token) = response.next_continuation_token() {
-                    continuation_token = Some(token.to_string());
-                } else {
-                    error!("Expected continuation token not found in response: {response:?}");
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        // filter results down to only metadata.json files and sort by most recently uploaded
-        let total_keys = keys_found.len();
-        keys_found.retain(|k| k.ends_with(METADATA_FILENAME));
-        keys_found.reverse();
+        // Sort newest first (checkpoint IDs are timestamps, so reverse lexicographic = newest)
+        metadata_keys.sort_unstable();
+        metadata_keys.reverse();
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs_f64());
         info!(
-            "Found {} metadata.json files of {} total keys scanned at or after: {}",
-            keys_found.len(),
-            total_keys,
-            start_after_key
+            "Found {} checkpoint folders at or after {cutoff_id}",
+            metadata_keys.len(),
         );
 
-        Ok(keys_found)
+        Ok(metadata_keys)
     }
 
     async fn is_available(&self) -> bool {
@@ -342,8 +418,9 @@ mod tests {
 
     #[test]
     fn test_format_checkpoint_list_prefix_basic() {
+        let hash = hash_prefix_for_partition("events", 0);
         let prefix = format_checkpoint_list_prefix("checkpoints", "events", 0);
-        assert_eq!(prefix, "checkpoints/events/0/");
+        assert_eq!(prefix, format!("{hash}/checkpoints/events/0/"));
     }
 
     #[test]
@@ -352,76 +429,37 @@ mod tests {
         let prefix_41 = format_checkpoint_list_prefix("checkpoints", "events", 41);
         let prefix_419 = format_checkpoint_list_prefix("checkpoints", "events", 419);
 
-        assert_eq!(prefix_41, "checkpoints/events/41/");
-        assert_eq!(prefix_419, "checkpoints/events/419/");
+        let hash_41 = hash_prefix_for_partition("events", 41);
+        let hash_419 = hash_prefix_for_partition("events", 419);
+        assert_eq!(prefix_41, format!("{hash_41}/checkpoints/events/41/"));
+        assert_eq!(prefix_419, format!("{hash_419}/checkpoints/events/419/"));
 
-        // The key insight: with trailing slash, "41/" is NOT a prefix of "419/"
+        // Different partitions get different hashes, so prefixes never collide
+        assert_ne!(hash_41, hash_419);
         assert!(!prefix_419.starts_with(&prefix_41));
 
-        // Simulated S3 keys that would be returned
-        let key_for_41 = "checkpoints/events/41/2026-01-22T12-00-00Z/metadata.json";
-        let key_for_419 = "checkpoints/events/419/2026-01-22T12-00-00Z/metadata.json";
+        // Simulated S3 keys that would be returned (with hash)
+        let key_for_41 =
+            format!("{hash_41}/checkpoints/events/41/2026-01-22T12-00-00Z/metadata.json");
+        let key_for_419 =
+            format!("{hash_419}/checkpoints/events/419/2026-01-22T12-00-00Z/metadata.json");
 
-        // Prefix 41/ correctly matches only partition 41's keys
+        // Prefix 41 correctly matches only partition 41's keys
         assert!(key_for_41.starts_with(&prefix_41));
         assert!(!key_for_419.starts_with(&prefix_41));
 
-        // Prefix 419/ correctly matches only partition 419's keys
+        // Prefix 419 correctly matches only partition 419's keys
         assert!(key_for_419.starts_with(&prefix_419));
         assert!(!key_for_41.starts_with(&prefix_419));
     }
 
     #[test]
     fn test_format_checkpoint_list_prefix_with_namespaced_topic() {
+        let hash = hash_prefix_for_partition("ingestion-events-512", 41);
         let prefix = format_checkpoint_list_prefix("checkpoints", "ingestion-events-512", 41);
-        assert_eq!(prefix, "checkpoints/ingestion-events-512/41/");
-    }
-
-    #[test]
-    fn test_format_checkpoint_list_start_after_basic() {
-        use chrono::TimeZone;
-
-        let prefix = "checkpoints/events/0/";
-        let cutoff = Utc.with_ymd_and_hms(2026, 1, 22, 14, 30, 0).unwrap();
-        let start_after = format_checkpoint_list_start_after(prefix, cutoff);
-
-        // Format is YYYY-MM-DD-HH (hour precision for lexicographic filtering)
-        assert_eq!(start_after, "checkpoints/events/0/2026-01-22-14");
-    }
-
-    #[test]
-    fn test_format_checkpoint_list_start_after_lexicographic_ordering() {
-        use chrono::TimeZone;
-
-        let prefix = "checkpoints/events/0/";
-
-        // Checkpoint IDs use format YYYY-MM-DDTHH-MM-SSZ (e.g., 2026-01-20T12-00-00Z)
-        // start_after uses YYYY-MM-DD-HH (e.g., 2026-01-20-12)
-        //
-        // Since 'T' (ASCII 84) > '-' (ASCII 45), any checkpoint from a given date
-        // is lexicographically GREATER than the start_after for that date.
-        // This means start_after effectively filters by DATE, not hour.
-        let cutoff = Utc.with_ymd_and_hms(2026, 1, 20, 12, 0, 0).unwrap();
-        let start_after = format_checkpoint_list_start_after(prefix, cutoff);
-        assert_eq!(start_after, "checkpoints/events/0/2026-01-20-12");
-
-        // Keys lexicographically > start_after will be returned by S3 list_objects_v2
-        // (start_after is exclusive - keys strictly greater are returned)
-
-        // Previous day: lexicographically < start_after (filtered out)
-        let yesterday = "checkpoints/events/0/2026-01-19T23-59-59Z/metadata.json";
-        assert!(yesterday < start_after.as_str());
-
-        // Same day but earlier hour: 'T' > '-', so this is > start_after (returned)
-        let same_day_early = "checkpoints/events/0/2026-01-20T00-00-00Z/metadata.json";
-        assert!(same_day_early > start_after.as_str());
-
-        // Same day, later hour: also > start_after (returned)
-        let same_day_late = "checkpoints/events/0/2026-01-20T23-59-59Z/metadata.json";
-        assert!(same_day_late > start_after.as_str());
-
-        // Next day: > start_after (returned)
-        let tomorrow = "checkpoints/events/0/2026-01-21T08-00-00Z/metadata.json";
-        assert!(tomorrow > start_after.as_str());
+        assert_eq!(
+            prefix,
+            format!("{hash}/checkpoints/ingestion-events-512/41/")
+        );
     }
 }

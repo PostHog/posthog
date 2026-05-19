@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\").",
+            "type": "string"
+        },
+        "before": {
+            "description": "ISO timestamp — only return jobs created before this date (e.g. \"2025-12-31T23:59:59Z\").",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        },
+        "schemas": {
+            "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

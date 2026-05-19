@@ -2,6 +2,7 @@ import logging
 
 from django.db import IntegrityError, transaction
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -19,6 +20,7 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
             "name",
             "property_type",
             "is_required",
+            "is_optional_in_types",
             "description",
             "created_at",
             "updated_at",
@@ -60,6 +62,7 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at", "updated_at", "created_by")
 
+    @extend_schema_field(EventDefinitionBasicSerializer(many=True))
     def get_events(self, obj):
         event_schemas = obj.event_schemas.select_related("event_definition").all()
         event_definitions = sorted([es.event_definition for es in event_schemas], key=lambda e: e.name.lower())
@@ -157,7 +160,7 @@ class SchemaPropertyGroupViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "event_definition"
     serializer_class = SchemaPropertyGroupSerializer
     queryset = SchemaPropertyGroup.objects.all()
     lookup_field = "id"

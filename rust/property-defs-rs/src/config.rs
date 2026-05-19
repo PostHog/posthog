@@ -9,18 +9,9 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 
-    // this maps to the original, shared CLOUD PG DB instance in production. When
-    // we migrate to the new persons DB, this won't change.
+    // this maps to the original, shared CLOUD PG DB instance in production.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
-
-    // when true, the service will point group type mappings resolution to the new persons DB
-    #[envconfig(default = "false")]
-    pub read_groups_from_persons_db: bool,
-
-    // connection string for the new persons DB; unused if not enabled with read_groups_from_persons_db
-    #[envconfig(default = "")]
-    pub database_persons_url: String,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
@@ -49,9 +40,14 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
-    // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
+    // Per-data-type cache capacities (event definitions, event properties, property definitions).
+    // Each internal cache avoids sending the same UPSERT multiple times.
     #[envconfig(default = "1000000")]
-    pub cache_capacity: usize,
+    pub eventdefs_cache_capacity: usize,
+    #[envconfig(default = "1000000")]
+    pub eventprops_cache_capacity: usize,
+    #[envconfig(default = "1000000")]
+    pub propdefs_cache_capacity: usize,
 
     // Each worker maintains a small local batch of updates, which it
     // flushes to the main thread (updating/filtering by the
@@ -109,6 +105,15 @@ pub struct Config {
     // TODO: rename deploy cfg var to "write_batch_size" and update this after to complete the cutover!
     #[envconfig(default = "100")]
     pub write_batch_size: usize,
+
+    #[envconfig(default = "")]
+    pub personhog_addr: String,
+
+    #[envconfig(default = "5000")]
+    pub personhog_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub personhog_connect_timeout_ms: u64,
 }
 
 #[derive(Clone)]

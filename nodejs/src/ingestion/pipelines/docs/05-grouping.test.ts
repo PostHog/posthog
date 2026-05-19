@@ -33,7 +33,7 @@
  * - User event ordering: Events for the same user maintain order
  */
 import { GroupProcessingBuilder, newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { ok } from '../results'
 import { ProcessingStep } from '../steps'
 import { consumeAll } from './helpers'
@@ -108,7 +108,7 @@ describe('Grouped Processing', () => {
             { userId: 'bob', eventId: 4 },
         ]
 
-        const batch = events.map((e) => createContext(ok(e)))
+        const batch = events.map((e) => createOkContext(e, {}))
         pipeline.feed(batch)
 
         await consumeAll(pipeline, 20)
@@ -146,7 +146,7 @@ describe('Grouped Processing', () => {
             { userId: 'alice', eventId: 3 },
         ]
 
-        const batch = events.map((e) => createContext(ok(e)))
+        const batch = events.map((e) => createOkContext(e, {}))
         pipeline.feed(batch)
 
         await consumeAll(pipeline, 30)
@@ -200,7 +200,7 @@ describe('Grouped Processing', () => {
             { userId: 'charlie', eventId: 6 },
         ]
 
-        const batch = events.map((e) => createContext(ok(e)))
+        const batch = events.map((e) => createOkContext(e, {}))
         pipeline.feed(batch)
 
         // Collect batches as groups complete
@@ -291,7 +291,7 @@ describe('Grouped Processing', () => {
             { token: 'token-A', distinctId: 'user-1', message: 'purchase' },
         ]
 
-        const batch = events.map((e) => createContext(ok(e)))
+        const batch = events.map((e) => createOkContext(e, {}))
         pipeline.feed(batch)
 
         await consumeAll(pipeline, 10)

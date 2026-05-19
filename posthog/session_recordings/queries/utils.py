@@ -2,6 +2,7 @@ import re
 from typing import NamedTuple
 
 import structlog
+import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
@@ -23,6 +24,23 @@ from posthog.models import Action, Team
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)
+
+ANONYMOUS_USER_COHORT_FIX_FLAG = "anonymous-user-session-replay-filtering-fix"
+
+
+def is_anonymous_cohort_fix_enabled(team: Team) -> bool:
+    """Gate for the PoE-mode cohort-vs-anonymous-user rewrite.
+
+    When on, cohort filters skip CohortPropertyGroupsSubQuery and are instead handled
+    by ReplayFiltersEventsSubQuery, which routes NOT IN filters through the existing
+    _negative_blocklist_query path so anonymous events (no person mapping) aren't
+    wrongly excluded.
+    """
+    try:
+        return bool(posthoganalytics.feature_enabled(ANONYMOUS_USER_COHORT_FIX_FLAG, str(team.pk)))
+    except Exception:
+        return False
+
 
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
@@ -65,6 +83,17 @@ def is_cohort_property(p: AnyPropertyFilter) -> bool:
     return bool(p_type and "cohort" in p_type)
 
 
+def is_session_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    p_key = getattr(p, "key", "")
+    return p_type == "session" or (p_type == "hogql" and "session.properties" in p_key)
+
+
+def is_recording_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    return p_type == "recording"
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
@@ -96,7 +125,14 @@ class SessionRecordingQueryResult(NamedTuple):
 class UnexpectedQueryProperties(Exception):
     def __init__(self, remaining_properties: list[AnyPropertyFilter] | None):
         self.remaining_properties = remaining_properties
-        super().__init__(f"Unexpected properties in query: {remaining_properties}")
+        # Drop the raw value from each filter so that user-supplied data (e.g. a domain or URL)
+        # doesn't end up in the exception message — otherwise every distinct value produces a
+        # brand-new error-tracking fingerprint.
+        summary = [
+            {"type": getattr(p, "type", None), "key": getattr(p, "key", None), "operator": getattr(p, "operator", None)}
+            for p in (remaining_properties or [])
+        ]
+        super().__init__(f"Unexpected properties in query: {summary}")
 
 
 def _strip_person_and_event_and_cohort_properties(
@@ -112,6 +148,8 @@ def _strip_person_and_event_and_cohort_properties(
         and not is_person_property(p)
         and not is_group_property(p)
         and not is_cohort_property(p)
+        and not is_session_property(p)
+        and not is_recording_property(p)
     ]
 
     return properties_to_keep

@@ -25,7 +25,7 @@ class PersonalAPIKeyContext(ActivityContextBase):
     user_name: Optional[str] = None
     organization_name: Optional[str] = None
     team_name: Optional[str] = None
-    scopes: Optional[list[str]] = None
+    scopes: list[str] = dataclasses.field(default_factory=list)
 
 
 def get_personal_api_key_access_locations(api_key: PersonalAPIKey) -> set[LogScope]:
@@ -192,7 +192,7 @@ def log_personal_api_key_scope_change(
                 if log_entry["organization_id"]
                 else None,
                 team_name=get_team_name(team_id) if team_id else None,
-                scopes=after_api_key.scopes or ["*"],
+                scopes=after_api_key.scopes,
             ),
         )
 
@@ -260,7 +260,7 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
                         user_name=api_key.user.get_full_name(),
                         organization_name=get_organization_name(location.org_id),
                         team_name=get_team_name(location.team_id),
-                        scopes=api_key.scopes or ["*"],
+                        scopes=api_key.scopes,
                     ),
                 ),
             }

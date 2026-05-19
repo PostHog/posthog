@@ -139,10 +139,10 @@ export function EvaluationTriggers(): JSX.Element {
 
                         {/* Property Filters */}
                         <div className="space-y-2">
-                            <label className="block text-sm font-medium">Generation properties</label>
+                            <label className="block text-sm font-medium">Filter conditions</label>
                             <div className="text-sm text-muted mb-2">
-                                Define which generation events should trigger this evaluation. Leave empty to match all
-                                generations.
+                                Filter by generation event properties or person properties to target specific users or
+                                generations. Leave empty to match all generations.
                             </div>
                             <PropertyFilters
                                 propertyFilters={condition.properties}
@@ -151,8 +151,9 @@ export function EvaluationTriggers(): JSX.Element {
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.EventMetadata,
+                                    TaxonomicFilterGroupType.PersonProperties,
                                 ]}
-                                addText="Add generation property condition"
+                                addText="Add filter condition"
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 allowRelativeDateOptions={false}
@@ -174,14 +175,14 @@ export function EvaluationTriggers(): JSX.Element {
                 <h4 className="font-semibold mb-2">Examples:</h4>
                 <ul className="space-y-1 text-muted list-disc list-inside">
                     <li>
-                        <strong>10% of all generations:</strong> Set 10% sampling with no property conditions
+                        <strong>10% of all generations:</strong> Set 10% sampling with no filter conditions
                     </li>
                     <li>
                         <strong>5% of GPT-4 generations:</strong> Set 5% sampling with $ai_model_name = "gpt-4"
                     </li>
                     <li>
-                        <strong>20% of custom property generations:</strong> Set 20% sampling with my_custom_property =
-                        "value"
+                        <strong>Exclude internal users:</strong> Set 100% sampling with person property is_internal ≠
+                        true
                     </li>
                     <li>
                         <strong>High-cost generations:</strong> Set 100% sampling with $ai_total_cost_usd &gt; 0.01

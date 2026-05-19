@@ -4,7 +4,7 @@ const checkIsValidHttpUrl = (str) => {
     try {
         const url = new URL(str)
         return url.protocol === 'http:' || url.protocol === 'https:'
-    } catch (err) {
+    } catch {
         return false
     }
 }
@@ -65,7 +65,7 @@ function warning(cond, message) {
             // find the source for a warning that appears in the console by
             // enabling "pause on exceptions" in your JavaScript debugger.
             throw new Error(message)
-        } catch (e) {}
+        } catch {}
     }
 }
 /**
@@ -520,9 +520,6 @@ const joinPaths = (paths) => paths.join('/').replace(/\/\/+/g, '/')
  */
 
 const normalizePathname = (pathname) => pathname.replace(/\/+$/, '').replace(/^\/*/, '/')
-
-const validMutationMethodsArr = ['post', 'put', 'patch', 'delete']
-;['get', ...validMutationMethodsArr]
 
 /**
  * Take a URL path and applies the react router v6 route matching algorithm

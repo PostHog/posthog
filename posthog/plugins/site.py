@@ -36,6 +36,7 @@ def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     response = (
+        # nosemgrep: idor-lookup-without-team (token-based auth; web_token acts as secret access key)
         PluginConfig.objects.filter(
             id=id,
             web_token=token,

@@ -5,7 +5,6 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
@@ -14,25 +13,11 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use feature_flags::config::Config;
-use feature_flags::server::serve;
+use feature_flags::config::{Config, ThreadCounts};
+use feature_flags::rayon_dispatcher::RayonDispatcher;
+use feature_flags::server::{register_components, serve};
 
 common_alloc::used!();
-
-async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    tracing::info!("Shutting down gracefully...");
-}
 
 fn init_tracer(
     sink_url: &str,
@@ -64,9 +49,7 @@ fn init_tracer(
         .expect("Failed to initialize OpenTelemetry tracer")
 }
 
-#[tokio::main]
-async fn main() {
-    let mut config = Config::init_from_env().expect("Invalid configuration:");
+async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
     config.validate_and_fix_timeouts();
 
     // Instantiate tracing outputs following Django's DEBUG-based approach:
@@ -143,10 +126,62 @@ async fn main() {
         }
     };
 
+    let mut manager = lifecycle::Manager::builder("feature-flags")
+        .with_global_shutdown_timeout(Duration::from_secs(45))
+        .build();
+
+    let handles = register_components(&mut manager);
+    let monitor_guard = manager.monitor_background();
+
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await;
-    unreachable!("Server exited unexpectedly");
+    serve(config, listener, rayon_dispatcher, handles).await;
+
+    // Exit non-zero on dirty shutdown so `restart: on-failure` policies
+    // (hobby docker-compose, default Docker) restart the container.
+    // Clean shutdown exits 0.
+    if let Err(e) = monitor_guard.wait().await {
+        tracing::error!("Lifecycle monitor reported: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn main() {
+    let config = Config::init_from_env().expect("Invalid configuration:");
+
+    let threads = ThreadCounts::new(config.thread_pool_cores);
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads.rayon_threads)
+        .build_global()
+        .expect("failed to create rayon thread pool");
+
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(threads.tokio_workers)
+        .enable_all()
+        .build()
+        .expect("failed to create tokio thread pool");
+
+    let max_concurrent_batch_evals = if config.max_concurrent_batch_evals == 0 {
+        threads.default_max_concurrent_batch_evals()
+    } else {
+        config.max_concurrent_batch_evals
+    };
+    let semaphore_timeout = if config.rayon_semaphore_timeout_ms == 0 {
+        None
+    } else {
+        Some(std::time::Duration::from_millis(
+            config.rayon_semaphore_timeout_ms,
+        ))
+    };
+    let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals, semaphore_timeout);
+
+    eprintln!(
+        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={}, semaphore_timeout_ms={}",
+        threads.tokio_workers, threads.rayon_threads, max_concurrent_batch_evals, config.rayon_semaphore_timeout_ms,
+    );
+
+    tokio_runtime.block_on(async_main(config, rayon_dispatcher))
 }

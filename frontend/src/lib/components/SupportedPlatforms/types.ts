@@ -1,7 +1,6 @@
 import { ReactNode } from 'react'
 
 export type Feature =
-    | 'errorTrackingSuppressionRules'
     | 'errorTrackingExceptionAutocapture'
     | 'sessionReplayLogCapture'
     | 'sessionReplayCanvasCapture'
@@ -9,6 +8,12 @@ export type Feature =
     | 'sessionReplayCaptureHeadersAndPayloads'
     | 'sessionReplayAuthorizedDomains'
     | 'sessionReplayMasking'
+    | 'autocapture'
+    | 'heatmaps'
+    | 'deadClicks'
+    | 'webVitals'
+    | 'surveys'
+    | 'logsCapture'
 
 export type PlatformSupport = false | { note?: ReactNode; version?: string }
 

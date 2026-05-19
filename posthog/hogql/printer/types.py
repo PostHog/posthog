@@ -17,6 +17,7 @@ class PrintableMaterializedColumn:
     has_minmax_index: bool
     has_bloom_filter_index: bool
     has_ngram_lower_index: bool
+    has_bloom_filter_lower_index: bool
 
     def __str__(self) -> str:
         if self.table is None:

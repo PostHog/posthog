@@ -17,19 +17,29 @@ import {
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 
 export class CyclotronJobQueuePostgres {
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
     constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        private consumerBatchSize: number,
+        private config: Pick<
+            CdpConfig,
+            | 'CYCLOTRON_DATABASE_URL'
+            | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
+            | 'CDP_CYCLOTRON_COMPRESS_VM_STATE'
+            | 'CDP_CYCLOTRON_USE_BULK_COPY_JOB'
+            | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
+            | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
+            | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+        >
     ) {}
 
     /**
@@ -39,6 +49,7 @@ export class CyclotronJobQueuePostgres {
         if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
+
         this.cyclotronManager = new CyclotronManager({
             shards: [
                 {
@@ -53,7 +64,12 @@ export class CyclotronJobQueuePostgres {
         await this.cyclotronManager.connect()
     }
 
-    public async startAsConsumer() {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {
+        this.consumeBatch = consumeBatch
+
         if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
@@ -64,9 +80,9 @@ export class CyclotronJobQueuePostgres {
             pool: {
                 dbUrl: this.config.CYCLOTRON_DATABASE_URL,
             },
-            queueName: this.queue,
+            queueName: queue,
             includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
-            batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
+            batchMaxSize: this.consumerBatchSize, // Use the common value
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
             shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
@@ -132,7 +148,7 @@ export class CyclotronJobQueuePostgres {
         const worker = this.getCyclotronWorker()
 
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 worker.updateJob(item.id, 'failed')
                 return worker.releaseJob(item.id)
             })
@@ -143,7 +159,7 @@ export class CyclotronJobQueuePostgres {
         const worker = this.getCyclotronWorker()
 
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 worker.updateJob(item.id, 'canceled')
                 return worker.releaseJob(item.id)
             })
@@ -153,7 +169,7 @@ export class CyclotronJobQueuePostgres {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         const worker = this.getCyclotronWorker()
         await Promise.all(
-            invocationResults.map(async (item) => {
+            invocationResults.map((item) => {
                 const id = item.invocation.id
                 if (item.error) {
                     logger.debug('⚡️', 'Updating job to failed', id)
@@ -177,7 +193,7 @@ export class CyclotronJobQueuePostgres {
         // Called specially for jobs that came from postgres but are being requeued to kafka
         const worker = this.getCyclotronWorker()
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 const id = item.id
                 logger.debug('⚡️', 'Releasing job', id)
                 worker.updateJob(id, 'completed')
@@ -209,7 +225,7 @@ export class CyclotronJobQueuePostgres {
             invocations.push(invocation)
         }
 
-        await Promise.all([this.consumeBatch!(invocations)])
+        await this.consumeBatch!(invocations)
         // TODO: Ensure that all jobs eventually get acked!!!
     }
 }

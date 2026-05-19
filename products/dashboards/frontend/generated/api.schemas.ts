@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,71 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+
+export const DashboardTemplateScopeEnumApi = {
+    Team: 'team',
+    Global: 'global',
+    FeatureFlag: 'feature_flag',
+} as const
+
+export interface DashboardTemplateApi {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown
+    variables?: unknown
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at: string | null
+    readonly created_by: UserBasicApi
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
+}
+
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
+
+export interface CopyDashboardTemplateApi {
+    /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+    source_template_id: string
 }
 
 /**
@@ -75,38 +135,29 @@ export interface UserBasicApi {
 export type CreationModeEnumApi = (typeof CreationModeEnumApi)[keyof typeof CreationModeEnumApi]
 
 export const CreationModeEnumApi = {
-    default: 'default',
-    template: 'template',
-    duplicate: 'duplicate',
-    unlisted: 'unlisted',
+    Default: 'default',
+    Template: 'template',
+    Duplicate: 'duplicate',
+    Unlisted: 'unlisted',
 } as const
 
 /**
  * * `21` - Everyone in the project can edit
  * `37` - Only those invited to this dashboard can edit
  */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
+export type RestrictionLevelEnumApi = (typeof RestrictionLevelEnumApi)[keyof typeof RestrictionLevelEnumApi]
 
-export const DashboardRestrictionLevelApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
-} as const
-
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export const EffectiveRestrictionLevelEnumApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
+export const RestrictionLevelEnumApi = {
+    Number21: 21,
+    Number37: 37,
 } as const
 
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
 export const EffectivePrivilegeLevelEnumApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
+    Number21: 21,
+    Number37: 37,
 } as const
 
 /**
@@ -114,9 +165,14 @@ export const EffectivePrivilegeLevelEnumApi = {
  */
 export interface DashboardBasicApi {
     readonly id: number
-    /** @nullable */
+    /**
+     * Name of the dashboard.
+     * @nullable
+     */
     readonly name: string | null
+    /** Description of the dashboard. */
     readonly description: string
+    /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -128,8 +184,12 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
     tags?: unknown[]
-    readonly restriction_level: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    /** Controls who can edit the dashboard.
+
+  * `21` - Everyone in the project can edit
+  * `37` - Only those invited to this dashboard can edit */
+    readonly restriction_level: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -156,17 +216,17 @@ export type DashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type DashboardApiVariables = { [key: string]: unknown } | null | null
+export type DashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -194,16 +254,16 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
+    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /** @nullable */
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
     data_color_theme_id?: number | null
     tags?: unknown[]
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -218,11 +278,21 @@ export interface DashboardApi {
     /** @nullable */
     readonly persisted_variables: DashboardApiPersistedVariables
     readonly team_id: number
+    /**
+     * List of quick filter IDs associated with this dashboard
+     * @nullable
+     */
+    quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /** @nullable */
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
     use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
 }
@@ -231,14 +301,22 @@ export interface DashboardCollaboratorApi {
     readonly id: string
     readonly dashboard_id: number
     readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level: DashboardRestrictionLevelApi
+    level: RestrictionLevelEnumApi
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
+}
+
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
 }
 
 export interface SharingConfigurationApi {
@@ -246,9 +324,9 @@ export interface SharingConfigurationApi {
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
-    settings?: unknown | null
+    settings?: unknown
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -256,17 +334,17 @@ export type PatchedDashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type PatchedDashboardApiVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 
@@ -294,16 +372,16 @@ export interface PatchedDashboardApi {
     readonly filters?: PatchedDashboardApiFilters
     /** @nullable */
     readonly variables?: PatchedDashboardApiVariables
+    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /** @nullable */
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
     data_color_theme_id?: number | null
     tags?: unknown[]
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -318,13 +396,108 @@ export interface PatchedDashboardApi {
     /** @nullable */
     readonly persisted_variables?: PatchedDashboardApiPersistedVariables
     readonly team_id?: number
+    /**
+     * List of quick filter IDs associated with this dashboard
+     * @nullable
+     */
+    quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /** @nullable */
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
     use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface CopyDashboardTileRequestApi {
+    /** Dashboard id the tile currently belongs to. */
+    fromDashboardId: number
+    /** Dashboard tile id to copy. */
+    tileId: number
+}
+
+export interface ReorderTilesRequestApi {
+    /**
+     * Array of tile IDs in the desired display order (top to bottom, left to right).
+     * @minItems 1
+     */
+    tile_order: number[]
+}
+
+/**
+ * InsightSerializer restricted to identifiers + result only.
+ */
+export interface InsightResultApi {
+    readonly id: number
+    readonly short_id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly derived_name: string | null
+    readonly result: unknown
+}
+
+/**
+ * DashboardTileSerializer restricted to tile id + insight result fields.
+ */
+export interface DashboardTileResultApi {
+    id?: number
+    insight: InsightResultApi
+}
+
+export interface RunInsightsResponseApi {
+    /** Results for each insight tile on the dashboard. */
+    results: DashboardTileResultApi[]
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export interface DataColorThemeApi {
@@ -332,7 +505,7 @@ export interface DataColorThemeApi {
     /** @maxLength 100 */
     name: string
     colors?: unknown
-    readonly is_global: string
+    readonly is_global: boolean
     /** @nullable */
     readonly created_at: string | null
     readonly created_by: UserBasicApi
@@ -352,11 +525,42 @@ export interface PatchedDataColorThemeApi {
     /** @maxLength 100 */
     name?: string
     colors?: unknown
-    readonly is_global?: string
+    readonly is_global?: boolean
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+export type DashboardTemplatesListParams = {
+    /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
+     */
+    ordering?: string
+    /**
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     */
+    scope?: DashboardTemplatesListScope
+}
+
+export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[keyof typeof DashboardTemplatesListScope]
+
+export const DashboardTemplatesListScope = {
+    FeatureFlag: 'feature_flag',
+    Global: 'global',
+    Team: 'team',
+} as const
 
 export type DashboardsListParams = {
     format?: DashboardsListFormat
@@ -368,13 +572,17 @@ export type DashboardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof DashboardsListFormat]
 
 export const DashboardsListFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsCreateParams = {
@@ -384,19 +592,27 @@ export type DashboardsCreateParams = {
 export type DashboardsCreateFormat = (typeof DashboardsCreateFormat)[keyof typeof DashboardsCreateFormat]
 
 export const DashboardsCreateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsRetrieveFormat
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsRetrieveFormat = (typeof DashboardsRetrieveFormat)[keyof typeof DashboardsRetrieveFormat]
 
 export const DashboardsRetrieveFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsUpdateParams = {
@@ -406,8 +622,8 @@ export type DashboardsUpdateParams = {
 export type DashboardsUpdateFormat = (typeof DashboardsUpdateFormat)[keyof typeof DashboardsUpdateFormat]
 
 export const DashboardsUpdateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsPartialUpdateParams = {
@@ -418,8 +634,8 @@ export type DashboardsPartialUpdateFormat =
     (typeof DashboardsPartialUpdateFormat)[keyof typeof DashboardsPartialUpdateFormat]
 
 export const DashboardsPartialUpdateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsDestroyParams = {
@@ -429,8 +645,32 @@ export type DashboardsDestroyParams = {
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
 export const DashboardsDestroyFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsAnalyzeRefreshResultCreateParams = {
+    format?: DashboardsAnalyzeRefreshResultCreateFormat
+}
+
+export type DashboardsAnalyzeRefreshResultCreateFormat =
+    (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
+
+export const DashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat
+}
+
+export type DashboardsCopyTileCreateFormat =
+    (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
+
+export const DashboardsCopyTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsMoveTilePartialUpdateParams = {
@@ -441,20 +681,121 @@ export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
 export const DashboardsMoveTilePartialUpdateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsReorderTilesCreateParams = {
+    format?: DashboardsReorderTilesCreateFormat
+}
+
+export type DashboardsReorderTilesCreateFormat =
+    (typeof DashboardsReorderTilesCreateFormat)[keyof typeof DashboardsReorderTilesCreateFormat]
+
+export const DashboardsReorderTilesCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRunInsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
+    format?: DashboardsRunInsightsRetrieveFormat
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
+}
+
+export type DashboardsRunInsightsRetrieveFormat =
+    (typeof DashboardsRunInsightsRetrieveFormat)[keyof typeof DashboardsRunInsightsRetrieveFormat]
+
+export const DashboardsRunInsightsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRunInsightsRetrieveOutputFormat =
+    (typeof DashboardsRunInsightsRetrieveOutputFormat)[keyof typeof DashboardsRunInsightsRetrieveOutputFormat]
+
+export const DashboardsRunInsightsRetrieveOutputFormat = {
+    Json: 'json',
+    Optimized: 'optimized',
+} as const
+
+export type DashboardsRunInsightsRetrieveRefresh =
+    (typeof DashboardsRunInsightsRetrieveRefresh)[keyof typeof DashboardsRunInsightsRetrieveRefresh]
+
+export const DashboardsRunInsightsRetrieveRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+} as const
+
+export type DashboardsSnapshotCreateParams = {
+    format?: DashboardsSnapshotCreateFormat
+}
+
+export type DashboardsSnapshotCreateFormat =
+    (typeof DashboardsSnapshotCreateFormat)[keyof typeof DashboardsSnapshotCreateFormat]
+
+export const DashboardsSnapshotCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsStreamTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsStreamTilesRetrieveFormat
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: DashboardsStreamTilesRetrieveLayoutSize
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsStreamTilesRetrieveFormat =
     (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
 
 export const DashboardsStreamTilesRetrieveFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsStreamTilesRetrieveLayoutSize =
+    (typeof DashboardsStreamTilesRetrieveLayoutSize)[keyof typeof DashboardsStreamTilesRetrieveLayoutSize]
+
+export const DashboardsStreamTilesRetrieveLayoutSize = {
+    Sm: 'sm',
+    Xs: 'xs',
+} as const
+
+export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat
+}
+
+export type DashboardsBulkUpdateTagsCreateFormat =
+    (typeof DashboardsBulkUpdateTagsCreateFormat)[keyof typeof DashboardsBulkUpdateTagsCreateFormat]
+
+export const DashboardsBulkUpdateTagsCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsCreateFromTemplateJsonCreateParams = {
@@ -465,8 +806,8 @@ export type DashboardsCreateFromTemplateJsonCreateFormat =
     (typeof DashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof DashboardsCreateFromTemplateJsonCreateFormat]
 
 export const DashboardsCreateFromTemplateJsonCreateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsCreateUnlistedDashboardCreateParams = {
@@ -477,145 +818,11 @@ export type DashboardsCreateUnlistedDashboardCreateFormat =
     (typeof DashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof DashboardsCreateUnlistedDashboardCreateFormat]
 
 export const DashboardsCreateUnlistedDashboardCreateFormat = {
-    json: 'json',
-    txt: 'txt',
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DashboardsList2Params = {
-    format?: DashboardsList2Format
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DashboardsList2Format = (typeof DashboardsList2Format)[keyof typeof DashboardsList2Format]
-
-export const DashboardsList2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreate2Params = {
-    format?: DashboardsCreate2Format
-}
-
-export type DashboardsCreate2Format = (typeof DashboardsCreate2Format)[keyof typeof DashboardsCreate2Format]
-
-export const DashboardsCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsRetrieve2Params = {
-    format?: DashboardsRetrieve2Format
-}
-
-export type DashboardsRetrieve2Format = (typeof DashboardsRetrieve2Format)[keyof typeof DashboardsRetrieve2Format]
-
-export const DashboardsRetrieve2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsUpdate2Params = {
-    format?: DashboardsUpdate2Format
-}
-
-export type DashboardsUpdate2Format = (typeof DashboardsUpdate2Format)[keyof typeof DashboardsUpdate2Format]
-
-export const DashboardsUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsPartialUpdate2Params = {
-    format?: DashboardsPartialUpdate2Format
-}
-
-export type DashboardsPartialUpdate2Format =
-    (typeof DashboardsPartialUpdate2Format)[keyof typeof DashboardsPartialUpdate2Format]
-
-export const DashboardsPartialUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsDestroy2Params = {
-    format?: DashboardsDestroy2Format
-}
-
-export type DashboardsDestroy2Format = (typeof DashboardsDestroy2Format)[keyof typeof DashboardsDestroy2Format]
-
-export const DashboardsDestroy2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsMoveTilePartialUpdate2Params = {
-    format?: DashboardsMoveTilePartialUpdate2Format
-}
-
-export type DashboardsMoveTilePartialUpdate2Format =
-    (typeof DashboardsMoveTilePartialUpdate2Format)[keyof typeof DashboardsMoveTilePartialUpdate2Format]
-
-export const DashboardsMoveTilePartialUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsStreamTilesRetrieve2Params = {
-    format?: DashboardsStreamTilesRetrieve2Format
-}
-
-export type DashboardsStreamTilesRetrieve2Format =
-    (typeof DashboardsStreamTilesRetrieve2Format)[keyof typeof DashboardsStreamTilesRetrieve2Format]
-
-export const DashboardsStreamTilesRetrieve2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreateFromTemplateJsonCreate2Params = {
-    format?: DashboardsCreateFromTemplateJsonCreate2Format
-}
-
-export type DashboardsCreateFromTemplateJsonCreate2Format =
-    (typeof DashboardsCreateFromTemplateJsonCreate2Format)[keyof typeof DashboardsCreateFromTemplateJsonCreate2Format]
-
-export const DashboardsCreateFromTemplateJsonCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreateUnlistedDashboardCreate2Params = {
-    format?: DashboardsCreateUnlistedDashboardCreate2Format
-}
-
-export type DashboardsCreateUnlistedDashboardCreate2Format =
-    (typeof DashboardsCreateUnlistedDashboardCreate2Format)[keyof typeof DashboardsCreateUnlistedDashboardCreate2Format]
-
-export const DashboardsCreateUnlistedDashboardCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DataColorThemesList2Params = {
     /**
      * Number of results to return per page.
      */

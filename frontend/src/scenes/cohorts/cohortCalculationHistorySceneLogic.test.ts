@@ -40,6 +40,7 @@ const mockHistoryRecord: CohortCalculationHistoryRecord = {
     total_read_rows: 1000,
     total_written_rows: 500,
     main_query: { query: 'main query' },
+    main_query_id: 'query-1',
 }
 
 const mockHistoryResponse: CohortCalculationHistoryResponse = {

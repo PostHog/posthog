@@ -1,8 +1,10 @@
 import json
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, Q, QuerySet, Value
+from django.db.models.functions import Coalesce
 
 import structlog
 import posthoganalytics
@@ -10,7 +12,8 @@ from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, filters, serializers, viewsets
+from opentelemetry import trace
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,7 +25,7 @@ from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -34,8 +37,15 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -53,6 +63,7 @@ MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
 MAX_TRANSFORMATIONS_PER_TEAM = 20
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class HogFunctionStatusSerializer(serializers.Serializer):
@@ -88,11 +99,18 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionMaskingSerializer(serializers.Serializer):
     ttl = serializers.IntegerField(
-        required=True, min_value=60, max_value=60 * 60 * 24
-    )  # NOTE: 24 hours max for now - we might increase this later
-    threshold = serializers.IntegerField(required=False, allow_null=True)
-    hash = serializers.CharField(required=True)
-    bytecode = serializers.JSONField(required=False, allow_null=True)
+        required=True,
+        min_value=60,
+        max_value=60 * 60 * 24,
+        help_text="Time-to-live in seconds for the masking cache (60–86400).",
+    )
+    threshold = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Optional threshold count before masking applies."
+    )
+    hash = serializers.CharField(required=True, help_text="Hog expression used to compute the masking hash.")
+    bytecode = serializers.JSONField(
+        required=False, allow_null=True, help_text="Compiled bytecode for the hash expression. Auto-generated."
+    )
 
     def validate(self, attrs):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
@@ -102,12 +120,32 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
-    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(required=True), required=False)
-    inputs = InputsSerializer(required=False)
-    mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
-    filters = HogFunctionFiltersSerializer(required=False)
+    masking = HogFunctionMaskingSerializer(
+        required=False,
+        allow_null=True,
+        help_text="PII masking configuration with TTL, threshold, and hash expression.",
+    )
+    type = serializers.ChoiceField(
+        choices=HogFunctionType.choices,
+        required=False,
+        allow_null=True,
+        help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.",
+    )
+    inputs_schema = serializers.ListField(
+        child=InputsSchemaItemSerializer(required=True),
+        required=False,
+        help_text="Schema defining the configurable input parameters for this function.",
+    )
+    inputs = InputsSerializer(required=False, help_text="Values for each input defined in inputs_schema.")
+    mappings = serializers.ListField(
+        child=MappingsSerializer(),
+        required=False,
+        allow_null=True,
+        help_text="Event-to-destination field mappings. Only for destination and site_destination types.",
+    )
+    filters = HogFunctionFiltersSerializer(
+        required=False, help_text="Event filters that control which events trigger this function."
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -149,11 +187,25 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
         ]
         extra_kwargs = {
-            "hog": {"required": False},
+            "hog": {
+                "required": False,
+                "help_text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            },
             "inputs_schema": {"required": False},
-            "template_id": {"write_only": True},
-            "deleted": {"write_only": True},
+            "template_id": {
+                "write_only": True,
+                "help_text": "ID of the template to create this function from.",
+            },
+            "deleted": {
+                "write_only": True,
+                "help_text": "Soft-delete flag. Set to true to archive the function.",
+            },
             "type": {"required": True},
+            "name": {"help_text": "Display name for the function."},
+            "description": {"help_text": "Human-readable description of what this function does."},
+            "enabled": {"help_text": "Whether the function is active and processing events."},
+            "icon_url": {"help_text": "URL for the function's icon displayed in the UI."},
+            "execution_order": {"help_text": "Execution priority for transformations. Lower values run first."},
         }
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
@@ -212,6 +264,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().to_internal_value(data)
 
     def validate_type(self, value):
+        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
+            raise serializers.ValidationError(
+                "Cannot create or modify warehouse source webhook functions via this API."
+            )
+
         # Ensure it is only set when creating a new function
         if self.context.get("view") and self.context["view"].action == "create":
             return value
@@ -370,13 +427,30 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
-    configuration = HogFunctionSerializer(write_only=True)
-    globals = serializers.DictField(write_only=True, required=False)
-    clickhouse_event = serializers.DictField(write_only=True, required=False)
-    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
-    status = serializers.CharField(read_only=True)
-    logs = serializers.ListField(read_only=True)
-    invocation_id = serializers.CharField(required=False, allow_null=True)
+    configuration = HogFunctionSerializer(write_only=True, help_text="Full function configuration to test.")
+    globals = serializers.DictField(
+        write_only=True, required=False, help_text="Mock global variables available during test invocation."
+    )
+    clickhouse_event = serializers.DictField(
+        write_only=True, required=False, help_text="Mock ClickHouse event data to test the function with."
+    )
+    mock_async_functions = serializers.BooleanField(
+        default=True,
+        write_only=True,
+        help_text="When true (default), async functions like fetch() are simulated.",
+    )
+    status = serializers.CharField(read_only=True, help_text="Invocation result status.")
+    logs = serializers.ListField(read_only=True, help_text="Execution logs from the test invocation.")
+    invocation_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Optional invocation ID for correlation."
+    )
+
+
+class HogFunctionRearrangeSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Map of hog function UUIDs to their new execution_order values.",
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -391,7 +465,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions"])
+@extend_schema(tags=["hog_functions", "cdp"])
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -400,9 +474,10 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
+    scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
     queryset = HogFunction.objects.all()
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    search_fields = ["name", "description"]
+    filter_backends = [DjangoFilterBackend]
     filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"
@@ -415,13 +490,66 @@ class HogFunctionViewSet(
             return HogFunctionMinimalSerializer
         return HogFunctionSerializer
 
+    @tracer.start_as_current_span("HogFunctionViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("hog_function.search.result_count", results_len)
+            span.set_attribute("hog_function.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("HogFunctionViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("hog_function.search.length", len(search))
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
+            .order_by("-_search_score", "name")
+        )
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            queryset = queryset.order_by("execution_order", "-updated_at")
+            search = self.request.GET.get("search")
+            if search:
+                if len(search) > MAX_SEARCH_LENGTH:
+                    raise serializers.ValidationError(
+                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                    )
+                queryset = self._apply_search(queryset, search)
+            else:
+                queryset = queryset.order_by("execution_order", "-updated_at")
 
         final_filter_groups = []
 
@@ -445,8 +573,6 @@ class HogFunctionViewSet(
                 raise exceptions.ValidationError({"filters": "Invalid filters"})
 
         if final_filter_groups:
-            from django.db.models import Q
-
             combined_q = Q()
 
             for filter_group in final_filter_groups:
@@ -477,6 +603,10 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id)
 
+    @extend_schema(
+        request=HogFunctionInvocationSerializer,
+        responses={200: HogFunctionInvocationSerializer},
+    )
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         try:
@@ -507,48 +637,38 @@ class HogFunctionViewSet(
 
     def perform_create(self, serializer):
         serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="HogFunction",
-            activity="created",
-            detail=Detail(
-                name=serializer.instance.name,
-                type=humanize_hog_function_type(serializer.instance.type),
-            ),
+        log_activity_from_viewset(
+            self,
+            serializer.instance,
+            name=serializer.instance.name,
+            detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
     def perform_update(self, serializer):
         instance_id = serializer.instance.id
 
         try:
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = HogFunction.objects.get(pk=instance_id)
         except HogFunction.DoesNotExist:
             before_update = None
 
         serializer.save()
 
-        changes = changes_between("HogFunction", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="HogFunction",
-            activity="updated",
-            detail=Detail(
-                changes=changes,
-                name=serializer.instance.name,
-                type=humanize_hog_function_type(serializer.instance.type),
-            ),
+        log_activity_from_viewset(
+            self,
+            serializer.instance,
+            name=serializer.instance.name,
+            previous=before_update,
+            detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
-    @action(methods=["PATCH"], detail=False)
+    @extend_schema(
+        request=HogFunctionRearrangeSerializer,
+        responses={200: HogFunctionSerializer(many=True)},
+        filters=False,
+    )
+    @action(methods=["PATCH"], detail=False, pagination_class=None)
     def rearrange(self, request: Request, *args, **kwargs) -> Response:
         """Update the execution order of multiple HogFunctions."""
         team = self.team
@@ -630,6 +750,19 @@ class HogFunctionViewSet(
         if hog_function.batch_export_id:
             return Response({"error": "Backfills already enabled for this function"}, status=400)
 
+        # Only event-sourced destinations support backfills
+        if hog_function.type != HogFunctionType.DESTINATION:
+            return Response(
+                {"error": "Backfills are only supported for destination functions."},
+                status=400,
+            )
+        source = (hog_function.filters or {}).get("source", "events")
+        if source != "events":
+            return Response(
+                {"error": "Backfills are only supported for event-sourced destinations."},
+                status=400,
+            )
+
         # Check feature flag for backfill-workflows-destination
         team = Team.objects.get(id=self.team_id)
         if not posthoganalytics.feature_enabled(
@@ -650,12 +783,12 @@ class HogFunctionViewSet(
         batch_export_data = {
             "name": hog_function.name,
             "paused": True,
-            "interval": "day",
+            "interval": "hour",
             "model": "events",
             "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
             "destination": {
                 "type": "Workflows",
-                "config": {},
+                "config": {"hog_function_id": str(hog_function.id)},
             },
         }
 

@@ -1,6 +1,6 @@
 .ImpersonationNotice {
     display: flex;
-    width: 320px;
+    width: 26rem;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -20,6 +20,20 @@
 
         .ImpersonationNotice__warning-icon {
             color: var(--warning);
+        }
+    }
+
+    &--login-as {
+        .ImpersonationNotice__sidebar {
+            background: var(--success);
+        }
+
+        .ImpersonationNotice__drag-handle {
+            color: #fff;
+        }
+
+        .ImpersonationNotice__warning-icon {
+            color: var(--success);
         }
     }
 
@@ -95,6 +109,10 @@
         }
     }
 
+    &--login-as &__minimized-icon {
+        color: var(--success);
+    }
+
     &--read-only &__minimized-icon {
         color: var(--warning);
     }
@@ -129,7 +147,6 @@
         color: var(--text-primary);
         text-transform: uppercase;
         letter-spacing: 0.025em;
-        white-space: nowrap;
     }
 
     &__content {

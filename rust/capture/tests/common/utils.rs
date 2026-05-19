@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -22,29 +22,40 @@ use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
+use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
-use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
+    noop_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
     redis_response_timeout_ms: 100,
     redis_connection_timeout_ms: 5000,
     global_rate_limit_enabled: false,
-    global_rate_limit_threshold: 10_000,
     global_rate_limit_window_interval_secs: 60,
-    global_rate_limit_overrides_csv: None,
+    global_rate_limit_sync_interval_secs: 15,
+    global_rate_limit_tick_interval_ms: 1000,
+    global_rate_limit_token_distinctid_threshold: 10_000,
+    global_rate_limit_token_distinctid_overrides_csv: None,
+    global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    global_rate_limit_token_threshold: 300_000,
+    global_rate_limit_token_overrides_csv: None,
+    global_rate_limit_token_local_cache_max_entries: 300_000,
     global_rate_limit_redis_url: None,
+    global_rate_limit_redis_reader_url: None,
     global_rate_limit_redis_response_timeout_ms: None,
     global_rate_limit_redis_connection_timeout_ms: None,
+    event_restrictions_enabled: false,
+    event_restrictions_redis_url: None,
+    event_restrictions_refresh_interval_secs: 30,
+    event_restrictions_fail_open_after_secs: 300,
     overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
@@ -68,15 +79,54 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-        kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+        kafka_error_tracking_topic: "error_tracking_events".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+        kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        kafka_traces_topic: "ingestion_traces".to_string(),
+        kafka_metrics_topic: "ingestion_metrics".to_string(),
         kafka_tls: false,
         kafka_client_id: "".to_string(),
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
         kafka_producer_acks: "all".to_string(),
         kafka_socket_timeout_ms: 60000,
+        kafka_producer_batch_num_messages: 10000,
+        kafka_producer_batch_size: 1000000,
+        kafka_producer_max_in_flight_requests: 1000000,
+        kafka_producer_sticky_partitioning_linger_ms: 10,
+        kafka_producer_enable_idempotence: false,
+        kafka_producer_partitioner: "murmur2_random".to_string(),
+        kafka_broker_address_family: String::new(),
+        kafka_log_connection_close: true,
+        kafka_producer_queue_buffering_max_messages: 100000,
+        kafka_retry_backoff_max_ms: 1000,
+        kafka_socket_send_buffer_bytes: 0,
+        kafka_socket_receive_buffer_bytes: 0,
+        kafka_traces_hosts: None,
+        kafka_traces_tls: None,
+        kafka_traces_client_id: None,
+        kafka_traces_compression_codec: None,
+        kafka_traces_producer_acks: None,
+        kafka_traces_producer_linger_ms: None,
+        kafka_traces_producer_queue_mib: None,
+        kafka_traces_message_timeout_ms: None,
+        kafka_traces_producer_message_max_bytes: None,
+        kafka_traces_producer_max_retries: None,
+        kafka_traces_topic_metadata_refresh_interval_ms: None,
+        kafka_traces_metadata_max_age_ms: None,
+        kafka_metrics_hosts: None,
+        kafka_metrics_tls: None,
+        kafka_metrics_client_id: None,
+        kafka_metrics_compression_codec: None,
+        kafka_metrics_producer_acks: None,
+        kafka_metrics_producer_linger_ms: None,
+        kafka_metrics_producer_queue_mib: None,
+        kafka_metrics_message_timeout_ms: None,
+        kafka_metrics_producer_message_max_bytes: None,
+        kafka_metrics_producer_max_retries: None,
+        kafka_metrics_topic_metadata_refresh_interval_ms: None,
+        kafka_metrics_metadata_max_age_ms: None,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -89,7 +139,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_bucket: None,
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
-    healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     ai_s3_bucket: None,
     ai_s3_prefix: "llma/".to_string(),
@@ -107,6 +156,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         pyroscope_application_name: String::new(),
         pyroscope_sample_rate: 100,
     },
+    capture_v1_sinks: String::new(),
+    capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
+    capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -119,7 +171,7 @@ pub fn setup_tracing() {
 }
 pub struct ServerHandle {
     pub addr: SocketAddr,
-    shutdown: Arc<Notify>,
+    shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
 }
 
@@ -139,12 +191,20 @@ impl ServerHandle {
     pub async fn for_config(config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let notify = Arc::new(Notify::new());
-        let shutdown = notify.clone();
 
-        tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
-        });
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+
+        let mut manager = lifecycle::Manager::builder("capture-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token.clone())
+            .build();
+
+        let handles = setup::register_components(&mut manager, &config);
+        let _monitor = manager.monitor_background();
+        let components = setup::build_components(config, handles).await;
+
+        tokio::spawn(async move { serve(listener, components).await });
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
@@ -153,7 +213,7 @@ impl ServerHandle {
 
         Self {
             addr,
-            shutdown,
+            shutdown: shutdown_token,
             client,
         }
     }
@@ -193,7 +253,7 @@ impl ServerHandle {
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
-        self.shutdown.notify_one()
+        self.shutdown.cancel()
     }
 }
 

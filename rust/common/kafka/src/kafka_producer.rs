@@ -1,6 +1,7 @@
-use crate::config::KafkaConfig;
+use std::sync::Arc;
 
-use health::HealthHandle;
+use crate::config::KafkaConfig;
+use common_liveness::SyncLivenessReporter;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::{ClientConfig, ClientContext};
@@ -10,28 +11,39 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 pub struct KafkaContext {
-    liveness: HealthHandle,
+    liveness: Arc<dyn SyncLivenessReporter>,
 }
 
-impl From<HealthHandle> for KafkaContext {
-    fn from(value: HealthHandle) -> Self {
-        KafkaContext { liveness: value }
+impl KafkaContext {
+    pub fn new(liveness: impl SyncLivenessReporter + Clone + 'static) -> Self {
+        Self {
+            liveness: Arc::new(liveness),
+        }
+    }
+}
+
+impl From<health::HealthHandle> for KafkaContext {
+    fn from(value: health::HealthHandle) -> Self {
+        Self::new(value)
     }
 }
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, _: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        self.liveness.report_healthy();
 
         // TODO: Take stats recording pieces that we want from `capture-rs`.
     }
 }
 
-pub async fn create_kafka_producer(
+pub async fn create_kafka_producer<L>(
     config: &KafkaConfig,
-    liveness: HealthHandle,
-) -> Result<FutureProducer<KafkaContext>, KafkaError> {
+    liveness: L,
+) -> Result<FutureProducer<KafkaContext>, KafkaError>
+where
+    L: SyncLivenessReporter + Clone + 'static,
+{
     let mut client_config = ClientConfig::new();
     client_config
         .set("bootstrap.servers", &config.kafka_hosts)
@@ -54,6 +66,30 @@ pub async fn create_kafka_producer(
             config.kafka_producer_queue_messages.to_string(),
         );
 
+    // WarpStream producer tuning — only set when explicitly configured, so existing services
+    // that don't opt in keep their previous librdkafka defaults.
+    if let Some(v) = config.kafka_producer_batch_size {
+        client_config.set("batch.size", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_batch_num_messages {
+        client_config.set("batch.num.messages", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_enable_idempotence {
+        client_config.set("enable.idempotence", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_max_in_flight_requests_per_connection {
+        client_config.set("max.in.flight.requests.per.connection", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_topic_metadata_refresh_interval_ms {
+        client_config.set("topic.metadata.refresh.interval.ms", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_message_max_bytes {
+        client_config.set("message.max.bytes", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_sticky_partitioning_linger_ms {
+        client_config.set("sticky.partitioning.linger.ms", v.to_string());
+    }
+
     if config.kafka_tls {
         client_config
             .set("security.protocol", "ssl")
@@ -61,7 +97,8 @@ pub async fn create_kafka_producer(
     };
 
     debug!("rdkafka configuration: {:?}", client_config);
-    let api: FutureProducer<KafkaContext> = client_config.create_with_context(liveness.into())?;
+    let api: FutureProducer<KafkaContext> =
+        client_config.create_with_context(KafkaContext::new(liveness))?;
 
     // "Ping" the Kafka brokers by requesting metadata
     match api

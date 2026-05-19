@@ -5,8 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from '../sub-templates/sub-templates'
-import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 import { HogFunctionList } from './HogFunctionsList'
+import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
     type: HogFunctionTypeType
@@ -15,9 +15,10 @@ export type LinkedHogFunctionsProps = {
     newDisabledReason?: string
     hideFeedback?: boolean
     emptyText?: string
+    queryParams?: Record<string, string>
 }
 
-const getFiltersFromSubTemplateId = (
+export const getFiltersFromSubTemplateId = (
     subTemplateId: HogFunctionSubTemplateIdType
 ): CyclotronJobFiltersType | undefined => {
     const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
@@ -31,6 +32,7 @@ export function LinkedHogFunctions({
     newDisabledReason,
     hideFeedback,
     emptyText,
+    queryParams,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
     const logicKey = useMemo(() => {
@@ -64,6 +66,7 @@ export function LinkedHogFunctions({
             type={templateType}
             subTemplateIds={subTemplateIds}
             getConfigurationOverrides={getConfigurationOverrides}
+            queryParams={queryParams}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>

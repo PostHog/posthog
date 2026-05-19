@@ -39,9 +39,9 @@ export interface SummaryViewLogicProps {
 export const summaryViewLogic = kea<summaryViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'summary-view', 'summaryViewLogic']),
     props({} as SummaryViewLogicProps),
-    connect({
+    connect(() => ({
         values: [maxGlobalLogic, ['dataProcessingAccepted'], teamLogic, ['currentTeamId']],
-    }),
+    })),
     key((props) => {
         // Use trace ID or event ID as the key
         if (props.trace) {
@@ -144,6 +144,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                     throw new Error('Team ID not available')
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, payload)
 
                 return {

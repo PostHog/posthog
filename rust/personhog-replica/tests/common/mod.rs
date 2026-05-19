@@ -14,7 +14,7 @@ fn random_person_id() -> i64 {
 
 /// Test context that manages database connections and provides test data helpers.
 pub struct TestContext {
-    pool: PgPool,
+    pub pool: PgPool,
     pub storage: Arc<dyn FullStorage>,
     pub team_id: i64,
 }
@@ -28,7 +28,8 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresStorage::new(pool.clone()));
+        // In tests, use the same pool for everything
+        let storage = Arc::new(PostgresStorage::new_single_pool(pool.clone()));
         let team_id = random_team_id();
 
         Self {
@@ -113,14 +114,19 @@ impl TestContext {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping
-            (team_id, project_id, group_type, group_type_index, name_singular, name_plural)
-            VALUES ($1, $2, $3, $4, NULL, NULL)
+            (team_id, project_id, group_type, group_type_index,
+             name_singular, name_plural, default_columns, detail_dashboard_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT DO NOTHING"#,
         )
         .bind(self.team_id)
         .bind(self.team_id)
         .bind(group_type)
         .bind(group_type_index)
+        .bind(format!("{group_type} (singular)"))
+        .bind(format!("{group_type}s"))
+        .bind(vec!["col_a".to_string(), "col_b".to_string()])
+        .bind(group_type_index + 1000)
         .execute(&self.pool)
         .await?;
 

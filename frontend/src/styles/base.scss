@@ -331,7 +331,15 @@
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-llm-clusters-light: rgb(147 51 234);
+    --color-product-llm-datasets-light: rgb(124 58 237);
+    --color-product-llm-evaluations-light: rgb(167 139 250);
+    --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-links-light: rgb(143 7 255);
+    --color-product-tracing-light: rgb(6 182 212);
+    --color-product-tracing-dark: rgb(34 211 238);
+    --color-product-metrics-light: rgb(234 88 12);
+    --color-product-metrics-dark: rgb(251 146 60);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
     --color-product-user-interviews-light: rgb(0 140 255);
@@ -340,6 +348,8 @@
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
     --color-product-support-dark: rgb(247 165 1);
+    --color-product-deployments-light: rgb(220 38 38);
+    --color-product-deployments-dark: rgb(248 113 113);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -362,6 +372,9 @@
     --color-brand-secondary-hue: var(--color-posthog-brand-blue-hue);
     --color-brand-secondary-saturation: var(--color-posthog-brand-blue-saturation);
     --color-brand-secondary-lightness: var(--color-posthog-brand-blue-lightness);
+
+    // AI
+    --color-ai: oklch(0.59 0.27 303.09deg);
 
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
@@ -538,13 +551,12 @@
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
-    --color-skeleton-light: rgb(
-        190 190 190 / 20%
-    ); // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
 
-    --color-skeleton-dark: rgb(
-        129 129 129 / 24%
-    ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
+    --color-skeleton-light: rgb(190 190 190 / 20%);
+
+    // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    --color-skeleton-dark: rgb(129 129 129 / 24%);
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
@@ -636,10 +648,11 @@
     --z-bottom-notice: 1450;
     --z-shortcut-menu: 1400;
     --z-force-modal-above-popovers: 1350;
-    --z-tooltip: 1300;
+    --z-tooltip: 99999;
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
+    --z-chart-tooltip: calc(var(--z-modal) - 50);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
@@ -876,6 +889,9 @@
     --color-brand-primary-saturation: var(--color-posthog-brand-yellow-saturation);
     --color-brand-primary-lightness: var(--color-posthog-brand-yellow-lightness);
 
+    // AI colors (dark mode)
+    --color-ai: oklch(0.69 0.29 341.57deg);
+
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --color-accent: hsl(
@@ -1110,19 +1126,32 @@
 
     a:focus-visible,
     button:focus-visible,
-    a[data-focused='true'],
-    button[data-focused='true'] {
+    [data-highlighted]:not(:hover) {
         outline: 2px solid var(--color-accent);
+    }
+
+    /* Radix menus highlight items on pointer-move; only show the outline for
+       keyboard focus, and render it inset so the container's rounded
+       overflow:hidden mask can't clip the corners */
+    .primitive-menu-content [data-highlighted]:not(:focus-visible) {
+        outline: none;
+    }
+
+    .primitive-menu-content [data-highlighted]:focus-visible {
+        outline-offset: -2px;
     }
 
     .input-like {
         --input-ring-color: var(--color-bg-fill-highlight-75);
         --input-ring-size: 3px;
 
+        border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
         outline: 0 solid transparent;
         box-shadow: 0 0 0 0 transparent;
-        transition: box-shadow 0.1s ease-in-out;
+        transition:
+            box-shadow 0.1s ease-in-out,
+            border-color 0.1s ease-in-out;
 
         & input,
         & textarea {
@@ -1131,7 +1160,13 @@
 
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
+            background-color: var(--color-bg-fill-input);
+            border-color: var(--color-border-secondary);
             box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
+        }
+
+        &:not([disabled]):hover {
+            border-color: var(--color-border-secondary) !important;
         }
     }
 
@@ -1581,6 +1616,12 @@
             animation-iteration-count: 1 !important;
         }
 
+        // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
+        // makes it inherently non-deterministic, CSS animation overrides don't help
+        .Hogfetti {
+            display: none !important;
+        }
+
         // Hide some parts of the UI that were causing flakiness
         ::-webkit-scrollbar,
         *> ::-webkit-scrollbar,
@@ -1685,8 +1726,45 @@
         gap: 1px;
     }
 
+    // Safe-triangle hover cone for vertical menubars.
+    // An invisible triangle tracks the cursor and extends toward the popup,
+    // preventing accidental sibling menu activation while traveling to the open popup.
+    // The vertex follows --cone-x / --cone-y set by JS on mousemove.
+    .menubar-hover-cone {
+        overflow: visible;
+
+        // Active trigger sits above the cone so it keeps its hover state
+        [data-popup-open] {
+            position: relative;
+            z-index: 20;
+        }
+    }
+
+    .menubar-hover-cone-overlay {
+        position: absolute;
+        inset: -3rem -8px -3rem 0;
+        z-index: 10;
+
+        // Offset --cone-y by 3rem to compensate for the element extending above the container
+        clip-path: polygon(var(--cone-x, 50%) calc(var(--cone-y, 50%) + 3rem), 100% 0%, 100% 100%);
+        pointer-events: none;
+    }
+
+    .menubar-hover-cone:has([data-popup-open]) > .menubar-hover-cone-overlay {
+        pointer-events: auto;
+
+        &.debug {
+            background-color: rgb(255 255 255 / 50%);
+        }
+    }
+
     .animate-mark {
         animation: animate-mark 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out forwards;
         animation-fill-mode: none;
     }
 
@@ -1725,6 +1803,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Pass in a different color variable to change the color of the glow
+    // Example: <span className="[--pulse-glow-color:blue] animate-pulse-glow" />
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 0 2px var(--pulse-glow-color, var(--color-accent));
+        }
+
+        100% {
+            box-shadow: 0 0 0 10px transparent;
         }
     }
 
@@ -1832,7 +1923,8 @@
     }
 
     .animate-logomark-jump {
-        --logomark-jump-magnitude: 1;
+        --logomark-jump-height-base: 12px;
+        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
         --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
@@ -1863,7 +1955,7 @@
             }
 
             2% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
 
             4% {
@@ -1880,7 +1972,7 @@
             }
 
             22% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
         }
 
@@ -1965,7 +2057,6 @@
 // Setup highlight animation - used by quick start to draw attention to UI elements
 .setup-highlight-pulse {
     position: relative !important;
-    z-index: 100 !important;
     border-radius: var(--radius);
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
 }

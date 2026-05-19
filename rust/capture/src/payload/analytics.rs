@@ -135,24 +135,6 @@ pub async fn handle_event_payload(
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
 
-    // Apply global rate limit per team (API token) if enabled
-    if let Some(global_rate_limiter) = &state.global_rate_limiter {
-        if let Some(limited) = global_rate_limiter
-            .is_limited(&context.token, events.len() as u64)
-            .await
-        {
-            return Err(CaptureError::GlobalRateLimitExceeded(
-                context.token.clone(),
-                events.len() as u64,
-                limited.window_start,
-                limited.window_end,
-                limited.threshold,
-                limited.window_interval.as_secs(),
-            ));
-        }
-        debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "global rate limit applied");
-    }
-
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
     events = state

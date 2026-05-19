@@ -1,39 +1,119 @@
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
+from django.db import models
 
 import structlog
 import temporalio
 from pydantic import BaseModel, model_validator
-from temporalio.common import RetryPolicy
+from structlog.contextvars import bind_contextvars
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.event.util import create_event
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages, format_tool_definitions
+from posthog.temporal.llm_analytics.metrics import (
+    increment_emit_event_outcome,
+    increment_errors,
+    increment_key_type,
+    increment_provider_model,
+    increment_tokens,
+)
 
-from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
+from products.llm_analytics.backend.llm.config import get_eval_config
 from products.llm_analytics.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
 )
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
+from products.signals.backend.temporal.emit_eval_signal import (
+    EmitEvalSignalInputs,
+    EmitEvalSignalWorkflow,
+    emit_eval_signal_activity,
+)
+
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
 
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+
+# Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
+LLM_JUDGE_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
+
+
+class LLMJudgeResult(TypedDict, total=False):
+    """Result produced by `execute_llm_judge_activity`, `_build_errored_trace_result`, and
+    `execute_hog_eval_activity`.
+
+    `total=False` is used as the default so individual fields opt in via `Required` /
+    `NotRequired`, making the contract honest about which keys every path actually sets:
+
+    - `verdict`, `reasoning`, `allows_na` are set on every path (LLM judge success, errored-
+      trace skip, hog eval) and are `Required`.
+    - `applicable` is set only when `allows_na=True`.
+    - `skipped` and `skip_reason` are set only on the skip path (e.g. errored source trace).
+    - `model`, `provider`, `key_id`, `is_byok`, and the `*_tokens` fields come from the LLM
+      judge success path. The skip path omits `model`/`provider` so downstream cost
+      attribution doesn't credit phantom calls, and `execute_hog_eval_activity` (whose
+      output also flows into `emit_evaluation_event_activity`) emits only `verdict`,
+      `reasoning`, `allows_na`, and optionally `applicable`.
+    """
+
+    verdict: Required[bool | None]
+    reasoning: Required[str]
+    allows_na: Required[bool]
+    input_tokens: NotRequired[int]
+    output_tokens: NotRequired[int]
+    total_tokens: NotRequired[int]
+    is_byok: NotRequired[bool]
+    key_id: NotRequired[str | None]
+    model: NotRequired[str]
+    provider: NotRequired[str]
+    applicable: NotRequired[bool]
+    skipped: NotRequired[bool]
+    skip_reason: NotRequired[str]
+
+
+class WorkflowResult(TypedDict, total=False):
+    """Result returned by `RunEvaluationWorkflow.run`.
+
+    Composes a subset of `LLMJudgeResult` with workflow-level identifiers. Both branches
+    that build this dict — the skip-on-error branch (e.g. `trial_limit_reached`,
+    `key_invalid`) and the normal-completion branch — always set `verdict`, `evaluation_id`,
+    `evaluation_type`, and `skipped`, so those four are `Required`. The skip-on-error branch
+    omits `reasoning` and `is_byok` and adds `message`; `skip_reason` is set only when
+    `skipped=True`.
+    """
+
+    verdict: Required[bool | None]
+    evaluation_id: Required[str]
+    evaluation_type: Required[str]
+    skipped: Required[bool]
+    reasoning: NotRequired[str]
+    is_byok: NotRequired[bool]
+    skip_reason: NotRequired[str]
+    message: NotRequired[str]
 
 
 class BooleanEvalResult(BaseModel):
@@ -106,10 +186,19 @@ class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        """Properties for PostHogClientInterceptor error capture."""
+        return {
+            "evaluation_id": self.evaluation_id,
+            "team_id": self.event_data.get("team_id"),
+        }
+
 
 @temporalio.activity.defn
 async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch evaluation config from Postgres"""
+    bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
 
     def _fetch():
         try:
@@ -160,34 +249,293 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
     await database_sync_to_async(_update)()
 
 
-@temporalio.activity.defn
-async def increment_trial_eval_count_activity(team_id: int) -> None:
-    """Increment trial eval counter after successful execution with PostHog key"""
-    from django.db.models import F
-
-    def _increment():
-        EvaluationConfig.objects.filter(team_id=team_id).update(trial_evals_used=F("trial_evals_used") + 1)
-
-    await database_sync_to_async(_increment)()
+TRIAL_NOTIFICATION_THRESHOLDS = [50, 75, 100]
 
 
 @temporalio.activity.defn
-async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
-    """Disable an evaluation when trial limit is reached"""
+async def increment_trial_eval_count_activity(team_id: int) -> int | None:
+    """Increment trial eval counter after successful execution with PostHog key.
+
+    Returns the usage percentage threshold that was just crossed (50, 75, or
+    100), or None if no threshold was crossed. The increment and read are
+    performed atomically via UPDATE ... RETURNING to avoid race conditions
+    where concurrent increments could both see the same threshold.
+    """
+    from django.db import connection
+
+    def _increment() -> int | None:
+        table = EvaluationConfig._meta.db_table
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE {table}
+                SET trial_evals_used = trial_evals_used + 1
+                WHERE team_id = %s
+                RETURNING trial_evals_used, trial_eval_limit
+                """,
+                [team_id],
+            )
+            row = cursor.fetchone()
+            if row is None:
+                logger.warning("No EvaluationConfig found for team during trial increment", team_id=team_id)
+                return None
+            trial_evals_used, trial_eval_limit = row
+
+        for pct in TRIAL_NOTIFICATION_THRESHOLDS:
+            if trial_evals_used == round(trial_eval_limit * pct / 100):
+                return pct
+        return None
+
+    return await database_sync_to_async(_increment)()
+
+
+@temporalio.activity.defn
+async def disable_evaluation_activity(evaluation_id: str, team_id: int, status_reason: str = "") -> None:
+    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
+
+    status_reason must be one of EvaluationStatusReason values; empty is accepted for backwards compat but
+    should never happen for new callers — the model's save() enforces a reason when status is ERROR.
+    """
 
     def _disable():
-        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(enabled=False)
+        # We bypass save() by using .update() to avoid triggering bytecode recompilation on every run,
+        # so we must explicitly write all three fields of the status trio together.
+        reason = status_reason or "trial_limit_reached"
+        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(
+            enabled=False, status="error", status_reason=reason
+        )
 
     await database_sync_to_async(_disable)()
 
 
+@dataclass
+class SendTrialUsageEmailInputs:
+    team_id: int
+    threshold_pct: int
+
+
 @temporalio.activity.defn
-async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
+async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
+    """Send an email to org members about trial evaluation usage.
+
+    Handles both warning emails (50%, 75%) and the exhaustion email (100%).
+    """
+
+    def _send():
+        from posthog.email import EmailMessage, is_email_available
+
+        if not is_email_available(with_absolute_urls=True):
+            logger.info(
+                "Email not available, skipping trial usage notification",
+                team_id=inputs.team_id,
+                threshold_pct=inputs.threshold_pct,
+            )
+            return
+
+        try:
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for trial usage email", team_id=inputs.team_id)
+            return
+
+        config = EvaluationConfig.objects.filter(team_id=inputs.team_id).first()
+        if not config:
+            return
+
+        # Find evaluations that will be affected (on trial, enabled, not deleted)
+        max_listed = 20
+        affected_qs = Evaluation.objects.filter(
+            team_id=inputs.team_id,
+            enabled=True,
+            deleted=False,
+        ).filter(models.Q(model_configuration__isnull=True) | models.Q(model_configuration__provider_key__isnull=True))
+        total_affected = affected_qs.count()
+        affected_evals = list(affected_qs.values_list("name", flat=True)[:max_listed])
+        affected_evals_overflow = max(0, total_affected - max_listed)
+
+        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
+        campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.id}"
+        is_exhausted = inputs.threshold_pct >= 100
+
+        if is_exhausted:
+            subject = "Your LLM analytics trial evaluations have been used up"
+            template_name = "llm_analytics_trial_exhausted"
+        else:
+            subject = f"You've used {inputs.threshold_pct}% of your LLM analytics trial evaluations"
+            template_name = "llm_analytics_trial_warning"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name=template_name,
+            template_context={
+                "trial_eval_limit": config.trial_eval_limit,
+                "trial_evals_used": config.trial_evals_used,
+                "trial_evals_remaining": config.trial_evals_remaining,
+                "threshold_pct": inputs.threshold_pct,
+                "settings_url": settings_url,
+                "affected_evals": affected_evals,
+                "affected_evals_overflow": affected_evals_overflow,
+            },
+        )
+
+        for user in team.organization.members.all():
+            message.add_user_recipient(user)
+
+        if message.to:
+            message.send()
+            logger.info(
+                "Sent trial usage email",
+                team_id=inputs.team_id,
+                org_id=str(team.organization_id),
+                threshold_pct=inputs.threshold_pct,
+                recipient_count=len(message.to),
+            )
+
+    await database_sync_to_async(_send)()
+
+
+@dataclass
+class SendEvaluationDisabledEmailInputs:
+    team_id: int
+    evaluation_id: str
+    evaluation_name: str
+    status_reason: str
+    human_readable_reason: str
+
+
+_STATUS_REASON_SUBJECTS = {
+    "model_not_allowed": "Your LLM analytics evaluation was disabled because its model isn't supported on the trial plan",
+    "provider_key_deleted": "Your LLM analytics evaluation was disabled because its provider API key was removed",
+}
+
+
+@temporalio.activity.defn
+async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
+    """Email org members when an evaluation enters the ERROR state for a reason other than trial exhaustion.
+
+    Trial-exhausted disabling continues to use send_trial_usage_email_activity because that one aggregates
+    across all affected evals and has a different recovery CTA.
+    """
+
+    def _send():
+        from posthog.email import EmailMessage, is_email_available
+
+        if not is_email_available(with_absolute_urls=True):
+            logger.info(
+                "Email not available, skipping evaluation disabled notification",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
+            return
+
+        try:
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
+        evaluation_url = f"/project/{team.pk}/llm-analytics/evaluations/{inputs.evaluation_id}"
+        # Campaign key includes the reason so users get a fresh notification if an eval errors for a
+        # different reason later (e.g. model was allowed, then the provider key got deleted).
+        campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}_{inputs.status_reason}"
+        subject = _STATUS_REASON_SUBJECTS.get(
+            inputs.status_reason, f'Your evaluation "{inputs.evaluation_name}" has been disabled'
+        )
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name="llm_analytics_evaluation_disabled",
+            template_context={
+                "evaluation_name": inputs.evaluation_name,
+                "disabled_reason": inputs.human_readable_reason,
+                "settings_url": settings_url,
+                "evaluation_url": evaluation_url,
+            },
+        )
+
+        for user in team.organization.members.all():
+            message.add_user_recipient(user)
+
+        if message.to:
+            message.send()
+            logger.info(
+                "Sent evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+                status_reason=inputs.status_reason,
+                recipient_count=len(message.to),
+            )
+
+    await database_sync_to_async(_send)()
+
+
+@dataclass
+class ExecuteLLMJudgeInputs:
+    evaluation: dict[str, Any]
+    event_data: dict[str, Any]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.evaluation.get("team_id"),
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
+def _is_errored_trace(properties: dict[str, Any]) -> bool:
+    """Return True when the captured trace recorded an error.
+
+    `$ai_is_error` may be ingested as a Python bool or a JSON-encoded string depending on the
+    SDK and capture path, so we normalise both forms here.
+    """
+    raw = properties.get("$ai_is_error")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() == "true"
+    return False
+
+
+def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
+    """Result returned when the source trace errored — skips the LLM call entirely.
+
+    `model` and `provider` are deliberately omitted so the `.get(..., DEFAULT_JUDGE_MODEL)`
+    defaults in downstream activities don't silently attribute phantom calls to a model that
+    was never invoked — the emit activity instead detects the `skipped` flag and drops cost
+    and model attribution entirely. The `LLMJudgeResult` TypedDict expresses the shape
+    contract previously enforced by convention.
+    """
+    reasoning = "Source trace errored before producing output; evaluation skipped."
+    result: LLMJudgeResult = {
+        "verdict": None if allows_na else False,
+        "reasoning": reasoning,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": False,
+        "key_id": None,
+        "allows_na": allows_na,
+        "skipped": True,
+        "skip_reason": "trace_errored",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
+@temporalio.activity.defn
+async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     """Execute LLM judge to evaluate the target event.
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
     from django.utils import timezone
+
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -209,6 +557,20 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
 
     output_config = evaluation.get("output_config", {})
     allows_na = output_config.get("allows_na", False)
+
+    # Parse properties early so we can short-circuit on traces that errored before producing
+    # any output. Without this guard, the judge runs against an empty Output and tends to
+    # return spurious verdicts (often `true`) instead of recognising that there is nothing to
+    # evaluate.
+    event_type = event_data["event"]
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    if _is_errored_trace(properties):
+        # Visibility for skipped evaluations comes from the workflow-level SKIPPED status emitted
+        # by the metrics interceptor; there is no error to record here.
+        return _build_errored_trace_result(allows_na)
 
     # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
@@ -282,7 +644,13 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         if provider_key_id:
             provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
         else:
-            # Using PostHog key - check trial quota
+            # Using PostHog key — enforce trial model allowlist and quota
+            if model not in TRIAL_MODEL_IDS:
+                raise ApplicationError(
+                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
+                    {"error_type": "model_not_allowed", "model": model},
+                    non_retryable=True,
+                )
             await database_sync_to_async(_check_trial_quota)()
             provider_key = None
     else:
@@ -294,50 +662,40 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     is_byok = provider_key is not None
     key_id = str(provider_key.id) if provider_key else None
 
-    # Build context from event
-    event_type = event_data["event"]
-    properties = event_data["properties"]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
-
     # Extract input/output based on event type
-    if event_type == "$ai_generation":
-        # Check properties in order of preference
-        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
-        # For output, check $ai_output_choices first (most common), then $ai_output
-        output_raw = (
-            properties.get("$ai_output_choices")
-            or properties.get("$ai_output")
-            or properties.get("$ai_output_state", "")
-        )
-    else:
-        # For other event types, use generic approach
-        input_raw = properties.get("$ai_input_state", "")
-        output_raw = properties.get("$ai_output_state", "")
+    input_raw, output_raw = extract_event_io(event_type, properties)
+    tools_raw = extract_event_tools(properties)
 
     # Extract readable text from message structures
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
+    tools_data = format_tool_definitions(tools_raw)
 
     # Build judge prompt based on allows_na config
     type_config = get_output_type_config(allows_na)
     system_prompt = build_system_prompt(prompt, allows_na)
     response_format = type_config.response_format
 
-    user_prompt = f"""Input: {input_data}
+    # Insert a `Tools available:` section between Input and Output when the
+    # event captured the tool catalog. The judge needs to see what the agent
+    # *could* call to evaluate prompts like "did it pick the right tool?".
+    sections = [f"Input: {input_data}"]
+    if tools_data:
+        sections.append(f"Tools available:\n{tools_data}")
+    sections.append(f"Output: {output_data}")
+    user_prompt = "\n\n".join(sections)
 
-Output: {output_data}"""
+    # Get eval-specific config when using PostHog defaults (no provider_key)
+    config = get_eval_config(provider) if provider_key is None else None
 
     # Create unified Client with analytics disabled to prevent eval loops
     client = Client(
         provider_key=provider_key,
+        config=config,
         capture_analytics=False,
     )
 
     try:
-        # Signal that we're about to make a potentially long-running LLM call
-        if temporalio.activity.in_activity():
-            temporalio.activity.heartbeat("starting LLM judge call")
         response = client.complete(
             CompletionRequest(
                 model=model,
@@ -348,37 +706,65 @@ Output: {output_data}"""
             )
         )
     except AuthenticationError:
+        increment_errors("auth_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
-                {"error_type": "auth_error", "key_id": key_id},
+                {"error_type": "auth_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except ModelPermissionError:
+        increment_errors("permission_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
-                {"error_type": "permission_error", "key_id": key_id},
+                {"error_type": "permission_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except QuotaExceededError:
+        increment_errors("quota_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
-                {"error_type": "quota_error", "key_id": key_id},
+                {"error_type": "quota_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except RateLimitError:
-        # Regular rate limit - let it retry (default behavior)
+        increment_errors("rate_limit", provider=provider)
+        if is_byok:
+            raise ApplicationError(
+                "API key is being rate limited.",
+                {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
+                non_retryable=True,
+            )
         raise
     except ModelNotFoundError:
+        increment_errors("model_not_found", provider=provider)
         raise ApplicationError(
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except StructuredOutputParseError as e:
+        increment_errors("parse_error", provider=provider)
+        raise ApplicationError(
+            str(e),
+            {"error_type": "parse_error"},
+            non_retryable=True,
+        ) from e
+
+    except Exception as e:
+        logger.exception(
+            "Unhandled error from LLM client",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error_class=type(e).__name__,
+        )
+        increment_errors(type(e).__name__, provider=provider)
+        raise
 
     # Parse structured output
     result = response.parsed
@@ -392,8 +778,18 @@ Output: {output_data}"""
     # Extract token usage from response
     usage = response.usage
 
+    # Record metrics
+    if temporalio.activity.in_activity():
+        increment_key_type("byok" if is_byok else "posthog")
+        increment_provider_model(provider, model)
+        if usage:
+            increment_tokens("input", usage.input_tokens)
+            increment_tokens("output", usage.output_tokens)
+            increment_tokens("total", usage.total_tokens)
+        bind_contextvars(provider=provider, model=model)
+
     # Build result dict based on allows_na config
-    result_dict: dict[str, Any] = {
+    result_dict: LLMJudgeResult = {
         "verdict": result.verdict,
         "reasoning": result.reasoning,
         "input_tokens": usage.input_tokens if usage else 0,
@@ -416,14 +812,185 @@ Output: {output_data}"""
     return result_dict
 
 
+def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, Any]:
+    """Extract raw input and output values from event properties.
+
+    Returns (input_raw, output_raw) for use in Hog eval globals and preview display.
+
+    Invariant: `properties` must already contain the heavy `$ai_*` keys when present
+    on the source event. Heavy props are stripped from `events.properties` after the
+    cutover (see AI events migration brief), so callers must source the event from a
+    path that re-populates them — today that's `EvaluationRunViewSet.create`, which
+    reads from `ai_events` and re-merges heavy columns via `merge_heavy_properties`
+    before handing `event_data` to this workflow. Adding a new caller? Use the same
+    pattern, or feed it `event_data` produced by an already-migrated reader.
+
+    Failure mode this invariant guards against: when `is_ai_events_enabled(team)` is
+    False (kill switch flipped) AND the team is post-strip, the events-fallback path
+    in `EvaluationRunViewSet.create` returns rows whose `properties` JSON has NULL
+    heavy keys. `extract_event_io` would then return empty `input_raw` / `output_raw`,
+    and the LLM judge / Hog eval would silently grade an empty conversation. The
+    invariant exists so any future caller short-circuiting around the migrated
+    reader has to confront this case explicitly.
+    """
+    if event_type == "$ai_generation":
+        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
+        output_raw = (
+            properties.get("$ai_output_choices")
+            or properties.get("$ai_output")
+            or properties.get("$ai_output_state", "")
+        )
+    else:
+        input_raw = properties.get("$ai_input_state", "")
+        output_raw = properties.get("$ai_output_state", "")
+    return input_raw, output_raw
+
+
+def extract_event_tools(properties: dict[str, Any]) -> Any:
+    """Extract the tool catalog (`$ai_tools`) captured on the event, regardless
+    of event type.
+
+    `$ai_generation` is the canonical carrier today, but custom span/trace
+    events (e.g. an agent loop's `run_summary`) may also forward the catalog,
+    and the judge prompt benefits from it for any event shape. Presence of
+    `$ai_tools` drives whether the Tools section renders.
+    """
+    return properties.get("$ai_tools")
+
+
+def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
+    """Run compiled Hog bytecode against a single event.
+
+    Used by both the Temporal activity and the test endpoint.
+    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
+    When allows_na=True, a `return null` is treated as N/A (not an error).
+    """
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    event_type = event_data["event"]
+    input_raw, output_raw = extract_event_io(event_type, properties)
+
+    # Ensure input/output are always strings so string operations (ilike, length, etc.) work consistently.
+    # Users can still parse structured data with jsonParse() when needed.
+    input_val = json.dumps(input_raw) if isinstance(input_raw, (list, dict)) else (input_raw or "")
+    output_val = json.dumps(output_raw) if isinstance(output_raw, (list, dict)) else (output_raw or "")
+
+    globals_dict: dict[str, Any] = {
+        "input": input_val,
+        "output": output_val,
+        "properties": properties,
+        "event": {
+            "uuid": event_data.get("uuid", ""),
+            "event": event_type,
+            "distinct_id": event_data.get("distinct_id", ""),
+        },
+    }
+
+    try:
+        response = execute_bytecode(
+            bytecode,
+            globals=globals_dict,
+            timeout=timedelta(seconds=5),
+            team=None,
+        )
+    except HogVMRuntimeExceededException:
+        return {"verdict": None, "reasoning": "", "error": "Execution timed out (5s limit exceeded)"}
+    except HogVMMemoryExceededException:
+        return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
+    except HogVMException as e:
+        return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
+    except Exception:
+        logger.exception("Unexpected error executing Hog eval bytecode")
+        return {"verdict": None, "reasoning": "", "error": "Unexpected error during evaluation"}
+
+    reasoning = "\n".join(response.stdout) if response.stdout else ""
+
+    if response.result is None and allows_na:
+        return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}
+
+    if not isinstance(response.result, bool):
+        hint = " (or null if N/A is enabled)" if allows_na else ""
+        return {
+            "verdict": None,
+            "reasoning": reasoning,
+            "error": f"Must return boolean{hint}, got {type(response.result).__name__}: {response.result}",
+        }
+
+    result: dict[str, Any] = {"verdict": response.result, "reasoning": reasoning, "error": None}
+    if allows_na:
+        result["applicable"] = True
+    return result
+
+
 @temporalio.activity.defn
-async def emit_evaluation_event_activity(
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: dict[str, Any],
-    start_time: datetime,
-) -> None:
-    """Emit $ai_evaluation event to ClickHouse"""
+async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> LLMJudgeResult:
+    """Execute Hog code to evaluate the target event.
+
+    Returns a strict subset of `LLMJudgeResult` (verdict, reasoning, allows_na, optionally
+    applicable). The shared TypedDict lets both this activity and `execute_llm_judge_activity`
+    feed `EmitEvaluationEventInputs.result` without a wider union — downstream code already
+    branches on `evaluation_type` and `result.get("skipped")` before reading LLM-only keys.
+    """
+    if evaluation["evaluation_type"] != "hog":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    evaluation_config = evaluation.get("evaluation_config", {})
+    bytecode = evaluation_config.get("bytecode")
+    if not bytecode:
+        raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
+
+    output_config = evaluation.get("output_config", {})
+    allows_na = output_config.get("allows_na", False)
+
+    def _execute():
+        return run_hog_eval(bytecode, event_data, allows_na=allows_na)
+
+    result = await database_sync_to_async(_execute, thread_sensitive=False)()
+
+    if result["error"]:
+        raise ApplicationError(
+            f"Hog evaluation error: {result['error']}",
+            non_retryable=True,
+        )
+
+    activity_result: LLMJudgeResult = {
+        "verdict": result["verdict"],
+        "reasoning": result["reasoning"],
+        "allows_na": allows_na,
+    }
+    if allows_na:
+        activity_result["applicable"] = result.get("applicable", True)
+
+    return activity_result
+
+
+@dataclass
+class EmitEvaluationEventInputs:
+    evaluation: dict[str, Any]
+    event_data: dict[str, Any]
+    result: LLMJudgeResult
+    start_time: datetime
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.event_data.get("team_id"),
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
+@temporalio.activity.defn
+async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
+    """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation"""
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
+    result = inputs.result
+    start_time = inputs.start_time
 
     def _emit():
         try:
@@ -432,66 +999,104 @@ async def emit_evaluation_event_activity(
             logger.exception("Team not found", team_id=event_data["team_id"])
             raise ValueError(f"Team {event_data['team_id']} not found")
 
-        event_uuid = uuid.uuid4()
         allows_na = result.get("allows_na", False)
 
+        evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+
+        source_props = (
+            json.loads(event_data["properties"])
+            if isinstance(event_data["properties"], str)
+            else event_data["properties"]
+        )
+
         properties: dict[str, Any] = {
+            # Evaluation-specific properties
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
-            "$ai_evaluation_model": result.get("model", DEFAULT_JUDGE_MODEL),
-            "$ai_evaluation_provider": result.get("provider", "openai"),
+            "$ai_evaluation_type": "online",
+            "$ai_evaluation_runtime": evaluation_type,
             "$ai_evaluation_start_time": start_time.isoformat(),
             "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
-            "$ai_trace_id": (
-                json.loads(event_data["properties"])
-                if isinstance(event_data["properties"], str)
-                else event_data["properties"]
-            ).get("$ai_trace_id"),
-            "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
-            "$ai_evaluation_key_id": result.get("key_id"),
+            "$ai_target_id": event_data["uuid"],
+            "$ai_target_type": "generation_uuid",
+            "$ai_trace_id": source_props.get("$ai_trace_id"),
+            # Carry the trigger user's session_id from the source event so evals
+            # can link back to the session recording that originated the trace.
+            "$session_id": source_props.get("$session_id"),
         }
+
+        if result.get("skipped"):
+            properties["$ai_evaluation_skipped"] = True
+            properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
+
+        # LLM-specific properties: cost attribution and model info (not applicable for hog evals,
+        # and skipped evaluations never made an API call so attributing them to a model would
+        # pollute cost dashboards with phantom calls).
+        if evaluation_type != "hog" and not result.get("skipped"):
+            properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+            properties["$ai_provider"] = result.get("provider", "openai")
+            properties["$ai_input_tokens"] = result.get("input_tokens", 0)
+            properties["$ai_output_tokens"] = result.get("output_tokens", 0)
+            properties["$ai_evaluation_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+            properties["$ai_evaluation_provider"] = result.get("provider", "openai")
+            properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
+            properties["$ai_evaluation_key_id"] = result.get("key_id")
 
         # Handle result based on allows_na config
         if allows_na:
             applicable = result.get("applicable", True)
             properties["$ai_evaluation_applicable"] = applicable
-            # Only set result when applicable
             if applicable:
                 properties["$ai_evaluation_result"] = result["verdict"]
         else:
-            # Standard boolean output - always set result
             properties["$ai_evaluation_result"] = result["verdict"]
 
-        # Convert person_id string to UUID
-        person_id = uuid.UUID(event_data["person_id"]) if event_data.get("person_id") else None
-
-        # Use current time for when the evaluation actually happened
         event_timestamp = datetime.now(UTC)
 
-        create_event(
-            event_uuid=event_uuid,
-            event="$ai_evaluation",
-            team=team,
+        resp = capture_internal(
+            token=team.api_token,
+            event_name="$ai_evaluation",
+            event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
             timestamp=event_timestamp,
             properties=properties,
-            person_id=person_id,
+            process_person_profile=True,
         )
+        resp.raise_for_status()
 
-    await database_sync_to_async(_emit, thread_sensitive=False)()
+    try:
+        await database_sync_to_async(_emit, thread_sensitive=False)()
+        increment_emit_event_outcome("success")
+    except Exception:
+        increment_emit_event_outcome("failed")
+        raise
+
+
+@dataclass
+class EmitInternalTelemetryInputs:
+    evaluation: dict[str, Any]
+    team_id: int
+    result: LLMJudgeResult
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "evaluation_id": self.evaluation.get("id"),
+        }
 
 
 @temporalio.activity.defn
-async def emit_internal_telemetry_activity(
-    evaluation: dict[str, Any],
-    team_id: int,
-    result: dict[str, Any],
-) -> None:
+async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) -> None:
     """Emit telemetry event to PostHog org for internal tracking"""
     from posthog.tasks.usage_report import get_ph_client
+
+    evaluation = inputs.evaluation
+    team_id = inputs.team_id
+    result = inputs.result
 
     def _emit_telemetry():
         team = Team.objects.get(id=team_id)
@@ -528,7 +1133,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         )
 
     @temporalio.workflow.run
-    async def run(self, inputs: RunEvaluationInputs) -> dict[str, Any]:
+    async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         start_time = temporalio.workflow.now()
         evaluation = await temporalio.workflow.execute_activity(
             fetch_evaluation_activity,
@@ -537,78 +1142,241 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Activity 2: Execute LLM judge (fetches API key internally)
-        try:
-            result = await temporalio.workflow.execute_activity(
-                execute_llm_judge_activity,
-                args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except temporalio.exceptions.ActivityError as e:
-            if isinstance(e.cause, ApplicationError) and e.cause.details:
-                details = e.cause.details[0]
-                error_type = details.get("error_type")
+        evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
-                # Handle skippable errors - return success with skip info
-                if error_type in ("trial_limit_reached", "key_invalid"):
-                    if error_type == "trial_limit_reached":
+        # Activity 2: Execute evaluation based on type
+        if evaluation_type == "hog":
+            # Hog evaluations are deterministic — don't retry
+            result = await temporalio.workflow.execute_activity(
+                execute_hog_eval_activity,
+                args=[evaluation, inputs.event_data],
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        else:
+            # LLM judge evaluation
+            try:
+                result = await temporalio.workflow.execute_activity(
+                    execute_llm_judge_activity,
+                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
+                    schedule_to_close_timeout=timedelta(minutes=6),  # > SDK timeout (300s) to allow graceful handling
+                    retry_policy=LLM_JUDGE_RETRY_POLICY,
+                )
+            except temporalio.exceptions.ActivityError as e:
+                if isinstance(e.cause, ApplicationError) and e.cause.details:
+                    details = e.cause.details[0]
+                    error_type = details.get("error_type")
+
+                    # Handle skippable errors - return success with skip info
+                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
+                        if error_type in ("trial_limit_reached", "model_not_allowed"):
+                            await temporalio.workflow.execute_activity(
+                                disable_evaluation_activity,
+                                args=[evaluation["id"], evaluation["team_id"], error_type],
+                                schedule_to_close_timeout=timedelta(seconds=30),
+                                retry_policy=RetryPolicy(maximum_attempts=2),
+                            )
+                            if error_type == "trial_limit_reached":
+                                # Trial exhaustion affects all trial-using evals on the team — stick with
+                                # the aggregate email that lists every impacted eval.
+                                if temporalio.workflow.patched("trial-usage-email"):
+                                    try:
+                                        await temporalio.workflow.execute_activity(
+                                            send_trial_usage_email_activity,
+                                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                                            activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                                            schedule_to_close_timeout=timedelta(seconds=30),
+                                            retry_policy=RetryPolicy(maximum_attempts=2),
+                                        )
+                                    except Exception:
+                                        temporalio.workflow.logger.exception(
+                                            "Failed to send trial exhausted email",
+                                            team_id=evaluation["team_id"],
+                                        )
+                            else:
+                                # model_not_allowed is per-eval — send the targeted email with a
+                                # per-eval recovery path (pick a supported model for this eval).
+                                if temporalio.workflow.patched("eval-disabled-email"):
+                                    model = details.get("model", "the selected model")
+                                    try:
+                                        await temporalio.workflow.execute_activity(
+                                            send_evaluation_disabled_email_activity,
+                                            SendEvaluationDisabledEmailInputs(
+                                                team_id=evaluation["team_id"],
+                                                evaluation_id=evaluation["id"],
+                                                evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                                                status_reason="model_not_allowed",
+                                                human_readable_reason=(
+                                                    f"The model '{model}' isn't available on the trial plan."
+                                                ),
+                                            ),
+                                            activity_id=(
+                                                f"send-eval-disabled-email-{evaluation['id']}-model_not_allowed"
+                                            ),
+                                            schedule_to_close_timeout=timedelta(seconds=30),
+                                            retry_policy=RetryPolicy(maximum_attempts=2),
+                                        )
+                                    except Exception:
+                                        temporalio.workflow.logger.exception(
+                                            "Failed to send evaluation disabled email",
+                                            evaluation_id=evaluation["id"],
+                                            team_id=evaluation["team_id"],
+                                        )
+                        skip_result: WorkflowResult = {
+                            "verdict": None,
+                            "skipped": True,
+                            "skip_reason": error_type,
+                            "message": e.cause.message,
+                            "evaluation_id": evaluation["id"],
+                            "evaluation_type": evaluation_type,
+                        }
+                        return skip_result
+
+                    # Update key state for API-related errors
+                    key_id = details.get("key_id")
+                    if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
+                        new_state = (
+                            LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
+                        )
                         await temporalio.workflow.execute_activity(
-                            disable_evaluation_activity,
-                            args=[evaluation["id"], evaluation["team_id"]],
+                            update_key_state_activity,
+                            args=[key_id, new_state, e.cause.message],
+                            schedule_to_close_timeout=timedelta(seconds=10),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                raise
+
+            # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals).
+            # Skipped evaluations (e.g. errored source trace) never made an API call, so they do not
+            # consume trial quota.
+            if not result.get("is_byok") and not result.get("skipped"):
+                threshold_pct = await temporalio.workflow.execute_activity(
+                    increment_trial_eval_count_activity,
+                    evaluation["team_id"],
+                    activity_id=f"increment-trial-{evaluation['id']}",
+                    schedule_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+
+                if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
+                    try:
+                        await temporalio.workflow.execute_activity(
+                            send_trial_usage_email_activity,
+                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=threshold_pct),
+                            activity_id=f"send-trial-usage-email-{threshold_pct}pct-{evaluation['team_id']}",
                             schedule_to_close_timeout=timedelta(seconds=30),
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
-                    return {
-                        "verdict": None,
-                        "skipped": True,
-                        "skip_reason": error_type,
-                        "message": e.cause.message,
-                        "evaluation_id": evaluation["id"],
-                    }
-
-                # Update key state for API-related errors
-                key_id = details.get("key_id")
-                if key_id and error_type in ("auth_error", "permission_error", "quota_error"):
-                    new_state = (
-                        LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
-                    )
-                    await temporalio.workflow.execute_activity(
-                        update_key_state_activity,
-                        args=[key_id, new_state, e.cause.message],
-                        schedule_to_close_timeout=timedelta(seconds=10),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-            raise
-
-        # Activity 3: Increment trial eval counter if using PostHog key
-        if not result.get("is_byok"):
-            await temporalio.workflow.execute_activity(
-                increment_trial_eval_count_activity,
-                evaluation["team_id"],
-                activity_id=f"increment-trial-{evaluation['id']}",
-                schedule_to_close_timeout=timedelta(seconds=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+                    except Exception:
+                        # Email failure should not fail the evaluation workflow
+                        temporalio.workflow.logger.exception(
+                            "Failed to send trial usage email",
+                            team_id=evaluation["team_id"],
+                            threshold_pct=threshold_pct,
+                        )
 
         # Activity 4: Emit evaluation event
-        await temporalio.workflow.execute_activity(
-            emit_evaluation_event_activity,
-            args=[evaluation, inputs.event_data, result, start_time],
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_evaluation_event_activity,
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=inputs.event_data,
+                    result=result,
+                    start_time=start_time,
+                ),
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
+            raise
 
-        # Activity 5: Emit internal telemetry (fire-and-forget)
-        await temporalio.workflow.execute_activity(
-            emit_internal_telemetry_activity,
-            args=[evaluation, evaluation["team_id"], result],
-            schedule_to_close_timeout=timedelta(seconds=30),
-        )
+        # Activity 5: Emit internal telemetry (fire-and-forget). Internal telemetry tracks model,
+        # provider, and token usage on the PostHog org for cost attribution; skipped evaluations
+        # never made an API call, so emitting a phantom record with `verdict=False` and zero
+        # tokens would pollute that data.
+        if not result.get("skipped"):
+            await temporalio.workflow.execute_activity(
+                emit_internal_telemetry_activity,
+                EmitInternalTelemetryInputs(
+                    evaluation=evaluation,
+                    team_id=evaluation["team_id"],
+                    result=result,
+                ),
+                schedule_to_close_timeout=timedelta(seconds=30),
+            )
 
-        return {
+        # Emit signal when eval judge verdict is true (fire-and-forget).
+        # v2: dedicated workflow on VIDEO_EXPORT_TASK_QUEUE (signals worker).
+        # v1: legacy activity on evals queue, kept for in-flight workflows during migration.
+        #     Always fails due to missing API key on llma worker
+        if result.get("verdict") is True and result.get("reasoning"):
+            event_uuid = inputs.event_data.get("uuid", "")
+            properties = inputs.event_data.get("properties", {})
+            if isinstance(properties, str):
+                properties = json.loads(properties)
+
+            signal_inputs = EmitEvalSignalInputs(
+                team_id=evaluation["team_id"],
+                evaluation_id=evaluation["id"],
+                evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
+                event_uuid=event_uuid,
+                event_type=inputs.event_data.get("event", ""),
+                trace_id=properties.get("$ai_trace_id", ""),
+                reasoning=result.get("reasoning", ""),
+                model=result.get("model", ""),
+                provider=result.get("provider", ""),
+            )
+
+            if temporalio.workflow.patched("emit-eval-signal-v2"):
+                try:
+                    await temporalio.workflow.start_child_workflow(
+                        EmitEvalSignalWorkflow.run,
+                        signal_inputs,
+                        id=f"emit-eval-signal-{evaluation['team_id']}-{evaluation['id']}-{event_uuid}",
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        execution_timeout=timedelta(minutes=5),
+                    )
+                except Exception:
+                    # Don't fail the workflow if signal emission fails
+                    temporalio.workflow.logger.exception(
+                        "Failed to start eval signal workflow",
+                        evaluation_id=evaluation["id"],
+                        team_id=evaluation["team_id"],
+                    )
+            elif temporalio.workflow.patched("emit-eval-signal-v1"):
+                # Legacy path for in-flight v1 workflows — remove once all v1 executions complete
+                try:
+                    await temporalio.workflow.execute_activity(
+                        emit_eval_signal_activity,
+                        signal_inputs,
+                        schedule_to_close_timeout=timedelta(seconds=120),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "Failed to emit eval signal",
+                        evaluation_id=evaluation["id"],
+                        team_id=evaluation["team_id"],
+                    )
+
+        workflow_result: WorkflowResult = {
             "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
+            "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
+            "skipped": result.get("skipped", False),
         }
+        # Match the shape of the existing workflow-level skip path (around the `error_type` branch
+        # above) so consumers can group skipped workflows by reason without special-casing the
+        # source of the skip.
+        if result.get("skipped"):
+            skip_reason = result.get("skip_reason")
+            if skip_reason is not None:
+                workflow_result["skip_reason"] = skip_reason
+        return workflow_result

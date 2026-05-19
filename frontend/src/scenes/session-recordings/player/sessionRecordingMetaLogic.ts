@@ -1,7 +1,7 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotDataLogic'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -43,7 +43,15 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 annotationsModel,
                 ['annotations', 'annotationsLoading'],
                 snapshotLogic,
-                ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded', 'isLoadingSnapshots'],
+                [
+                    'snapshotSources',
+                    'snapshotsLoading',
+                    'snapshotsLoaded',
+                    'isLoadingSnapshots',
+                    'isRecordingDeleted',
+                    'recordingDeletedAt',
+                    'recordingDeletedBy',
+                ],
                 registryLogic,
                 ['uuidToIndex', 'getWindowId'],
             ],
@@ -64,7 +72,17 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             {
                 loadRecordingMeta: () => false,
                 loadRecordingMetaSuccess: () => false,
-                loadRecordingMetaFailure: () => true,
+                loadRecordingMetaFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.status === 404,
+            },
+        ],
+        loadMetaError: [
+            false as boolean,
+            {
+                loadRecordingMeta: () => false,
+                loadRecordingMetaSuccess: () => false,
+                loadRecordingMetaFailure: (_, { errorObject }) =>
+                    !(errorObject instanceof ApiError && errorObject.status === 404),
             },
         ],
         trackedWindow: [
@@ -80,6 +98,8 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
+                // Cancel orphaned loaders from StrictMode's unmounted logic
+                await breakpoint(1)
                 const headers: Record<string, string> = {}
                 if (props.accessToken) {
                     headers.Authorization = `Bearer ${props.accessToken}`

@@ -1,7 +1,7 @@
 {
     "id": 51,
     "short_id": "xEAIVJnI",
-    "name": "",
+    "name": null,
     "derived_name": "User stickiness based on Pageview",
     "filters": {},
     "filters_hash": "cache_95922a5d0dad24bcbba8be24a3ab3180",

@@ -26,16 +26,16 @@ import {
 } from '@dnd-kit/sortable'
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
+import equal from 'fast-deep-equal'
 import debounce from 'lodash.debounce'
-import isEqual from 'lodash.isequal'
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrash } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
 const NOOP = (): void => {}
 export interface VDNDChildItem {
@@ -95,7 +95,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     const savedChanges = useRef<Item[]>(initialItems)
     useEffect(() => {
         const newItemsArray = containers.map((containerId) => items[containerId])
-        if (!isEqual(newItemsArray, savedChanges.current)) {
+        if (!equal(newItemsArray, savedChanges.current)) {
             savedChanges.current = newItemsArray
             debouncedOnChanged?.(newItemsArray)
         }

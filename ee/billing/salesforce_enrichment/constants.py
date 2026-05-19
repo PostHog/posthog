@@ -1,5 +1,7 @@
 REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
 SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
+SALESFORCE_ORG_MAPPINGS_CACHE_KEY: str = "salesforce-enrichment:global:org_mappings"
+SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY: str = "salesforce-enrichment:stripe:last_watermark"
 HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
 YC_INVESTOR_NAME: str = "y combinator"
 HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
@@ -110,6 +112,39 @@ SALESFORCE_ACCOUNTS_QUERY = """
 """
 
 METRIC_PERIODS = {"90d": 90, "180d": 180}
+
+# PostHog usage enrichment constants
+POSTHOG_ORG_GROUP_TYPE_INDEX = 0  # Organizations are group_type_index 0 in PostHog's groups table
+POSTHOG_ORG_ID_FIELD = "Posthog_Org_ID__c"
+POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE = 100
+POSTHOG_FETCH_MAPPINGS_PAGE_SIZE = 10_000  # Page size for fetching org mappings, kept under Temporal's 4 MB gRPC limit
+
+# Salesforce field mappings for PostHog usage signals
+# Format: internal_field_name -> salesforce_custom_field_name
+POSTHOG_USAGE_FIELD_MAPPINGS = {
+    # Events-based metrics (7-day)
+    "total_events_7d": "posthog_total_events_7d__c",
+    "events_avg_daily_7d": "posthog_events_avg_daily_7d__c",
+    "products_activated_7d": "posthog_products_7d__c",
+    "events_7d_momentum": "posthog_events_7d_momentum__c",
+    # Events-based metrics (30-day)
+    "total_events_30d": "posthog_total_events_30d__c",
+    "events_avg_daily_30d": "posthog_events_avg_daily_30d__c",
+    "products_activated_30d": "posthog_products_30d__c",
+    "events_30d_momentum": "posthog_events_30d_momentum__c",
+}
+
+STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
+
+
+STRIPE_ENRICHMENT_FIELD_MAPPINGS: dict[str, str] = {
+    "billing_customer_name": "Name",
+    "stripe_customer_id": "Stripe_id__c",
+    "address_city": "BillingCity",
+    "address_state": "BillingState",
+    "address_postal_code": "BillingPostalCode",
+    "address_country": "BillingCountry",
+}
 
 PERSONAL_EMAIL_DOMAINS = {
     "gmail.com",

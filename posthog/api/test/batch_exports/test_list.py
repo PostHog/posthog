@@ -14,6 +14,7 @@ from posthog.api.test.test_user import create_user
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 
@@ -176,7 +177,9 @@ def test_list_filters_workflows_destination(client: HttpClient, organization, te
 
     realtime_destination_data = {
         "type": "Workflows",
-        "config": {},
+        "config": {
+            "hog_function_id": "aaaa-bbbb-cccc",
+        },
     }
 
     realtime_batch_export_data = {

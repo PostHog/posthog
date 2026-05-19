@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
-import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+// eslint-disable-next-line import/no-cycle
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
 import type { evaluationMetricsLogicType } from './evaluationMetricsLogicType'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -31,6 +31,10 @@ export interface SummaryMetrics {
 }
 
 type RawStatsRow = [evaluation_id: string, runs_count: number, applicable_count: number, pass_count: number]
+
+export interface EvaluationMetricsLogicProps {
+    tabId?: string
+}
 
 function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
     if (!dateFrom) {
@@ -59,11 +63,13 @@ function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
 
 export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'evaluations', 'evaluationMetricsLogic']),
+    props({} as EvaluationMetricsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
-    connect({
-        values: [llmEvaluationsLogic, ['evaluations'], llmAnalyticsSharedLogic, ['dateFilter']],
-        actions: [llmAnalyticsSharedLogic, ['setDates']],
-    }),
+    connect((props: EvaluationMetricsLogicProps) => ({
+        values: [llmEvaluationsLogic({ tabId: props.tabId }), ['evaluations', 'dateFilter']],
+        actions: [llmEvaluationsLogic({ tabId: props.tabId }), ['setDates']],
+    })),
 
     actions({
         refreshMetrics: true,

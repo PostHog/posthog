@@ -2,8 +2,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::kafka::types::Partition;
 
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use rdkafka::message::{BorrowedMessage, Message, OwnedHeaders};
 use serde::Deserialize;
 
@@ -179,14 +178,10 @@ impl<T> KafkaMessage<T> {
 
         match &out.original_payload {
             Some(payload) => {
-                match serde_json::from_slice::<T>(payload) {
-                    Ok(hydrated_payload) => {
-                        out.message = Some(hydrated_payload);
-                    }
-                    Err(e) => {
-                        return Err(anyhow!("Failed to deserialize message: {e}"));
-                    }
-                };
+                out.message = Some(
+                    serde_json::from_slice::<T>(payload)
+                        .with_context(|| "Failed to deserialize message")?,
+                );
             }
             None => {
                 return Err(anyhow!("No payload in message"));

@@ -23,7 +23,7 @@ from posthog.clickhouse.materialized_columns import (
     ColumnName,
     TablesWithMaterializedColumns,
 )
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -71,6 +71,7 @@ class MaterializedColumn:
     has_minmax_index: bool = False
     has_bloom_filter_index: bool = False
     has_ngram_lower_index: bool = False
+    has_bloom_filter_lower_index: bool = False
 
     @property
     def type(self) -> str:
@@ -109,7 +110,11 @@ class MaterializedColumn:
         table_info = tables.get(table)
         data_table = table_info.data_table if table_info else table
 
-        with tags_context(name="get_all_materialized_columns"):
+        with tags_context(
+            name="get_all_materialized_columns",
+            product=Product.INTERNAL,
+            feature=Feature.SCHEMA_INTROSPECTION,
+        ):
             # Query columns and their indexes using multiple LEFT JOINs
             # Returns index names as an array, parsed in Python to set boolean flags
             # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
@@ -119,7 +124,7 @@ class MaterializedColumn:
                     c.name,
                     c.comment,
                     c.type like 'Nullable(%%)' as is_nullable,
-                    arrayFilter(x -> x != '', [i_minmax.name, i_bf.name, i_ngram.name]) as index_names
+                    arrayFilter(x -> x != '', [i_minmax.name, i_bf.name, i_ngram.name, i_bf_lower.name]) as index_names
                 FROM system.columns c
                 LEFT JOIN system.data_skipping_indices i_minmax
                     ON i_minmax.database = c.database
@@ -133,6 +138,10 @@ class MaterializedColumn:
                     ON i_ngram.database = c.database
                     AND i_ngram.table = %(data_table)s
                     AND i_ngram.name = concat('ngram_bf_lower_', c.name)
+                LEFT JOIN system.data_skipping_indices i_bf_lower
+                    ON i_bf_lower.database = c.database
+                    AND i_bf_lower.table = %(data_table)s
+                    AND i_bf_lower.name = concat('bloom_filter_lower_', c.name)
                 WHERE c.database = %(database)s
                   AND c.table = %(table)s
                   AND c.comment LIKE '%%column_materializer::%%'
@@ -159,16 +168,15 @@ class MaterializedColumn:
 
         rows = MaterializedColumn._get_all(table)
         for name, comment, is_nullable, index_names in rows:
-            has_minmax = any(idx and idx.startswith("minmax_") for idx in index_names)
-            has_bloom = any(idx and idx.startswith("bloom_filter_") for idx in index_names)
-            has_ngram = any(idx and idx.startswith("ngram_bf_lower_") for idx in index_names)
+            # Exact name matches: a prefix check would mismatch `bloom_filter_` against `bloom_filter_lower_`
             yield MaterializedColumn(
                 name,
                 MaterializedColumnDetails.from_column_comment(comment),
                 is_nullable=bool(is_nullable),
-                has_minmax_index=has_minmax,
-                has_bloom_filter_index=has_bloom,
-                has_ngram_lower_index=has_ngram,
+                has_minmax_index=get_minmax_index_name(name) in index_names,
+                has_bloom_filter_index=get_bloom_filter_index_name(name) in index_names,
+                has_ngram_lower_index=get_ngram_lower_index_name(name) in index_names,
+                has_bloom_filter_lower_index=get_bloom_filter_lower_index_name(name) in index_names,
             )
 
     @staticmethod
@@ -279,6 +287,10 @@ def get_ngram_lower_index_name(column: str) -> str:
     return f"ngram_bf_lower_{column}"
 
 
+def get_bloom_filter_lower_index_name(column: str) -> str:
+    return f"bloom_filter_lower_{column}"
+
+
 @dataclass
 class MinMaxIndex:
     column_name: str
@@ -336,6 +348,32 @@ class NgramLowerIndex:
 
 
 @dataclass
+class BloomFilterLowerIndex:
+    """
+    A plain bloom_filter index over lower(column) for case-insensitive equality / IN lookups.
+
+    Same 2 ClickHouse limitations as NgramLowerIndex (case-sensitive indexes, no nullable columns),
+    so we index lower(col) and wrap nullable columns in coalesce(col, '').
+    """
+
+    column_name: str
+    is_nullable: bool
+    false_positive_rate: float = 0.01
+    granularity: int = 1
+
+    @property
+    def name(self) -> str:
+        return get_bloom_filter_lower_index_name(self.column_name)
+
+    def as_add_sql(self) -> str:
+        bf_type = f"bloom_filter({self.false_positive_rate})"
+        if self.is_nullable:
+            return f"ADD INDEX IF NOT EXISTS {self.name} lower(coalesce({self.column_name}, '')) TYPE {bf_type} GRANULARITY {self.granularity}"
+        else:
+            return f"ADD INDEX IF NOT EXISTS {self.name} lower({self.column_name}) TYPE {bf_type} GRANULARITY {self.granularity}"
+
+
+@dataclass
 class CreateColumnOnDataNodesTask:
     table: str
     column: MaterializedColumn
@@ -343,6 +381,7 @@ class CreateColumnOnDataNodesTask:
     add_column_comment: bool
     create_bloom_filter_index: bool = False
     create_ngram_lower_index: bool = False
+    create_bloom_filter_lower_index: bool = False
 
     def execute(self, client: Client) -> None:
         expression, parameters = self.column.get_expression_and_parameters()
@@ -362,6 +401,9 @@ class CreateColumnOnDataNodesTask:
 
         if self.create_ngram_lower_index:
             actions.append(NgramLowerIndex(self.column.name, self.column.is_nullable).as_add_sql())
+
+        if self.create_bloom_filter_lower_index:
+            actions.append(BloomFilterLowerIndex(self.column.name, self.column.is_nullable).as_add_sql())
 
         client.execute(
             f"ALTER TABLE {self.table} " + ", ".join(actions),
@@ -396,6 +438,7 @@ def materialize(
     is_nullable: bool = False,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
+    create_bloom_filter_lower_index: bool = False,
 ) -> MaterializedColumn:
     if existing_column := get_materialized_columns(table).get((property, table_column)):
         if TEST:
@@ -428,6 +471,7 @@ def materialize(
             add_column_comment=table_info.read_table == table_info.data_table,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
+            create_bloom_filter_lower_index=create_bloom_filter_lower_index,
         ).execute,
     ).result()
 
@@ -526,6 +570,7 @@ class DropColumnTask:
                     get_minmax_index_name,
                     get_bloom_filter_index_name,
                     get_ngram_lower_index_name,
+                    get_bloom_filter_lower_index_name,
                 ]:
                     index_name = get_index_name_fn(column_name)
                     drop_index_action = f"DROP INDEX IF EXISTS {index_name}"

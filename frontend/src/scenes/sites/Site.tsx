@@ -27,6 +27,7 @@ export function Site({ url }: SiteLogicProps): JSX.Element {
     return (
         <iframe
             className="Site"
+            title="Site preview"
             src={launchUrl(decodedUrl)}
             // allow-same-origin is particularly important here, because otherwise redirect_to_site cannot work
             // Note that combining allow-scripts and allow-same-origin effectively allows the iframe access to the

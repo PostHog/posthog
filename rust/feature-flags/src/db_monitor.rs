@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use common_metrics::gauge;
+use lifecycle::Handle;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,7 +10,7 @@ use tracing::error;
 
 use crate::metrics::consts::{
     DB_CONNECTION_POOL_ACTIVE_COUNTER, DB_CONNECTION_POOL_IDLE_COUNTER,
-    DB_CONNECTION_POOL_MAX_COUNTER,
+    DB_CONNECTION_POOL_MAX_COUNTER, DB_CONNECTION_POOL_SIZE_GAUGE,
 };
 
 pub struct DatabasePoolMonitor {
@@ -27,7 +28,8 @@ impl DatabasePoolMonitor {
         }
     }
 
-    pub async fn start_monitoring(&self) {
+    pub async fn start_monitoring(&self, shutdown: Handle) {
+        let _scope = shutdown.process_scope();
         let mut ticker = interval(self.monitoring_interval);
 
         // Check if persons DB routing is enabled by comparing pool pointers
@@ -47,10 +49,16 @@ impl DatabasePoolMonitor {
         }
 
         loop {
-            ticker.tick().await;
-
-            if let Err(e) = self.collect_pool_metrics().await {
-                error!("Failed to collect database pool metrics: {}", e);
+            tokio::select! {
+                _ = shutdown.shutdown_recv() => {
+                    tracing::info!("Database pool monitor shutting down");
+                    break;
+                }
+                _ = ticker.tick() => {
+                    if let Err(e) = self.collect_pool_metrics().await {
+                        error!("Failed to collect database pool metrics: {}", e);
+                    }
+                }
             }
         }
     }
@@ -87,6 +95,11 @@ impl DatabasePoolMonitor {
                 .await?;
         }
 
+        if let Some(ref pool) = self.database_pools.behavioral_cohorts_reader {
+            self.collect_single_pool_metrics(pool, "behavioral_cohorts_reader")
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -98,39 +111,35 @@ impl DatabasePoolMonitor {
         let pool_size = pool.size();
         let pool_idle = pool.num_idle();
         let pool_max = pool.options().get_max_connections();
+        let pool_active = pool_size.saturating_sub(pool_idle as u32);
 
+        let labels = [("pool".to_string(), pool_name.to_string())];
+
+        gauge(DB_CONNECTION_POOL_SIZE_GAUGE, &labels, pool_size as f64);
         gauge(
             DB_CONNECTION_POOL_ACTIVE_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
-            (pool_size as i32 - pool_idle as i32) as f64,
+            &labels,
+            pool_active as f64,
         );
-        gauge(
-            DB_CONNECTION_POOL_IDLE_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
-            pool_idle as f64,
-        );
-        gauge(
-            DB_CONNECTION_POOL_MAX_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
-            pool_max as f64,
-        );
+        gauge(DB_CONNECTION_POOL_IDLE_COUNTER, &labels, pool_idle as f64);
+        gauge(DB_CONNECTION_POOL_MAX_COUNTER, &labels, pool_max as f64);
 
         tracing::debug!(
             "{} pool metrics - active: {}, idle: {}, max: {}",
             pool_name,
-            pool_size as i32 - pool_idle as i32,
+            pool_active,
             pool_idle,
             pool_max
         );
 
         // Warn if pool utilization is high
-        let pool_utilization = (pool_size as i32 - pool_idle as i32) as f64 / pool_max as f64;
+        let pool_utilization = pool_active as f64 / pool_max as f64;
         if pool_utilization > self.warn_utilization_threshold {
             tracing::warn!(
                 "High {} pool utilization: {:.1}% ({}/{})",
                 pool_name,
                 pool_utilization * 100.0,
-                pool_size as i32 - pool_idle as i32,
+                pool_active,
                 pool_max
             );
         }

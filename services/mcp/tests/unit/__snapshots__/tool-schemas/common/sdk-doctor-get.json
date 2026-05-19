@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "force_refresh": {
+            "description": "Set to true to bypass the Redis cache and re-query ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job, so the cached answer is usually fine.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

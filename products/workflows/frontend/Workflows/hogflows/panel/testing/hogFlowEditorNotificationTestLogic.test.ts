@@ -39,7 +39,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                     actions: [],
                     edges: [],
                 },
-                '/api/environments/@current/messaging_categories': [],
+                '/api/environments/@current/messaging_categories': { results: [] },
             },
         })
 
@@ -332,7 +332,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadSamplePersons()
-            }).toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
+            })
+                .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess', 'loadSamplePersonByDistinctId'])
+                .toFinishAllListeners()
 
             // Reload when sampleGlobals doesn't match selectedPersonDistinctId
             await expectLogic(logic, () => {

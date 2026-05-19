@@ -4,17 +4,18 @@ import { LemonCalendarSelect } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+const valueIncludesTime = (value: string | null | undefined): boolean => /\d{2}:\d{2}(:\d{2})?/.test(value ?? '')
+
 export const VariableCalendar = ({
     value,
+    rawValue,
     updateVariable,
 }: {
     value: dayjs.Dayjs
+    rawValue?: string | null
     updateVariable: (date: string) => void
 }): JSX.Element => {
-    const [calendarTime, setCalendarTime] = useState(() => {
-        // Check if the date string contains time information (HH:mm or HH:mm:ss)
-        return /\d{2}:\d{2}(:\d{2})?/.test(value.format('YYYY-MM-DD HH:mm:00'))
-    })
+    const [calendarTime, setCalendarTime] = useState(() => valueIncludesTime(rawValue))
 
     return (
         <LemonCalendarSelect

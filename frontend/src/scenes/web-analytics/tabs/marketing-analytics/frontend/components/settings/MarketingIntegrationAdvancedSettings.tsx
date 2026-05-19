@@ -1,11 +1,16 @@
-import { VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
+import { useValues } from 'kea'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { externalDataSources } from '~/queries/schema/schema-general'
+
+import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { IntegrationSettingsCard } from './IntegrationSettingsCard'
 
 export function MarketingIntegrationAdvancedSettings(): JSX.Element {
-    const availableIntegrations = externalDataSources.filter((source) =>
-        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
-    )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
+    const availableIntegrations = externalDataSources.filter((source) => enabledSources.includes(source as any))
 
     return (
         <div className="space-y-4">

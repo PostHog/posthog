@@ -28,7 +28,7 @@ describe('playerMetaLogic', () => {
                     res(ctx.text(snapshotsAsJSONLines())),
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': recordingEventsJson,
             },
         })
         initKeaTests()
@@ -62,6 +62,14 @@ describe('playerMetaLogic', () => {
             })
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadPropertiesForSessionsSuccess'])
                 .toMatchValues({ loading: false })
+        })
+    })
+
+    describe('summaryDisabledReason', () => {
+        it('returns an error string when events are not yet loaded', () => {
+            expectLogic(logic).toMatchValues({
+                summaryDisabledReason: expect.stringContaining('Session events are not available yet'),
+            })
         })
     })
 })

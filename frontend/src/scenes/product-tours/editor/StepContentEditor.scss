@@ -1,17 +1,9 @@
 .StepContentEditor {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: var(--bg-light);
-    border: 1px solid var(--color-border-primary);
-    border-radius: 8px;
-
     &__content {
-        min-height: 200px;
         padding: 1rem;
 
         .tiptap {
-            min-height: 180px;
+            color: inherit;
             outline: none;
 
             > * + * {
@@ -22,12 +14,20 @@
             p.is-editor-empty:first-child::before {
                 float: left;
                 height: 0;
-                color: var(--muted);
+                color: var(--ph-tour-text-color, var(--muted));
                 pointer-events: none;
                 content: attr(data-placeholder);
+                opacity: 0.5;
             }
 
             // Headings
+            h1,
+            h2,
+            h3 {
+                font-family: inherit;
+                color: inherit;
+            }
+
             h1 {
                 margin-top: 1.5rem;
                 margin-bottom: 0.5rem;
@@ -290,22 +290,77 @@
                 background: var(--mark);
             }
         }
+
+        &--banner {
+            min-height: auto;
+            padding: 0.75rem 1rem;
+
+            .tiptap {
+                min-height: auto;
+                text-align: center;
+            }
+        }
     }
 
-    &__format-toolbar {
+    &__footer {
         display: flex;
-        gap: 2px;
+        gap: 12px;
         align-items: center;
-        padding: 0.5rem;
-        background: var(--bg-fill-primary);
-        border-bottom: 1px solid var(--border);
+        justify-content: space-between;
+        padding: 0 1rem 1rem;
     }
 
-    &.loading {
+    &__progress {
+        font-size: 12px;
+        color: var(--ph-tour-text-secondary-color, var(--muted));
+    }
+
+    &__buttons {
         display: flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    &__branding {
+        display: flex;
+        gap: 6px;
         align-items: center;
         justify-content: center;
-        min-height: 200px;
-        color: var(--muted);
+        padding: 12px 0;
+        margin: 0 1rem;
+        font-size: 11px;
+        color: var(--ph-tour-branding-text-color, var(--ph-tour-text-secondary-color, var(--muted)));
+        border-top: 1px solid var(--ph-tour-border-color, var(--border));
+
+        svg {
+            width: auto;
+            height: 14px;
+        }
+    }
+
+    &__button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: default;
+        border: none;
+        border-radius: var(--ph-tour-button-border-radius, 6px);
+        transition:
+            opacity 0.15s ease,
+            transform 0.1s ease;
+
+        &--primary {
+            color: var(--ph-tour-button-text-color, white);
+            background: var(--ph-tour-button-color, #1d1f27);
+        }
+
+        &--secondary {
+            color: var(--ph-tour-button-secondary-text-color, #1d1f27);
+            background: var(--ph-tour-button-secondary-color, transparent);
+            border: 1px solid var(--ph-tour-border-color, #e5e7eb);
+        }
     }
 }

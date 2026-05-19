@@ -1,5 +1,4 @@
-import { FeaturePreviews } from '~/layout/FeaturePreviews/FeaturePreviews'
-
-export function FeaturePreviewsSettings(): JSX.Element {
-    return <FeaturePreviews />
-}
+export {
+    FeaturePreviews as FeaturePreviewsSettings,
+    FeaturePreviewsComingSoon,
+} from '~/layout/FeaturePreviews/FeaturePreviews'

@@ -5,16 +5,19 @@ use base64::{engine::general_purpose, Engine as _};
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
 use limiters::redis::ServiceName;
 use rand::Rng;
+
 use reqwest::StatusCode;
 use rstest::rstest;
 use serde_json::{json, Value};
 
 use crate::common::*;
 
+use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
-    insert_config_in_hypercache, insert_flags_for_team_in_redis, insert_new_team_in_redis,
-    setup_pg_reader_client, setup_redis_client, TestContext,
+    insert_config_in_hypercache, insert_flags_for_team_in_redis,
+    insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
+    setup_redis_client, TestContext,
 };
 
 pub mod common;
@@ -1003,9 +1006,8 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(Some(team_id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
 
     // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
     // of the flag evaluation process
@@ -2765,9 +2767,8 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(Some(team_id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -3694,7 +3695,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     let distinct_id = "test.user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
+    let pg_client = setup_pg_reader_client(None);
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -4010,7 +4011,24 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    // Dependency chain: parent(3) -> intermediate(2) -> leaf(1), independent(4) has no deps.
+    // Mirrors Django's precomputed metadata: stages ordered by depth, transitive deps resolved.
+    let evaluation_metadata = json!({
+        "dependency_stages": [
+            [LEAF_FLAG_ID, INDEPENDENT_FLAG_ID],
+            [INTERMEDIATE_FLAG_ID],
+            [PARENT_FLAG_ID]
+        ],
+        "flags_with_missing_deps": [],
+        "transitive_deps": {
+            LEAF_FLAG_ID.to_string(): [],
+            INTERMEDIATE_FLAG_ID.to_string(): [LEAF_FLAG_ID],
+            PARENT_FLAG_ID.to_string(): [INTERMEDIATE_FLAG_ID, LEAF_FLAG_ID],
+            INDEPENDENT_FLAG_ID.to_string(): []
+        }
+    });
+    insert_flags_with_metadata_for_team_in_redis(client, team.id, flag_json, evaluation_metadata)
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4395,7 +4413,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     let distinct_id = "test_user_with_77_days".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
+    let pg_client = setup_pg_reader_client(None);
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -4938,7 +4956,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let distinct_id = "test_user_and_cohort".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
+    let pg_client = setup_pg_reader_client(None);
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -5590,6 +5608,588 @@ async fn test_initial_property_population_respects_db_values(
                     "reason": {
                         "code": expected_reason
                     }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case(true)]
+#[case(false)]
+#[tokio::test]
+async fn test_skip_writes_suppresses_billing_redis_counter(
+    #[case] skip_writes: bool,
+) -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(skip_writes);
+
+    let distinct_id = format!("billing_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [],
+                "rollout_percentage": 100
+            }],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Clean billing key before request
+    let billing_key = get_team_request_key(team.id, FlagRequestType::Decide);
+    client.del(billing_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Synchronous path writes inline before the response returns, so we can
+    // read back without polling.
+    let counter = client.hget(billing_key, bucket_field).await;
+
+    if skip_writes {
+        assert!(
+            counter.is_err(),
+            "billing counter should NOT be incremented when skip_writes=true"
+        );
+    } else {
+        assert_eq!(
+            counter.unwrap(),
+            "1",
+            "billing counter should be incremented when skip_writes=false"
+        );
+    }
+
+    Ok(())
+}
+
+/// Verifies that an SDK request lands counts in BOTH the team-level and the
+/// library-level Redis hashes via the synchronous billing path, AND — when
+/// the aggregator is enabled — that the same counts also reach the shadow
+/// keyspace via the aggregator's flush path. This is the cross-path
+/// reconciliation invariant that the dual-write design depends on.
+#[tokio::test]
+async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{
+        current_bucket, get_team_request_key, get_team_request_library_key,
+        get_team_request_library_shadow_key, get_team_request_shadow_key,
+    };
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::handler::types::Library;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(false);
+    // Enable the shadow path so we can assert both keyspaces in one go.
+    config.billing_aggregator_enabled = FlexBool(true);
+    // Tight flush interval so the aggregator lands its shadow write before
+    // the assertion polling window expires.
+    config.billing_flush_interval_ms = 100;
+
+    let distinct_id = format!("billing_lib_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [],
+                "rollout_percentage": 100
+            }],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let team_key = get_team_request_key(team.id, FlagRequestType::Decide);
+    let library_key =
+        get_team_request_library_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
+    let team_shadow_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
+    let library_shadow_key =
+        get_team_request_library_shadow_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
+    client.del(team_key.clone()).await.unwrap();
+    client.del(library_key.clone()).await.unwrap();
+    client.del(team_shadow_key.clone()).await.unwrap();
+    client.del(library_shadow_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
+    // Direct reqwest call so we can set the SDK user-agent that drives
+    // Library::from_headers → Library::PosthogNode.
+    let http = reqwest::Client::new();
+    let res = http
+        .post(format!("http://{}/flags?v=2", server.addr))
+        .header("content-type", "application/json")
+        .header("user-agent", "posthog-node/3.1.0")
+        .body(payload.to_string())
+        .send()
+        .await?;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Production keyspace — written synchronously by `record_usage`.
+    let team_counter = client.hget(team_key, bucket_field.clone()).await.unwrap();
+    assert_eq!(team_counter, "1", "team key should reflect one request");
+
+    let library_counter = client
+        .hget(library_key, bucket_field.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        library_counter, "1",
+        "library key should reflect one request"
+    );
+
+    // Shadow keyspace — written by the aggregator's background flush. Poll
+    // because we don't know exactly when the flusher tick lands.
+    let team_shadow_counter =
+        poll_for_billing_counter(&client, &team_shadow_key, &bucket_field).await;
+    assert_eq!(
+        team_shadow_counter, "1",
+        "shadow team key should reflect one request from the aggregator"
+    );
+
+    let library_shadow_counter =
+        poll_for_billing_counter(&client, &library_shadow_key, &bucket_field).await;
+    assert_eq!(
+        library_shadow_counter, "1",
+        "shadow library key should reflect one request from the aggregator"
+    );
+
+    Ok(())
+}
+
+/// End-to-end shutdown-flush path *for the shadow aggregator*. Sets a flush
+/// interval much longer than the test's runtime so the periodic flusher
+/// cannot fire — the only way the **shadow** counter can land in Redis is via
+/// `BillingAggregator::shutdown()` after axum's graceful drain. Catches a
+/// regression that drops the `billing_aggregator.shutdown().await` call in
+/// `serve()`, swaps in `for_tests()`, or wires up the lifecycle ordering
+/// wrong (flushing before axum drains). The synchronous production-keyspace
+/// write is unaffected by the aggregator's lifecycle and is verified by
+/// `test_skip_writes_suppresses_billing_redis_counter`.
+#[tokio::test]
+async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_shadow_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(false);
+    // The aggregator must be on for this test to mean anything — the gate is
+    // off by default, so explicitly enable it.
+    config.billing_aggregator_enabled = FlexBool(true);
+    // Long enough that no periodic flush can fire during the test. If the
+    // counter shows up in Redis, the shutdown path is what put it there.
+    config.billing_flush_interval_ms = 60_000;
+
+    let distinct_id = format!("billing_shutdown_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{ "properties": [], "rollout_percentage": 100 }],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let billing_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
+    let bucket_field = current_bucket().to_string();
+    client.del(billing_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({ "token": token, "distinct_id": distinct_id });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Confirm the periodic flusher has NOT yet landed the SHADOW write —
+    // sanity check that we're really exercising the shutdown path. With a
+    // 60s flush interval and immediate-after-request lookup, the shadow
+    // counter should still be missing. (The synchronous production-keyspace
+    // write *has* already happened by now, but that's a different key.)
+    let pre_shutdown = client.hget(billing_key.clone(), bucket_field.clone()).await;
+    assert!(
+        pre_shutdown.is_err(),
+        "shadow billing counter should NOT be in Redis before shutdown — \
+         the aggregator's periodic flusher is set to 60s and the test is \
+         faster than that. Got {pre_shutdown:?}, which means the flush \
+         window collapsed and this test no longer proves what it claims."
+    );
+
+    // Trigger graceful shutdown. axum drains in-flight requests, then
+    // `serve()` calls `billing_aggregator.shutdown().await` which performs
+    // the final flush to the shadow keyspace.
+    server.shutdown_now();
+
+    // Poll for the counter to land. The helper polls for ~1s
+    // (40 × 25ms) — the graceful-drain window plus a single shutdown
+    // flush against a healthy local Redis is well under that.
+    let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+    assert_eq!(
+        counter, "1",
+        "shadow billing counter must reach Redis via the shutdown flush path"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_api_cohort_flag_integration() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+    let distinct_id = "test_user_api";
+
+    // Step 1: Verify API-like cohort serialization format (matches Django output)
+    let cohort_filters = json!({
+        "properties": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@api.example.com"],
+                            "negation": false,
+                            "operator": "exact"
+                        }
+                    ]
+                }
+            ]
+        }
+    });
+
+    // Verify cohort structure matches Django API output
+    assert!(cohort_filters["properties"]["type"] == "AND");
+    assert!(cohort_filters["properties"]["values"].is_array());
+    assert!(cohort_filters["properties"]["values"][0]["type"] == "OR");
+
+    // Step 2: Create flag with API-like serialization that references a cohort
+    let flag_json = json!([{
+        "id": 1,
+        "key": "api-cohort-flag",
+        "name": "API Cohort Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@api.example.com"],
+                            "operator": "exact"
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                    "variant": null
+                }
+            ],
+            "multivariate": null,
+            "aggregation_group_type_index": null,
+            "payloads": {},
+            "super_groups": []
+        }
+    }]);
+
+    // Verify flag structure matches Django API output
+    assert!(flag_json.is_array());
+    assert!(flag_json[0]["filters"]["groups"].is_array());
+    assert!(flag_json[0]["filters"]["groups"][0]["properties"].is_array());
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Step 3: Hit /flags with real request and verify flag evaluation
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "test@api.example.com"
+        }
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, response.status());
+
+    let json_response = response.json::<Value>().await?;
+    assert!(json_response.get("flags").is_some());
+
+    // Verify the flag evaluated correctly - user should match the person property criteria
+    let flags = json_response["flags"].as_object().unwrap();
+    let flag_result = flags.get("api-cohort-flag").unwrap();
+    assert_eq!(
+        flag_result["enabled"],
+        Value::Bool(true),
+        "Flag should evaluate to enabled=true for user matching property criteria"
+    );
+    assert_eq!(flag_result["key"], "api-cohort-flag");
+    assert_eq!(flag_result["reason"]["code"], "condition_match");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_api_cohort_flag_integration_no_match() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+    let distinct_id = "test_user_no_match";
+
+    // Step 1: Create flag with API-like serialization that targets specific email
+    let flag_json = json!([{
+        "id": 1,
+        "key": "api-cohort-flag-no-match",
+        "name": "API Cohort Flag No Match",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@api.example.com"],
+                            "operator": "exact"
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                    "variant": null
+                }
+            ],
+            "multivariate": null,
+            "aggregation_group_type_index": null,
+            "payloads": {},
+            "super_groups": []
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Step 2: Hit /flags with user who doesn't match the criteria
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "nomatch@different.com"
+        }
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, response.status());
+
+    let json_response = response.json::<Value>().await?;
+    assert!(json_response.get("flags").is_some());
+
+    // Verify the flag evaluated correctly - user should NOT match the person property criteria
+    let flags = json_response["flags"].as_object().unwrap();
+    let flag_result = flags.get("api-cohort-flag-no-match").unwrap();
+    assert_eq!(
+        flag_result["enabled"],
+        Value::Bool(false),
+        "Flag should evaluate to enabled=false for user NOT matching property criteria"
+    );
+    assert_eq!(flag_result["key"], "api-cohort-flag-no-match");
+    assert_eq!(flag_result["reason"]["code"], "no_condition_match");
+
+    Ok(())
+}
+
+/// A Realtime cohort without a backfill timestamp should fall through to dynamic
+/// filter evaluation rather than querying the cohort_membership table. This test
+/// inserts such a cohort with person-property filters, a person whose properties
+/// match, and a flag targeting that cohort, then verifies the flag evaluates to true.
+#[tokio::test]
+async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+
+    let distinct_id = "user_realtime_fallback".to_string();
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Insert a Realtime cohort with person-property filters but NO backfill timestamp.
+    // Without last_backfill_person_properties_at, the cohort should not be treated as
+    // realtime and should instead fall through to dynamic filter evaluation.
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "plan",
+                        "type": "person",
+                        "value": ["enterprise"],
+                        "operator": "exact",
+                        "negation": false
+                    }
+                ]
+            }]
+        }
+    });
+
+    let cohort = context
+        .insert_cohort_with_type(
+            team.id,
+            Some("Realtime No Backfill".to_string()),
+            cohort_filters,
+            false,
+            Some(CohortType::Realtime),
+            None, // no backfill timestamp
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "realtime-fallback-flag",
+        "name": "Realtime Fallback Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({ "plan": "enterprise" })),
+        )
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "realtime-fallback-flag": {
+                    "key": "realtime-fallback-flag",
+                    "enabled": true
                 }
             }
         })

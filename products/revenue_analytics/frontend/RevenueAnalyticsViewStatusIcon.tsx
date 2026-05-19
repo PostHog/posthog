@@ -65,12 +65,7 @@ const mapError = (error: string): JSX.Element | string => {
                     configured Revenue Analytics
                 </Link>{' '}
                 properly (missing subscription properties) or the{' '}
-                <Link
-                    to={urls.dataPipelines('sources')}
-                    target="_blank"
-                    targetBlankIcon={false}
-                    className="text-danger underline"
-                >
+                <Link to={urls.sources()} target="_blank" targetBlankIcon={false} className="text-danger underline">
                     underlying source of data
                 </Link>{' '}
                 isn't correctly set-up.

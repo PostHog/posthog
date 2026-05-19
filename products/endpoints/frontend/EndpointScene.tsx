@@ -2,25 +2,37 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPause, IconPlay, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarCheckboxItem,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { EndpointSceneHeader } from './EndpointHeader'
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
+import { EndpointVersions } from './endpoint-tabs/EndpointVersions'
+import { VersionBanner } from './endpoint-tabs/VersionBanner'
+import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 
@@ -38,9 +50,12 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     if (!tabId) {
         throw new Error('<EndpointScene /> must receive a tabId prop')
     }
-    const { endpoint, endpointLoading, activeTab } = useValues(endpointSceneLogic({ tabId }))
+    const { endpoint, endpointLoading, activeTab, viewingVersion } = useValues(endpointSceneLogic({ tabId }))
+    const { setViewingVersion } = useActions(endpointSceneLogic({ tabId }))
     const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -62,6 +77,14 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 : undefined,
         },
         {
+            key: EndpointTab.VERSIONS,
+            label: 'Versions',
+            content: <EndpointVersions tabId={tabId} />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.VERSIONS }).url
+                : undefined,
+        },
+        {
             key: EndpointTab.PLAYGROUND,
             label: 'Playground',
             'data-attr': 'endpoint-playground-tab',
@@ -74,7 +97,11 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
             key: EndpointTab.HISTORY,
             label: 'History',
             'data-attr': 'endpoint-history-tab',
-            content: endpoint ? <ActivityLog scope={ActivityScope.ENDPOINT} id={endpoint.id} /> : <></>,
+            content: endpoint ? (
+                <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
+            ) : (
+                <></>
+            ),
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.HISTORY }).url
                 : undefined,
@@ -122,15 +149,55 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         <BindLogic logic={endpointSceneLogic} props={{ tabId }}>
             <SceneContent className="Endpoint">
                 <EndpointSceneHeader tabId={tabId} />
+                {endpoint && !endpoint.is_active && (
+                    <LemonBanner type="error">
+                        This endpoint is deactivated and cannot be accessed via the API. <br />
+                        This applies to all versions, even if they're active - endpoint status overrules version status.
+                    </LemonBanner>
+                )}
+                {viewingVersion && endpoint && (
+                    <VersionBanner
+                        version={viewingVersion}
+                        currentVersion={endpoint.current_version}
+                        onGoToLatest={() => setViewingVersion(null)}
+                    />
+                )}
                 {!endpointLoading && <EndpointOverview tabId={tabId} />}
                 <LemonTabs activeKey={activeTab} tabs={tabs} />
             </SceneContent>
+            {sceneMenuBarEnabled && endpoint && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="endpoint-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="endpoint" />
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarItem
+                            variant="destructive"
+                            opensFloatingUi
+                            onClick={handleDelete}
+                            data-attr="endpoint-menubar-delete"
+                        >
+                            <IconTrash />
+                            Delete endpoint
+                        </SceneMenuBarItem>
+                    </SceneMenuBarMenu>
+                    <SceneMenuBarMenu label="Edit" dataAttr="endpoint-menubar-edit">
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarCheckboxItem
+                            checked={endpoint.is_active}
+                            onCheckedChange={handleToggleActive}
+                            data-attr="endpoint-menubar-active"
+                        >
+                            Active
+                        </SceneMenuBarCheckboxItem>
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             {endpoint && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={handleToggleActive}>
                             {endpoint.is_active ? <IconPause /> : <IconPlay />}
-                            {endpoint.is_active ? 'Deactivate' : 'Activate'}
+                            {endpoint.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
                         </ButtonPrimitive>
                         <LemonDivider />
                         <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">

@@ -1,17 +1,10 @@
-import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
 import { LogMessage } from '~/queries/schema/schema-general'
-import { JsonType, UniversalFiltersGroup } from '~/types'
+import { JsonType } from '~/types'
 
-export interface LogsFilters {
-    dateRange: DateRange
-    searchTerm: LogsQuery['searchTerm']
-    severityLevels: LogsQuery['severityLevels']
-    serviceNames: LogsQuery['serviceNames']
-    filterGroup: UniversalFiltersGroup
-}
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 
 export interface LogsFiltersHistoryEntry {
-    filters: LogsFilters
+    filters: LogsViewerFilters
     timestamp: number
 }
 

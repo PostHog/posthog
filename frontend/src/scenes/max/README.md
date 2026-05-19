@@ -122,17 +122,17 @@ reducers({
 ```typescript
 // For direct selection from taxonomic filter
 if (groupType === TaxonomicFilterGroupType.MyEntities) {
-    actions.addOrUpdateContextMyEntity(item as { id: string; name?: string })
-    return
+  actions.addOrUpdateContextMyEntity(item as { id: string; name?: string })
+  return
 }
 
 // For selection from MaxAIContext (scene context items)
 if (_item.type === MaxContextType.MY_ENTITY) {
-    actions.addOrUpdateContextMyEntity({
-        id: _item.value as string,
-        name: _item.name ?? null,
-    })
-    return null
+  actions.addOrUpdateContextMyEntity({
+    id: _item.value as string,
+    name: _item.name ?? null,
+  })
+  return null
 }
 ```
 

@@ -138,6 +138,62 @@ describe('dateFilterLogic', () => {
         })
     })
 
+    it('renders single custom date as just the date (no "to now") under allowSingleAndRange', async () => {
+        props = {
+            key: 'test-single-date',
+            onChange,
+            dateFrom: '2024-01-15',
+            dateTo: null,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+            allowSingleAndRange: true,
+        }
+        const withSingleDate = dateFilterLogic(props)
+        withSingleDate.mount()
+
+        await expectLogic(withSingleDate).toMatchValues({
+            label: 'January 15, 2024',
+        })
+    })
+
+    it('renders single custom datetime with time under allowSingleAndRange', async () => {
+        props = {
+            key: 'test-single-datetime',
+            onChange,
+            dateFrom: '2024-01-15 14:30:00',
+            dateTo: null,
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+            allowSingleAndRange: true,
+        }
+        const withSingleDateTime = dateFilterLogic(props)
+        withSingleDateTime.mount()
+
+        await expectLogic(withSingleDateTime).toMatchValues({
+            label: 'January 15, 2024 14:30:00',
+        })
+    })
+
+    it('isDateToNow label preserves time precision even without allowTimePrecision', async () => {
+        // Regression guard: labels for callers that store a time-precise dateFrom but don't pass
+        // `allowTimePrecision` should still render the time — the new `allowSingleAndRange`
+        // gating must not silently strip seconds from unrelated call sites.
+        props = {
+            key: 'test-datetonow-time',
+            onChange,
+            dateFrom: '2024-01-15T10:30:00',
+            dateTo: null,
+            dateOptions: [],
+            isDateFormatted: false,
+        }
+        const logicWithTime = dateFilterLogic(props)
+        logicWithTime.mount()
+
+        await expectLogic(logicWithTime).toMatchValues({
+            label: 'January 15, 2024 10:30:00 to now',
+        })
+    })
+
     it('can set the date range', async () => {
         props = {
             key: 'test',
@@ -191,4 +247,41 @@ describe('dateFilterLogic', () => {
         })
         expect(onChange).not.toHaveBeenCalled()
     })
+
+    it.each([
+        // Relative dates should never have time precision
+        ['-30d', null, false, false, 'day'],
+        ['-7d', '-1d', false, false, 'day'],
+        ['-1dStart', '-1dEnd', false, false, 'day'],
+        ['-24h', null, false, false, 'day'],
+        ['mStart', null, false, false, 'day'],
+        // Fixed dates without time should not have time precision
+        ['2024-01-15', null, false, false, 'day'],
+        ['2024-01-15', '2024-01-16', false, false, 'day'],
+        // Fixed dates with time should have time precision
+        ['2024-01-15T10:30:00', null, true, false, 'minute'],
+        ['2024-01-15', '2024-01-16T14:45:00', false, true, 'day'],
+        ['2024-01-15T10:30:00', '2024-01-16T14:45:00', true, true, 'minute'],
+        // Midnight times should not count as time precision
+        ['2024-01-15T00:00:00', null, false, false, 'day'],
+    ])(
+        'handles date %s, %s correctly (fromPrecision: %s, toPrecision: %s, granularity: %s)',
+        async (dateFrom, dateTo, expectedFromPrecision, expectedToPrecision, expectedGranularity) => {
+            const testLogic = dateFilterLogic({
+                key: `test-${dateFrom}-${dateTo}`,
+                onChange: jest.fn(),
+                dateFrom,
+                dateTo,
+                dateOptions: dateMapping,
+                isDateFormatted: false,
+            })
+            testLogic.mount()
+
+            await expectLogic(testLogic).toMatchValues({
+                dateFromHasTimePrecision: expectedFromPrecision,
+                dateToHasTimePrecision: expectedToPrecision,
+                fixedRangeGranularity: expectedGranularity,
+            })
+        }
+    )
 })

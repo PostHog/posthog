@@ -11,4 +11,6 @@ class Migration(AsyncMigrationDefinition):
     def is_required(self):
         return False
 
-    operations: list[AsyncMigrationOperation] = []
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
+        return []

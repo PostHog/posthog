@@ -4,17 +4,18 @@ import collections.abc
 from dataclasses import dataclass
 
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.settings import integrations
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 from .client import BingAdsClient
 from .schemas import RESOURCE_SCHEMAS, BingAdsResource
-from .utils import fetch_data_in_yearly_chunks
+from .utils import BingAdsResumeConfig, fetch_data_in_yearly_chunks
 
 logger = structlog.get_logger()
 
@@ -65,12 +66,13 @@ def bing_ads_source(
     resource_name: str,
     access_token: str,
     refresh_token: str,
+    resumable_source_manager: ResumableSourceManager[BingAdsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    name = NamingConvention().normalize_identifier(resource_name)
+    name = NamingConvention.normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
     # Define generator function for lazy evaluation - dlt will call this when ready to fetch data
@@ -116,6 +118,7 @@ def bing_ads_source(
                     account_id=account_id_int,
                     start_date=start_date,
                     end_date=today,
+                    resumable_source_manager=resumable_source_manager,
                 )
             else:
                 start_date = today - dt.timedelta(days=365 * 5)
@@ -125,6 +128,7 @@ def bing_ads_source(
                     account_id=account_id_int,
                     start_date=start_date,
                     end_date=today,
+                    resumable_source_manager=resumable_source_manager,
                 )
         else:
             data_pages = client.get_data_by_resource(

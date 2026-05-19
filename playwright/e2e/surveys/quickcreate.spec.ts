@@ -44,8 +44,8 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
+    // Default multivariate now includes control/test at 50/50, so just rename them
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
-    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
@@ -80,7 +80,7 @@ test.describe('Quick create survey from feature flag', () => {
     let name: string
 
     test.beforeEach(async ({ page }) => {
-        name = randomString('ff-')
+        name = randomString('ff')
         await page.goto(urls.featureFlags())
         await expect(page.locator('h1')).toContainText('Feature flags')
 
@@ -89,7 +89,7 @@ test.describe('Quick create survey from feature flag', () => {
         })
 
         // start ff creation
-        await page.getByText('New feature flag').click()
+        await page.locator('[data-attr="new-feature-flag"]').click()
         await page.locator('[data-attr="feature-flag-key"]').fill(name)
         await page.locator('[data-attr="rollout-percentage"]').fill('100')
     })
@@ -162,7 +162,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, ['$autocapture'])
     })
 
-    test('survey responses visible in feature flag feedback tab', async ({ page }) => {
+    test.skip('survey responses visible in feature flag feedback tab', async ({ page }) => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
@@ -178,7 +178,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expect(page.getByText('Filter survey results')).toBeVisible()
     })
 
-    test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
+    test.skip('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 

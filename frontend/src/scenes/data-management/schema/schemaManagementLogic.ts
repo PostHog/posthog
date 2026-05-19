@@ -69,6 +69,7 @@ export interface SchemaPropertyGroupProperty {
     name: string
     property_type: PropertyType
     is_required: boolean
+    is_optional_in_types: boolean
     description: string
 }
 
@@ -101,9 +102,9 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
     path(['scenes', 'data-management', 'schema', 'schemaManagementLogic']),
     props({} as SchemaManagementLogicProps),
     key((props) => props.key || 'default'),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setPropertyGroupModalOpen: (open: boolean) => ({ open }),
@@ -118,12 +119,15 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
             [] as SchemaPropertyGroup[],
             {
                 loadPropertyGroups: async () => {
-                    const response = await api.get(`api/projects/@current/schema_property_groups/`)
+                    const response = await api.get(`api/projects/${values.currentProjectId}/schema_property_groups/`)
                     return response.results || response || []
                 },
                 createPropertyGroup: async (data: Partial<SchemaPropertyGroup>) => {
                     try {
-                        const response = await api.create(`api/projects/@current/schema_property_groups/`, data)
+                        const response = await api.create(
+                            `api/projects/${values.currentProjectId}/schema_property_groups/`,
+                            data
+                        )
                         lemonToast.success('Property group created')
                         return [response, ...values.propertyGroups]
                     } catch (error: any) {
@@ -134,7 +138,10 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 },
                 updatePropertyGroup: async ({ id, data }: { id: string; data: Partial<SchemaPropertyGroup> }) => {
                     try {
-                        const response = await api.update(`api/projects/@current/schema_property_groups/${id}/`, data)
+                        const response = await api.update(
+                            `api/projects/${values.currentProjectId}/schema_property_groups/${id}/`,
+                            data
+                        )
                         lemonToast.success('Property group updated')
                         return values.propertyGroups.map((pg) => (pg.id === id ? response : pg))
                     } catch (error: any) {
@@ -213,6 +220,7 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                             name: '',
                             property_type: 'String' as PropertyType,
                             is_required: false,
+                            is_optional_in_types: false,
                             description: '',
                         },
                     ],
@@ -274,10 +282,10 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         deletePropertyGroup: async ({ id }) => {
             try {
-                await api.delete(`api/projects/@current/schema_property_groups/${id}/`)
+                await api.delete(`api/projects/${values.currentProjectId}/schema_property_groups/${id}/`)
                 actions.loadPropertyGroups()
                 lemonToast.success('Property group deleted')
             } catch (error: any) {

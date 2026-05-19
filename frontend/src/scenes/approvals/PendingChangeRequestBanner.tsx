@@ -18,7 +18,7 @@ export function PendingChangeRequestBanner(props: ChangeRequestsLogicProps): JSX
         return null
     }
 
-    const actionDescription = getApprovalActionDescription(pendingChangeRequest.action_key)
+    const actionDescription = getApprovalActionDescription(pendingChangeRequest.action_key, props.context)
     const requesterName = pendingChangeRequest.created_by.first_name || pendingChangeRequest.created_by.email
 
     return (
@@ -39,9 +39,9 @@ export function PendingChangeRequestBanner(props: ChangeRequestsLogicProps): JSX
                 </div>
                 <ChangeRequestActions
                     changeRequest={pendingChangeRequest}
-                    onApprove={approveRequest}
-                    onReject={rejectRequest}
-                    onCancel={cancelRequest}
+                    onApprove={(id) => approveRequest(id)}
+                    onReject={(id, reason) => rejectRequest(id, reason)}
+                    onCancel={(id, reason) => cancelRequest(id, reason)}
                     showViewButton={true}
                 />
             </div>

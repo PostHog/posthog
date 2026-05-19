@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from posthog.models import FeatureFlag
 
 
+@admin.register(FeatureFlag)
 class FeatureFlagAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -19,6 +20,9 @@ class FeatureFlagAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by", "last_modified_by")
     readonly_fields = ("usage_dashboard",)
     ordering = ("-created_at",)
+
+    def get_queryset(self, request):
+        return FeatureFlag.objects_including_soft_deleted.all()
 
     @admin.display(description="Team")
     def team_link(self, flag: FeatureFlag):

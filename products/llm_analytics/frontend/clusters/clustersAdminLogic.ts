@@ -1,15 +1,18 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { AnyPropertyFilter } from '~/types'
 
+import { clusteringConfigLogic } from './clusteringConfigLogic'
 import type { clustersAdminLogicType } from './clustersAdminLogicType'
 
 export interface ClusteringRunParams {
-    analysis_level: 'trace' | 'generation'
+    analysis_level: 'trace' | 'generation' | 'evaluation'
     lookback_days: number
     max_samples: number
     embedding_normalization: 'none' | 'l2'
@@ -25,8 +28,8 @@ export interface ClusteringRunParams {
     run_label: string
     // Visualization params
     visualization_method: 'umap' | 'pca' | 'tsne'
-    // Trace filters - property filters to scope which traces are included
-    trace_filters: AnyPropertyFilter[]
+    // Event filters - property filters to scope which traces are included
+    event_filters: AnyPropertyFilter[]
 }
 
 export interface ClusteringRunResponse {
@@ -43,17 +46,21 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     dimensionality_reduction_method: 'umap',
     dimensionality_reduction_ndims: 100,
     clustering_method: 'hdbscan',
-    min_cluster_size_fraction: 0.01,
+    min_cluster_size_fraction: 0.02,
     hdbscan_min_samples: 5,
     kmeans_min_k: 2,
     kmeans_max_k: 10,
     run_label: '',
     visualization_method: 'umap',
-    trace_filters: [],
+    event_filters: [],
 }
 
 export const clustersAdminLogic = kea<clustersAdminLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersAdminLogic']),
+
+    connect({
+        values: [clusteringConfigLogic, ['config', 'configLoading'], teamLogic, ['currentTeamIdStrict']],
+    }),
 
     actions({
         openModal: true,
@@ -85,8 +92,9 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
             null as ClusteringRunResponse | null,
             {
                 triggerClusteringRun: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
-                        'api/environments/@current/llm_analytics/clustering_runs',
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
                         values.params
                     )
                     return response as ClusteringRunResponse
@@ -99,7 +107,25 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
         isRunning: [(s) => [s.clusteringRunLoading], (loading): boolean => loading],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        openModal: () => {
+            // Only sync event_filters once config has actually loaded from the API
+            // (created_at is empty in the initial state before loadConfig completes)
+            if (values.config?.created_at && !values.configLoading) {
+                const savedFilters = values.config.event_filters ?? []
+                actions.setParams({ event_filters: savedFilters })
+            }
+        },
+
+        triggerClusteringRun: () => {
+            posthog.capture('llma clusters admin run triggered', {
+                level: values.params.analysis_level,
+                method: values.params.clustering_method,
+                normalization: values.params.embedding_normalization,
+                lookback_days: values.params.lookback_days,
+            })
+        },
+
         triggerClusteringRunSuccess: ({ clusteringRun }) => {
             lemonToast.success(`Clustering workflow started`, {
                 toastId: `clustering-run-${clusteringRun?.workflow_id}`,

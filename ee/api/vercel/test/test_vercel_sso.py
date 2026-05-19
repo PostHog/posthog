@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest.mock import Mock, patch
@@ -504,3 +505,204 @@ class TestSSOOrganizationHandling:
                 sso_setup["installation"].refresh_from_db()
                 user_mappings = sso_setup["installation"].config.get("user_mappings", {})
                 assert user_id in user_mappings, f"Mapping removed for level {level}"
+
+
+US_SITE_URL = "https://us.posthog.com"
+EU_SITE_URL = "https://eu.posthog.com"
+
+
+class TestSSORegionRedirect:
+    def test_us_region_redirects_to_eu_when_resource_not_found(self, sso_setup):
+        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        parsed = urlparse(response.url)
+        assert parsed.scheme == "https"
+        assert parsed.netloc == "eu.posthog.com"
+        assert parsed.path == "/login/vercel/"
+        qs = parse_qs(parsed.query)
+        assert qs["mode"] == ["sso"]
+        assert qs["code"] == [TestConstants.AUTH_CODE]
+        assert qs["state"] == [TestConstants.STATE]
+        assert qs["resource_id"] == ["99999"]
+
+    def test_us_region_processes_normally_when_resource_found(self, sso_setup):
+        team = Team.objects.create(organization=sso_setup["organization"], name="Region Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Region Test Resource"},
+            created_by=sso_setup["user"],
+        )
+
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(
+                sso_setup["client"], sso_setup["url"], resource_id=str(resource.pk)
+            )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_eu_region_processes_normally(self, sso_setup):
+        with (
+            self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_dev_env_processes_normally(self, sso_setup):
+        with (
+            self.settings(SITE_URL="http://localhost:8000", DEBUG=True),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_no_resource_id_processes_normally(self, sso_setup):
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_redirect_preserves_all_query_params(self, sso_setup):
+        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+            response = SSOTestHelper.make_sso_request(
+                sso_setup["client"],
+                sso_setup["url"],
+                resource_id="99999",
+                path="billing",
+            )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        parsed = urlparse(response.url)
+        qs = parse_qs(parsed.query)
+        assert qs["path"] == ["billing"]
+        assert qs["resource_id"] == ["99999"]
+        assert qs["mode"] == ["sso"]
+        assert qs["code"] == [TestConstants.AUTH_CODE]
+        assert qs["state"] == [TestConstants.STATE]
+
+    def test_us_region_does_not_redirect_for_non_integer_resource_id(self, sso_setup):
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="not-a-number")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    @staticmethod
+    def settings(**kwargs):
+        from django.test import override_settings
+
+        return override_settings(**kwargs)
+
+
+class TestSSOCrossRegionClaimsToken:
+    @staticmethod
+    def settings(**kwargs):
+        from django.test import override_settings
+
+        return override_settings(**kwargs)
+
+    def test_us_no_resource_id_eu_installation_redirects_with_claims_token(self, sso_setup):
+        eu_installation_id = "icfg_eu_only_123"
+        claims = create_user_claims(eu_installation_id)
+
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(claims),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        assert response.status_code == status.HTTP_302_FOUND
+        parsed = urlparse(response.url)
+        assert parsed.netloc == "eu.posthog.com"
+        qs = parse_qs(parsed.query)
+        assert "_claims_token" in qs
+
+    def test_eu_receives_valid_claims_token_decrypts_and_caches(self, sso_setup):
+        from ee.api.vercel.vercel_sso import _encrypt_claims
+
+        eu_installation_id = sso_setup["installation_id"]
+        claims = create_user_claims(eu_installation_id)
+        token = _encrypt_claims(claims)
+
+        with (
+            self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(claims),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], _claims_token=token)
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_eu_receives_invalid_claims_token_falls_through(self, sso_setup):
+        with (
+            self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(
+                sso_setup["client"], sso_setup["url"], _claims_token="invalid_token_data"
+            )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_claims_token_replay_is_rejected(self, sso_setup):
+        from ee.api.vercel.vercel_sso import _encrypt_claims
+
+        eu_installation_id = sso_setup["installation_id"]
+        claims = create_user_claims(eu_installation_id)
+        token = _encrypt_claims(claims)
+
+        mark_results = []
+        original_mark = __import__("ee.api.vercel.crypto", fromlist=["mark_token_used"]).mark_token_used
+
+        def tracking_mark(jti, ttl):
+            result = original_mark(jti, ttl)
+            mark_results.append(result)
+            return result
+
+        with (
+            self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(claims),
+        ):
+            response1 = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], _claims_token=token)
+
+        assert response1.status_code == status.HTTP_302_FOUND
+
+        with (
+            self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(claims),
+            patch("ee.api.vercel.vercel_sso.mark_token_used", side_effect=tracking_mark),
+        ):
+            response2 = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], _claims_token=token)
+
+        assert response2.status_code == status.HTTP_302_FOUND
+        assert mark_results == [False]

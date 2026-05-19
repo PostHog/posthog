@@ -2,11 +2,12 @@ import { useValues } from 'kea'
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -14,6 +15,7 @@ import {
     chooseOperatorMap,
     isMobile,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
@@ -33,6 +35,65 @@ import {
 
 import { PropertyValue } from './PropertyValue'
 
+// OTel span.kind enum (https://opentelemetry.io/docs/specs/otel/trace/api/#spankind).
+const SPAN_KIND_OPTIONS: { key: number; label: string }[] = [
+    { key: 0, label: 'Unspecified' },
+    { key: 1, label: 'Internal' },
+    { key: 2, label: 'Server' },
+    { key: 3, label: 'Client' },
+    { key: 4, label: 'Producer' },
+    { key: 5, label: 'Consumer' },
+]
+
+// OTel status_code. 'Unset' (0) is conflated with 'OK' (1) in the filter UI per product decision.
+const STATUS_CODE_OPTIONS: { key: number; label: string }[] = [
+    { key: 1, label: 'OK' },
+    { key: 2, label: 'Error' },
+]
+
+function SpanEnumValueSelect({
+    options,
+    value,
+    onChange,
+    isMultiSelect,
+    size,
+}: {
+    options: { key: number; label: string }[]
+    value?: PropertyFilterValue
+    onChange: (value: PropertyFilterValue) => void
+    isMultiSelect: boolean
+    size?: 'xsmall' | 'small' | 'medium'
+}): JSX.Element {
+    // Filter value stores labels (e.g. "Server", "OK") so the applied-filter chip renders
+    // human text. The backend maps labels back to ints before building the HogQL query.
+    const labels = new Set(options.map((o) => o.label))
+    const selectedRaw = value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+    const selectedLabels = selectedRaw.map((v) => String(v)).filter((v) => labels.has(v))
+
+    return (
+        <LemonInputSelect
+            data-attr="prop-val"
+            mode={isMultiSelect ? 'multiple' : 'single'}
+            singleValueAsSnack
+            allowCustomValues={false}
+            value={selectedLabels}
+            onChange={(next) => {
+                const valid = next.map((v) => String(v)).filter((v) => labels.has(v))
+                if (isMultiSelect) {
+                    onChange(valid)
+                } else {
+                    onChange(valid.length > 0 ? valid[0] : null)
+                }
+            }}
+            options={options.map((o) => ({
+                key: o.label,
+                label: o.label,
+            }))}
+            size={size}
+        />
+    )
+}
+
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType
     propertyKey?: string
@@ -47,13 +108,21 @@ export interface OperatorValueSelectProps {
     propertyDefinitions: PropertyDefinition[]
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
+    groupKeyNames?: Record<string, string>
     size?: 'xsmall' | 'small' | 'medium'
     startVisible?: LemonDropdownProps['startVisible']
     /**
-     * in some contexts you want to externally limit the available operators
-     * this won't add an operator if it isn't valid
-     * i.e. it limits the options shown from the options that would have been shown
-     * **/
+     * Narrows the *operator dropdown options* shown for the active filter.
+     * Flat list — applies to whichever filter type is currently active in this
+     * `OperatorValueSelect`. Won't add operators that wouldn't otherwise be valid.
+     *
+     * Different concern from `excludedOperators` on the picker / `PropertyFilters`:
+     * - `operatorAllowlist` (here) governs which entries appear inside the operator
+     *   dropdown next to a filter value.
+     * - `excludedOperators` governs which *recent property filters* surface in the
+     *   picker's Recent tab (and whether the operator dropdown is shown at all),
+     *   keyed per source group type.
+     */
     operatorAllowlist?: Array<PropertyOperator>
     /**
      * Force single-select mode regardless of operator type
@@ -108,6 +177,7 @@ export function OperatorValueSelect({
     eventNames = [],
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
+    groupKeyNames,
     size,
     editable,
     startVisible,
@@ -186,6 +256,44 @@ export function OperatorValueSelect({
             )
         }
 
+        // Restrict trace_id and span_id to only equals/not equals
+        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
+        // Restrict duration to equals, not equals, and numeric comparisons
+        if (propertyKey === 'duration' && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.GreaterThan,
+                    PropertyOperator.GreaterThanOrEqual,
+                    PropertyOperator.LessThan,
+                    PropertyOperator.LessThanOrEqual,
+                ].includes(op)
+            )
+        }
+
+        // Restrict span name to string equality/contains operators
+        if (propertyKey === 'name' && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.IContains,
+                    PropertyOperator.NotIContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.NotRegex,
+                ].includes(op)
+            )
+        }
+
+        // Restrict span kind and status_code (fixed int enums) to equality operators
+        if ((propertyKey === 'kind' || propertyKey === 'status_code') && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
@@ -220,6 +328,12 @@ export function OperatorValueSelect({
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
                                 onChange(newOperator, null)
+                            } else if (
+                                isOperatorDate(newOperator) &&
+                                (Array.isArray(value) || !dayjs(value as string).isValid())
+                            ) {
+                                // If the new operator is date and the value is not a valid date, clear it
+                                onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
                             } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
@@ -245,30 +359,53 @@ export function OperatorValueSelect({
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
                     // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                    className="shrink grow-[1000] min-w-[10rem]"
+                    className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
-                    <PropertyValue
-                        type={type}
-                        key={propertyKey}
-                        propertyKey={propertyKey}
-                        endpoint={endpoint}
-                        operator={currentOperator || PropertyOperator.Exact}
-                        placeholder={placeholder}
-                        value={value}
-                        eventNames={eventNames}
-                        onSet={(newValue: string | number | string[] | null) => {
-                            onChange(currentOperator || PropertyOperator.Exact, newValue)
-                        }}
-                        // open automatically only if new filter
-                        autoFocus={!isMobile() && value === null}
-                        addRelativeDateTimeOptions={addRelativeDateTimeOptions}
-                        groupTypeIndex={groupTypeIndex}
-                        editable={editable}
-                        size={size}
-                        forceSingleSelect={forceSingleSelect}
-                        validationError={validationError}
-                    />
+                    {type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code') ? (
+                        editable ? (
+                            <SpanEnumValueSelect
+                                options={propertyKey === 'kind' ? SPAN_KIND_OPTIONS : STATUS_CODE_OPTIONS}
+                                value={value}
+                                isMultiSelect={
+                                    forceSingleSelect
+                                        ? false
+                                        : isOperatorMulti(currentOperator || PropertyOperator.Exact)
+                                }
+                                size={size}
+                                onChange={(newValue) => onChange(currentOperator || PropertyOperator.Exact, newValue)}
+                            />
+                        ) : (
+                            <span>
+                                {(Array.isArray(value) ? value : value == null ? [] : [value])
+                                    .map((v) => String(v))
+                                    .join(' or ')}
+                            </span>
+                        )
+                    ) : (
+                        <PropertyValue
+                            type={type}
+                            key={propertyKey}
+                            propertyKey={propertyKey}
+                            endpoint={endpoint}
+                            operator={currentOperator || PropertyOperator.Exact}
+                            placeholder={placeholder}
+                            value={value}
+                            eventNames={eventNames}
+                            onSet={(newValue: string | number | string[] | null) => {
+                                onChange(currentOperator || PropertyOperator.Exact, newValue)
+                            }}
+                            // open automatically only if new filter
+                            autoFocus={!isMobile() && value === null}
+                            addRelativeDateTimeOptions={addRelativeDateTimeOptions}
+                            groupTypeIndex={groupTypeIndex}
+                            groupKeyNames={groupKeyNames}
+                            editable={editable}
+                            size={size}
+                            forceSingleSelect={forceSingleSelect}
+                            validationError={validationError}
+                        />
+                    )}
                 </div>
             )}
             {validationError && (
@@ -290,6 +427,13 @@ export function OperatorValueSelect({
     )
 }
 
+function toOption(op: PropertyOperator): { label: JSX.Element; value: PropertyOperator } {
+    return {
+        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
+        value: op || PropertyOperator.Exact,
+    }
+}
+
 export function OperatorSelect({
     operator,
     operators,
@@ -298,16 +442,38 @@ export function OperatorSelect({
     size,
     startVisible,
 }: OperatorSelectProps): JSX.Element {
-    const operatorOptions = operators.map((op) => ({
-        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
-        value: op || PropertyOperator.Exact,
-    }))
+    const hasSemver = operators.some(isOperatorSemver)
+    const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
+        hasSemver
+            ? [
+                  ...(operators.some((op) => !isOperatorSemver(op))
+                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
+                      : []),
+                  {
+                      title: 'Semver operators',
+                      footer: (
+                          <div className="mx-2 my-1">
+                              <Link
+                                  to="https://posthog.com/docs/data/property-filters#semver-operators"
+                                  target="_blank"
+                                  className="text-xs"
+                              >
+                                  Learn more
+                              </Link>
+                          </div>
+                      ),
+                      options: operators.filter(isOperatorSemver).map(toOption),
+                  },
+              ]
+            : operators.map(toOption)
+
     return (
         <LemonSelect
-            options={operatorOptions}
+            options={options}
             value={operator || '='}
             placeholder="Property key"
             dropdownMatchSelectWidth={false}
+            dropdownPlacement="bottom-start"
             fullWidth
             onChange={(op) => {
                 op && onChange(op)
@@ -316,6 +482,7 @@ export function OperatorSelect({
             size={size}
             menu={{
                 closeParentPopoverOnClickInside: false,
+                ...(hasSemver ? { className: '!max-h-[400px]' } : {}),
             }}
             startVisible={startVisible}
         />

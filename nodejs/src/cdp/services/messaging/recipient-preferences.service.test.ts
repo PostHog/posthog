@@ -10,6 +10,9 @@ import { UUIDT } from '~/utils/utils'
 import { HogFlowAction } from '../../../schema/hogflow'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
+import { RecipientTokensService } from './recipient-tokens.service'
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 describe('RecipientPreferencesService', () => {
     let hub: Hub
@@ -23,7 +26,7 @@ describe('RecipientPreferencesService', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         mockRecipientsManager = new RecipientsManagerService(hub.postgres)
         mockRecipientsManagerGet = jest.spyOn(mockRecipientsManager, 'get')
         mockRecipientsManagerGetPreference = jest.spyOn(mockRecipientsManager, 'getPreference')
@@ -104,6 +107,7 @@ describe('RecipientPreferencesService', () => {
                 name: 'Send email',
                 description: 'Send an email to the recipient',
                 type: 'function_email',
+                filters: null,
                 config: {
                     template_id: 'template-email',
                     message_category_id: categoryId,
@@ -320,6 +324,7 @@ describe('RecipientPreferencesService', () => {
                 name: 'Send SMS',
                 description: 'Send an SMS to the recipient',
                 type: 'function_sms',
+                filters: null,
                 config: {
                     template_id: 'template-twilio',
                     message_category_id: categoryId,
@@ -420,6 +425,7 @@ describe('RecipientPreferencesService', () => {
                     name: 'Execute function',
                     description: 'Execute a custom hog function',
                     type: 'function',
+                    filters: null,
                     config: {
                         template_id: 'template-function',
                         inputs: {},
@@ -434,6 +440,31 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBe(false)
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
+        })
+    })
+
+    describe('recipient token URLs', () => {
+        let tokensService: RecipientTokensService
+
+        beforeEach(() => {
+            tokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        })
+
+        it('should generate a preferences URL with a trailing slash', () => {
+            const url = tokensService.generatePreferencesUrl({ team_id: team.id, identifier: 'test@example.com' })
+
+            expect(url).toMatch(new RegExp(`^${escapeRegExp(hub.SITE_URL)}/messaging-preferences/[^/]+/$`))
+        })
+
+        it('should generate a one-click unsubscribe URL with the query param', () => {
+            const url = tokensService.generateOneClickUnsubscribeUrl({
+                team_id: team.id,
+                identifier: 'test@example.com',
+            })
+
+            expect(url).toMatch(
+                new RegExp(`^${escapeRegExp(hub.SITE_URL)}/messaging-preferences/[^/]+/\\?one_click_unsubscribe=1$`)
+            )
         })
     })
 })

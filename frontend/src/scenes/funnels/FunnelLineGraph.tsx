@@ -3,15 +3,18 @@ import { useValues } from 'kea'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { ChartParams, GraphDataset, GraphType } from '~/types'
+import { BreakdownKeyType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
@@ -39,16 +42,20 @@ export function FunnelLineGraph({
         interval,
         insightData,
         showValuesOnSeries,
+        funnelsFilter,
+        breakdownFilter,
+        labelGroupType,
     } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     if (!isInsightQueryNode(querySource)) {
         return null
     }
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
-    const aggregationGroupTypeIndex = querySource.aggregation_group_type_index
 
     return (
         <LineGraphWrapper inCardView={inCardView}>
@@ -61,6 +68,7 @@ export function FunnelLineGraph({
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
                 showValuesOnSeries={showValuesOnSeries}
+                showTrendLines={funnelsFilter?.showTrendLines ?? false}
                 goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,
@@ -85,7 +93,7 @@ export function FunnelLineGraph({
                     },
                 }}
                 trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
-                labelGroupType={aggregationGroupTypeIndex ?? 'people'}
+                labelGroupType={labelGroupType}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
                 onClick={
                     !showPersonsModal
@@ -96,6 +104,20 @@ export function FunnelLineGraph({
                                   ? points.pointsIntersectingClick[0].dataset
                                   : points.pointsIntersectingLine[0].dataset
                               const day = dataset?.days?.[index] ?? ''
+                              const breakdownValue = (dataset as { breakdown_value?: BreakdownKeyType })
+                                  ?.breakdown_value
+                              const hasBreakdown =
+                                  breakdownValue !== undefined &&
+                                  breakdownValue !== 'Baseline' &&
+                                  !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
+                              const breakdownLabel = hasBreakdown
+                                  ? formatBreakdownLabel(
+                                        breakdownValue,
+                                        breakdownFilter,
+                                        allCohorts.results,
+                                        formatPropertyValueForDisplay
+                                    )
+                                  : null
 
                               const title = (
                                   <>
@@ -107,6 +129,7 @@ export function FunnelLineGraph({
                                           weekStartDay={weekStartDay}
                                           date={day?.toString() || ''}
                                       />
+                                      {breakdownLabel ? <> • {breakdownLabel}</> : null}
                                   </>
                               )
 
@@ -116,6 +139,7 @@ export function FunnelLineGraph({
                                   funnelTrendsDropOff: false,
                                   includeRecordings: true,
                                   funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
+                                  ...(hasBreakdown ? { funnelStepBreakdown: breakdownValue } : {}),
                               }
                               openPersonsModal({
                                   title,

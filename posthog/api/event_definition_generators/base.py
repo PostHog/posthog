@@ -1,12 +1,13 @@
 import hashlib
 from abc import ABC, abstractmethod
 
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 import orjson
 
 from posthog.event_usage import report_user_action
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty
+from posthog.taxonomy.taxonomy import CORE_EVENTS
 
 
 class EventDefinitionGenerator(ABC):
@@ -50,7 +51,7 @@ class EventDefinitionGenerator(ABC):
         schema_data = []
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
-            prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
+            prop_data = [(p.name, p.property_type, p.is_required, p.is_optional_in_types) for p in properties]
             # Sort properties by name for deterministic ordering
             schema_data.append((event_def.name, sorted(prop_data)))
 
@@ -65,7 +66,7 @@ class EventDefinitionGenerator(ABC):
 
         return hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
-    def record_report_generation(self, user, team_id: int, project_id: int) -> None:
+    def record_report_generation(self, user, team_id: int, project_id: int, request=None) -> None:
         """
         A convenience method to structurally report telemetry for code generation.
         """
@@ -78,6 +79,7 @@ class EventDefinitionGenerator(ABC):
                 "team_id": team_id,
                 "project_id": project_id,
             },
+            request=request,
         )
 
     def fetch_event_definitions_and_schemas(
@@ -88,20 +90,19 @@ class EventDefinitionGenerator(ABC):
         Fetch event definitions and build schema map. The key of `schema_map` references a EventDefinition.ID
         from the returned event_definitions set.
         """
-        # System events that users should be able to manually capture
-        # These are commonly used in user code and should be typed
-        included_system_events = [
-            "$pageview",  # Manually captured in SPAs (React Router, Vue Router, etc.)
-            "$pageleave",  # Sometimes manually captured alongside $pageview
-            "$screen",  # Manually captured in mobile apps (iOS, Android, React Native, Flutter)
-        ]
+        # Include core PostHog events (from the taxonomy), verified events, and
+        # custom events with a schema. This prevents spam events and events with
+        # personal information from being included in generated code.
+        has_schema = Exists(EventSchema.objects.filter(event_definition=OuterRef("pk")))
 
-        # Fetch event definitions: either non-system events or explicitly included system events
         event_definitions = (
             EventDefinition.objects.filter(team__project_id=project_id)
             .filter(
-                Q(name__in=included_system_events)  # Include whitelisted system events
-                | ~Q(name__startswith="$")  # Include all non-system events
+                Q(name__in=CORE_EVENTS)  # Core PostHog events from the taxonomy
+                | Q(enterpriseeventdefinition__verified=True)  # Any verified event
+                | (
+                    ~Q(name__startswith="$") & has_schema  # Custom events with a schema
+                )
             )
             .order_by("name")
         )

@@ -6,8 +6,13 @@ import posthoganalytics
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.tasks.usage_report import AI_BILLING_EXCLUDED_TOOLS, AI_COST_MARKUP_PERCENT, CLOUD_REGION_TO_TEAM_ID
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.tasks.usage_report import (
+    AI_BILLING_EXCLUDED_TOOLS,
+    AI_COST_MARKUP_PERCENT,
+    CLOUD_REGION_TO_TEAM_ID,
+    CLOUD_REGION_TO_URL,
+)
 from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
@@ -43,7 +48,7 @@ def _get_billing_config_payload() -> dict | None:
         }
     }
     """
-    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
+    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog-ai-billing-free-tier-credits", "internal_billing_events"
     )
 
@@ -105,6 +110,7 @@ def get_ga_launch_date() -> datetime:
 def get_conversation_start_time(conversation_id: UUID) -> Optional[datetime]:
     """Get the start time of a conversation."""
     try:
+        # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
         conversation = Conversation.objects.get(id=conversation_id)
         return conversation.created_at
     except Conversation.DoesNotExist:
@@ -128,7 +134,7 @@ def get_ai_credits(
 
     # Only filter by region in production (EU/US) - local dev events don't have region set
     is_production = region in ["EU", "US"]
-    region_filter = "AND JSONExtractString(properties, 'region') = %(region)s" if is_production else ""
+    region_filter = "AND JSONExtractString(properties, '$group_1') = %(region_url)s" if is_production else ""
 
     # Session filter expression for PREWHERE (must NOT use alias)
     session_filter_prewhere = (
@@ -137,7 +143,12 @@ def get_ai_credits(
 
     usage_report_kind = "posthog_ai_credits_for_conversation" if conversation_id else "posthog_ai_credits_for_team"
 
-    with tags_context(product=Product.MAX_AI, usage_report=usage_report_kind, kind=usage_report_kind):
+    with tags_context(
+        product=Product.MAX_AI,
+        feature=Feature.POSTHOG_AI,
+        usage_report=usage_report_kind,
+        kind=usage_report_kind,
+    ):
         query = f"""
         WITH trace_analysis AS (
             WITH %(excluded_tools)s AS excluded_tools
@@ -233,7 +244,7 @@ def get_ai_credits(
         WHERE t.is_billable = 1 OR t.trace_id IS NULL
         """
 
-        params = {
+        params: dict[str, int | datetime | float | list[str] | str] = {
             "team_id": team_id,
             "team_to_query": team_to_query,
             "begin": begin,
@@ -243,7 +254,7 @@ def get_ai_credits(
         }
 
         if is_production:
-            params["region"] = region_value
+            params["region_url"] = CLOUD_REGION_TO_URL[region_value]
 
         if conversation_id:
             params["session_id"] = str(conversation_id)

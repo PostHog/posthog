@@ -54,7 +54,7 @@ export function LemonRadio<T extends React.Key>({
                             type="radio"
                             className="cursor-pointer"
                             checked={value === selectedValue}
-                            value={value}
+                            value={String(value)}
                             onChange={() => {
                                 if (!disabledReason) {
                                     onChange(value)

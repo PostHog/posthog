@@ -1,7 +1,7 @@
 use crate::error::ToUserError;
 use anyhow::{Context, Error};
+use async_trait::async_trait;
 use aws_sdk_s3::Client as S3Client;
-use axum::async_trait;
 use tracing::debug;
 
 use super::DataSource;
@@ -23,7 +23,7 @@ impl S3Source {
 }
 
 // String matching hack to get around the fact that there didn't seem to be an easy way to import and handle the different error types with the aws sdk
-fn extract_user_friendly_error(
+pub(crate) fn extract_user_friendly_error(
     error: &dyn std::error::Error,
     bucket: &str,
     operation: &str,

@@ -2,16 +2,26 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.schema import ProductKey
+
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+APP_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
+    "hog_function": ProductKey.PIPELINE_DESTINATIONS,
+    "hog_flow": ProductKey.WORKFLOWS,
+    "batch_export": ProductKey.PIPELINE_BATCH_EXPORTS,
+}
 
 
 @dataclass
@@ -42,13 +52,39 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
 
 
 class AppMetricsRequestSerializer(serializers.Serializer):
-    after = serializers.CharField(required=False, default="-7d")
-    before = serializers.CharField(required=False)
-    instance_id = serializers.CharField(required=False)
-    interval = serializers.ChoiceField(choices=["hour", "day", "week"], required=False, default="day")
-    name = serializers.CharField(required=False)
-    kind = serializers.CharField(required=False)
-    breakdown_by = serializers.ChoiceField(choices=["name", "kind"], required=False, default="kind")
+    after = serializers.CharField(
+        required=False,
+        default="-7d",
+        help_text="Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.",
+    )
+    before = serializers.CharField(
+        required=False,
+        help_text="End of the time range. Same format as 'after'. Defaults to now.",
+    )
+    instance_id = serializers.CharField(
+        required=False,
+        help_text="Filter metrics to a specific execution instance.",
+    )
+    interval = serializers.ChoiceField(
+        choices=["hour", "day", "week"],
+        required=False,
+        default="day",
+        help_text="Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.",
+    )
+    name = serializers.CharField(
+        required=False,
+        help_text="Comma-separated metric names to filter by.",
+    )
+    kind = serializers.CharField(
+        required=False,
+        help_text="Comma-separated metric kinds to filter by, e.g. 'success,failure'.",
+    )
+    breakdown_by = serializers.ChoiceField(
+        choices=["name", "kind"],
+        required=False,
+        default="kind",
+        help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
+    )
 
 
 def fetch_app_metrics_trends(
@@ -212,6 +248,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         """
         raise NotImplementedError()
 
+    @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer)
     @action(detail=True, methods=["GET"])
     def metrics(self, request: Request, *args, **kwargs):
         obj = self.get_object()
@@ -219,6 +256,9 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
+
+        product_key = APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)
@@ -252,6 +292,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
 
+    @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, *args, **kwargs):
         obj = self.get_object()
@@ -259,6 +300,9 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
+
+        product_key = APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)

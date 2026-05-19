@@ -13,9 +13,15 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.stats.shared.statistics import StatisticError
+
+# Map error types to their error codes for the API response
+ERROR_TYPE_TO_CODE: dict[type, str] = {
+    ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
+}
 
 logger = structlog.get_logger(__name__)
 
@@ -30,6 +36,8 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
     # HogQL/Query errors
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
+    # ClickHouse resource errors
+    ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
     # Python built-in errors that can occur during calculation
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
 }
@@ -101,11 +109,14 @@ def experiment_error_handler(method: F) -> F:
             else:
                 metric_type = None
 
+            query_runner = type(self).__name__ if self is not None else None
+
             # Log the technical error for engineers
             logger.error(
                 "Experiment calculation error",
                 experiment_id=experiment_id,
                 metric_type=metric_type,
+                query_runner=query_runner,
                 error_type=type(e).__name__,
                 error_message=str(e),
                 error_detail=getattr(e, "detail", None),
@@ -118,6 +129,7 @@ def experiment_error_handler(method: F) -> F:
                 additional_properties={
                     "experiment_id": experiment_id,
                     "metric_type": metric_type,
+                    "query_runner": query_runner,
                     "method": method.__name__,
                 },
             )
@@ -134,6 +146,9 @@ def experiment_error_handler(method: F) -> F:
             user_message = get_user_friendly_message(e)
             if user_message is None:
                 raise
-            raise ValidationError(user_message)
+
+            # Get error code if available
+            error_code = ERROR_TYPE_TO_CODE.get(type(e))
+            raise ValidationError(user_message, code=error_code)
 
     return cast(F, wrapper)

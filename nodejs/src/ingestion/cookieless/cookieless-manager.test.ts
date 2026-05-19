@@ -2,13 +2,12 @@ import fs from 'fs'
 import { Message } from 'node-rdkafka'
 import path from 'path'
 
-import type { PluginEvent } from '@posthog/plugin-scaffold'
-
+import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../types'
+import { CookielessServerHashMode, EventHeaders, Hub, PipelineEvent, Team } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -217,7 +216,7 @@ describe('CookielessManager', () => {
                 [mode, teamId],
                 'set team to cookieless'
             )
-            team = (await getTeam(hub, teamId))!
+            team = (await getTeam(hub.postgres, teamId))!
         }
 
         const clearRedis = async () => {
@@ -230,7 +229,7 @@ describe('CookielessManager', () => {
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
             teamId = await createTeam(hub.postgres, organizationId)
-            team = (await getTeam(hub, teamId))!
+            team = (await getTeam(hub.postgres, teamId))!
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,
@@ -335,13 +334,7 @@ describe('CookielessManager', () => {
 
         async function processEvent(
             event: PipelineEvent,
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            } = createTestEventHeaders()
+            headers: EventHeaders = createTestEventHeaders()
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -351,22 +344,10 @@ describe('CookielessManager', () => {
 
         async function processEventWithHeaders(
             event: PipelineEvent,
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            }
+            headers: EventHeaders
         ): Promise<{
             event: PipelineEvent | undefined
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            }
+            headers: EventHeaders
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -519,13 +500,11 @@ describe('CookielessManager', () => {
             })
 
             it('should preserve headers through cookieless processing', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
@@ -534,13 +513,11 @@ describe('CookielessManager', () => {
             })
 
             it('should preserve headers for non-cookieless events', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
 
@@ -549,13 +526,11 @@ describe('CookielessManager', () => {
             })
 
             it('should not return dropped events but should not throw', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 // Test with alias event which should be dropped
                 const result = await processEventWithHeaders(aliasEvent, testHeaders)
@@ -698,6 +673,89 @@ describe('CookielessManager', () => {
                     expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
                 }
             })
+
+            it('should DLQ event when pass 3 re-hash fails due to day boundary race, not leak sentinel distinct_id', async () => {
+                // Batch has one cookieless event: pass 1 calls doHashForDay once (base hash),
+                // pass 3 calls it once (final hash with identify offset). We let pass 1 succeed
+                // then fail pass 3 to simulate a day-boundary race.
+                const originalDoHashForDay = hub.cookielessManager.doHashForDay.bind(hub.cookielessManager)
+                const spy = jest
+                    .spyOn(hub.cookielessManager, 'doHashForDay')
+                    .mockImplementationOnce((args) => originalDoHashForDay(args))
+                    .mockImplementationOnce(() => Promise.resolve({ success: false, reason: 'date_out_of_range' }))
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
+                ])
+                spy.mockRestore()
+                expect(response.length).toBe(2)
+
+                // Cookieless event should be DLQ'd, NOT ok with sentinel distinct_id
+                const cookielessResult = response[0]
+                expect(cookielessResult.type).toBe(PipelineResultType.DLQ)
+                if (cookielessResult.type === PipelineResultType.DLQ) {
+                    expect(cookielessResult.reason).toBe('cookieless_unexpected_date_validation_failure')
+                }
+
+                // Non-cookieless event should pass through unaffected
+                const nonCookielessResult = response[1]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+
+            it('should not inflate identify count for sibling events when $identify is DLQd in same batch', async () => {
+                // Process an anon event alone to get the baseline distinct_id at n=0
+                const baseline = await processEvent(event)
+                if (!baseline?.properties) {
+                    throw new Error('no event or properties')
+                }
+                const baselineDistinctId = baseline.distinct_id
+
+                // Batch: [identifyEvent, eventABitLater]. The identify's pass 3 re-hash
+                // is failed. The anon event should still hash with n=0 (matching baseline),
+                // not n=1 from a prematurely recorded identify.
+                //
+                // doHashForDay call sequence in doBatch:
+                //   call 1: pass 1 base hash for identifyEvent
+                //   call 2: pass 1 base hash for eventABitLater
+                //   call 3: pass 3 re-hash for identifyEvent  ← fail this one
+                //   call 4: pass 3 re-hash for eventABitLater ← should succeed
+                let callCount = 0
+                const originalDoHashForDay = hub.cookielessManager.doHashForDay.bind(hub.cookielessManager)
+                const spy = jest.spyOn(hub.cookielessManager, 'doHashForDay').mockImplementation((args) => {
+                    callCount++
+                    if (callCount === 3) {
+                        return Promise.resolve({ success: false, reason: 'date_out_of_range' })
+                    }
+                    return originalDoHashForDay(args)
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event: identifyEvent, team, message, headers: createTestEventHeaders() },
+                    { event: eventABitLater, team, message, headers: createTestEventHeaders() },
+                ])
+                spy.mockRestore()
+                expect(response.length).toBe(2)
+                expect(callCount).toBe(4)
+
+                // $identify should be DLQ'd
+                const identifyResult = response[0]
+                expect(identifyResult.type).toBe(PipelineResultType.DLQ)
+                if (identifyResult.type === PipelineResultType.DLQ) {
+                    expect(identifyResult.reason).toBe('cookieless_unexpected_date_validation_failure')
+                }
+
+                // Anon event should succeed with the same distinct_id as baseline (n=0),
+                // not a different one caused by an inflated identify count
+                const anonResult = response[1]
+                expect(anonResult.type).toBe(PipelineResultType.OK)
+                if (anonResult.type === PipelineResultType.OK) {
+                    expect(anonResult.value.event.distinct_id).toEqual(baselineDistinctId)
+                }
+            })
         })
         describe('timestamp out of range', () => {
             beforeEach(async () => {
@@ -820,13 +878,11 @@ describe('CookielessManager', () => {
                 expect(actual1).toBe(nonCookielessEvent)
             })
             it('should not return dropped cookieless events but should not throw', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
@@ -835,13 +891,11 @@ describe('CookielessManager', () => {
                 expect(result.headers).toEqual(createTestEventHeaders())
             })
             it('should preserve headers when passing through non-cookieless events', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
 

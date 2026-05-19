@@ -33,9 +33,9 @@ function toCoreEvent(response: CoreEventResponse): CoreEvent {
 
 export const coreEventsLogic = kea<coreEventsLogicType>([
     path(['scenes', 'settings', 'environment', 'coreEventsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     actions({
         setCoreEvents: (events: CoreEvent[]) => ({ events }),
         addCoreEvent: (event: Omit<CoreEvent, 'id'>) => ({ event }),

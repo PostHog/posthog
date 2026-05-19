@@ -9,19 +9,23 @@ Guidelines:
 - Use friendly, encouraging tone
 - Each title should be 2-5 words
 - Each description should be 1-2 sentences
-- Reference what's visible in the screenshot when helpful
 - Make the tour feel like a helpful guide, not a manual
-- If no goal is provided, infer the purpose from the selected elements"""
+- If no goal is provided, infer the purpose from the selected elements
+- If screenshots are provided for steps, use them to understand the UI context and write more specific, relevant content
+
+Constraints:
+- Title should be plain text, 2-5 words, no markdown formatting
+- Description should be plain text, 1-2 sentences, no markdown formatting
+"""
 
 TOUR_GENERATION_USER_PROMPT = """I'm creating a product tour for my web application.
 
+**Tour Title:** {title}
 **Tour Goal:** {goal}
 
-**Selected Elements (in order they should appear):**
-{elements}
+**Existing tour steps** (in the order they will appear; some steps are intentionally omitted):
+{steps}
 
-Generate:
-1. A short, descriptive name for this tour (3-6 words)
-2. Engaging content for each of the {element_count} selected elements
+Generate engaging content for each of the {step_count} selected elements.
 
-Maintain the order of elements as listed above. If no goal is provided, infer the purpose from the elements."""
+If no goal is provided, infer the purpose from the existing step data."""

@@ -46,6 +46,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         addEmojiComment: (emoji: string) => ({ emoji }),
         setLoading: (isLoading: boolean) => ({ isLoading }),
         setRichContent: (richContent: JSONContent | null) => ({ richContent }),
+        setAsTask: (asTask: boolean) => ({ asTask }),
         // copied from comments logic
         setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
         onRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
@@ -55,6 +56,12 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             false,
             {
                 setLoading: (_, { isLoading }: { isLoading: boolean }) => isLoading,
+            },
+        ],
+        asTask: [
+            false as boolean,
+            {
+                setAsTask: (_, { asTask }) => asTask,
             },
         ],
 
@@ -106,10 +113,22 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             actions.setRecordingCommentValue('commentId', comment.commentId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
             actions.setIsCommenting(true)
+
+            if (values.richContentEditor && comment.richContent) {
+                values.richContentEditor.setContent(comment.richContent)
+            }
+        },
+        setRichContentEditor: ({ editor }) => {
+            const richContent = values.recordingComment.richContent
+            if (richContent && values.recordingComment.commentId) {
+                editor.setContent(richContent)
+            }
         },
         setIsCommenting: ({ isCommenting }) => {
             if (!isCommenting) {
                 actions.resetRecordingComment()
+                // Don't let "Add as task" leak into the next overlay session.
+                actions.setAsTask(false)
             }
         },
         addEmojiComment: async ({ emoji }) => {
@@ -182,11 +201,12 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 if (commentId) {
                     await api.comments.update(commentId, apiPayload)
                 } else {
-                    await api.comments.create(apiPayload)
+                    await api.comments.create({ ...apiPayload, is_task: values.asTask })
                 }
 
                 playerCommentModel.actions.commentEdited(props.recordingId)
                 actions.resetRecordingComment()
+                actions.setAsTask(false)
                 actions.setIsCommenting(false)
             },
         },

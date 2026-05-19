@@ -6,8 +6,8 @@ import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage, humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
@@ -191,6 +191,7 @@ const OverviewItemCell = ({
                     <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
                     {item.warning && (
                         <Tooltip
+                            interactive={!!item.warningLink}
                             title={
                                 <div>
                                     {item.warning}

@@ -8,8 +8,8 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
+from posthog.hogql.database.utils import qualify_join_key_expr
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.parser import parse_expr
 
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
@@ -111,6 +111,9 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             context: HogQLContext,
             node: SelectQuery,
         ):
+            if not isinstance(self.configuration, dict):
+                raise ResolutionError("experiments_optimized is not configured for this join")
+
             if self.joining_table_name != "events":
                 raise ResolutionError("experiments_optimized is only supported for events table")
 
@@ -118,7 +121,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                 raise ResolutionError("experiments_optimized is not enabled for this join")
 
             timestamp_key = self.configuration.get("experiments_timestamp_key")
-            if not timestamp_key:
+            if not isinstance(timestamp_key, str) or not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
             left = self.parse_table_key_expression(self.source_table_key, join_to_add.from_table)
@@ -213,16 +216,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     @classmethod
     def parse_table_key_expression(cls, table_key: str, table_name: str) -> ast.Expr:
-        expr = parse_expr(table_key)
-        if isinstance(expr, ast.Field):
-            expr.chain = [table_name, *expr.chain]
-        elif isinstance(expr, ast.Call) and isinstance(expr.args[0], ast.Field):
-            expr.args[0].chain = [table_name, *expr.args[0].chain]
-        elif (
-            isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Call) and isinstance(expr.expr.args[0], ast.Field)
-        ):
-            expr.expr.args[0].chain = [table_name, *expr.expr.args[0].chain]
-        else:
+        expr = qualify_join_key_expr(table_key, table_name)
+        if expr is None:
             raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
         return expr

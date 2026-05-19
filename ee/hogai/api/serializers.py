@@ -10,6 +10,7 @@ from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.research_agent.graph import ResearchAgentGraph
 from ee.hogai.tool import PENDING_APPROVAL_STATUS
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
@@ -30,10 +31,13 @@ _conversation_fields = [
 ]
 
 
-CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[AssistantGraph], type[AssistantMaxGraphState]]] = {
+CONVERSATION_TYPE_MAP: dict[
+    Conversation.Type, tuple[type[AssistantGraph | ResearchAgentGraph], type[AssistantMaxGraphState]]
+] = {
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
     Conversation.Type.SLACK: (AssistantGraph, AssistantState),
+    Conversation.Type.DEEP_RESEARCH: (ResearchAgentGraph, AssistantState),
 }
 
 
@@ -49,15 +53,26 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
 class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
-        fields = [*_conversation_fields, "messages", "has_unsupported_content", "agent_mode", "pending_approvals"]
+        fields = [
+            *_conversation_fields,
+            "messages",
+            "has_unsupported_content",
+            "agent_mode",
+            "is_sandbox",
+            "pending_approvals",
+        ]
         read_only_fields = fields
 
     messages = serializers.SerializerMethodField()
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
+    is_sandbox = serializers.SerializerMethodField()
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+        if conversation.messages_json is not None:
+            return conversation.messages_json
+
         state, _, _ = self._get_cached_state(conversation)
         if state is None:
             return []
@@ -84,6 +99,9 @@ class ConversationSerializer(ConversationMinimalSerializer):
         if state:
             return state.agent_mode_or_default
         return None
+
+    def get_is_sandbox(self, conversation: Conversation) -> bool:
+        return conversation.sandbox_task_id is not None
 
     def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """

@@ -14,11 +14,11 @@ LOGGER = get_logger(__name__)
 
 
 @activity.defn
-def produce_to_cdp_kafka_activity(inputs: CDPProducerWorkflowInputs) -> None:
+async def produce_to_cdp_kafka_activity(inputs: CDPProducerWorkflowInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    CDPProducer(
+    await CDPProducer(
         team_id=inputs.team_id, schema_id=inputs.schema_id, job_id=inputs.job_id, logger=logger
     ).produce_to_kafka_from_s3()
 

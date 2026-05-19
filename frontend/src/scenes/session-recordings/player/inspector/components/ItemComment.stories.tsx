@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { now } from 'lib/dayjs'
@@ -18,8 +18,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { mswDecorator } from '~/mocks/browser'
 import { CommentType } from '~/types'
 
-type Story = StoryObj<typeof ItemAnyComment>
-const meta: Meta<typeof ItemAnyComment> = {
+type Story = StoryObj<ItemCommentProps>
+const meta: Meta<ItemCommentProps> = {
     title: 'Components/PlayerInspector/ItemComment',
     component: ItemAnyComment,
     decorators: [
@@ -27,6 +27,57 @@ const meta: Meta<typeof ItemAnyComment> = {
             get: {},
         }),
     ],
+    render: (props) => {
+        props.item = props.item || makeNotebookItem()
+
+        const propsToUse = props as ItemCommentProps
+
+        return (
+            <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
+                <div className="flex flex-col gap-2 min-w-96">
+                    <h3>Collapsed</h3>
+                    <ItemAnyComment {...propsToUse} />
+                    <LemonDivider />
+                    <h3>Expanded</h3>
+                    <ItemAnyCommentDetail {...propsToUse} />
+                    <LemonDivider />
+                    <h3>Expanded with overflowing comment</h3>
+                    <div className="w-52">
+                        <ItemAnyCommentDetail
+                            {...propsToUse}
+                            item={
+                                {
+                                    ...propsToUse.item,
+                                    data: {
+                                        ...propsToUse.item.data,
+                                        comment:
+                                            'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                                    },
+                                } as InspectorListItemNotebookComment
+                            }
+                        />
+                    </div>
+                    <LemonDivider />
+                    <h3>Collapsed with overflowing comment</h3>
+                    <div className="w-52">
+                        <ItemAnyComment
+                            {...propsToUse}
+                            item={
+                                {
+                                    ...propsToUse.item,
+                                    data: {
+                                        ...propsToUse.item.data,
+                                        comment:
+                                            'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                                    },
+                                } as InspectorListItemNotebookComment
+                            }
+                        />
+                    </div>
+                </div>
+            </BindLogic>
+        )
+    },
 }
 export default meta
 
@@ -78,6 +129,9 @@ function makeCommentItem(
                 email: 'paul@posthog.com',
                 is_email_verified: false,
             },
+            is_task: false,
+            completed_at: null,
+            completed_by: null,
             ...dataOverrides,
         },
         timeInRecording: 0,
@@ -90,64 +144,42 @@ function makeCommentItem(
     }
 }
 
-const BasicTemplate: StoryFn<typeof ItemAnyComment> = (props: Partial<ItemCommentProps>) => {
-    props.item = props.item || makeNotebookItem()
-
-    const propsToUse = props as ItemCommentProps
-
-    return (
-        <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
-            <div className="flex flex-col gap-2 min-w-96">
-                <h3>Collapsed</h3>
-                <ItemAnyComment {...propsToUse} />
-                <LemonDivider />
-                <h3>Expanded</h3>
-                <ItemAnyCommentDetail {...propsToUse} />
-                <LemonDivider />
-                <h3>Expanded with overflowing comment</h3>
-                <div className="w-52">
-                    <ItemAnyCommentDetail
-                        {...propsToUse}
-                        item={
-                            {
-                                ...propsToUse.item,
-                                data: {
-                                    ...propsToUse.item.data,
-                                    comment:
-                                        'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
-                                },
-                            } as InspectorListItemNotebookComment
-                        }
-                    />
-                </div>
-                <LemonDivider />
-                <h3>Collapsed with overflowing comment</h3>
-                <div className="w-52">
-                    <ItemAnyComment
-                        {...propsToUse}
-                        item={
-                            {
-                                ...propsToUse.item,
-                                data: {
-                                    ...propsToUse.item.data,
-                                    comment:
-                                        'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
-                                },
-                            } as InspectorListItemNotebookComment
-                        }
-                    />
-                </div>
-            </div>
-        </BindLogic>
-    )
+export const NotebookComment: Story = {
+    args: {
+        item: makeNotebookItem(),
+    },
 }
 
-export const NotebookComment: Story = BasicTemplate.bind({})
-NotebookComment.args = {
-    item: makeNotebookItem(),
+export const AnnotationComment: Story = {
+    args: {
+        item: makeCommentItem(),
+    },
 }
 
-export const AnnotationComment: Story = BasicTemplate.bind({})
-AnnotationComment.args = {
-    item: makeCommentItem(),
+export const TaskComment: Story = {
+    args: {
+        item: makeCommentItem({}, { is_task: true, content: 'fix the empty-state copy' }),
+    },
+}
+
+export const CompletedTaskComment: Story = {
+    args: {
+        item: makeCommentItem(
+            {},
+            {
+                is_task: true,
+                content: 'fix the empty-state copy',
+                completed_at: '2026-04-19T15:00:00.000Z',
+                completed_by: {
+                    id: 1,
+                    uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
+                    distinct_id: 'BpwPZw8BGaeISf7DlDprsui5J9DMIYjhE3fTFMJiEMF',
+                    first_name: 'Ric',
+                    last_name: '',
+                    email: 'ric@example.com',
+                    is_email_verified: false,
+                },
+            }
+        ),
+    },
 }

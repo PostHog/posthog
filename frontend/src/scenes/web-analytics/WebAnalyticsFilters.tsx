@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
@@ -13,32 +13,39 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    isEventPersonOrSessionPropertyFilter,
+    isWebAnalyticsPropertyFilter,
+} from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
+import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { PropertyMathType } from '~/types'
+import { PropertyFilterType, PropertyMathType } from '~/types'
 
+import { ProductTab, faviconUrl } from './common'
+import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
+import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-import { ProductTab, faviconUrl } from './common'
-import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
@@ -57,7 +64,13 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 left={
                     <>
                         <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <DateFilter
+                            dateOptions={webAnalyticsDateMapping}
+                            allowTimePrecision
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDates}
+                        />
                         <WebAnalyticsCompareFilter />
                     </>
                 }
@@ -100,7 +113,13 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     left={
                         <>
                             <ReloadAll iconOnly />
-                            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                            <DateFilter
+                                dateOptions={webAnalyticsDateMapping}
+                                allowTimePrecision
+                                dateFrom={dateFrom}
+                                dateTo={dateTo}
+                                onChange={setDates}
+                            />
 
                             <WebAnalyticsDomainSelector />
                             <WebAnalyticsDeviceToggle />
@@ -159,7 +178,8 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
             }}
             callback={(toolOutput: Record<string, any>) => {
                 if (toolOutput.properties !== undefined) {
-                    setWebAnalyticsFilters(toolOutput.properties)
+                    const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
+                    setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
                 }
                 if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
                     setDates(toolOutput.date_from, toolOutput.date_to)
@@ -183,7 +203,7 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     )
 }
 
-const WebAnalyticsDomainSelector = (): JSX.Element => {
+export const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
         useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
@@ -245,6 +265,106 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
     )
 }
 
+const DEVICE_TYPE_SELECT_OPTIONS = [
+    {
+        value: 'Desktop' as const,
+        label: (
+            <div>
+                <IconMonitor className="mx-1" /> Desktop
+            </div>
+        ),
+        tooltip: 'Desktop devices include laptops and desktops.',
+    },
+    {
+        value: 'Mobile' as const,
+        label: (
+            <div>
+                <IconPhone className="mx-1" /> Mobile
+            </div>
+        ),
+        tooltip: 'Mobile devices include smartphones and tablets.',
+    },
+]
+
+export const WebAnalyticsLiveDeviceToggle = ({ fullWidth = false }: { fullWidth?: boolean } = {}): JSX.Element => {
+    const { deviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
+
+    return (
+        <LemonSelect
+            fullWidth={fullWidth}
+            size="small"
+            value={deviceTypeFilter ?? undefined}
+            allowClear={true}
+            placeholder="All devices"
+            onChange={(value) => setDeviceTypeFilter(value ?? null)}
+            options={DEVICE_TYPE_SELECT_OPTIONS}
+        />
+    )
+}
+
+export const WebAnalyticsLiveCountrySelector = (): JSX.Element => {
+    const { countryFilter } = useValues(webAnalyticsLogic)
+    const { setCountryFilter } = useActions(webAnalyticsLogic)
+
+    const options = useMemo<LemonInputSelectOption<string>[]>(
+        () =>
+            Object.entries(COUNTRY_CODE_TO_LONG_NAME)
+                .map(([code, name]) => ({
+                    key: code,
+                    label: `${countryCodeToFlag(code)}  ${name}`,
+                    labelComponent: (
+                        <span>
+                            <span aria-hidden className="mr-2">
+                                {countryCodeToFlag(code)}
+                            </span>
+                            {name}
+                        </span>
+                    ),
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label)),
+        []
+    )
+
+    return (
+        <LemonInputSelect<string>
+            mode="single"
+            size="small"
+            value={countryFilter ? [countryFilter] : []}
+            options={options}
+            placeholder="All countries"
+            onChange={(values) => setCountryFilter(values[0] ?? null)}
+            virtualized
+        />
+    )
+}
+
+export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggestions?: string[] }): JSX.Element => {
+    const { referrerFilter } = useValues(webAnalyticsLogic)
+    const { setReferrerFilter } = useActions(webAnalyticsLogic)
+
+    const options = useMemo<LemonInputSelectOption<string>[]>(
+        () =>
+            // Skip the synthetic '$direct' bucket — it's a display-only label, not a real referrer value.
+            suggestions
+                .filter((domain) => domain && domain !== '$direct')
+                .map((domain) => ({ key: domain, label: domain })),
+        [suggestions]
+    )
+
+    return (
+        <LemonInputSelect<string>
+            mode="single"
+            size="small"
+            value={referrerFilter ? [referrerFilter] : []}
+            options={options}
+            allowCustomValues
+            placeholder="All referrers"
+            onChange={(values) => setReferrerFilter(values[0] ?? null)}
+        />
+    )
+}
+
 const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
@@ -275,26 +395,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
                 value={deviceTypeFilter ?? undefined}
                 allowClear={true}
                 onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
-                options={[
-                    {
-                        value: 'Desktop',
-                        label: (
-                            <div>
-                                <IconMonitor className="mx-1" /> Desktop
-                            </div>
-                        ),
-                        tooltip: 'Desktop devices include laptops and desktops.',
-                    },
-                    {
-                        value: 'Mobile',
-                        label: (
-                            <div>
-                                <IconPhone className="mx-1" /> Mobile
-                            </div>
-                        ),
-                        tooltip: 'Mobile devices include smartphones and tablets.',
-                    },
-                ]}
+                options={DEVICE_TYPE_SELECT_OPTIONS}
             />
         )
     }
@@ -407,7 +508,8 @@ function FiltersPopover(): JSX.Element {
         productTab === ProductTab.ANALYTICS &&
         (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
 
-    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false)
+    const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
+    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
     const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
     const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
@@ -421,9 +523,7 @@ function FiltersPopover(): JSX.Element {
                         disablePopover
                         propertyAllowList={propertyAllowList}
                         taxonomicGroupTypes={taxonomicGroupTypes}
-                        onChange={(filters) =>
-                            setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))
-                        }
+                        onChange={(filters) => setWebAnalyticsFilters(filters.filter(isWebAnalyticsPropertyFilter))}
                         propertyFilters={rawWebAnalyticsFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
@@ -548,21 +648,22 @@ const IncompatibleFiltersWarning = (): JSX.Element | null => {
         return null
     }
 
-    const filterNames = incompatibleFilters.map((filter) => filter.key).join(', ')
+    const filterNames = incompatibleFilters
+        .map((filter) => (filter.type === PropertyFilterType.Cohort ? 'Cohort' : filter.key))
+        .join(', ')
 
     return (
-        <LemonBanner type="warning" className="mb-2">
-            <div className="flex items-center justify-between w-full">
-                <div>
-                    <div className="font-semibold">Some filters are slowing down your queries</div>
-                    <div className="text-sm mt-0.5">
-                        The following filters are not supported by the new query engine and are causing your queries to
-                        slow down: <strong>{filterNames}</strong>
-                    </div>
+        <LemonBanner
+            type="warning"
+            className="mb-2"
+            action={{ children: 'Remove unsupported filters', onClick: removeIncompatibleFilters }}
+        >
+            <div>
+                <div className="font-semibold">Some filters are slowing down your queries</div>
+                <div className="text-sm mt-0.5">
+                    The following filters are not supported by the new query engine and are causing your queries to slow
+                    down: <strong>{filterNames}</strong>
                 </div>
-                <LemonButton type="primary" size="small" onClick={removeIncompatibleFilters}>
-                    Remove unsupported filters
-                </LemonButton>
             </div>
         </LemonBanner>
     )

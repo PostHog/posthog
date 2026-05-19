@@ -45,9 +45,11 @@ import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilte
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
+    // When event is null (all events), we need to use null as the id but provide a display name
+    const displayName = event === null ? 'All events' : event
     return {
         id: event,
-        name: event,
+        name: displayName,
         type: EntityTypes.EVENTS,
         order: 0,
     }
@@ -316,7 +318,7 @@ export function cleanFilters(
                 : { mean_retention_calculation: 'simple' }),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
-            ...(filters.aggregation_group_type_index != undefined
+            ...(filters.aggregation_group_type_index != null
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
             ...commonFilters,
@@ -365,7 +367,7 @@ export function cleanFilters(
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
-            ...(filters.aggregation_group_type_index != undefined
+            ...(filters.aggregation_group_type_index != null
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
             ...commonFilters,

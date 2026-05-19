@@ -50,9 +50,9 @@ export const getSentrySteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 })
 
                                 // Initialize PostHog with Sentry integration
-                                posthog.init('<ph_project_api_key>', {
+                                posthog.init('<ph_project_token>', {
                                   api_host: '<ph_client_api_host>',
-                                  defaults: '2025-11-30'
+                                  defaults: '2026-01-30'
                                 })
 
                                 // Set PostHog session ID on Sentry scope

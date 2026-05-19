@@ -1,7 +1,12 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
+import { objectsEqual } from 'lib/utils'
+import {
+    getVariablesFromQuery,
+    haveVariablesOrFiltersChanged,
+    syncSelectedVariablesToQuery,
+} from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
@@ -18,7 +23,6 @@ export interface VariablesLogicProps {
     /** Dashboard ID for the current dashboard if we're viewing one */
     dashboardId?: DashboardType['id']
 
-    queryInput?: string
     sourceQuery?: DataVisualizationNode
     setQuery?: (query: DataVisualizationNode) => void
     onUpdate?: (query: DataVisualizationNode) => void
@@ -41,7 +45,7 @@ export const variablesLogic = kea<variablesLogicType>([
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
     connect(() => ({
-        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
+        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['loadVariables']],
         values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
     })),
     actions(({ values }) => ({
@@ -63,13 +67,9 @@ export const variablesLogic = kea<variablesLogicType>([
         setSearchTerm: (search: string) => ({ search }),
         clickVariable: (variable: Variable & { selected: boolean }) => ({ variable }),
     })),
-    propsChanged(({ props, actions, values }, oldProps) => {
-        if (oldProps.queryInput !== props.queryInput) {
-            actions.setEditorQuery(props.queryInput ?? '')
-        }
-
+    propsChanged(({ props, actions, values }) => {
         if (props.sourceQuery) {
-            const variables = Object.values(props.sourceQuery?.source.variables ?? {})
+            const variables = Object.values(props.sourceQuery?.source?.variables ?? {})
 
             if (variables.length) {
                 variables.forEach((variable) => {
@@ -158,7 +158,7 @@ export const variablesLogic = kea<variablesLogicType>([
             },
         ],
         editorQuery: [
-            '' as string,
+            null as string | null,
             {
                 setEditorQuery: (_, { query }) => query,
             },
@@ -171,12 +171,40 @@ export const variablesLogic = kea<variablesLogicType>([
         ],
     }),
     selectors({
-        variablesForInsight: [
+        queryVariableCodeNames: [
+            (s) => [s.editorQuery, (_, props) => props.sourceQuery?.source?.query],
+            (editorQuery, sourceQuery): string[] => {
+                const matches = getVariablesFromQuery(editorQuery ?? sourceQuery ?? '')
+                return Array.from(new Set(matches.filter((match): match is string => Boolean(match))))
+            },
+        ],
+        variablesWithValues: [
             (s) => [s.variables, s.internalSelectedVariables],
             (variables, internalSelectedVariables): Variable[] => {
+                return variables.map((variable) => {
+                    const selectedVariable = internalSelectedVariables.find(
+                        (selected) => selected.variableId === variable.id
+                    )
+                    if (!selectedVariable) {
+                        return variable
+                    }
+
+                    return {
+                        ...variable,
+                        value: selectedVariable.value,
+                        isNull: selectedVariable.isNull,
+                    }
+                })
+            },
+        ],
+        variablesForInsight: [
+            (s) => [s.variables, s.internalSelectedVariables, s.queryVariableCodeNames],
+            (variables, internalSelectedVariables, queryVariableCodeNames): Variable[] => {
                 if (!variables.length || !internalSelectedVariables.length) {
                     return []
                 }
+
+                const queryCodeNames = new Set(queryVariableCodeNames)
 
                 return internalSelectedVariables
                     .map(({ variableId, value, isNull }) => {
@@ -187,7 +215,8 @@ export const variablesLogic = kea<variablesLogicType>([
 
                         return undefined
                     })
-                    .filter((n): n is Variable => Boolean(n))
+                    .filter((variable): variable is Variable => variable !== undefined)
+                    .filter((variable) => queryCodeNames.has(variable.code_name))
             },
         ],
         showVariablesBar: [
@@ -213,10 +242,54 @@ export const variablesLogic = kea<variablesLogicType>([
                       })
                     : variables
 
-                return visibleVariables.map((variable) => ({
-                    ...variable,
-                    selected: selectedVariableIds.has(variable.id),
-                }))
+                return [...visibleVariables]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((variable) => ({
+                        ...variable,
+                        selected: selectedVariableIds.has(variable.id),
+                    }))
+            },
+        ],
+        variablesUsedInQuery: [
+            (s) => [s.variablesWithValues, s.queryVariableCodeNames, s.searchTerm],
+            (variablesWithValues, queryVariableCodeNames, searchTerm): Variable[] => {
+                const queryCodeNames = new Set(queryVariableCodeNames)
+                const trimmedSearch = searchTerm.trim().toLowerCase()
+
+                const visibleVariables = trimmedSearch
+                    ? variablesWithValues.filter((variable) => {
+                          const nameMatch = variable.name.toLowerCase().includes(trimmedSearch)
+                          const codeNameMatch = variable.code_name?.toLowerCase().includes(trimmedSearch)
+                          const typeMatch = variable.type.toLowerCase().includes(trimmedSearch)
+
+                          return nameMatch || codeNameMatch || typeMatch
+                      })
+                    : variablesWithValues
+
+                return visibleVariables
+                    .filter((variable) => queryCodeNames.has(variable.code_name))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+            },
+        ],
+        variablesNotInQuery: [
+            (s) => [s.variablesWithValues, s.queryVariableCodeNames, s.searchTerm],
+            (variablesWithValues, queryVariableCodeNames, searchTerm): Variable[] => {
+                const queryCodeNames = new Set(queryVariableCodeNames)
+                const trimmedSearch = searchTerm.trim().toLowerCase()
+
+                const visibleVariables = trimmedSearch
+                    ? variablesWithValues.filter((variable) => {
+                          const nameMatch = variable.name.toLowerCase().includes(trimmedSearch)
+                          const codeNameMatch = variable.code_name?.toLowerCase().includes(trimmedSearch)
+                          const typeMatch = variable.type.toLowerCase().includes(trimmedSearch)
+
+                          return nameMatch || codeNameMatch || typeMatch
+                      })
+                    : variablesWithValues
+
+                return visibleVariables
+                    .filter((variable) => !queryCodeNames.has(variable.code_name))
+                    .sort((a, b) => a.name.localeCompare(b.name))
             },
         ],
     }),
@@ -286,31 +359,41 @@ export const variablesLogic = kea<variablesLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
-        editorQuery: (query: string) => {
-            const queryVariableMatches = getVariablesFromQuery(query)
-
-            if (!queryVariableMatches.length) {
+        editorQuery: (query: string | null) => {
+            if (query === null) {
                 return
             }
 
-            queryVariableMatches?.forEach((match) => {
-                if (match === null) {
-                    return
-                }
+            const syncedVariables = syncSelectedVariablesToQuery(
+                query,
+                values.variables,
+                values.internalSelectedVariables
+            )
 
-                const variableExists = values.variables.find((n) => n.code_name === match)
-                if (!variableExists) {
-                    return
-                }
+            if (objectsEqual(syncedVariables, values.internalSelectedVariables)) {
+                return
+            }
 
-                const variableAlreadySelected = values.internalSelectedVariables.find((n) => n.code_name === match)
-                if (!variableAlreadySelected) {
-                    actions.addVariable({ variableId: variableExists.id, code_name: variableExists.code_name })
-                }
-            })
+            actions.addVariables(syncedVariables)
+            actions.updateSourceQuery()
+        },
+        variables: (variables: Variable[]) => {
+            if (values.editorQuery === null || !variables.length) {
+                return
+            }
+
+            const syncedVariables = syncSelectedVariablesToQuery(
+                values.editorQuery,
+                variables,
+                values.internalSelectedVariables
+            )
+
+            if (objectsEqual(syncedVariables, values.internalSelectedVariables)) {
+                return
+            }
+
+            actions.addVariables(syncedVariables)
+            actions.updateSourceQuery()
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getVariables()
-    }),
 ])

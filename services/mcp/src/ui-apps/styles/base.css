@@ -1,0 +1,92 @@
+/*
+ * MCP UI Apps base styles.
+ *
+ * The host injects its own CSS variables via @modelcontextprotocol/ext-apps
+ * (--color-background-primary, --color-text-primary, …). We bridge those
+ * onto Quill tokens in tailwind.css. Here we just keep light/dark fallbacks
+ * for the ext-apps vars in case the host doesn't apply any, plus the chart
+ * palette used by our SVG charts.
+ *
+ * See: https://github.com/modelcontextprotocol/ext-apps/blob/main/src/spec.types.ts
+ */
+:root {
+    /* Host-provided variables (these are the standard ext-apps variable names). */
+    --color-background-primary: #fff;
+    --color-background-secondary: #f9fafb;
+    --color-background-tertiary: #f2f4f7;
+    --color-text-primary: #101828;
+    --color-text-secondary: #6b7280;
+    --color-text-inverse: #fff;
+    --color-border-primary: #e5e7eb;
+    --color-border-secondary: #d1d5db;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', roboto, 'Helvetica Neue', arial, sans-serif;
+    --font-mono: ui-monospace, sfmono-regular, 'SF Mono', menlo, consolas, monospace;
+
+    /* PostHog custom chart colors (not part of ext-apps spec, we define our own). */
+    --posthog-chart-1: #1d4aff;
+    --posthog-chart-2: #621da6;
+    --posthog-chart-3: #42827e;
+    --posthog-chart-4: #ce0e74;
+    --posthog-chart-5: #f14f58;
+    --posthog-chart-6: #7c440e;
+    --posthog-chart-7: #529a0a;
+    --posthog-chart-8: #0476fb;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-background-primary: #111827;
+        --color-background-secondary: #1f2937;
+        --color-background-tertiary: #374151;
+        --color-text-primary: #f9fafb;
+        --color-text-secondary: #9ca3af;
+        --color-text-inverse: #fff;
+        --color-border-primary: #374151;
+        --color-border-secondary: #4b5563;
+
+        /* Dark mode chart colors (lighter shades for contrast on dark backgrounds) */
+        --posthog-chart-1: #5d80ff;
+        --posthog-chart-2: #7f26d9;
+        --posthog-chart-3: #3e7a76;
+        --posthog-chart-4: #bf0d6c;
+        --posthog-chart-5: #f0474f;
+        --posthog-chart-6: #b36114;
+        --posthog-chart-7: #84cc16;
+        --posthog-chart-8: #38bdf8;
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    /* Minimum height for ResizeObserver to report to host */
+    min-height: 200px;
+    padding: 0;
+    margin: 0;
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    color: var(--color-text-primary);
+    background-color: var(--color-background-primary);
+}
+
+/* Logo pulse for loading state */
+@keyframes loading__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.2;
+    }
+}

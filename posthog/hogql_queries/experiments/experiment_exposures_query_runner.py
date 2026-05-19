@@ -2,10 +2,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+import structlog
 from rest_framework.exceptions import ValidationError
 from scipy.stats import chisquare
 
 from posthog.schema import (
+    BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
     ExperimentExposureQuery,
@@ -21,15 +23,31 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    DEFAULT_EXPOSURE_TTL_SECONDS,
+    experiment_has_min_runtime_for_precomputation,
+)
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.extensions import get_or_create_team_extension
+
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+    ensure_precomputed,
+)
+from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+logger = structlog.get_logger(__name__)
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
@@ -57,6 +75,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         if self.query.holdout:
             self.variants.append(f"holdout-{self.query.holdout.id}")
+
+        self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -91,6 +111,26 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for lazy computation")
+
+        date_from = self.experiment.start_date
+        date_to = self.experiment.end_date or datetime.now(UTC)
+
+        return ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+            sentinel_placeholders={"experiment_date_to"},
+        )
+
     def _get_exposure_query(self) -> ast.SelectQuery:
         (
             exposure_config,
@@ -108,6 +148,27 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
         )
+
+        # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
+        # Until then, the duration gate here is unconditional — the main runner
+        # lets PrecomputationMode.PRECOMPUTED bypass the gate, but this path has
+        # no equivalent escape hatch yet, so callers cannot force precomputation
+        # on a sub-12h experiment for the exposures view.
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        if config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        ):
+            try:
+                result = self._ensure_exposures_precomputed(builder)
+                if result.ready:
+                    job_ids = [str(job_id) for job_id in result.job_ids]
+                    return builder.get_daily_exposures_from_precomputed(job_ids)
+                else:
+                    logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
+            except Exception:
+                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
+
         return builder.get_exposure_timeseries_query()
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
@@ -186,88 +247,96 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             p_value=float(p_value),
         )
 
+    def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
+        # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
+        # uneven-split check on data collected under the original split. The warning is
+        # also unactionable post-stop — both CTAs only help while running.
+        if self.query.end_date is not None:
+            return None
+        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        flag_variants = multivariate_data.get("variants", [])
+        _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
+        return evaluate_bias_risk(
+            flag_variants=flag_variants,
+            multiple_variant_handling=handling,
+            total_exposures=total_exposures,
+        )
+
+    @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
-        try:
-            # Adding experiment specific tags to the tag collection
-            # This will be available as labels in Prometheus
-            tag_queries(
-                experiment_id=self.query.experiment_id,
-                experiment_name=self.query.experiment_name,
-                experiment_feature_flag_key=self.feature_flag_key,
-                product=Product.EXPERIMENTS,
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            experiment_id=self.query.experiment_id,
+            experiment_name=self.query.experiment_name,
+            experiment_feature_flag_key=self.feature_flag_key,
+            product=Product.EXPERIMENTS,
+        )
+
+        # Set limit to avoid being cut-off by the default 100 rows limit
+        query = self._get_exposure_query()
+        query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+
+        response = execute_hogql_query(
+            query_type="ExperimentExposuresQuery",
+            query=query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=600, enable_analyzer=True),
+        )
+
+        response.results = self._fill_date_gaps(response.results)
+        variant_series: dict[str, ExperimentExposureTimeSeries] = {}
+
+        # Organize results by variant
+        variant_data: dict[str, dict[str, int]] = {}
+        for result in response.results:
+            day, variant, count = result
+            if variant not in variant_data:
+                variant_data[variant] = {}
+            variant_data[variant][day.isoformat()] = count
+
+        # Create cumulative series for each variant
+        for variant, daily_counts in variant_data.items():
+            sorted_days = sorted(daily_counts.keys())
+            cumulative_counts = []
+            running_total = 0
+
+            for day in sorted_days:
+                running_total += daily_counts[day]
+                cumulative_counts.append(int(running_total))
+
+            variant_series[variant] = ExperimentExposureTimeSeries(
+                variant=variant, days=sorted_days, exposure_counts=cumulative_counts
             )
 
-            # Set limit to avoid being cut-off by the default 100 rows limit
-            query = self._get_exposure_query()
-            query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+        # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
+        ordered_timeseries = []
 
-            response = execute_hogql_query(
-                query_type="ExperimentExposuresQuery",
-                query=query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=create_default_modifiers_for_team(self.team),
-                settings=HogQLGlobalSettings(max_execution_time=600, allow_experimental_analyzer=True),
-            )
+        # Add variants in original order
+        for variant in self.variants:
+            if variant in variant_series:
+                ordered_timeseries.append(variant_series[variant])
 
-            response.results = self._fill_date_gaps(response.results)
-            variant_series: dict[str, ExperimentExposureTimeSeries] = {}
+        if MULTIPLE_VARIANT_KEY in variant_series:
+            ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
 
-            # Organize results by variant
-            variant_data: dict[str, dict[str, int]] = {}
-            for result in response.results:
-                day, variant, count = result
-                if variant not in variant_data:
-                    variant_data[variant] = {}
-                variant_data[variant][day.isoformat()] = count
+        # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
+        total_exposures = {}
+        for variant, series in variant_series.items():
+            total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
-            # Create cumulative series for each variant
-            for variant, daily_counts in variant_data.items():
-                sorted_days = sorted(daily_counts.keys())
-                cumulative_counts = []
-                running_total = 0
+        sample_ratio_mismatch = self._calculate_srm(total_exposures)
+        bias_risk = self._evaluate_bias_risk(total_exposures)
 
-                for day in sorted_days:
-                    running_total += daily_counts[day]
-                    cumulative_counts.append(int(running_total))
-
-                variant_series[variant] = ExperimentExposureTimeSeries(
-                    variant=variant, days=sorted_days, exposure_counts=cumulative_counts
-                )
-
-            # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
-            ordered_timeseries = []
-
-            # Add variants in original order
-            for variant in self.variants:
-                if variant in variant_series:
-                    ordered_timeseries.append(variant_series[variant])
-
-            if MULTIPLE_VARIANT_KEY in variant_series:
-                ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
-
-            # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
-            total_exposures = {}
-            for variant, series in variant_series.items():
-                total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
-
-            sample_ratio_mismatch = self._calculate_srm(total_exposures)
-
-            return ExperimentExposureQueryResponse(
-                timeseries=ordered_timeseries,
-                total_exposures=total_exposures,
-                date_range=self.date_range,
-                sample_ratio_mismatch=sample_ratio_mismatch,
-            )
-        except Exception as e:
-            capture_exception(
-                e,
-                additional_properties={
-                    "query_runner": "ExperimentExposuresQueryRunner",
-                    "experiment_id": self.query.experiment_id,
-                },
-            )
-            raise
+        return ExperimentExposureQueryResponse(
+            timeseries=ordered_timeseries,
+            total_exposures=total_exposures,
+            date_range=self.date_range,
+            sample_ratio_mismatch=sample_ratio_mismatch,
+            bias_risk=bias_risk,
+        )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError("Cannot convert exposure query to raw query")

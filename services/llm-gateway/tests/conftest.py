@@ -3,14 +3,20 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.main import http_exception_handler
+from llm_gateway.rate_limiting.cost_throttles import (
+    ProductCostThrottle,
+    UserCostBurstThrottle,
+    UserCostSustainedThrottle,
+)
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
+from llm_gateway.services.plan_resolver import PlanInfo
 
 
 def create_test_app(
@@ -22,7 +28,8 @@ def create_test_app(
 
     default_throttles: list[Throttle] = [
         ProductCostThrottle(redis=None),
-        UserCostThrottle(redis=None),
+        UserCostBurstThrottle(redis=None),
+        UserCostSustainedThrottle(redis=None),
     ]
 
     @asynccontextmanager
@@ -30,9 +37,14 @@ def create_test_app(
         app.state.db_pool = mock_db_pool
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
+        app.state.http_client = MagicMock()
+        app.state.plan_resolver = AsyncMock()
+        app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
+    app.exception_handler(HTTPException)(http_exception_handler)
+
     app.include_router(health_router)
     app.include_router(router)
     return app

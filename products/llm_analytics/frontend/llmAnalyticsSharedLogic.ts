@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -9,6 +9,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -17,6 +18,7 @@ import { isAnyPropertyFilters } from '~/queries/schema-guards'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
+import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from './clusters/constants'
 import type { llmAnalyticsSharedLogicType } from './llmAnalyticsSharedLogicType'
 
 export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
@@ -24,15 +26,17 @@ export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 export type LLMAnalyticsTabId =
     | 'dashboard'
     | 'generations'
+    | 'reviews'
     | 'traces'
     | 'users'
     | 'errors'
+    | 'tools'
+    | 'sentiment'
     | 'sessions'
     | 'playground'
     | 'datasets'
     | 'evaluations'
     | 'prompts'
-    | 'settings'
     | 'clusters'
 
 export type SortDirection = 'ASC' | 'DESC'
@@ -56,13 +60,64 @@ export interface LLMAnalyticsSharedLogicProps {
     }
 }
 
+export interface ApplyUrlStatePayload {
+    propertyFilters: AnyPropertyFilter[]
+    dateFrom: string | null
+    dateTo: string | null
+    shouldFilterTestAccounts: boolean
+    datesChanged: boolean
+}
+
+interface BuildApplyUrlStatePayloadInput {
+    dateFrom: string | null
+    dateTo: string | null
+    shouldFilterTestAccounts: boolean
+    propertyFilters: AnyPropertyFilter[]
+    currentDateFilter: { dateFrom: string | null; dateTo: string | null }
+    currentPropertyFilters: AnyPropertyFilter[]
+}
+
+/**
+ * Build the payload for `applyUrlState` from a DataTable's query source. Preserves
+ * reference identity on unchanged `propertyFilters` so Kea selectors short-circuit,
+ * and computes `datesChanged` so the dashboard-tab date picker is not overwritten
+ * when only filters change.
+ */
+export function buildApplyUrlStatePayload({
+    dateFrom,
+    dateTo,
+    shouldFilterTestAccounts,
+    propertyFilters,
+    currentDateFilter,
+    currentPropertyFilters,
+}: BuildApplyUrlStatePayloadInput): ApplyUrlStatePayload {
+    return {
+        propertyFilters: objectsEqual(propertyFilters, currentPropertyFilters)
+            ? currentPropertyFilters
+            : propertyFilters,
+        dateFrom,
+        dateTo,
+        shouldFilterTestAccounts,
+        datesChanged: dateFrom !== currentDateFilter.dateFrom || dateTo !== currentDateFilter.dateTo,
+    }
+}
+
 export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsSharedLogic']),
     props({} as LLMAnalyticsSharedLogicProps),
-    key((props: LLMAnalyticsSharedLogicProps) => props?.personId || 'llmAnalyticsScene'),
+    key((props: LLMAnalyticsSharedLogicProps) => `${props?.personId || 'llmAnalyticsScene'}::${props?.tabId || ''}`),
     connect(() => ({
-        values: [sceneLogic, ['sceneKey'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [teamLogic, ['addProductIntent']],
+        values: [
+            sceneLogic,
+            ['sceneKey'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+        ],
+        actions: [teamLogic, ['addProductIntent'], filterTestAccountsDefaultsLogic, ['setLocalDefault']],
     })),
 
     actions({
@@ -70,6 +125,10 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        // Batched action for URL-to-state sync. Dispatched once from urlToAction
+        // or scene-level setQuery handlers instead of multiple individual actions,
+        // producing a single actionToUrl URL change instead of 3-4 separate ones.
+        applyUrlState: (state: ApplyUrlStatePayload) => state,
     }),
 
     reducers({
@@ -80,6 +139,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
 
@@ -90,6 +150,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyUrlState: (state, { dateFrom, dateTo, datesChanged }) =>
+                    datesChanged ? { dateFrom, dateTo } : state,
             },
         ],
 
@@ -97,6 +159,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             false,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+                applyUrlState: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
 
@@ -111,6 +174,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [] as AnyPropertyFilter[],
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+                applyUrlState: (_, { propertyFilters }) => propertyFilters,
             },
         ],
     }),
@@ -124,10 +188,16 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         },
     })),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
+        },
+        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
+            const divergesFromEffectiveDefault = shouldFilterTestAccounts !== values.filterTestAccountsDefault
+            if (divergesFromEffectiveDefault) {
+                actions.setLocalDefault(shouldFilterTestAccounts)
             }
         },
     })),
@@ -138,12 +208,18 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             (sceneKey): LLMAnalyticsTabId => {
                 if (sceneKey === 'llmAnalyticsGenerations') {
                     return 'generations'
+                } else if (sceneKey === 'llmAnalyticsReviews') {
+                    return 'reviews'
                 } else if (sceneKey === 'llmAnalyticsTraces') {
                     return 'traces'
                 } else if (sceneKey === 'llmAnalyticsUsers') {
                     return 'users'
                 } else if (sceneKey === 'llmAnalyticsErrors') {
                     return 'errors'
+                } else if (sceneKey === 'llmAnalyticsTools') {
+                    return 'tools'
+                } else if (sceneKey === 'llmAnalyticsSentiment') {
+                    return 'sentiment'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
@@ -154,8 +230,6 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'evaluations'
                 } else if (sceneKey === 'llmAnalyticsPrompts') {
                     return 'prompts'
-                } else if (sceneKey === 'llmAnalyticsSettings') {
-                    return 'settings'
                 } else if (sceneKey === 'llmAnalyticsClusters') {
                     return 'clusters'
                 }
@@ -178,91 +252,154 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => {
-        function applySearchParams({
-            filters,
-            date_from,
-            date_to,
-            filter_test_accounts,
-        }: Record<string, unknown>): void {
+    tabAwareUrlToAction(({ actions, values, cache }) => {
+        const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
+
+        function applySearchParams(
+            searchParams: Record<string, unknown>,
+            options?: { stripStaleParams?: boolean }
+        ): void {
+            const { filters, date_from, date_to, filter_test_accounts } = searchParams
+
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-
-            if (!objectsEqual(parsedFilters, values.propertyFilters)) {
-                actions.setPropertyFilters(parsedFilters)
-            }
-
-            if (
-                (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
-                (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
-            ) {
-                actions.setDates(
-                    (date_from as string | null) || INITIAL_EVENTS_DATE_FROM,
-                    (date_to as string | null) || INITIAL_DATE_TO
-                )
-            }
-
+            const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
+            const newDateTo = (date_to as string | null) || INITIAL_DATE_TO
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
                 filter_test_accounts as string | number | boolean
             )
 
-            if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
-                actions.setShouldFilterTestAccounts(filterTestAccountsValue)
+            const filtersChanged = !objectsEqual(parsedFilters, values.propertyFilters)
+            const datesChanged = newDateFrom !== values.dateFilter.dateFrom || newDateTo !== values.dateFilter.dateTo
+            const testAccountsChanged = filterTestAccountsValue !== values.shouldFilterTestAccounts
+
+            if (filtersChanged || datesChanged || testAccountsChanged) {
+                // Dispatch a single batched action so actionToUrl produces one URL
+                // change instead of up to 3 separate ones. The actionToUrl handler
+                // for applyUrlState emits only known params, which also strips any
+                // stale params carried over from other pages.
+                actions.applyUrlState({
+                    propertyFilters: parsedFilters,
+                    dateFrom: newDateFrom,
+                    dateTo: newDateTo,
+                    shouldFilterTestAccounts: filterTestAccountsValue,
+                    datesChanged,
+                })
+            } else if (options?.stripStaleParams !== false) {
+                // No state changed, but stale params may still need stripping
+                // (e.g. event, timestamp, msg from trace view).
+                const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
+                if (hasStaleParams) {
+                    const cleanParams: Record<string, unknown> = {}
+                    for (const key of KNOWN_PARAMS) {
+                        if (searchParams[key] !== undefined) {
+                            cleanParams[key] = searchParams[key]
+                        }
+                    }
+                    router.actions.replace(router.values.location.pathname, cleanParams)
+                }
             }
+        }
+
+        function clearDashboardTimer(): void {
+            clearTimeout(cache.dashboardDwellTimer)
+            cache.dashboardDwellTimer = undefined
+        }
+
+        function startDashboardTimer(): void {
+            clearDashboardTimer()
+            cache.dashboardDwellTimer = setTimeout(() => {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+                })
+            }, 15000)
+        }
+
+        function applyNonDashboard(
+            searchParams: Record<string, unknown>,
+            options?: { stripStaleParams?: boolean }
+        ): void {
+            clearDashboardTimer()
+            applySearchParams(searchParams, options)
         }
 
         return {
             [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
                 applySearchParams(searchParams)
-                actions.addProductIntent({
-                    product_type: ProductKey.LLM_ANALYTICS,
-                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
-                })
+                startDashboardTimer()
             },
-            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsSettings()]: () => {},
+            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsReviews()]: (_, searchParams) =>
+                applyNonDashboard(searchParams, { stripStaleParams: false }),
+            [urls.llmAnalyticsTraces()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsTools()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsSentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsSessions()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
+            // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
+            // params so deep links from generations/traces tabs carry their filter set through.
+            [urls.llmAnalyticsClusters()]: (_, searchParams) => applyNonDashboard(searchParams),
+            '/llm-analytics/clusters/:runId': (_, searchParams) => applyNonDashboard(searchParams),
+            [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: (_, searchParams) => applyNonDashboard(searchParams),
         }
     }),
 
-    tabAwareActionToUrl(() => ({
-        setPropertyFilters: ({ propertyFilters }) => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-            },
-        ],
-        setDates: ({ dateFrom, dateTo }) => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
-                date_to: dateTo || undefined,
-            },
-        ],
-        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
-            },
-        ],
-    })),
+    tabAwareActionToUrl(() => {
+        // Only preserve params that belong to the shared logic — drop stale
+        // params from other pages (e.g. event, timestamp, msg from trace view).
+        function sharedSearchParams(): Record<string, unknown> {
+            const { filters, date_from, date_to, filter_test_accounts } = router.values.searchParams
+            return { filters, date_from, date_to, filter_test_accounts }
+        }
+
+        return {
+            applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts }) => [
+                router.values.location.pathname,
+                {
+                    filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+                    date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                    filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                },
+            ],
+            setPropertyFilters: ({ propertyFilters }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+                },
+            ],
+            setDates: ({ dateFrom, dateTo }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                },
+            ],
+            setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                },
+            ],
+        }
+    }),
 
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
-        // Track product intent when dashboard is viewed
-        if (values.activeTab === 'dashboard') {
-            actions.addProductIntent({
-                product_type: ProductKey.LLM_ANALYTICS,
-                intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
-            })
+        const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
+        if (!urlHasTestAccountsParam && values.filterTestAccountsDefault !== values.shouldFilterTestAccounts) {
+            actions.setShouldFilterTestAccounts(values.filterTestAccountsDefault)
         }
+    }),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.dashboardDwellTimer)
     }),
 ])

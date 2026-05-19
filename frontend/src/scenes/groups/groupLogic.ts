@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -18,10 +18,11 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { groupLogicType } from './groupLogicType'
@@ -73,6 +74,7 @@ export const groupLogic = kea<groupLogicType>([
         setGroupData: (group: Group) => ({ group }),
         setGroupTab: (groupTab: string | null) => ({ groupTab }),
         setGroupEventsQuery: (query: Node) => ({ query }),
+        resetGroupEventsQuery: true,
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
     })),
@@ -97,7 +99,7 @@ export const groupLogic = kea<groupLogicType>([
                     }
 
                     try {
-                        const query = {
+                        const response = await api.query<HogQLQuery>({
                             kind: NodeKind.HogQLQuery,
                             query: `
                                 SELECT
@@ -107,11 +109,10 @@ export const groupLogic = kea<groupLogicType>([
                                 WHERE group_key = {groupKey}
                             `,
                             values: { groupKey: props.groupKey },
-                        }
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        })
 
-                        const result = await api.query(query)
-
-                        const row = (result as any).results?.[0]
+                        const row = response?.results?.[0]
                         if (!row) {
                             return null
                         }
@@ -129,7 +130,10 @@ export const groupLogic = kea<groupLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        resetGroupEventsQuery: () => {
+            actions.setGroupEventsQuery(getGroupEventsQuery(props.groupTypeIndex, props.groupKey))
+        },
         editProperty: async ({ key, newValue }) => {
             const group = values.groupData
 
@@ -213,6 +217,16 @@ export const groupLogic = kea<groupLogicType>([
     }),
     selectors({
         logicProps: [() => [(_, props) => props], (props): GroupLogicProps => props],
+
+        groupEventsQueryIsDirty: [
+            (s, p) => [s.groupEventsQuery, p.groupTypeIndex, p.groupKey],
+            (groupEventsQuery, groupTypeIndex, groupKey): boolean => {
+                if (!groupEventsQuery) {
+                    return false
+                }
+                return !objectsEqual(groupEventsQuery, getGroupEventsQuery(groupTypeIndex, groupKey))
+            },
+        ],
 
         groupTypeName: [
             (s, p) => [s.aggregationLabel, p.groupTypeIndex],

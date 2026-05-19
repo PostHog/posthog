@@ -1,6 +1,6 @@
 import { IconCheck, IconLoading, IconX } from '@posthog/icons'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, DisabledReasonsObject } from 'lib/ui/Button/ButtonPrimitives'
 import { SelectPrimitiveItemProps } from 'lib/ui/SelectPrimitive/SelectPrimitive'
 
 export type SceneCanEditProps = {
@@ -13,6 +13,7 @@ export type SceneLoadingProps = {
 
 export type SceneDataAttrKeyProps = {
     dataAttrKey: string
+    disabledReasons?: DisabledReasonsObject
 }
 
 export type SceneNameProps = {
@@ -46,6 +47,7 @@ export type SceneSaveCancelButtonsProps = SceneDataAttrKeyProps &
     SceneNameProps &
     SceneLoadingProps & {
         onCancel: () => void
+        onSave?: () => void
         hasChanged: boolean
         error?: string | null
     }
@@ -59,6 +61,7 @@ export type SceneSelectProps = SceneInputProps &
 export function SceneSaveCancelButtons({
     name,
     onCancel,
+    onSave,
     isLoading,
     hasChanged,
     error,
@@ -67,9 +70,10 @@ export function SceneSaveCancelButtons({
     return (
         <div className="flex gap-1">
             <ButtonPrimitive
-                type="submit"
+                type={onSave ? 'button' : 'submit'}
                 variant="outline"
                 disabled={!hasChanged || !!error}
+                onClick={onSave}
                 tooltip={hasChanged ? `Update ${dataAttrKey}` : 'No changes to update'}
                 data-attr={`${dataAttrKey}-${name}-update-button`}
                 aria-label={hasChanged ? `Update ${name}` : 'No changes to update'}

@@ -1,3 +1,5 @@
+import { IconCursorClick } from '@posthog/icons'
+
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
@@ -45,10 +47,12 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
             </div>
 
             {isBayesianResult(variantResult) ? (
-                <div className="flex justify-between items-center">
-                    <span className="text-muted-alt font-semibold">Chance to win:</span>
-                    <span className="font-semibold">{formatChanceToWinForGoal(variantResult, metric.goal)}</span>
-                </div>
+                <>
+                    <div className="flex justify-between items-center">
+                        <span className="text-muted-alt font-semibold">Chance to win:</span>
+                        <span className="font-semibold">{formatChanceToWinForGoal(variantResult, metric.goal)}</span>
+                    </div>
+                </>
             ) : (
                 <div className="flex justify-between items-center">
                     <span className="text-muted-alt font-semibold">P-value:</span>
@@ -72,6 +76,11 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">{intervalLabel}:</span>
                 <span className="font-semibold">{intervalPercent}</span>
+            </div>
+
+            <div className="text-muted-alt text-xs mt-1 text-center flex items-center justify-center gap-1">
+                <IconCursorClick className="text-sm" />
+                Click to view timeseries
             </div>
         </div>
     )

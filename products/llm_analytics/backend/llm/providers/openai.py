@@ -12,7 +12,10 @@ import openai
 import posthoganalytics
 from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.openai import (
+    AzureOpenAI as WrappedAzureOpenAI,
+    OpenAI,
+)
 from pydantic import BaseModel
 
 from products.llm_analytics.backend.llm.errors import (
@@ -21,6 +24,7 @@ from products.llm_analytics.backend.llm.errors import (
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
 )
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
@@ -38,29 +42,53 @@ logger = logging.getLogger(__name__)
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "gpt-5.4",
+        "gpt-5.2-pro",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-pro",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
+        "o3-pro",
+        "gpt-4.1-nano",
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "o4-mini",
+        "o3",
+        "o1-pro",
+        "o3-mini",
+    ]
+
+    # Models available to trial users (PostHog pays). Excludes expensive
+    # "pro" tiers and includes one flagship model for quality evaluation.
+    TRIAL_MODELS: list[str] = [
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
-        "o3-mini",
-        "o3",
-        "o3-pro",
-        "o4-mini",
-        "gpt-4o",
-        "gpt-4o-mini",
-        "gpt-5",
         "gpt-5-mini",
         "gpt-5-nano",
+        "o3-mini",
+        "o4-mini",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
-        "o3",
+        "gpt-5.4",
+        "gpt-5.2-pro",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-pro",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
         "o3-pro",
         "o4-mini",
+        "o3",
+        "o1-pro",
         "o3-mini",
-        "gpt-5",
-        "gpt-5-mini",
     ]
 
 
@@ -69,25 +97,42 @@ class OpenAIAdapter:
 
     name = "openai"
 
+    def _create_client(
+        self,
+        api_key: str,
+        base_url: str | None,
+        analytics: AnalyticsContext,
+    ) -> Any:
+        """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
+        default_headers = self._get_default_headers()
+        posthog_client = posthoganalytics.default_client
+        if analytics.capture and posthog_client:
+            return OpenAI(
+                api_key=api_key,
+                posthog_client=posthog_client,
+                base_url=base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
+            )
+        return openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=OpenAIConfig.TIMEOUT,
+            default_headers=default_headers or None,
+        )
+
     def complete(
         self,
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
 
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        if analytics.capture and posthog_client:
-            client = OpenAI(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
-            )
-        else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
 
         messages: Any = self._build_messages(request)
 
@@ -138,10 +183,17 @@ class OpenAIAdapter:
             raise ModelPermissionError(request.model)
         except openai.RateLimitError as e:
             error_body = getattr(e, "body", {}) or {}
-            error_code = error_body.get("error", {}).get("code", "")
+            error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
+        except openai.APIStatusError as e:
+            # OpenRouter returns 402 when the key can't afford the requested
+            # max_tokens (or is out of credits). Retrying never helps — mirror
+            # the quota path so the workflow marks the key errored and stops.
+            if getattr(e, "status_code", None) == 402:
+                raise QuotaExceededError(str(e))
+            raise
 
     def _complete_with_json_fallback(
         self,
@@ -184,7 +236,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             parsed = request.response_format.model_validate_json(clean_content)
         except Exception as e:
             logger.warning(f"Failed to parse structured output from OpenAI fallback: {e}")
-            raise ValueError(f"Failed to parse structured output: {e}") from e
+            raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
         return CompletionResponse(
             content=content,
@@ -198,21 +250,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
         model_id = request.model
 
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        if analytics.capture and posthog_client:
-            client = OpenAI(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
-            )
-        else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
 
         supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
         reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
@@ -246,7 +291,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level  # type: ignore[assignment]
+                    selected_effort = request.reasoning_level  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(
@@ -295,14 +340,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             yield StreamChunk(type="error", data={"error": str(e)})
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an OpenAI API key."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
         if not api_key.startswith(("sk-", "sk-proj-")):
             return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-' or 'sk-proj-')")
         try:
-            client = openai.OpenAI(api_key=api_key)
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             client.models.list()
             return (LLMProviderKey.State.OK, None)
         except openai.AuthenticationError:
@@ -316,21 +361,35 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
-        """List available OpenAI models."""
-        if api_key:
-            try:
-                client = openai.OpenAI(api_key=api_key)
-                all_models = [m.id for m in client.models.list()]
-                return [
-                    m
-                    for m in all_models
-                    if m in OpenAIConfig.SUPPORTED_MODELS or m.startswith(("gpt-", "o1", "o3", "o4"))
-                ]
-            except Exception as e:
-                logger.exception(f"Error listing OpenAI models: {e}")
-                return OpenAIConfig.SUPPORTED_MODELS
-        return OpenAIConfig.SUPPORTED_MODELS
+    def recommended_models() -> set[str]:
+        return set(OpenAIConfig.SUPPORTED_MODELS)
+
+    @staticmethod
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
+        """List available OpenAI models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining chat-capable
+        models from the API sorted by creation date (newest first).
+        """
+        if not api_key:
+            return OpenAIConfig.SUPPORTED_MODELS
+
+        supported = set(OpenAIConfig.SUPPORTED_MODELS)
+        try:
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
+            api_models = client.models.list()
+            filtered = [
+                m
+                for m in api_models
+                if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+            ]
+            filtered.sort(key=lambda m: m.created, reverse=True)
+            other = [m.id for m in filtered]
+            return list(OpenAIConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching OpenAI models from API")
+            return OpenAIConfig.SUPPORTED_MODELS
 
     @staticmethod
     def get_api_key() -> str:
@@ -343,6 +402,9 @@ Return ONLY the JSON object, no other text or markdown formatting."""
     def _get_default_api_key(self) -> str:
         return self.get_api_key()
 
+    def _get_default_headers(self) -> dict[str, str]:
+        return {}
+
     def _build_messages(self, request: CompletionRequest) -> list[dict]:
         messages = []
         if request.system:
@@ -351,7 +413,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
-        if analytics.capture and isinstance(client, OpenAI):
+        if analytics.capture and isinstance(client, OpenAI | WrappedAzureOpenAI):
             return {
                 "posthog_distinct_id": analytics.distinct_id,
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),

@@ -1,9 +1,9 @@
 import { generateDashboardHCL } from 'lib/components/TerraformExporter/dashboardHclExporter'
 
-import { DashboardBasicType } from '~/types'
+import { DashboardType } from '~/types'
 
-const createTestDashboard = (props: Record<string, unknown>): Partial<DashboardBasicType> =>
-    props as Partial<DashboardBasicType>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const createTestDashboard = (props: Record<string, any>): Partial<DashboardType> => props as Partial<DashboardType>
 
 describe('dashboardHclExporter test', () => {
     describe('sanitizes correctly', () => {
@@ -158,6 +158,63 @@ describe('dashboardHclExporter test', () => {
 
             expect(hcl).toContain('tags = ["other", "managed-by:terraform"]')
             expect(hcl).not.toContain('tags = ["other", "managed-by:terraform", "managed-by:terraform"]')
+        })
+    })
+
+    describe('includes dashboard layout resource', () => {
+        it('generates layout resource when tiles are present', () => {
+            const dashboard = createTestDashboard({
+                id: 1,
+                name: 'With Tiles',
+                tiles: [
+                    { id: 10, insight: { id: 100 }, color: null, layouts: { sm: { x: 0, y: 0, w: 6, h: 5 } } },
+                    { id: 11, text: { body: 'A note' }, color: 'blue', layouts: {} },
+                ],
+            })
+
+            const result = generateDashboardHCL(dashboard, {
+                insights: [{ id: 100, name: 'My Insight' }] as any,
+            })
+
+            expect(result.hcl).toContain(`resource "posthog_dashboard" "with_tiles" {
+  name = "With Tiles"
+  tags = ["managed-by:terraform"]
+}`)
+            expect(result.hcl).toContain(`resource "posthog_insight" "my_insight" {
+  name = "My Insight"
+  tags = ["managed-by:terraform"]
+}`)
+            expect(result.hcl).toContain(`resource "posthog_dashboard_layout" "with_tiles" {
+  dashboard_id = posthog_dashboard.with_tiles.id
+  tiles = [
+    {
+      insight_id = posthog_insight.my_insight.id
+      layouts_json = jsonencode({
+        "sm": {
+          "x": 0,
+          "y": 0,
+          "w": 6,
+          "h": 5
+        }
+      })
+    },
+    {
+      text_body = "A note"
+      color = "blue"
+    },
+  ]
+}`)
+        })
+
+        it('does not generate layout resource when no tiles exist', () => {
+            const dashboard = createTestDashboard({
+                id: 3,
+                name: 'No Tiles',
+            })
+
+            const result = generateDashboardHCL(dashboard)
+
+            expect(result.hcl).not.toContain('posthog_dashboard_layout')
         })
     })
 })

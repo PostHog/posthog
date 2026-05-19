@@ -1,0 +1,641 @@
+from typing import Any
+
+from posthog.test.base import BaseTest
+
+from parameterized import parameterized
+
+from posthog.models import Action, Insight, Project, Team
+from posthog.models.resource_transfer.inter_project_transferer import (
+    _get_mapped_substitutions,
+    build_resource_duplication_graph,
+    dag_sort_duplication_graph,
+    duplicate_resource_to_new_team,
+    get_suggested_substitutions,
+)
+from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.surveys.backend.models import Survey
+
+
+class TestBuildResourceDuplicationGraph(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_standalone_insight_graph_has_insight_and_team(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        graph = list(build_resource_duplication_graph(insight, set()))
+
+        model_types = {v.model for v in graph}
+        assert Insight in model_types
+        assert Team in model_types
+
+    def test_standalone_dashboard_graph_has_dashboard_and_team(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+
+        model_types = {v.model for v in graph}
+        assert Dashboard in model_types
+        assert Team in model_types
+
+    def test_dashboard_with_insight_tile_includes_all_related_resources(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+        model_types = {v.model for v in graph}
+
+        assert Dashboard in model_types
+        assert Insight in model_types
+        assert DashboardTile in model_types
+        assert Team in model_types
+
+    def test_survey_with_insight_and_actions_includes_related_resources(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Survey insight")
+        action = Action.objects.create(
+            team=self.team,
+            name="survey action",
+            steps_json=[{"event": "$pageview"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My survey",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Hello"}],
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        graph = list(build_resource_duplication_graph(survey, set()))
+        model_types = {v.model for v in graph}
+        through = Survey._meta.get_field("actions").remote_field.through
+
+        assert Survey in model_types
+        assert Insight in model_types
+        assert Action in model_types
+        assert through in model_types
+        assert Team in model_types
+
+    def test_dashboard_text_tiles_reachable_via_m2m(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        text = Text.objects.create(team=self.team, body="Hello world")
+        DashboardTile.objects.create(dashboard=dashboard, text=text)
+
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+        model_types = {v.model for v in graph}
+
+        assert Dashboard in model_types
+        assert Text in model_types
+        assert DashboardTile in model_types
+
+    def test_immutable_resources_have_no_edges(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        graph = list(build_resource_duplication_graph(insight, set()))
+
+        team_vertex = next(v for v in graph if v.model is Team)
+        assert team_vertex.edges == []
+
+    def test_exclude_set_prevents_revisiting_resources(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        exclude: set[tuple[ResourceKind, Any]] = {("Insight", insight.pk)}
+
+        graph = list(build_resource_duplication_graph(insight, exclude))
+        assert len(graph) == 0
+
+    def test_raises_for_unvisitable_model(self) -> None:
+        from posthog.models import Annotation
+
+        annotation = Annotation.objects.create(team=self.team, content="My annotation")
+        with self.assertRaises(TypeError):
+            list(build_resource_duplication_graph(annotation, set()))
+
+
+class TestDagSortDuplicationGraph(BaseTest):
+    def test_dag_sorts_vertices_so_dependencies_come_first(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+        dag = dag_sort_duplication_graph(graph)
+        model_order = [v.model for v in dag]
+
+        assert model_order.index(Team) < model_order.index(Dashboard)
+        assert model_order.index(Team) < model_order.index(Insight)
+        assert model_order.index(Dashboard) < model_order.index(DashboardTile)
+        assert model_order.index(Insight) < model_order.index(DashboardTile)
+
+
+class TestDuplicateResourceToNewTeam(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_duplicates_standalone_insight(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="My insight", filters={"events": [{"id": "$pageview"}]})
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insights = [r for r in results if isinstance(r, Insight)]
+
+        assert len(new_insights) == 1
+        assert new_insights[0].pk != insight.pk
+        assert new_insights[0].team == dest_team
+        assert new_insights[0].name == "My insight"
+        assert new_insights[0].filters == {"events": [{"id": "$pageview"}]}
+
+    def test_duplicates_standalone_dashboard(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+        new_dashboards = [r for r in results if isinstance(r, Dashboard)]
+
+        assert len(new_dashboards) == 1
+        assert new_dashboards[0].pk != dashboard.pk
+        assert new_dashboards[0].team == dest_team
+        assert new_dashboards[0].name == "My dashboard"
+
+    def test_duplicates_survey_with_linked_insight_and_actions(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="Linked", filters={})
+        action = Action.objects.create(
+            team=self.team,
+            name="trigger action",
+            steps_json=[{"event": "subscribed"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="NPS",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Rate us"}],
+            conditions={"linkedFlagVariant": "control", "url": "/p"},
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        results = duplicate_resource_to_new_team(survey, dest_team, created_by=self.user)
+        new_surveys = [r for r in results if isinstance(r, Survey)]
+        new_insights = [r for r in results if isinstance(r, Insight)]
+        new_actions = [r for r in results if isinstance(r, Action)]
+
+        assert len(new_surveys) == 1
+        assert len(new_insights) == 1
+        assert len(new_actions) == 1
+
+        copied = new_surveys[0]
+        assert copied.team == dest_team
+        assert copied.linked_insight_id == new_insights[0].pk
+        assert copied.linked_insight is not None
+        assert copied.linked_insight.team == dest_team
+        assert list(copied.actions.values_list("pk", flat=True)) == [new_actions[0].pk]
+        assert copied.conditions is not None
+        assert "linkedFlagVariant" not in copied.conditions
+        assert copied.conditions.get("url") == "/p"
+
+    def test_duplicates_dashboard_with_insight_tile(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        new_dashboards = [r for r in results if isinstance(r, Dashboard)]
+        new_insights = [r for r in results if isinstance(r, Insight)]
+        new_tiles = [r for r in results if isinstance(r, DashboardTile)]
+
+        assert len(new_dashboards) == 1
+        assert len(new_insights) == 1
+        assert len(new_tiles) == 1
+
+        assert new_tiles[0].dashboard == new_dashboards[0]
+        assert new_tiles[0].insight == new_insights[0]
+        assert new_insights[0].team == dest_team
+
+    def test_duplicates_dashboard_with_multiple_insight_tiles(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight_a = Insight.objects.create(team=self.team, name="Insight A")
+        insight_b = Insight.objects.create(team=self.team, name="Insight B")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_a)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_b)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        new_insights = [r for r in results if isinstance(r, Insight)]
+        new_tiles = [r for r in results if isinstance(r, DashboardTile)]
+
+        assert len(new_insights) == 2
+        assert len(new_tiles) == 2
+
+        for r in new_insights:
+            assert r.team == dest_team
+
+    def test_does_not_modify_source_resources(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+
+        insight.refresh_from_db()
+        assert insight.team == self.team
+        assert insight.name == "My insight"
+
+    def test_new_insight_gets_fresh_short_id(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="My insight", short_id="abc123")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight))
+
+        assert new_insight.short_id != "abc123"
+        assert new_insight.short_id != ""
+
+    def test_transaction_rolls_back_on_failure(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        initial_count = Dashboard.objects.count()
+
+        from unittest.mock import patch
+
+        with patch(
+            "posthog.models.resource_transfer.resource_transfer.ResourceTransfer.objects.bulk_create",
+            side_effect=Exception("boom"),
+        ):
+            with self.assertRaises(Exception):
+                duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        assert Dashboard.objects.count() == initial_count
+
+
+class TestResourceTransferRecordCreation(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_creates_transfer_records_for_mutable_resources(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        transfers = ResourceTransfer.objects.filter(
+            source_team=self.team,
+            destination_team=dest_team,
+        )
+        assert transfers.count() > 0
+        kinds = set(transfers.values_list("resource_kind", flat=True))
+        assert "Dashboard" in kinds
+        assert "Insight" in kinds
+        assert "DashboardTile" in kinds
+
+    def test_does_not_create_transfer_records_for_immutable_resources(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+
+        transfers = ResourceTransfer.objects.filter(source_team=self.team, destination_team=dest_team)
+        kinds = set(transfers.values_list("resource_kind", flat=True))
+        assert "Team" not in kinds
+        assert "Project" not in kinds
+
+    @parameterized.expand(
+        [
+            ("insight", lambda self_: Insight.objects.create(team=self_.team, name="Test")),
+            ("dashboard", lambda self_: Dashboard.objects.create(team=self_.team, name="Test")),
+        ]
+    )
+    def test_transfer_record_points_to_newly_created_resource(self, _name: str, create_resource) -> None:
+        dest_team = self._create_destination_team()
+        resource = create_resource(self)
+
+        results = duplicate_resource_to_new_team(resource, dest_team, created_by=self.user)
+        new_resource = next(r for r in results if type(r) is type(resource) and r.pk != resource.pk)
+
+        transfer = ResourceTransfer.objects.get(
+            source_team=self.team,
+            destination_team=dest_team,
+            resource_kind=type(resource).__name__,
+        )
+        assert transfer.resource_id == str(resource.pk)
+        assert transfer.duplicated_resource_id == str(new_resource.pk)
+
+
+class TestNameDeduplication(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_no_conflict_keeps_original_name(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="Unique insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight))
+
+        assert new_insight.name == "Unique insight"
+
+    def test_conflict_adds_copy_suffix(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="My insight")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "My insight (Copy)"
+
+    def test_multiple_conflicts_increment_copy_number(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="My insight")
+        Insight.objects.create(team=dest_team, name="My insight (Copy)")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "My insight (Copy 2)"
+
+    def test_conflict_with_dashboard(self) -> None:
+        dest_team = self._create_destination_team()
+        Dashboard.objects.create(team=dest_team, name="Sales")
+        dashboard = Dashboard.objects.create(team=self.team, name="Sales")
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+        new_dashboard = next(r for r in results if isinstance(r, Dashboard) and r.team == dest_team)
+
+        assert new_dashboard.name == "Sales (Copy)"
+
+    def test_conflict_skips_taken_copy_numbers(self) -> None:
+        dest_team = self._create_destination_team()
+        Insight.objects.create(team=dest_team, name="X")
+        Insight.objects.create(team=dest_team, name="X (Copy)")
+        Insight.objects.create(team=dest_team, name="X (Copy 2)")
+        Insight.objects.create(team=dest_team, name="X (Copy 3)")
+        insight = Insight.objects.create(team=self.team, name="X")
+
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
+        new_insight = next(r for r in results if isinstance(r, Insight) and r.team == dest_team)
+
+        assert new_insight.name == "X (Copy 4)"
+
+
+class TestSubstitutionTeamValidation(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_substitution_accepted_when_resource_belongs_to_target_team(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        dest_insight = Insight.objects.create(team=dest_team, name="Dest")
+
+        result = _get_mapped_substitutions(
+            [(("Insight", source_insight.pk), ("Insight", dest_insight.pk))],
+            target_team=dest_team,
+        )
+
+        assert result[("Insight", source_insight.pk)] == dest_insight
+
+    def test_substitution_rejected_when_resource_belongs_to_wrong_team(self) -> None:
+        dest_team = self._create_destination_team()
+        other_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        wrong_insight = Insight.objects.create(team=other_team, name="Wrong team")
+
+        with self.assertRaises(ValueError, msg="should reject substitution belonging to wrong team"):
+            _get_mapped_substitutions(
+                [(("Insight", source_insight.pk), ("Insight", wrong_insight.pk))],
+                target_team=dest_team,
+            )
+
+    def test_substitution_skips_team_check_when_no_target_team(self) -> None:
+        other_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        other_insight = Insight.objects.create(team=other_team, name="Other")
+
+        result = _get_mapped_substitutions(
+            [(("Insight", source_insight.pk), ("Insight", other_insight.pk))],
+        )
+
+        assert result[("Insight", source_insight.pk)] == other_insight
+
+    def test_duplicate_resource_rejects_substitution_from_wrong_team(self) -> None:
+        dest_team = self._create_destination_team()
+        other_team = self._create_destination_team()
+
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        wrong_insight = Insight.objects.create(team=other_team, name="Wrong team insight")
+
+        with self.assertRaises(ValueError, msg="should reject substitution belonging to wrong team"):
+            duplicate_resource_to_new_team(
+                dashboard,
+                dest_team,
+                substitutions=[(("Insight", insight.pk), ("Insight", wrong_insight.pk))],
+                created_by=self.user,
+            )
+
+
+class TestGetSuggestedSubstitutions(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def _build_dag(self, resource: Any) -> tuple[ResourceTransferVertex, ...]:
+        graph = list(build_resource_duplication_graph(resource, set()))
+        return dag_sort_duplication_graph(graph)
+
+    def test_empty_dag_returns_no_suggestions(self) -> None:
+        dest_team = self._create_destination_team()
+        result = get_suggested_substitutions([], dest_team)
+        assert result == []
+
+    def test_immutable_vertices_are_skipped(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        dag = self._build_dag(insight)
+
+        # the dag contains a Team vertex which is immutable
+        team_vertices = [v for v in dag if v.model is Team]
+        assert len(team_vertices) > 0
+
+        result = get_suggested_substitutions(dag, dest_team)
+        source_kinds = {src_key[0] for src_key, _ in result}
+        assert "Team" not in source_kinds
+
+    def test_suggests_substitution_from_transfer_record(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source insight")
+        dest_insight = Insight.objects.create(team=dest_team, name="Dest insight")
+
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Insight",
+            resource_id=str(source_insight.pk),
+            duplicated_resource_id=str(dest_insight.pk),
+        )
+
+        dag = self._build_dag(source_insight)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        assert (("Insight", source_insight.pk), ("Insight", dest_insight.pk)) in result
+
+    def test_suggests_substitution_from_name_match(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Shared name")
+        dest_insight = Insight.objects.create(team=dest_team, name="Shared name")
+
+        dag = self._build_dag(source_insight)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        assert (("Insight", source_insight.pk), ("Insight", dest_insight.pk)) in result
+
+    def test_transfer_record_takes_priority_over_name_match(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Shared name")
+        name_match_insight = Insight.objects.create(team=dest_team, name="Shared name")
+        transferred_insight = Insight.objects.create(team=dest_team, name="Different name")
+
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Insight",
+            resource_id=str(source_insight.pk),
+            duplicated_resource_id=str(transferred_insight.pk),
+        )
+
+        dag = self._build_dag(source_insight)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        # should pick the transferred insight, not the name match
+        assert (("Insight", source_insight.pk), ("Insight", transferred_insight.pk)) in result
+        assert (("Insight", source_insight.pk), ("Insight", name_match_insight.pk)) not in result
+
+    def test_no_suggestion_when_no_transfer_record_and_no_name(self) -> None:
+        dest_team = self._create_destination_team()
+        # an insight with no name gets no name-based match
+        source_insight = Insight.objects.create(team=self.team, name="")
+
+        dag = self._build_dag(source_insight)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        insight_suggestions = [(s, d) for s, d in result if s[0] == "Insight"]
+        assert insight_suggestions == []
+
+    def test_deleted_transfer_target_falls_back_to_name_match(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source name")
+        transferred_insight = Insight.objects.create(team=dest_team, name="Old copy")
+
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Insight",
+            resource_id=str(source_insight.pk),
+            duplicated_resource_id=str(transferred_insight.pk),
+        )
+
+        transferred_insight.delete()
+
+        fallback_insight = Insight.objects.create(team=dest_team, name="Source name")
+
+        dag = self._build_dag(source_insight)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        assert (("Insight", source_insight.pk), ("Insight", fallback_insight.pk)) in result
+
+    def test_multiple_mutable_vertices_produce_multiple_suggestions(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # create transfer records so suggestions are deterministic
+        dest_dashboard = Dashboard.objects.create(team=dest_team, name="Dest dashboard")
+        dest_insight = Insight.objects.create(team=dest_team, name="Dest insight")
+
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Dashboard",
+            resource_id=str(dashboard.pk),
+            duplicated_resource_id=str(dest_dashboard.pk),
+        )
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Insight",
+            resource_id=str(insight.pk),
+            duplicated_resource_id=str(dest_insight.pk),
+        )
+
+        dag = self._build_dag(dashboard)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        source_kinds = {src_key[0] for src_key, _ in result}
+        assert "Dashboard" in source_kinds
+        assert "Insight" in source_kinds
+
+        assert (("Dashboard", dashboard.pk), ("Dashboard", dest_dashboard.pk)) in result
+        assert (("Insight", insight.pk), ("Insight", dest_insight.pk)) in result
+
+    def test_resource_without_name_attribute_produces_no_name_suggestion(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        dag = self._build_dag(dashboard)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        # DashboardTile has no name attribute so shouldn't get a name-based suggestion
+        tile_suggestions = [(s, d) for s, d in result if s[0] == "DashboardTile"]
+        assert tile_suggestions == []
+
+    def test_most_recent_transfer_record_is_preferred(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        old_dest = Insight.objects.create(team=dest_team, name="Old dest")
+        new_dest = Insight.objects.create(team=dest_team, name="New dest")
+
+        # older transfer
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Insight",
+            resource_id=str(source_insight.pk),
+            duplicated_resource_id=str(old_dest.pk),
+        )
+        # newer transfer (created second, so last_transferred_at is later)
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=dest_team,
+            created_by=self.user,
+            resource_kind="Insight",
+            resource_id=str(source_insight.pk),
+            duplicated_resource_id=str(new_dest.pk),
+        )
+
+        dag = self._build_dag(source_insight)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        assert (("Insight", source_insight.pk), ("Insight", new_dest.pk)) in result
+        assert (("Insight", source_insight.pk), ("Insight", old_dest.pk)) not in result

@@ -2,7 +2,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
+import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -68,27 +68,25 @@ export function ExperimentMetricConversionWindowFilter({
                 />
                 {metric.conversion_window_unit !== undefined && (
                     <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2">
-                            <LemonInput
-                                type="number"
-                                className="max-w-20"
-                                fullWidth={false}
-                                min={intervalBounds[0]}
-                                max={intervalBounds[1]}
-                                value={metric.conversion_window || 1}
-                                onChange={(value) => {
-                                    handleSetMetric({ ...metric, conversion_window: value || undefined })
-                                }}
-                            />
-                            <LemonSelect
-                                dropdownMatchSelectWidth={false}
-                                value={metric.conversion_window_unit}
-                                onChange={(value) =>
-                                    handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
-                                }
-                                options={options}
-                            />
-                        </div>
+                        <LemonInput
+                            type="number"
+                            className="max-w-20"
+                            fullWidth={false}
+                            min={intervalBounds[0]}
+                            max={intervalBounds[1]}
+                            value={metric.conversion_window || 1}
+                            onChange={(value) => {
+                                handleSetMetric({ ...metric, conversion_window: value || undefined })
+                            }}
+                        />
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            value={metric.conversion_window_unit}
+                            onChange={(value) =>
+                                handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
+                            }
+                            options={options}
+                        />
                     </div>
                 )}
             </div>

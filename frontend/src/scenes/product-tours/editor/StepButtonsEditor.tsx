@@ -29,11 +29,9 @@ function ButtonEditor({
     totalSteps = 1,
 }: ButtonEditorProps): JSX.Element {
     const actionOptions = isTourContext ? TOUR_BUTTON_ACTION_OPTIONS : BUTTON_ACTION_OPTIONS
+    const isLastStep = stepIndex === totalSteps - 1
 
     const actionDisabledReason = (action: ProductTourButtonAction): string | undefined => {
-        if (action === 'next_step' && stepIndex === totalSteps - 1) {
-            return 'No further tour steps'
-        }
         if (action === 'previous_step' && stepIndex === 0) {
             return 'No previous tour steps'
         }
@@ -65,6 +63,7 @@ function ButtonEditor({
                     }}
                     options={actionOptions.map((opt) => ({
                         ...opt,
+                        label: opt.value === 'next_step' && isLastStep ? 'Complete tour' : opt.label,
                         disabledReason: actionDisabledReason(opt.value),
                     }))}
                     size="small"
@@ -152,7 +151,11 @@ export function StepButtonsEditor({
         return (
             <div className="space-y-3">
                 {isTourContext && (
-                    <LemonSwitch checked={customButtonsEnabled} onChange={toggleCustomButtons} label="Custom buttons" />
+                    <LemonSwitch
+                        checked={customButtonsEnabled}
+                        onChange={toggleCustomButtons}
+                        label="Use custom buttons"
+                    />
                 )}
                 {(customButtonsEnabled || !isTourContext) && (
                     <div className="flex gap-4">
@@ -198,7 +201,7 @@ export function StepButtonsEditor({
     return (
         <div className="space-y-3">
             {isTourContext && (
-                <LemonSwitch checked={customButtonsEnabled} onChange={toggleCustomButtons} label="Custom buttons" />
+                <LemonSwitch checked={customButtonsEnabled} onChange={toggleCustomButtons} label="Use custom buttons" />
             )}
             {(customButtonsEnabled || !isTourContext) && (
                 <>

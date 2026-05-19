@@ -161,7 +161,7 @@ class Entity(PropertyMixin):
 
         return self.id == other.id and len(self_properties - other_properties) == 0
 
-    def get_action(self) -> Action:
+    def get_action(self, team_id: int) -> Action:
         if self.type != TREND_FILTER_TYPE_ACTIONS:
             raise ValueError(
                 f"Action can only be fetched for entities of type {TREND_FILTER_TYPE_ACTIONS}, not {self.type}!"
@@ -174,7 +174,7 @@ class Entity(PropertyMixin):
             raise ValidationError("Action ID cannot be None!")
 
         try:
-            self._action = Action.objects.get(id=self.id)
+            self._action = Action.objects.get(id=self.id, team_id=team_id)
             return self._action
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")

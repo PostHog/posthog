@@ -8,10 +8,10 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -77,6 +77,7 @@ function NewPasswordForm(): JSX.Element {
                         className="ph-ignore-input"
                         placeholder="••••••••••"
                         data-attr="password"
+                        autoFocus
                     />
                 </LemonField>
 

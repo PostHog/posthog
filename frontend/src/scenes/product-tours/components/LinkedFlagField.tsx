@@ -15,7 +15,7 @@ import { productTourLogic } from '../productTourLogic'
 type FlagType = FeatureFlagBasicType | FeatureFlagType
 
 export function LinkedFlagField({ id }: { id: string }): JSX.Element {
-    const { productTourForm, entityKeyword } = useValues(productTourLogic({ id }))
+    const { productTourForm, entityKeyword, hasCustomTargeting } = useValues(productTourLogic({ id }))
     const { setProductTourFormValue } = useActions(productTourLogic({ id }))
 
     const conditions = productTourForm.content?.conditions || {}
@@ -109,6 +109,19 @@ export function LinkedFlagField({ id }: { id: string }): JSX.Element {
                         onChange={handleVariantSelect}
                     />
                 </div>
+            )}
+
+            {flagId && (
+                <p className="text-muted mt-2">
+                    {hasCustomTargeting ? (
+                        <>
+                            This {entityKeyword} will be shown to users who have this flag enabled <strong>and</strong>{' '}
+                            match the conditions specified above.
+                        </>
+                    ) : (
+                        <>This {entityKeyword} will be shown only to users who have this flag enabled.</>
+                    )}
+                </p>
             )}
         </div>
     )

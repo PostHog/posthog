@@ -15,13 +15,13 @@ from posthog.cdp.validation import (
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
-def validate_inputs(schema, inputs):
+def validate_inputs(schema, inputs, function_type="destination"):
     serializer = MappingsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
         },
-        context={"function_type": "destination"},
+        context={"function_type": function_type},
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
@@ -371,6 +371,58 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
 
+    @parameterized.expand(
+        [
+            ("person", "{person?.id}"),
+            ("groups", "{groups.organization.id}"),
+            ("source", "{source.name}"),
+            ("multiple", "{person?.id} {groups.organization.id}"),
+        ]
+    )
+    def test_validate_transformation_inputs_rejects_unavailable_global(self, _name: str, value: str):
+        # Transformations only have access to project, event, and inputs at runtime
+        # (HogTransformerService.createInvocationGlobals). Referencing other globals
+        # must be caught at validation time so we don't crash the realtime ingestion
+        # worker with a "Global variable not found" error from the Hog VM.
+        inputs_schema = [{"key": "payload", "type": "string", "required": True}]
+        inputs = {"payload": {"value": value}}
+
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs, function_type="transformation")
+
+        assert "transformation" in str(ctx.exception).lower()
+
+    def test_validate_transformation_inputs_allows_event_project_inputs(self):
+        inputs_schema = [
+            {"key": "first", "type": "string", "required": True},
+            {"key": "second", "type": "string", "required": True},
+        ]
+        inputs = {
+            "first": {"value": "hello {event.distinct_id} from {project.name}"},
+            "second": {"value": "{inputs.first}!"},
+        }
+
+        validated = validate_inputs(inputs_schema, inputs, function_type="transformation")
+        assert validated["first"]["bytecode"] is not None
+        assert validated["second"]["bytecode"] is not None
+
+    def test_validate_transformation_inputs_allows_stl_and_runtime_functions(self):
+        # STL functions (e.g. now) and transformation runtime helpers (e.g. geoipLookup)
+        # are valid root identifiers because the Hog VM falls back to STL/runtime lookups
+        # when a global isn't found.
+        inputs_schema = [
+            {"key": "ts", "type": "string", "required": True},
+            {"key": "geo", "type": "string", "required": True},
+        ]
+        inputs = {
+            "ts": {"value": "{now()}"},
+            "geo": {"value": "{geoipLookup(event.properties.$ip)}"},
+        }
+
+        validated = validate_inputs(inputs_schema, inputs, function_type="transformation")
+        assert validated["ts"]["bytecode"] is not None
+        assert validated["geo"]["bytecode"] is not None
+
     def test_validate_inputs_with_secret_values(self):
         inputs_schema = [
             {"key": "secret_field", "type": "string", "required": True, "secret": True},
@@ -496,6 +548,47 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert "bracket notation" in error_msg
         else:
             validate_inputs(inputs_schema, inputs)
+
+    def test_validate_boolean_input_with_bool_value(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": True}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] is True
+
+    def test_validate_boolean_input_with_false_value(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": False}}
+        validated = validate_inputs(inputs_schema, inputs)
+        # False is falsy so it skips transpilation, value should still be preserved
+        assert validated["opt_out"]["value"] is False
+
+    def test_validate_boolean_input_with_template_string(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{event.properties.opt_out}"}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] == "{event.properties.opt_out}"
+        assert "bytecode" in validated["opt_out"]
+
+    def test_validate_boolean_input_rejects_invalid_type(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": True}]
+        inputs = {"opt_out": {"value": 42}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "boolean or a template string" in str(ctx.exception)
+
+    def test_validate_boolean_input_rejects_liquid_templating(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{{ event.properties.opt_out }}", "templating": "liquid"}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "Liquid templating is not supported for boolean fields" in str(ctx.exception)
+
+    def test_validate_boolean_input_allows_hog_templating(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{event.properties.opt_out}", "templating": "hog"}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] == "{event.properties.opt_out}"
+        assert "bytecode" in validated["opt_out"]
 
     @parameterized.expand(
         [

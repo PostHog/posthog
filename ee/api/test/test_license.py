@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization
@@ -19,6 +20,11 @@ from ee.models.license import License
 
 
 class TestLicenseAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+
     @pytest.mark.skip_on_multitenancy
     def test_can_list_and_retrieve_licenses(self):
         response = self.client.get("/api/license")
@@ -27,7 +33,7 @@ class TestLicenseAPI(APILicensedTest):
         response_data = response.json()
         self.assertEqual(response_data["count"], 1)
         self.assertEqual(response_data["results"][0]["plan"], "enterprise")
-        self.assertEqual(response_data["results"][0]["key"], "12345::67890")
+        self.assertNotIn("key", response_data["results"][0])
         self.assertEqual(
             response_data["results"][0]["valid_until"],
             datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")).isoformat().replace("+00:00", "Z"),
@@ -36,6 +42,26 @@ class TestLicenseAPI(APILicensedTest):
         retrieve_response = self.client.get(f"/api/license/{response_data['results'][0]['id']}")
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
+
+    @parameterized.expand(["list", "retrieve", "create"])
+    @patch("ee.api.license.requests.post")
+    @pytest.mark.skip_on_multitenancy
+    def test_license_key_is_write_only(self, method, patch_post):
+        mock = Mock()
+        mock.json.return_value = {
+            "plan": "enterprise",
+            "valid_until": (timezone.now() + datetime.timedelta(days=10)).isoformat().replace("+00:00", "Z"),
+        }
+        patch_post.return_value = mock
+
+        if method == "list":
+            response_data = self.client.get("/api/license").json()["results"][0]
+        elif method == "retrieve":
+            response_data = self.client.get(f"/api/license/{self.license.pk}").json()
+        else:
+            response_data = self.client.post("/api/license", {"key": "test_key"}).json()
+
+        self.assertNotIn("key", response_data)
 
     @patch("ee.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
@@ -53,7 +79,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["plan"], "enterprise")
-        self.assertEqual(response_data["key"], "newer_license_1")
+        self.assertNotIn("key", response_data)
 
         self.assertEqual(License.objects.count(), count + 1)
         license = License.objects.get(id=response_data["id"])
@@ -162,6 +188,66 @@ class TestLicenseAPI(APILicensedTest):
             sorted([self.team.pk, not_to_be_deleted.pk]),
         )
         self.assertEqual(Organization.objects.count(), 1)
+
+    @parameterized.expand(["list", "retrieve", "create", "destroy"])
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
+    def test_non_staff_user_cannot_access_license_endpoints(self, action, patch_post):
+        self.user.is_staff = False
+        self.user.save()
+
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        teams_before = set(Team.objects.values_list("pk", flat=True))
+        orgs_before = set(Organization.objects.values_list("pk", flat=True))
+        license_pk = self.license.pk
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+
+        if action == "list":
+            response = self.client.get("/api/license")
+        elif action == "retrieve":
+            response = self.client.get(f"/api/license/{license_pk}")
+        elif action == "create":
+            response = self.client.post("/api/license", {"key": "test_key"})
+        else:
+            response = self.client.delete(f"/api/license/{license_pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        patch_post.assert_not_called()
+        self.assertTrue(License.objects.filter(pk=license_pk).exists())
+        self.assertEqual(set(Team.objects.values_list("pk", flat=True)), teams_before)
+        self.assertEqual(set(Organization.objects.values_list("pk", flat=True)), orgs_before)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
+    def test_staff_user_cannot_delete_license_in_cloud_mode(self, patch_post):
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        teams_before = set(Team.objects.values_list("pk", flat=True))
+        orgs_before = set(Organization.objects.values_list("pk", flat=True))
+        license_pk = self.license.pk
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/license/{license_pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        patch_post.assert_not_called()
+        self.assertTrue(License.objects.filter(pk=license_pk).exists())
+        self.assertEqual(set(Team.objects.values_list("pk", flat=True)), teams_before)
+        self.assertEqual(set(Organization.objects.values_list("pk", flat=True)), orgs_before)
 
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")

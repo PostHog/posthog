@@ -19,22 +19,22 @@ export function RecentEventsPanel({
     distinctId,
     sessionId,
 }: RecentEventsPanelProps): JSX.Element {
-    const title = (
-        <>
-            Recent events
-            {eventsQuery && (
-                <span className="text-muted-alt font-normal ml-1">{sessionId ? '(session)' : '(±5 min)'}</span>
-            )}
-        </>
-    )
-
     return (
         <LemonCollapse
             className="bg-surface-primary"
             panels={[
                 {
                     key: 'recent-events',
-                    header: title,
+                    header: (
+                        <>
+                            Recent events
+                            {eventsQuery && (
+                                <span className="text-muted-alt font-normal ml-1">
+                                    {sessionId ? '(session)' : '(±5 min)'}
+                                </span>
+                            )}
+                        </>
+                    ),
                     content: (
                         <div>
                             {personLoading ? (

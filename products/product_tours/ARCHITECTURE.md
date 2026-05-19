@@ -285,11 +285,11 @@ Will provide a dedicated UI for viewing, managing, and analyzing product tours w
 
 ### Authentication
 
-| Context               | Auth Method                                      |
-| --------------------- | ------------------------------------------------ |
-| Toolbar → Backend API | Temporary token (`TemporaryTokenAuthentication`) |
-| SDK → Public endpoint | Project API key in request                       |
-| App UI → Backend API  | Session auth (standard PostHog auth)             |
+| Context               | Auth Method                                           |
+| --------------------- | ----------------------------------------------------- |
+| Toolbar → Backend API | OAuth Bearer token (`OAuthAccessTokenAuthentication`) |
+| SDK → Public endpoint | Project token in request                              |
+| App UI → Backend API  | Session auth (standard PostHog auth)                  |
 
 ### Error Handling
 
@@ -357,19 +357,16 @@ The toolbar requires a specific setup because it runs inside an iframe on the cu
 4. Navigate to page matching tour conditions
 5. Tour should appear within 1 second (SDK polling interval)
 
-### Clearing remote config cache
+### Rebuilding remote config cache
 
 If you change `remote_config.py` and don't see updates at `/array/{token}/config.js`:
 
 ```python
 # In Django shell
-from django.core.cache import cache
-from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.team import Team
 
 token = 'your-token-here'
-cache.delete(cache_key_for_team_token(token))
-
 team = Team.objects.get(api_token=token)
 rc, _ = RemoteConfig.objects.get_or_create(team=team)
 rc.sync(force=True)

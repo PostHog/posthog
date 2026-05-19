@@ -38,15 +38,13 @@ export const FilterBar = ({ top, left, right, className, showBorderBottom }: Fil
                     </div>
                 </div>
 
-                {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
-                <div className="hidden sm:flex gap-2">
-                    <FoldableFilters>{right}</FoldableFilters>
-                </div>
-
+                {/* Render right content once - on mobile it's collapsible, on sm+ always visible */}
                 <div
                     className={clsx(
-                        'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
-                        expanded ? 'max-h-[500px]' : 'max-h-0'
+                        'flex gap-2',
+                        'sm:max-h-none',
+                        'max-sm:flex-col max-sm:overflow-hidden max-sm:transition-all max-sm:duration-200',
+                        expanded ? 'max-sm:max-h-[500px]' : 'max-sm:max-h-0'
                     )}
                 >
                     <FoldableFilters>{right}</FoldableFilters>

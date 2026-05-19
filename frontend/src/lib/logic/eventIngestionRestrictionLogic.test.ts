@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -29,7 +31,7 @@ describe('eventIngestionRestrictionLogic', () => {
         logic.values.eventIngestionRestrictions
         await delay(1)
         const hasMatchingCall = (api.get as jest.Mock).mock.calls.some(
-            (call) => call[0] === 'api/environments/@current/event_ingestion_restrictions/'
+            (call) => call[0] === `api/environments/${MOCK_TEAM_ID}/event_ingestion_restrictions/`
         )
         expect(hasMatchingCall).toBe(true)
 
@@ -97,6 +99,22 @@ describe('eventIngestionRestrictionLogic', () => {
 
     it('handles empty restrictions', async () => {
         jest.spyOn(api, 'get').mockResolvedValue([])
+
+        logic.mount()
+        logic.values.eventIngestionRestrictions
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
+            .toMatchValues({
+                eventIngestionRestrictions: [],
+                hasProjectNoticeRestriction: false,
+            })
+    })
+
+    it('coerces null api response to empty array', async () => {
+        // api.get resolves to null when the response body isn't valid JSON
+        // (e.g. 204 No Content, CDN/proxy HTML error pages) — guard against it
+        jest.spyOn(api, 'get').mockResolvedValue(null)
 
         logic.mount()
         logic.values.eventIngestionRestrictions

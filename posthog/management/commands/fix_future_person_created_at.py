@@ -8,7 +8,7 @@ from django.utils.timezone import now
 import structlog
 from dateutil.parser import isoparse
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.person.person import Person
 from posthog.models.person.util import create_person
 
@@ -41,7 +41,7 @@ def run(options):
     future_date = now() + timedelta(days=2)
 
     # Get all persons with future created_at value
-    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)
+    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)  # nosemgrep: no-direct-persons-db-orm
 
     logger.info(
         f"Found {len(persons)} persons with future created_at value, updating them to {new_date.strftime('%Y-%m-%d %H:%M:%S.%f')}"
@@ -51,7 +51,9 @@ def run(options):
     for person in persons:
         logger.info(f"Updating person {person.uuid} created_at to {new_date.strftime('%Y-%m-%d %H:%M:%S.%f')}")
         if live_run:
-            Person.objects.filter(pk=person.id).update(version=F("version") + 1, created_at=new_date)
+            Person.objects.filter(pk=person.id).update(  # nosemgrep: no-direct-persons-db-orm
+                version=F("version") + 1, created_at=new_date
+            )  # nosemgrep: no-direct-persons-db-orm
             create_person(
                 uuid=str(person.uuid),
                 team_id=team_id,
@@ -59,10 +61,9 @@ def run(options):
                 is_identified=person.is_identified,
                 is_deleted=False,
                 created_at=person.created_at,
-                version=person.version,
-                sync=True,
+                version=person.version or 0,
             )
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
-    KafkaProducer().flush(5 * 60)
+    flush_all_producers(5 * 60)
     logger.info("Kafka producer queue flushed.")

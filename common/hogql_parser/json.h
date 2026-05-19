@@ -86,6 +86,10 @@ class Json {
     value = i;
     return *this;
   }
+  Json& operator=(size_t i) {
+    value = static_cast<Int>(i);
+    return *this;
+  }
   Json& operator=(double d) {
     value = d;
     return *this;

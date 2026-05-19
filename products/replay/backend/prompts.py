@@ -291,6 +291,7 @@ FILTER_EXAMPLES_PROMPT = """
 **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
 **Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
 **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
+  Always use `"type": "recording"` for these. They are NOT events — `$keypress`, `$click`, `$console_error` do not exist as event names.
 
 # Special Patterns
 **Frustrated users (rageclicks)**:
@@ -301,6 +302,12 @@ FILTER_EXAMPLES_PROMPT = """
 ```json
 {"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC"}
 ```
+**Recordings where users interacted with an element containing specific text**:
+```json
+{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"id":"$autocapture","type":"events","properties":[{"key":"text","type":"element","value":"Sign Up","operator":"icontains"}]}]}]}}
+```
+Valid element property keys: `tag_name` (HTML tag), `text` (visible text on the interacted element), `href` (link URL), `selector` (CSS selector).
+
 **Clear all filters**:
 ```json
 {"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[]}]},"filter_test_accounts":true,"order":"start_time","order_direction":"DESC"}

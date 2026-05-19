@@ -37,7 +37,8 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 name: '',
                 description: '',
                 image_url: null as string | null,
-                scope: 'team' as 'team' | 'global',
+                tags: [] as string[],
+                scope: 'team' as 'team' | 'global' | 'organization',
             },
             errors: ({ name }: { name: string }) => ({
                 name: !name ? 'Name is required' : undefined,
@@ -46,7 +47,8 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 name: string
                 description: string
                 image_url: string | null
-                scope: 'team' | 'global'
+                tags: string[]
+                scope: 'team' | 'global' | 'organization'
             }) => {
                 const workflow = values.workflow
                 if (!workflow) {
@@ -61,6 +63,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                             name: formValues.name || workflow.name || '',
                             description: formValues.description || workflow.description || '',
                             image_url: formValues.image_url || undefined,
+                            tags: formValues.tags,
                             scope: formValues.scope || undefined,
                         }
 
@@ -76,9 +79,9 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
 
                 // Otherwise, create a new template
-                let scope: 'team' | 'global' = 'team'
-                if (values.user?.is_staff) {
-                    scope = formValues.scope ?? 'team'
+                let scope: 'team' | 'global' | 'organization' = formValues.scope ?? 'team'
+                if (scope === 'global' && !values.user?.is_staff) {
+                    scope = 'team'
                 }
 
                 try {
@@ -87,6 +90,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                         name: formValues.name || workflow.name || '',
                         description: formValues.description || workflow.description || '',
                         image_url: formValues.image_url || undefined,
+                        tags: formValues.tags,
                         scope,
                     })
                     lemonToast.success('Workflow template created')
@@ -136,6 +140,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     name: templateForm.name || workflow.name || '',
                     description: templateForm.description || workflow.description || '',
                     image_url: templateForm.image_url || undefined,
+                    tags: templateForm.tags,
                     scope: templateForm.scope || undefined,
                 }
                 const { status, ...templateWithoutStatus } = template
@@ -151,13 +156,14 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
             const workflow = values.workflow
             if (workflow) {
                 if (props.editTemplateId) {
-                    // In edit mode, use workflow values for name/description, but load template for image_url and scope
+                    // In edit mode, use workflow values for name/description, but load template for image_url, tags, and scope
                     try {
                         const template = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
                         actions.setTemplateFormValues({
                             name: workflow.name,
                             description: workflow.description || '', // Use current workflow description
                             image_url: template.image_url || null,
+                            tags: template.tags,
                             scope: template.scope || 'team',
                         })
                     } catch (e: any) {
@@ -171,6 +177,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                         name: workflow.name || '',
                         description: workflow.description || '',
                         image_url: null,
+                        tags: [],
                         scope: 'team',
                     })
                 }

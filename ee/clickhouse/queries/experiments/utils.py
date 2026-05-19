@@ -25,7 +25,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
 
     for entity in entities_to_use:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = entity.get_action()
+            action = entity.get_action(team.pk)
             for step_event in action.get_step_events():
                 if step_event:
                     # TODO: Fix this to detect if "all events" (i.e. None) is in the list and change the entiry query to e.g. AND 1=1

@@ -1,10 +1,13 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { QUICK_START_PARAM } from 'lib/components/ProductSetup/globalSetupLogic'
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -15,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
+import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 import { availableOnboardingProducts } from './utils'
 
 /** Interface for onboarding step components that have a static stepKey property */
@@ -55,35 +59,28 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type OnboardingStepType = OnboardingStepElement
 
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
-    let baseUrl: string
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            baseUrl = urls.insightOptions()
-            break
+            return urls.insightQuickStart()
         case ProductKey.WEB_ANALYTICS:
-            baseUrl = urls.webAnalytics()
-            break
+            return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
-            baseUrl = urls.replay()
-            break
+            return urls.replay()
         case ProductKey.FEATURE_FLAGS:
-            baseUrl = urls.featureFlag('new')
-            break
+            return urls.featureFlags()
         case ProductKey.SURVEYS:
-            baseUrl = urls.surveyTemplates()
-            break
+            return urls.surveyWizard()
         case ProductKey.ERROR_TRACKING:
-            baseUrl = urls.errorTracking()
-            break
+            return urls.errorTracking()
         case ProductKey.LLM_ANALYTICS:
-            baseUrl = urls.llmAnalyticsDashboard()
-            break
+            return urls.llmAnalyticsDashboard()
+        case ProductKey.WORKFLOWS:
+            return urls.workflows()
+        case ProductKey.LOGS:
+            return urls.logs()
         default:
-            baseUrl = urls.default()
+            return urls.default()
     }
-
-    // Append quickstart param to open the quick start popover after onboarding
-    return `${baseUrl}?${QUICK_START_PARAM}=true`
 }
 
 export const onboardingLogic = kea<onboardingLogicType>([
@@ -99,9 +96,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
             userLogic,
             ['user'],
             preflightLogic,
-            ['isCloudOrDev'],
+            ['isCloudOrDev', 'preflight'],
             sidePanelStateLogic,
             ['modalMode'],
+            featureFlagLogic,
+            ['featureFlags', 'receivedFeatureFlags'],
+            postOnboardingModalLogic,
+            ['modalShown'],
         ],
         actions: [
             billingLogic,
@@ -110,6 +111,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
             sidePanelStateLogic,
             ['openSidePanel'],
+            globalSetupLogic,
+            ['openGlobalSetup'],
+            postOnboardingModalLogic,
+            ['openPostOnboardingModal'],
         ],
     })),
     actions({
@@ -128,8 +133,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
         resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
         skipOnboarding: true,
+        setAwaitingPostOnboardingModal: (awaiting: boolean) => ({ awaiting }),
+        setSessionSecondaryProductKeys: (keys: ProductKey[]) => ({ keys }),
+        setFromProductKey: (key: ProductKey | null) => ({ key }),
+        setResumeStep: (step: OnboardingStepKey | null) => ({ step }),
     }),
     reducers(() => ({
+        isAwaitingPostOnboardingModal: [
+            false,
+            {
+                setAwaitingPostOnboardingModal: (_, { awaiting }) => awaiting,
+            },
+        ],
         productKey: [
             null as ProductKey | null,
             {
@@ -170,6 +185,24 @@ export const onboardingLogic = kea<onboardingLogicType>([
             null as string | null,
             {
                 setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
+            },
+        ],
+        sessionSecondaryProductKeys: [
+            [] as ProductKey[],
+            {
+                setSessionSecondaryProductKeys: (_, { keys }) => keys,
+            },
+        ],
+        fromProductKey: [
+            null as ProductKey | null,
+            {
+                setFromProductKey: (_, { key }) => key,
+            },
+        ],
+        resumeStep: [
+            null as OnboardingStepKey | null,
+            {
+                setResumeStep: (_, { step }) => step,
             },
         ],
     })),
@@ -244,14 +277,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
-        shouldShowReverseProxyStep: [
-            (s) => [s.productKey],
-            (productKey) => {
-                return (
-                    productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
-                )
-            },
-        ],
         shouldShowDataWarehouseStep: [
             (s) => [s.productKey],
             (productKey) => {
@@ -303,7 +328,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         setProductKey: ({ productKey }) => {
-            if (!productKey) {
+            if (!productKey || !isKeyOf(productKey, availableOnboardingProducts)) {
                 window.location.href = urls.default()
                 return
             }
@@ -327,6 +352,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
+                // Signal that the next updateCurrentTeamSuccess should show the modal
+                actions.setAwaitingPostOnboardingModal(true)
                 teamLogic.actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,
@@ -336,7 +363,27 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         skipOnboarding: () => {
+            // Quick Start does not auto-open here. The button remains in the scene title
+            // bar so users can open it manually. Auto-opening it conflicted with the welcome
+            // dialog mounted in GlobalModals for invitees (delegates and ordinary members),
+            // creating two competing "what to do next" surfaces.
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
+        },
+        updateCurrentTeamSuccess: () => {
+            // See `skipOnboarding`: Quick Start no longer auto-opens after onboarding completes.
+            if (values.isAwaitingPostOnboardingModal && values.productKey) {
+                actions.setAwaitingPostOnboardingModal(false)
+                // Experiment variant still shows its modal (it's gated by `modalShown` so it
+                // only fires once per user), but the control branch no longer auto-opens
+                // Quick Start.
+                const isVariant =
+                    values.receivedFeatureFlags &&
+                    values.featureFlags[FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT] === 'test'
+
+                if (isVariant && !values.modalShown) {
+                    actions.openPostOnboardingModal(values.productKey)
+                }
+            }
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
@@ -364,36 +411,89 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
             const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
-            if (nextStep) {
+            const baseParams = { ...router.values.searchParams }
+
+            // Divert into Logs install when leaving the primary product's Install step with
+            // Logs selected as a secondary intent. Strip LOGS from `secondary` so that if the
+            // user later returns to this step, the divert won't fire again (no ping-pong).
+            // The primary's next-step key is captured as `resumeStep` so completion of the
+            // Logs install can return the user to the correct point in the primary flow.
+            if (
+                values.stepKey === OnboardingStepKey.INSTALL &&
+                values.productKey !== ProductKey.LOGS &&
+                values.sessionSecondaryProductKeys.includes(ProductKey.LOGS)
+            ) {
+                const remainingSecondary = values.sessionSecondaryProductKeys.filter((k) => k !== ProductKey.LOGS)
+                const resumeStepKey = nextStep ? getStepKey(nextStep) : null
                 return [
-                    `/onboarding/${values.productKey}`,
-                    { ...router.values.searchParams, step: getStepKey(nextStep) },
+                    urls.onboarding({
+                        productKey: ProductKey.LOGS,
+                        stepKey: OnboardingStepKey.INSTALL,
+                        secondary: remainingSecondary.length ? remainingSecondary : undefined,
+                        from: values.productKey ?? undefined,
+                        resumeStep: resumeStepKey ?? undefined,
+                    }),
+                    {},
                 ]
             }
-            return [`/onboarding/${values.productKey}`, router.values.searchParams]
+
+            // Returning from a Logs divert: route to the original product at its captured
+            // resume step. If no resume step was captured, the primary had no further steps
+            // and completion is handled by the install step's NextButton (completeOnboarding).
+            if (values.productKey === ProductKey.LOGS && values.fromProductKey && values.resumeStep && !nextStep) {
+                return [
+                    urls.onboarding({
+                        productKey: values.fromProductKey,
+                        stepKey: values.resumeStep,
+                        secondary: values.sessionSecondaryProductKeys.length
+                            ? values.sessionSecondaryProductKeys
+                            : undefined,
+                    }),
+                    {},
+                ]
+            }
+
+            if (nextStep) {
+                return [`/onboarding/${values.productKey}`, { ...baseParams, step: getStepKey(nextStep) }]
+            }
+            return [`/onboarding/${values.productKey}`, baseParams]
         },
         goToPreviousStep: () => {
             const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
             const previousStep = values.allOnboardingSteps[currentStepIndex - 1]
+            const baseParams = { ...router.values.searchParams }
             if (previousStep) {
+                return [`/onboarding/${values.productKey}`, { ...baseParams, step: getStepKey(previousStep) }]
+            }
+            // No previous step within this product: if we were diverted here from another
+            // product's install step, navigate back to it. Strip LOGS from secondary so the
+            // primary's "Continue" doesn't re-divert (back implies "I don't want this divert");
+            // other secondary selections are preserved.
+            if (values.fromProductKey) {
+                const remainingSecondary = values.sessionSecondaryProductKeys.filter((k) => k !== ProductKey.LOGS)
                 return [
-                    `/onboarding/${values.productKey}`,
-                    { ...router.values.searchParams, step: getStepKey(previousStep) },
+                    urls.onboarding({
+                        productKey: values.fromProductKey,
+                        stepKey: OnboardingStepKey.INSTALL,
+                        secondary: remainingSecondary.length ? remainingSecondary : undefined,
+                    }),
+                    {},
                 ]
             }
-            return [`/onboarding/${values.productKey}`, router.values.searchParams]
+            return [`/onboarding/${values.productKey}`, baseParams]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
                 actions.setOnCompleteOnboardingRedirectUrl(null)
+
                 return [redirectUrl]
             }
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
-            if (!productKey || !(productKey in availableOnboardingProducts)) {
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step, secondary, from, resumeStep }) => {
+            if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
                 return
             }
 
@@ -405,6 +505,27 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 // Reset onboarding steps so they can be populated upon render in the component.
                 actions.setAllOnboardingSteps([])
             }
+
+            // `secondary`/`from`/`resumeStep` are always sourced from the URL on every
+            // route hit so navigating away from a URL without these params clears the
+            // state — preventing leakage across separate onboardings in the same tab.
+            // Defensive coercion: kea-router auto-coerces "true"/"42" to bool/number,
+            // so we must guard against non-string values before splitting.
+            const secondaryStr = typeof secondary === 'string' ? secondary : ''
+            const secondaryKeys = secondaryStr
+                ? (secondaryStr
+                      .split(',', 32)
+                      .filter((k: string) => Object.hasOwn(availableOnboardingProducts, k)) as ProductKey[])
+                : []
+            actions.setSessionSecondaryProductKeys(Array.from(new Set(secondaryKeys)))
+
+            const fromValid =
+                typeof from === 'string' && Object.hasOwn(availableOnboardingProducts, from) && from !== productKey
+            actions.setFromProductKey(fromValid ? (from as ProductKey) : null)
+
+            actions.setResumeStep(
+                typeof resumeStep === 'string' && resumeStep ? (resumeStep as OnboardingStepKey) : null
+            )
 
             if (step) {
                 // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue

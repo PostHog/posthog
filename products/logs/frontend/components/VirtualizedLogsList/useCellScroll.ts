@@ -8,7 +8,7 @@ const SCROLL_AMOUNT_PX = 8
 
 // Hook for the component that owns the scrollable element (e.g., MessageCell)
 export interface UseCellScrollRefOptions {
-    tabId: string
+    id: string
     cellKey: string
     enabled?: boolean
 }
@@ -18,9 +18,9 @@ export interface UseCellScrollRefResult {
     handleScroll: (e: React.UIEvent<HTMLDivElement>) => void
 }
 
-export function useCellScrollRef({ tabId, cellKey, enabled = true }: UseCellScrollRefOptions): UseCellScrollRefResult {
-    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
-    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
+export function useCellScrollRef({ id, cellKey, enabled = true }: UseCellScrollRefOptions): UseCellScrollRefResult {
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const isProgrammaticScrollRef = useRef(false)
@@ -60,7 +60,7 @@ export function useCellScrollRef({ tabId, cellKey, enabled = true }: UseCellScro
 
 // Hook for the component that controls scrolling (e.g., LogRowFAB)
 export interface UseCellScrollControlsOptions {
-    tabId: string
+    id: string
     cellKey: string
 }
 
@@ -69,9 +69,9 @@ export interface UseCellScrollControlsResult {
     stopScrolling: () => void
 }
 
-export function useCellScrollControls({ tabId, cellKey }: UseCellScrollControlsOptions): UseCellScrollControlsResult {
-    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
-    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
+export function useCellScrollControls({ id, cellKey }: UseCellScrollControlsOptions): UseCellScrollControlsResult {
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
 
     const scrollIntervalRef = useRef<number | null>(null)
     const scrollRef = useRef<((direction: 'left' | 'right') => void) | null>(null)
@@ -123,7 +123,7 @@ export function useCellScrollControls({ tabId, cellKey }: UseCellScrollControlsO
 
 // Combined hook for backward compatibility (used when one component needs both)
 export interface UseCellScrollOptions {
-    tabId: string
+    id: string
     cellKey: string
     enabled?: boolean
 }
@@ -136,9 +136,9 @@ export interface UseCellScrollResult {
 }
 
 /** @deprecated Use useCellScrollRef and useCellScrollControls instead */
-export function useCellScroll({ tabId, cellKey, enabled = true }: UseCellScrollOptions): UseCellScrollResult {
-    const { scrollRef, handleScroll } = useCellScrollRef({ tabId, cellKey, enabled })
-    const { startScrolling, stopScrolling } = useCellScrollControls({ tabId, cellKey })
+export function useCellScroll({ id, cellKey, enabled = true }: UseCellScrollOptions): UseCellScrollResult {
+    const { scrollRef, handleScroll } = useCellScrollRef({ id, cellKey, enabled })
+    const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey })
 
     return {
         scrollRef,

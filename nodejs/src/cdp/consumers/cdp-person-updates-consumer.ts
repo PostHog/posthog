@@ -5,56 +5,56 @@ import { UUIDT } from '~/utils/utils'
 
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { ClickHousePerson, Team } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
-import { CdpEventsConsumer, CdpEventsConsumerHub } from './cdp-events.consumer'
+import { CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
 export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
-    protected name = 'CdpPersonUpdatesConsumer'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
+    protected override name = 'CdpPersonUpdatesConsumer'
+    protected override hogTypes: HogFunctionTypeType[] = ['destination']
 
-    constructor(hub: CdpEventsConsumerHub) {
-        super(hub, KAFKA_PERSON, 'cdp-person-updates-consumer')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps, KAFKA_PERSON, 'cdp-person-updates-consumer')
     }
 
-    protected filterHogFunction(hogFunction: HogFunctionType): boolean {
+    protected override filterHogFunction(hogFunction: HogFunctionType): boolean {
         return hogFunction.filters?.source === 'person-updates'
     }
 
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
-    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(async () => {
-            const globals: HogFunctionInvocationGlobals[] = []
-            await Promise.all(
-                messages.map(async (message) => {
-                    try {
-                        const data = parseJSON(message.value!.toString()) as ClickHousePerson
+    public override async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const globals: HogFunctionInvocationGlobals[] = []
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
 
-                        const [teamHogFunctions, team] = await Promise.all([
-                            this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
-                            this.hub.teamManager.getTeam(data.team_id),
-                        ])
+                    const [teamHogFunctions, team] = await Promise.all([
+                        this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
+                        this.deps.teamManager.getTeam(data.team_id),
+                    ])
 
-                        const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
+                    const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
 
-                        if (!filteredHogFunctions.length || !team) {
-                            return
-                        }
-
-                        globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.hub.SITE_URL))
-                    } catch (e) {
-                        logger.error('Error parsing message', e)
-                        counterParseError.labels({ error: e.message }).inc()
+                    if (!filteredHogFunctions.length || !team) {
+                        return
                     }
-                })
-            )
 
-            return globals
-        })
+                    globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return globals
     }
 }
 

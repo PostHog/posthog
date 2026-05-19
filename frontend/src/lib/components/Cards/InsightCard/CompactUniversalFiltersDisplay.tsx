@@ -155,14 +155,14 @@ export function CompactUniversalFiltersDisplay({
                                         (Array.isArray(propertyFilter.value) ? (
                                             propertyFilter.value.map((subValue, index) => (
                                                 <React.Fragment key={index}>
-                                                    <code className="SeriesDisplay__value">{subValue}</code>
+                                                    <code className="SeriesDisplay__value">{String(subValue)}</code>
                                                     {index <
                                                         (propertyFilter.value as PropertyFilterBaseValue[]).length -
                                                             1 && ' or '}
                                                 </React.Fragment>
                                             ))
                                         ) : propertyFilter.value != undefined ? (
-                                            <code className="SeriesDisplay__value">{propertyFilter.value}</code>
+                                            <code className="SeriesDisplay__value">{String(propertyFilter.value)}</code>
                                         ) : null)}
                                 </>
                             )}

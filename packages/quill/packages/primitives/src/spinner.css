@@ -1,0 +1,7 @@
+@layer components {
+    .quill-spinner {
+        width: 1rem;
+        height: 1rem;
+        animation: var(--animate-spin, spin 1s linear infinite);
+    }
+}

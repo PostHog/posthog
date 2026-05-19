@@ -1,17 +1,16 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
-import { NotFound } from './index'
+import { NotFound, NotFoundProps } from './index'
 
-type Story = StoryObj<typeof NotFound>
-const meta: Meta<typeof NotFound> = {
+type Story = StoryObj<NotFoundProps>
+const meta: Meta<NotFoundProps> = {
     title: 'Components/Not Found',
     component: NotFound,
 }
 export default meta
 
-const Template: StoryFn<typeof NotFound> = (args) => <NotFound {...args} />
-
-export const NotFound_: Story = Template.bind({})
-NotFound_.args = {
-    object: 'Person',
+export const NotFound_: Story = {
+    args: {
+        object: 'Person',
+    },
 }

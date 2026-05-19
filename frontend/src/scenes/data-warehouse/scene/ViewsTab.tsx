@@ -1,25 +1,24 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryRunHistory,
+} from '~/types'
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
-
-const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
-    Running: 'primary',
-    Completed: 'success',
-    Failed: 'danger',
-    Cancelled: 'muted',
-    Modified: 'warning',
-}
 
 const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
     if (view.managed_viewset_kind !== null) {
@@ -77,7 +76,12 @@ function DependencyCount({ count, loading }: { count?: number; loading?: boolean
     return <span>{count}</span>
 }
 
-export function ViewsTab(): JSX.Element {
+interface ViewsTabProps {
+    /** Optional function to build the URL when clicking on a view. Defaults to SQL editor. */
+    getViewUrl?: (view: DataWarehouseSavedQuery) => string
+}
+
+export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
     const {
         filteredViews,
         filteredMaterializedViews,
@@ -126,6 +130,7 @@ export function ViewsTab(): JSX.Element {
                                     view.managed_viewset_kind !== null ? (
                                         <>
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         You cannot edit the definition for a view that belongs to a
@@ -156,7 +161,7 @@ export function ViewsTab(): JSX.Element {
                                         />
                                     ) : (
                                         <LemonTableLink
-                                            to={urls.sqlEditor({ view_id: view.id })}
+                                            to={getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id })}
                                             title={view.name}
                                             description="Materialized view"
                                         />
@@ -180,15 +185,17 @@ export function ViewsTab(): JSX.Element {
                                     if (!view.status) {
                                         return null
                                     }
-                                    const tagContent = (
+                                    if (view.latest_error && view.status === 'Failed') {
+                                        return (
+                                            <Tooltip title={view.latest_error} interactive>
+                                                <LemonTag type="danger">Failed</LemonTag>
+                                            </Tooltip>
+                                        )
+                                    }
+                                    return (
                                         <LemonTag type={STATUS_TAG_SETTINGS[view.status] || 'default'}>
                                             {view.status}
                                         </LemonTag>
-                                    )
-                                    return view.latest_error && view.status === 'Failed' ? (
-                                        <Tooltip title={view.latest_error}>{tagContent}</Tooltip>
-                                    ) : (
-                                        tagContent
                                     )
                                 },
                             },
@@ -229,23 +236,34 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    onClick={() => runMaterialization(view.id)}
-                                                    disabledReason={
-                                                        view.status === 'Running'
-                                                            ? 'Materialization is already running'
-                                                            : undefined
-                                                    }
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                                    minAccessLevel={AccessControlLevel.Editor}
                                                 >
-                                                    Sync now
-                                                </LemonButton>
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => deleteView(view.id)}
-                                                    disabledReason={getDisabledReason(view)}
+                                                    <LemonButton
+                                                        onClick={() => runMaterialization(view.id)}
+                                                        disabledReason={
+                                                            view.status === 'Running'
+                                                                ? 'Materialization is already running'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Sync now
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={view.user_access_level}
                                                 >
-                                                    Delete
-                                                </LemonButton>
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() => deleteView(view.id)}
+                                                        disabledReason={getDisabledReason(view)}
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </AccessControlAction>
                                             </>
                                         }
                                     />
@@ -286,6 +304,7 @@ export function ViewsTab(): JSX.Element {
                                     view.managed_viewset_kind !== null ? (
                                         <>
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         You cannot edit the definition for a view that belongs to a
@@ -309,7 +328,10 @@ export function ViewsTab(): JSX.Element {
                                             </span>
                                         </>
                                     ) : (
-                                        <LemonTableLink to={urls.sqlEditor({ view_id: view.id })} title={view.name} />
+                                        <LemonTableLink
+                                            to={getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id })}
+                                            title={view.name}
+                                        />
                                     ),
                             },
                             {
@@ -351,13 +373,19 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => deleteView(view.id)}
-                                                    disabledReason={getDisabledReason(view)}
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={view.user_access_level}
                                                 >
-                                                    Delete
-                                                </LemonButton>
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() => deleteView(view.id)}
+                                                        disabledReason={getDisabledReason(view)}
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </AccessControlAction>
                                             </>
                                         }
                                     />
@@ -391,9 +419,14 @@ export function ViewsTab(): JSX.Element {
                             Create your first view to transform and organize your data warehouse tables.
                         </p>
                     )}
-                    <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
-                        Create view
-                    </LemonButton>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.WarehouseObjects}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
+                            Create view
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             )}
         </div>

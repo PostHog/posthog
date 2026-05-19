@@ -295,7 +295,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=True):
             # Should not raise
-            tool._check_access_control()
+            tool._check_resource_access()
 
     def test_check_access_control_raises_when_user_lacks_access(self):
         """_check_access_control should raise MaxToolAccessDeniedError when user lacks access."""
@@ -303,7 +303,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=False):
             with self.assertRaises(MaxToolAccessDeniedError) as ctx:
-                tool._check_access_control()
+                tool._check_resource_access()
 
             self.assertEqual(ctx.exception.resource, "feature_flag")
             self.assertEqual(ctx.exception.required_level, "editor")
@@ -314,7 +314,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         # Should not call check_access_level_for_resource at all
         with patch.object(tool.user_access_control, "check_access_level_for_resource") as mock:
-            tool._check_access_control()
+            tool._check_resource_access()
             mock.assert_not_called()
 
 
@@ -360,6 +360,8 @@ class TestToolAccessControlDeclarations(BaseTest):
         "generate_hogql_query",
         "fix_hogql_query",
         "analyze_user_interviews",
+        "call_mcp_server",  # Scoped to user's own MCP installations (team + user filtered) but no protected resources modified
+        "diagnose_proxy",  # Explicit OrganizationMembership.Level >= ADMIN check inside _arun_impl; resource-level RBAC doesn't recognize membership level so we can't use get_required_resource_access here
     }
 
     def test_all_tools_have_access_control_or_are_exempt(self):

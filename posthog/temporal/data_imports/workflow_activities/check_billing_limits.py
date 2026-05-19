@@ -45,6 +45,10 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
     job = ExternalDataJob.objects.get(id=inputs.job_id)
     source: ExternalDataSource = job.pipeline
 
+    if not job.billable:
+        logger.info("Skipping billing limits check for non-billable job")
+        return False
+
     if source.created_at >= datetime.now(UTC) - timedelta(days=7):
         logger.info(
             f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"

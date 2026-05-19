@@ -7,6 +7,7 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
+import { isKeyOf } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
@@ -38,6 +39,7 @@ type EventPropertyTabKey =
     | 'debug_properties'
     | 'metadata'
     | 'survey_response'
+    | 'mcp'
 
 export const EventPropertyTabs = ({
     event,
@@ -56,6 +58,8 @@ export const EventPropertyTabs = ({
 
     const isErrorEvent = event.event === '$exception'
     const isSurveyResponseEvent = event.event === 'survey sent'
+    const isMcpEvent =
+        typeof event.event === 'string' && (event.event.startsWith('mcp_') || event.event.startsWith('mcp '))
 
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
@@ -68,17 +72,21 @@ export const EventPropertyTabs = ({
                 ? 'error_display'
                 : isSurveyResponseEvent
                   ? 'survey_response'
-                  : 'properties'
+                  : isMcpEvent
+                    ? 'mcp'
+                    : 'properties'
     )
 
-    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[event.event]
+    const promotedKeys = isKeyOf(event.event, POSTHOG_EVENT_PROMOTED_PROPERTIES)
+        ? POSTHOG_EVENT_PROMOTED_PROPERTIES[event.event]
+        : []
 
-    let properties = {}
-    const featureFlagProperties = {}
-    const errorProperties = {}
-    const debugProperties = {}
-    let setProperties = {}
-    let setOnceProperties = {}
+    let properties: Record<string, any> = {}
+    const featureFlagProperties: Record<string, any> = {}
+    const errorProperties: Record<string, any> = {}
+    const debugProperties: Record<string, any> = {}
+    let setProperties: Record<string, any> = {}
+    let setOnceProperties: Record<string, any> = {}
 
     for (const key of Object.keys(event.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
@@ -113,18 +121,23 @@ export const EventPropertyTabs = ({
             label: 'Survey response',
             content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'survey_response' }),
         },
+        isMcpEvent && {
+            key: 'mcp',
+            label: 'MCP analytics',
+            content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'mcp' }),
+        },
         isAIConversationEvent
             ? {
                   key: 'conversation',
                   label: 'Conversation',
-                  content: tabContentComponentFn({ event, properties, tabKey: 'conversation' }),
+                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'conversation' }),
               }
             : null,
         isAIEvaluationEvent
             ? {
                   key: 'evaluation',
                   label: 'Evaluation',
-                  content: tabContentComponentFn({ event, properties, tabKey: 'evaluation' }),
+                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'evaluation' }),
               }
             : null,
         {

@@ -5,8 +5,10 @@ from posthog.test.base import ClickhouseTestMixin
 from django.test import TestCase
 from django.utils.timezone import now
 
-from posthog.models import FeatureFlag, Organization, Survey, Team, User
+from posthog.models import FeatureFlag, Organization, Team, User
 from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+from products.surveys.backend.models import Survey
 
 
 class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
@@ -21,7 +23,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             key="flag_name",
             filters={},
-            rollout_percentage=100,
         )
 
         self.iteration_frequency_days = 60
@@ -69,6 +70,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
+        assert self.recurring_survey.internal_targeting_flag is not None
 
         self.assertLessEqual(
             {

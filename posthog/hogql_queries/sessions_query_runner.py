@@ -1,20 +1,69 @@
+import re
 from datetime import timedelta
 from typing import Optional
 
 from django.utils.timezone import now
 
-from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, SessionsQuery, SessionsQueryResponse
+from posthog.schema import (
+    CachedSessionsQueryResponse,
+    DashboardFilter,
+    EventPropertyFilter,
+    PropertyOperator,
+    SessionsQuery,
+    SessionsQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
-from posthog.api.utils import get_pk_or_uuid
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
-from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
+from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid
+from posthog.models.property import Property
 from posthog.utils import relative_date_parse
+
+COLUMN_COMMENT_SEPARATOR = " -- "
+VALID_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
+    {
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "regex",
+        "not_regex",
+        "is_set",
+        "is_not_set",
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+    }
+)
+
+
+def _extract_session_id_values(prop) -> Optional[list[str]]:
+    # Returns a list of session IDs extracted from a `$session_id` exact-match
+    # EventPropertyFilter, or None if the prop is not such a filter and should
+    # continue to flow through the events subquery. An empty list is returned
+    # verbatim so callers can emit a zero-result constraint — matching the
+    # semantic intent of `$session_id IN ()`.
+    if not isinstance(prop, EventPropertyFilter):
+        return None
+    if prop.key != "$session_id":
+        return None
+    if prop.operator not in (None, PropertyOperator.EXACT):
+        return None
+    if prop.value is None:
+        return None
+    if isinstance(prop.value, list):
+        return [str(v) for v in prop.value]
+    return [str(prop.value)]
+
 
 # Allow-listed fields returned when you select "*" from sessions
 SELECT_STAR_FROM_SESSIONS_FIELDS = [
@@ -42,17 +91,195 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
 
+    def _build_person_display_name_expr(self) -> str:
+        """Build the HogQL expression for person_display_name using a subquery join."""
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        # Build coalesce expression for person properties
+        props = []
+        for key in property_keys:
+            if VALID_IDENTIFIER_PATTERN.match(key):
+                props.append(f"toString(__person_lookup.properties.{key})")
+            else:
+                props.append(f"toString(__person_lookup.properties.`{key}`)")
+
+        # Create a tuple with (display_name, person_id, distinct_id)
+        # Use sessions.distinct_id to avoid ambiguity with pdi.distinct_id
+        coalesce_expr = f"coalesce({', '.join([*props, 'sessions.distinct_id'])})"
+        return f"({coalesce_expr}, toString(__person_lookup.id), sessions.distinct_id)"
+
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
+        needs_person_join = self._needs_person_join()
         select_input: list[str] = []
         for col in self.select_input_raw():
+            col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
             # Selecting a "*" expands the list of columns
             if col == "*":
-                select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_SESSIONS_FIELDS)})")
+                # Qualify with sessions. prefix when person join is present to avoid ambiguity
+                # (e.g. distinct_id exists on both sessions and person_distinct_ids)
+                fields = (
+                    [f"sessions.{f}" for f in SELECT_STAR_FROM_SESSIONS_FIELDS]
+                    if needs_person_join
+                    else SELECT_STAR_FROM_SESSIONS_FIELDS
+                )
+                select_input.append(f"tuple({', '.join(fields)})")
+            elif col_name == "person_display_name":
+                select_input.append(self._build_person_display_name_expr())
+            elif col_name.startswith("person.properties."):
+                select_input.append(self._transform_person_property_col(col))
+            elif col_name.startswith("session."):
+                # Transform session.X to just X (or sessions.X when person join is present)
+                select_input.append(self._transform_session_property_col(col, needs_person_join))
             else:
                 select_input.append(col)
         return select_input, [
             map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
         ]
+
+    def _needs_person_join(self) -> bool:
+        """Check if any selected column, orderBy, or filter requires person join."""
+        for col in self.select_input_raw():
+            col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
+            if col_name == "person_display_name" or col_name.startswith("person.properties."):
+                return True
+        if self.query.orderBy:
+            for col in self.query.orderBy:
+                col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
+                if col_name == "person_display_name" or col_name.startswith("person.properties."):
+                    return True
+        if self.query.properties:
+            for prop in self.query.properties:
+                if hasattr(prop, "type") and prop.type == "person":
+                    return True
+        if self.query.filterTestAccounts:
+            for prop in self._get_test_account_filters():
+                prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+                if prop_type == "person":
+                    return True
+        return False
+
+    def _get_test_account_filters(self) -> list:
+        return self.team.test_account_filters or []
+
+    def _transform_person_property_col(self, col: str) -> str:
+        """Transform person.properties.X to use __person_lookup alias."""
+        if COLUMN_COMMENT_SEPARATOR in col:
+            expr, comment = col.split(COLUMN_COMMENT_SEPARATOR, 1)
+            expr = expr.strip()
+            comment = comment.strip()
+        else:
+            expr = col.strip()
+            comment = None
+
+        transformed = expr.replace("person.properties.", "__person_lookup.properties.")
+
+        if comment:
+            return f"{transformed}{COLUMN_COMMENT_SEPARATOR}{comment}"
+        return transformed
+
+    def _transform_session_property_col(self, col: str, needs_person_join: bool) -> str:
+        """Transform session.X to X or sessions.X (when person join is present to avoid ambiguity)."""
+        if COLUMN_COMMENT_SEPARATOR in col:
+            expr, comment = col.split(COLUMN_COMMENT_SEPARATOR, 1)
+            expr = expr.strip()
+            comment = comment.strip()
+        else:
+            expr = col.strip()
+            comment = None
+
+        # Remove the "session." prefix and optionally add "sessions." prefix
+        property_name = expr[8:]  # Remove "session." prefix
+        if needs_person_join:
+            transformed = f"sessions.{property_name}"
+        else:
+            transformed = property_name
+
+        if comment:
+            return f"{transformed}{COLUMN_COMMENT_SEPARATOR}{comment}"
+        return transformed
+
+    def _person_property_to_expr(self, prop) -> ast.Expr:
+        """Convert a person property filter to an expression using __person_lookup."""
+        key = prop.key
+        value = prop.value
+        operator = getattr(prop, "operator", "exact")
+
+        if operator not in SUPPORTED_PERSON_PROPERTY_OPERATORS:
+            raise ValueError(
+                f"Unsupported operator '{operator}' for person property filter in sessions query. "
+                f"Supported operators: {', '.join(sorted(SUPPORTED_PERSON_PROPERTY_OPERATORS))}"
+            )
+
+        # Build the property field reference (ast.Field handles identifier escaping automatically)
+        field = ast.Field(chain=["__person_lookup", "properties", key])
+
+        # Handle different operators
+        if operator == "exact":
+            if isinstance(value, list):
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=field,
+                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+                )
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "is_not":
+            if isinstance(value, list):
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=field,
+                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+                )
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "icontains":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator == "not_icontains":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator == "regex":
+            return ast.Call(name="match", args=[field, ast.Constant(value=value)])
+        elif operator == "not_regex":
+            return ast.Not(expr=ast.Call(name="match", args=[field, ast.Constant(value=value)]))
+        elif operator == "is_set":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=field,
+                right=ast.Constant(value=None),
+            )
+        elif operator == "is_not_set":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=field,
+                right=ast.Constant(value=None),
+            )
+        elif operator in ("gt", "lt", "gte", "lte"):
+            numeric_field = ast.Call(name="toFloat", args=[field])
+            op_map = {
+                "gt": ast.CompareOperationOp.Gt,
+                "lt": ast.CompareOperationOp.Lt,
+                "gte": ast.CompareOperationOp.GtEq,
+                "lte": ast.CompareOperationOp.LtEq,
+            }
+            return ast.CompareOperation(
+                op=op_map[operator],
+                left=numeric_field,
+                right=ast.Constant(value=value),
+            )
+        else:
+            raise ValueError(f"Unsupported operator '{operator}'")
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("build_ast"):
@@ -72,19 +299,26 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
                 if self.query.properties:
                     with self.timings.measure("properties"):
-                        # Filter out cohort and person properties from session-level filters
-                        # as they require person_id which doesn't exist in sessions table
-                        session_properties = [
-                            prop
-                            for prop in self.query.properties
-                            if not (
-                                hasattr(prop, "type")
-                                and prop.type in ("cohort", "static-cohort", "precalculated-cohort", "person")
-                            )
-                        ]
+                        # Separate person properties from session properties
+                        # Cohort properties are still filtered out as they require more complex handling
+                        session_properties = []
+                        person_properties = []
+                        for prop in self.query.properties:
+                            if hasattr(prop, "type"):
+                                if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
+                                    continue  # Skip cohort properties
+                                elif prop.type == "person":
+                                    person_properties.append(prop)
+                                    continue
+                            session_properties.append(prop)
+
                         where_exprs.extend(
                             property_to_expr(property, self.team, scope="session") for property in session_properties
                         )
+
+                        # Handle person properties using the __person_lookup join
+                        for prop in person_properties:
+                            where_exprs.append(self._person_property_to_expr(prop))
                 if self.query.fixedProperties:
                     with self.timings.measure("fixed_properties"):
                         where_exprs.extend(
@@ -93,12 +327,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         )
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(
-                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
-                        ).first()
+                        person: Optional[Person] = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
+                        # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
+                        distinct_id_chain: list[str | int] = (
+                            ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]
+                        )
                         where_exprs.append(
                             ast.CompareOperation(
-                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=distinct_id_chain)]),
                                 right=ast.Tuple(
                                     exprs=[
                                         ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
@@ -108,77 +344,144 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 op=ast.CompareOperationOp.In,
                             )
                         )
+                # Collect test account filters that need the events subquery
+                test_account_event_filters: list = []
                 if self.query.filterTestAccounts:
                     with self.timings.measure("test_account_filters"):
-                        for prop in self.team.test_account_filters or []:
-                            where_exprs.append(property_to_expr(prop, self.team))
+                        for prop in self._get_test_account_filters():
+                            prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+                            if prop_type == "session":
+                                where_exprs.append(property_to_expr(prop, self.team, scope="session"))
+                            elif prop_type == "person":
+                                try:
+                                    parsed = Property(**prop) if isinstance(prop, dict) else prop
+                                    where_exprs.append(self._person_property_to_expr(parsed))
+                                except (ValueError, TypeError):
+                                    continue
+                            elif prop_type in ("cohort", "static-cohort", "precalculated-cohort"):
+                                # Cohort filters reference person_id which doesn't exist on sessions;
+                                # route through the events subquery instead.
+                                test_account_event_filters.append(prop)
+                            elif prop_type == "event":
+                                # Event property filters reference the events properties column;
+                                # route through the events subquery.
+                                test_account_event_filters.append(prop)
+                            else:
+                                # Unknown types (hogql, etc.) — route through events subquery as a best-effort fallback
+                                test_account_event_filters.append(prop)
 
                 # Filter sessions by events
-                if self.query.event or self.query.actionId:
+                if self.query.event or self.query.actionId or self.query.eventProperties or test_account_event_filters:
                     with self.timings.measure("event_filter"):
-                        # Build the events subquery conditions
-                        event_where_exprs = []
-
-                        if self.query.event:
-                            event_where_exprs.append(
-                                parse_expr(
-                                    "event = {event}",
-                                    {"event": ast.Constant(value=self.query.event)},
-                                    timings=self.timings,
-                                )
-                            )
-                        elif self.query.actionId:
-                            try:
-                                action = Action.objects.get(
-                                    pk=self.query.actionId, team__project_id=self.team.project_id
-                                )
-                            except Action.DoesNotExist:
-                                raise Exception("Action does not exist")
-                            if not action.steps:
-                                raise Exception("Action does not have any match groups")
-                            event_where_exprs.append(action_to_expr(action))
-
-                        # Add event property filters if specified
+                        # Extract $session_id exact-match filters from eventProperties and apply
+                        # them directly on the sessions table, avoiding an unnecessary events
+                        # table round-trip.
+                        remaining_event_properties = []
+                        session_id_values: list[str] = []
+                        extracted_empty_session_id_filter = False
                         if self.query.eventProperties:
-                            event_where_exprs.extend(
-                                property_to_expr(property, self.team) for property in self.query.eventProperties
+                            for prop in self.query.eventProperties:
+                                extracted = _extract_session_id_values(prop)
+                                if extracted is None:
+                                    remaining_event_properties.append(prop)
+                                elif not extracted:
+                                    # `$session_id IN ()` must match zero sessions.
+                                    extracted_empty_session_id_filter = True
+                                else:
+                                    session_id_values.extend(extracted)
+
+                        if extracted_empty_session_id_filter:
+                            where_exprs.append(ast.Constant(value=False))
+                        elif session_id_values:
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["session_id"]),
+                                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in session_id_values]),
+                                    op=ast.CompareOperationOp.In,
+                                )
                             )
 
-                        # Add timestamp filter to events subquery based on session date range
-                        if self.query.after and self.query.after != "all":
-                            parsed_after = relative_date_parse(self.query.after, self.team.timezone_info)
+                        # Build the events subquery for remaining filters
+                        needs_events_subquery = bool(
+                            self.query.event
+                            or self.query.actionId
+                            or remaining_event_properties
+                            or test_account_event_filters
+                        )
+                        if needs_events_subquery:
+                            event_where_exprs = []
+
+                            if self.query.event:
+                                event_where_exprs.append(
+                                    parse_expr(
+                                        "event = {event}",
+                                        {"event": ast.Constant(value=self.query.event)},
+                                        timings=self.timings,
+                                    )
+                                )
+                            elif self.query.actionId:
+                                try:
+                                    action = Action.objects.get(
+                                        pk=self.query.actionId, team__project_id=self.team.project_id
+                                    )
+                                except Action.DoesNotExist:
+                                    raise Exception("Action does not exist")
+                                if not action.steps:
+                                    raise Exception("Action does not have any match groups")
+                                event_where_exprs.append(action_to_expr(action))
+
+                            if remaining_event_properties:
+                                event_where_exprs.extend(
+                                    property_to_expr(property, self.team) for property in remaining_event_properties
+                                )
+
+                            if test_account_event_filters:
+                                event_where_exprs.extend(
+                                    property_to_expr(prop, self.team) for prop in test_account_event_filters
+                                )
+
+                            # Add timestamp filter to events subquery based on session date range.
+                            # Use the same effective lower bound as sessions (default -1h when
+                            # neither after nor before is set) to avoid scanning the full events
+                            # history when only filterTestAccounts triggers this subquery.
+                            effective_after = self.query.after
+                            if not effective_after and not self.query.before:
+                                effective_after = "-1h"
+                            effective_after = effective_after or "all"
+                            if effective_after != "all":
+                                parsed_after = relative_date_parse(effective_after, self.team.timezone_info)
+                                event_where_exprs.append(
+                                    parse_expr(
+                                        "timestamp > {timestamp}",
+                                        {"timestamp": ast.Constant(value=parsed_after)},
+                                        timings=self.timings,
+                                    )
+                                )
+                            before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
+                            parsed_before = relative_date_parse(before, self.team.timezone_info)
                             event_where_exprs.append(
                                 parse_expr(
-                                    "timestamp > {timestamp}",
-                                    {"timestamp": ast.Constant(value=parsed_after)},
+                                    "timestamp < {timestamp}",
+                                    {"timestamp": ast.Constant(value=parsed_before)},
                                     timings=self.timings,
                                 )
                             )
-                        before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
-                        parsed_before = relative_date_parse(before, self.team.timezone_info)
-                        event_where_exprs.append(
-                            parse_expr(
-                                "timestamp < {timestamp}",
-                                {"timestamp": ast.Constant(value=parsed_before)},
-                                timings=self.timings,
-                            )
-                        )
 
-                        # Build subquery: session_id IN (SELECT DISTINCT $session_id FROM events WHERE ...)
-                        events_subquery = ast.SelectQuery(
-                            select=[ast.Field(chain=["$session_id"])],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                            where=ast.And(exprs=event_where_exprs) if len(event_where_exprs) > 0 else None,
-                            distinct=True,
-                        )
-
-                        where_exprs.append(
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["session_id"]),
-                                right=events_subquery,
-                                op=ast.CompareOperationOp.In,
+                            # Build subquery: session_id IN (SELECT DISTINCT $session_id FROM events WHERE ...)
+                            events_subquery = ast.SelectQuery(
+                                select=[ast.Field(chain=["$session_id"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                                where=ast.And(exprs=event_where_exprs) if len(event_where_exprs) > 0 else None,
+                                distinct=True,
                             )
-                        )
+
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["session_id"]),
+                                    right=events_subquery,
+                                    op=ast.CompareOperationOp.In,
+                                )
+                            )
 
             with self.timings.measure("timestamps"):
                 # prevent accidentally future sessions from being visible by default
@@ -192,8 +495,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     )
                 )
 
-                # limit to the last 24h by default
-                after = self.query.after or "-24h"
+                # Default to 1h when no date bounds are provided — unbounded windows on
+                # raw_sessions can OOM for high-volume teams. Only apply the default
+                # when neither bound is set to avoid creating an empty range when a
+                # caller provides only `before`.
+                after = self.query.after
+                if not after and not self.query.before:
+                    after = "-1h"
+                after = after or "all"
                 if after != "all":
                     parsed_date = relative_date_parse(after, self.team.timezone_info)
                     where_exprs.append(
@@ -214,7 +523,30 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    order_columns: list[str] = []
+                    for col in self.query.orderBy:
+                        col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
+                        if col_name == "person_display_name":
+                            # Replace person_display_name with the actual expression
+                            property_keys = (
+                                self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                            )
+                            props = []
+                            for key in property_keys:
+                                if VALID_IDENTIFIER_PATTERN.match(key):
+                                    props.append(f"toString(__person_lookup.properties.{key})")
+                                else:
+                                    props.append(f"toString(__person_lookup.properties.`{key}`)")
+                            expr = f"(coalesce({', '.join([*props, 'sessions.distinct_id'])}), toString(__person_lookup.id))"
+                            new_col = re.sub(r"person_display_name -- Person\s*", expr, col)
+                            order_columns.append(new_col)
+                        elif col_name.startswith("person.properties."):
+                            order_columns.append(self._transform_person_property_col(col))
+                        elif col_name.startswith("session."):
+                            order_columns.append(self._transform_session_property_col(col, self._needs_person_join()))
+                        else:
+                            order_columns.append(col)
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in order_columns]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:
@@ -227,9 +559,45 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     order_by = []
 
             with self.timings.measure("select"):
+                # Build the FROM clause, optionally adding person join
+                select_from = ast.JoinExpr(table=ast.Field(chain=["sessions"]))
+
+                if self._needs_person_join():
+                    # Join sessions -> person_distinct_ids -> persons
+                    # First join: sessions.distinct_id -> person_distinct_ids.distinct_id
+                    pdi_join = ast.JoinExpr(
+                        table=ast.Field(chain=["person_distinct_ids"]),
+                        join_type="LEFT JOIN",
+                        alias="__pdi",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["sessions", "distinct_id"]),
+                                right=ast.Field(chain=["__pdi", "distinct_id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    )
+                    # Second join: person_distinct_ids.person_id -> persons.id
+                    persons_join = ast.JoinExpr(
+                        table=ast.Field(chain=["persons"]),
+                        join_type="LEFT JOIN",
+                        alias="__person_lookup",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["__pdi", "person_id"]),
+                                right=ast.Field(chain=["__person_lookup", "id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    )
+                    pdi_join.next_join = persons_join
+                    select_from.next_join = pdi_join
+
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+                    select_from=select_from,
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -257,6 +625,18 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     select = result[star_idx]
                     new_result = dict(zip(SELECT_STAR_FROM_SESSIONS_FIELDS, select))
                     self.paginator.results[index][star_idx] = new_result
+
+        # Convert person_display_name tuple to dict
+        for column_index, col in enumerate(self.select_input_raw()):
+            if col.split(COLUMN_COMMENT_SEPARATOR)[0].strip() == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "id": str(result[column_index][1]),
+                        "distinct_id": str(result[column_index][2]),
+                    }
+                    self.paginator.results[index] = row
 
         return SessionsQueryResponse(
             results=self.paginator.results,

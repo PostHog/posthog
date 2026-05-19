@@ -55,9 +55,9 @@ export interface AutoMaterializedColumn {
 
 export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
     path(['scenes', 'data-management', 'MaterializedColumns', 'materializedColumnsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions({
         setShowCreateModal: (show: boolean) => ({ show }),
         deleteSlot: (slotId: string) => ({ slotId }),

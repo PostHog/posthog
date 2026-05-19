@@ -1,6 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '~/plugin-scaffold'
 
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { GeoIPService, GeoIp } from '../../utils/geoip'

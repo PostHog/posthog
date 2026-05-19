@@ -1,24 +1,29 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { LLMPrompt } from '~/types'
 
+import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmPromptsLogicType } from './llmPromptsLogicType'
 
 export const PROMPTS_PER_PAGE = 30
+export const LLM_PROMPTS_FORCE_RELOAD_PARAM = 'llm_prompts_force_reload'
 
 export interface PromptFilters {
     page: number
     search: string
     order_by: string
+    created_by_id?: number
 }
 
 function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
@@ -26,11 +31,18 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
+        created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
     }
+}
+
+export interface LLMPromptsLogicProps {
+    tabId?: string
 }
 
 export const llmPromptsLogic = kea<llmPromptsLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptsLogic']),
+    props({} as LLMPromptsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<PromptFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -39,7 +51,8 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             debounce,
         }),
         loadPrompts: (debounce: boolean = true) => ({ debounce }),
-        deletePrompt: (promptId: string) => ({ promptId }),
+        deletePrompt: (promptName: string) => ({ promptName }),
+        duplicatePrompt: (promptName: string, newName: string) => ({ promptName, newName }),
     }),
 
     reducers({
@@ -71,6 +84,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         order_by: filters.order_by,
                         offset: Math.max(0, (filters.page - 1) * PROMPTS_PER_PAGE),
                         limit: PROMPTS_PER_PAGE,
+                        created_by_id: filters.created_by_id,
                     }
 
                     if (
@@ -141,37 +155,54 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             }
         },
 
-        deletePrompt: async ({ promptId }) => {
+        deletePrompt: async ({ promptName }) => {
             try {
-                const promptName = values.prompts.results.find((prompt) => prompt.id === promptId)?.name
-                await api.llmPrompts.update(promptId, { deleted: true })
-                lemonToast.info(`${promptName || 'Prompt'} has been deleted.`)
+                await api.llmPrompts.archiveByName(promptName)
+                lemonToast.info(`${promptName || 'Prompt'} has been archived.`)
                 await asyncActions.loadPrompts(false)
             } catch {
-                lemonToast.error('Failed to delete prompt')
+                lemonToast.error('Failed to archive prompt')
+            }
+        },
+
+        duplicatePrompt: async ({ promptName, newName }) => {
+            try {
+                await api.llmPrompts.duplicateByName(promptName, newName)
+                lemonToast.success(`Prompt duplicated as "${newName}".`)
+                router.actions.push(urls.llmAnalyticsPrompt(newName))
+            } catch {
+                lemonToast.error('Failed to duplicate prompt')
             }
         },
     })),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
-            const nextValues = cleanFilters(values.filters)
+            const nextValues = cleanPagedSearchOrderParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
 
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.llmAnalyticsPrompts(), nextValues, {}, { replace: false }]
+            if (!objectsEqual(values.filters, urlValues)) {
+                return [urls.llmAnalyticsPrompts(), nextValues, {}, { replace: true }]
             }
         }
 
         return { setFilters: changeUrl }
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsPrompts()]: (_, searchParams) => {
+    tabAwareUrlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsPrompts()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
-
-            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+            const forceReload = typeof searchParams?.[LLM_PROMPTS_FORCE_RELOAD_PARAM] === 'string'
+            if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
+            } else if (forceReload || method !== 'REPLACE') {
+                actions.loadPrompts(false)
+            }
+
+            if (forceReload) {
+                const nextSearchParams = { ...searchParams }
+                delete nextSearchParams[LLM_PROMPTS_FORCE_RELOAD_PARAM]
+                router.actions.replace(urls.llmAnalyticsPrompts(), nextSearchParams)
             }
         },
     })),

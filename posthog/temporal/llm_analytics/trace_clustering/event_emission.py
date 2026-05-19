@@ -8,7 +8,7 @@ This module contains functions for emitting clustering results to ClickHouse:
 
 import uuid
 import dataclasses
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from django.utils.dateparse import parse_datetime
 
@@ -21,6 +21,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUS
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_item_summaries
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     AnalysisLevel,
+    ClusterAggregateMetrics,
     ClusterData,
     ClusteringParams,
     ClusterItem,
@@ -56,6 +57,9 @@ def emit_cluster_events(
     batch_run_ids: ItemBatchRunIds | None = None,
     clustering_params: ClusteringParams | None = None,
     analysis_level: AnalysisLevel = "trace",
+    job_id: str = "",
+    job_name: str = "",
+    cluster_metrics: dict[int, ClusterAggregateMetrics] | None = None,
 ) -> list[ClusterData]:
     """Emit $ai_trace_clusters or $ai_generation_clusters event to ClickHouse.
 
@@ -77,6 +81,8 @@ def emit_cluster_events(
         batch_run_ids: Dict mapping item_id -> batch_run_id for linking to summaries
         clustering_params: Parameters used for this clustering run
         analysis_level: "trace" or "generation" - determines which event type to emit
+        job_id: Clustering job ID (empty for legacy/manual runs with no job)
+        job_name: Clustering job name (empty for legacy/manual runs)
 
     Returns:
         List of ClusterData objects emitted
@@ -120,14 +126,17 @@ def emit_cluster_events(
         coords_2d=coords_2d,
         centroid_coords_2d=centroid_coords_2d,
         item_timestamps=item_timestamps,
+        cluster_metrics=cluster_metrics or {},
     )
 
     # Build and emit event
     event_uuid = uuid.uuid4()
 
-    properties = {
+    properties: dict[str, Any] = {
         "$ai_clustering_run_id": clustering_run_id,
         "$ai_clustering_level": analysis_level,
+        "$ai_clustering_job_id": job_id,
+        "$ai_clustering_job_name": job_name,
         "$ai_window_start": window_start,
         "$ai_window_end": window_end,
         "$ai_total_items_analyzed": len(items),
@@ -159,6 +168,7 @@ def _build_cluster_data(
     coords_2d: np.ndarray,
     centroid_coords_2d: np.ndarray,
     item_timestamps: dict[str, str],
+    cluster_metrics: dict[int, ClusterAggregateMetrics] | None = None,
 ) -> list[ClusterData]:
     """Build cluster data structure with items and metadata.
 
@@ -235,6 +245,7 @@ def _build_cluster_data(
                 centroid=centroids[cluster_id],
                 centroid_x=float(centroid_coords_2d[cluster_id][0]),
                 centroid_y=float(centroid_coords_2d[cluster_id][1]),
+                metrics=(cluster_metrics or {}).get(cluster_id),
             )
         )
 
@@ -308,6 +319,7 @@ def _build_cluster_data(
                 centroid=[],  # No actual centroid for noise cluster
                 centroid_x=centroid_x,
                 centroid_y=centroid_y,
+                metrics=(cluster_metrics or {}).get(NOISE_CLUSTER_ID),
             )
         )
 

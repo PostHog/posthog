@@ -18,6 +18,7 @@ use crate::{
     extractors::extract_body_with_timeout,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
+    token::validate_token,
     v0_request::ProcessingContext,
 };
 
@@ -108,6 +109,7 @@ pub async fn handle_recording_payload(
     let token = events[0]
         .extract_token()
         .ok_or(CaptureError::NoTokenError)?;
+    validate_token(&token)?;
     Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);

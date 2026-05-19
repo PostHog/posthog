@@ -82,7 +82,7 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
                     content={<InsightMetaContent title={insight.name} description={insight.description} />}
                 />
 
-                <LemonBanner type="warning">
+                <LemonBanner type="warning" square>
                     <div className="flex flex-row items-center gap-2">This insight requires configuration</div>
                     <div className="flex flex-col items-start gap-2 mt-2 max-w-160">
                         {eventsToConfigure.map((event) => (

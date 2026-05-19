@@ -11,6 +11,14 @@ from unittest.mock import patch
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 
+# Import the shared Dagster PostgreSQL fixtures so they apply to all tests
+# in this directory. Direct import (rather than pytest_plugins) is required
+# because pytest disallows pytest_plugins in non-top-level conftest files.
+from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
+    _dagster_postgres_instance,
+    _use_postgres_dagster_instance,
+)
+
 
 def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
     """

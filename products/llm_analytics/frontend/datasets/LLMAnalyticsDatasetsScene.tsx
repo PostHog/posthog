@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Link } from 'lib/lemon-ui/Link'
@@ -12,19 +14,23 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { Dataset } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, Dataset } from '~/types'
 
 import { DATASETS_PER_PAGE, llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsDatasetsScene,
     logic: llmAnalyticsDatasetsLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsDatasetsScene(): JSX.Element {
     const { setFilters, deleteDataset } = useActions(llmAnalyticsDatasetsLogic)
     const { datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(llmAnalyticsDatasetsLogic)
+    const { searchParams } = useValues(router)
+    const datasetUrl = (id: string): string => combineUrl(urls.llmAnalyticsDataset(id), searchParams).url
 
     const columns: LemonTableColumns<Dataset> = [
         {
@@ -34,7 +40,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             width: '20%',
             render: function renderName(_, dataset) {
                 return (
-                    <Link to={urls.llmAnalyticsDataset(dataset.id)} data-testid="dataset-link">
+                    <Link to={datasetUrl(dataset.id)} data-testid="dataset-link">
                         {dataset.name}
                     </Link>
                 )
@@ -46,7 +52,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             key: 'description',
             width: '50%',
             render: function renderDescription(description) {
-                return <span className="text-muted">{description || <i>–</i>}</span>
+                return <span className="text-muted">{String(description) || <i>–</i>}</span>
             },
         },
         {
@@ -71,21 +77,26 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.llmAnalyticsDataset(dataset.id)}
+                                    to={datasetUrl(dataset.id)}
                                     data-attr={`dataset-item-${dataset.id}-dropdown-view`}
                                     fullWidth
                                 >
                                     View
                                 </LemonButton>
 
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => deleteDataset(dataset.id)}
-                                    data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
-                                    fullWidth
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Delete
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => deleteDataset(dataset.id)}
+                                        data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
+                                        fullWidth
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -98,17 +109,23 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Datasets"
-                resourceType={{ type: 'llm_analytics' }}
+                description="Manage datasets for testing and evaluation."
+                resourceType={{ type: 'llm_datasets' }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        to={urls.llmAnalyticsDataset('new')}
-                        data-testid="create-dataset-button"
-                        data-attr="create-dataset-button"
-                        size="small"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        New dataset
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            to={datasetUrl('new')}
+                            data-testid="create-dataset-button"
+                            data-attr="create-dataset-button"
+                            size="small"
+                        >
+                            New dataset
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">

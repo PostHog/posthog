@@ -190,7 +190,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     )
 
                     if (!entryContainingEventId) {
-                        return undefined
+                        continue
                     }
 
                     for (const matcher of eventIdMatchers) {
@@ -275,6 +275,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                                         level: x.level.toUpperCase() as LogEntryLevel,
                                         message: x.message,
                                         instanceId: groupedLogEntry.instanceId,
+                                        rawTimestamp: x.timestamp,
                                     })),
                                 ],
                             }

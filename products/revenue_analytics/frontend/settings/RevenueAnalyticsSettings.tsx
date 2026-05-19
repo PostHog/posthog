@@ -12,9 +12,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -22,14 +21,16 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+
 import { DataWarehouseManagedViewsetConfiguration } from './DataWarehouseManagedViewsetConfiguration'
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 type Tab = 'events' | 'data-warehouse'
 
@@ -37,7 +38,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
 
     const { events } = useValues(revenueAnalyticsSettingsLogic)
-    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourceManagementLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
 

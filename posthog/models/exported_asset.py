@@ -5,7 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -67,11 +67,11 @@ class ExportedAsset(models.Model):
 
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
-    export_format = models.CharField(max_length=100, choices=ExportFormat.choices)
+    export_format = models.CharField(max_length=100, choices=ExportFormat)
     content = models.BinaryField(null=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted
@@ -91,6 +91,9 @@ class ExportedAsset(models.Model):
     exception_type = models.CharField(max_length=255, null=True, blank=True)
     # Classification of the failure, see failure_handler.py for details
     failure_type = models.CharField(max_length=255, null=True, blank=True)
+    # If truthy, this asset was created by an internal/system process rather than a user.
+    # Excluded from the per-team user-export quota in posthog/api/exports.py.
+    is_system = models.BooleanField(null=True, default=False)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
@@ -132,11 +135,16 @@ class ExportedAsset(models.Model):
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
-            filename = slugify(self.export_context.get("filename"))
+            filename = slugify(str(self.export_context.get("filename")))
         elif self.dashboard and self.dashboard.name is not None:
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
-            filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+            insight_name = self.insight.name or self.insight.derived_name or "insight"
+            filename = f"{filename}-{slugify(insight_name)}"
+
+        timestamp = self.created_at.strftime("%Y-%m-%d-%H%M%S") if self.created_at else ""
+        if timestamp:
+            filename = f"{filename}-{timestamp}"
 
         filename = f"{filename}.{ext}"
 
@@ -145,6 +153,24 @@ class ExportedAsset(models.Model):
     @property
     def file_ext(self):
         return self.export_format.split("/")[1]
+
+    @property
+    def export_type(self) -> str:
+        if self.insight_id is not None:
+            return "insight"
+        if self.dashboard_id is not None:
+            return "dashboard"
+        ctx = self.export_context or {}
+        if ctx.get("session_recording_id"):
+            return "recording"
+        if ctx.get("heatmap_url"):
+            return "heatmap"
+        return "unknown"
+
+    @property
+    def is_session_recording_export(self) -> bool:
+        """Teammates may retrieve by id if they can view the linked session recording."""
+        return bool((self.export_context or {}).get("session_recording_id"))
 
     def get_analytics_metadata(self):
         return {
@@ -187,12 +213,18 @@ def asset_for_token(token: str) -> ExportedAsset:
 
 
 def get_content_response(asset: ExportedAsset, download: bool = False):
-    content = asset.content
-    if not content and asset.content_location:
-        content = object_storage.read_bytes(asset.content_location)
+    if asset.content_location:
+        content_disposition = f'attachment; filename="{asset.filename}"' if download else None
+        presigned_url = object_storage.get_presigned_url(
+            asset.content_location,
+            content_type=asset.export_format,
+            content_disposition=content_disposition,
+        )
+        if presigned_url:
+            return HttpResponseRedirect(presigned_url)
 
+    content = asset.content
     if not content:
-        # Don't modify the asset here as the task might still be running concurrently
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)

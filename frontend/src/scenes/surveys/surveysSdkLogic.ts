@@ -1,14 +1,14 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
+import { sdkDoctorLogic } from '~/scenes/onboarding/sdks/sdkDoctorLogic'
 
-import { TeamSdkVersions } from './surveyVersionRequirements'
 import type { surveysSdkLogicType } from './surveysSdkLogicType'
+import { TeamSdkVersions } from './surveyVersionRequirements'
 
 export const surveysSdkLogic = kea<surveysSdkLogicType>([
     path(['scenes', 'surveys', 'surveysSdkLogic']),
     connect(() => ({
-        values: [sidePanelSdkDoctorLogic, ['augmentedData as sdkDoctorData']],
+        values: [sdkDoctorLogic, ['augmentedData as sdkDoctorData']],
     })),
     selectors({
         teamSdkVersions: [

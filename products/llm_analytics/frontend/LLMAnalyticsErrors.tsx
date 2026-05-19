@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -10,23 +10,28 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const sharedLogic = useMountedLogic(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { setErrorsSort } = useActions(llmAnalyticsErrorsLogic)
-    const { errorsQuery, errorsSort } = useValues(llmAnalyticsErrorsLogic)
+    const { errorsQuery, errorsSort, buildErrorTrendQuery, buildAllErrorsTrendQuery } =
+        useValues(llmAnalyticsErrorsLogic)
     const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
 
     return (
         <DataTable
+            attachTo={sharedLogic}
             query={{
                 ...errorsQuery,
                 showSavedFilters: true,
@@ -38,11 +43,32 @@ export function LLMAnalyticsErrors(): JSX.Element {
                 }
                 const { filters = {} } = query.source
                 const { dateRange = {} } = filters
-                setDates(dateRange.date_from || null, dateRange.date_to || null)
-                setShouldFilterTestAccounts(filters.filterTestAccounts || false)
-                setPropertyFilters(filters.properties || [])
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: dateRange.date_from || null,
+                        dateTo: dateRange.date_to || null,
+                        shouldFilterTestAccounts: filters.filterTestAccounts || false,
+                        propertyFilters: filters.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
             }}
             context={{
+                customActions: [
+                    <Tooltip title="View error trends over time" key="trends">
+                        <LemonButton
+                            icon={<IconTrends />}
+                            size="small"
+                            type="secondary"
+                            to={urls.insightNew({ query: buildAllErrorsTrendQuery })}
+                            targetBlank
+                            data-attr="llma-errors-all-trends-click"
+                        >
+                            Error trends
+                        </LemonButton>
+                    </Tooltip>,
+                ],
                 columns: {
                     error: {
                         renderTitle: () => (
@@ -91,6 +117,20 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                         >
                                             {displayValue}
                                         </Link>
+                                    </Tooltip>
+                                    <Tooltip title={`View ${displayValue} trend over time`}>
+                                        <LemonButton
+                                            icon={<IconTrends />}
+                                            size="xsmall"
+                                            to={urls.insightNew({
+                                                query: {
+                                                    kind: NodeKind.InsightVizNode,
+                                                    source: buildErrorTrendQuery(errorString),
+                                                } as InsightVizNode,
+                                            })}
+                                            targetBlank
+                                            data-attr="llma-errors-trend-click"
+                                        />
                                     </Tooltip>
                                     <LemonButton
                                         size="xsmall"

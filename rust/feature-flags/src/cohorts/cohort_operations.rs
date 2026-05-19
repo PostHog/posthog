@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -13,6 +14,14 @@ use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyT
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::PostgresReader;
 use common_types::TeamId;
+
+/// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
+const COHORT_COLUMNS: &str = r#"
+    c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
+    c.query, c.version, c.pending_version, c.count, c.is_calculating,
+    c.is_static, c.errors_calculating, c.groups, c.created_by_id,
+    c.cohort_type, c.last_backfill_person_properties_at
+"#;
 
 impl Cohort {
     /// Returns all cohorts for a given team
@@ -31,28 +40,57 @@ impl Cohort {
                 CohortFetchError::DatabaseUnavailable
             })?;
 
-        let query = r#"
-            SELECT c.id,
-                  c.name,
-                  c.description,
-                  c.team_id,
-                  c.deleted,
-                  c.filters,
-                  c.query,
-                  c.version,
-                  c.pending_version,
-                  c.count,
-                  c.is_calculating,
-                  c.is_static,
-                  c.errors_calculating,
-                  c.groups,
-                  c.created_by_id
-              FROM posthog_cohort AS c
-              JOIN posthog_team AS t ON (c.team_id = t.id)
-            WHERE t.id = $1
-            AND c.deleted = false
-        "#;
-        let cohorts = sqlx::query_as::<_, Cohort>(query)
+        let query = format!(
+            "SELECT {COHORT_COLUMNS} FROM posthog_cohort AS c \
+             JOIN posthog_team AS t ON (c.team_id = t.id) \
+             WHERE t.id = $1 AND c.deleted = false"
+        );
+        let cohorts = sqlx::query_as::<_, Cohort>(&query)
+            .bind(team_id)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to fetch cohorts from database for team {}: {}",
+                    team_id,
+                    e
+                );
+                CohortFetchError::QueryFailed(format!("Database query error: {e}"))
+            })?;
+
+        Ok(cohorts)
+    }
+
+    /// Fetch cohorts by a set of IDs, filtered to non-deleted cohorts for the given team.
+    /// Used by the cache builder for BFS cohort dependency resolution.
+    pub async fn list_by_ids_from_pg(
+        client: &PostgresReader,
+        team_id: TeamId,
+        ids: &[CohortId],
+    ) -> Result<Vec<Cohort>, CohortFetchError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut conn =
+            get_connection_with_metrics(client, "non_persons_reader", "fetch_cohorts_for_cache")
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        "Failed to get database connection for team {}: {}",
+                        team_id,
+                        e
+                    );
+                    CohortFetchError::DatabaseUnavailable
+                })?;
+
+        let query = format!(
+            "SELECT {COHORT_COLUMNS} FROM posthog_cohort AS c \
+             WHERE c.id = ANY($1) AND c.deleted = false AND c.team_id = $2"
+        );
+
+        let cohorts = sqlx::query_as::<_, Cohort>(&query)
+            .bind(ids)
             .bind(team_id)
             .fetch_all(&mut *conn)
             .await
@@ -139,10 +177,8 @@ impl Cohort {
         for cohort_values in &inner.values {
             for filter in &cohort_values.values {
                 if filter.is_cohort() {
-                    // Assuming the value is a single integer CohortId
-                    if let Some(cohort_id) = filter.value.as_ref().and_then(|value| value.as_i64())
-                    {
-                        dependencies.insert(cohort_id as CohortId);
+                    if let Some(cohort_id) = filter.get_cohort_id() {
+                        dependencies.insert(cohort_id);
                     } else {
                         return Err(FlagError::CohortFiltersParsingError);
                     }
@@ -365,11 +401,12 @@ pub fn evaluate_dynamic_cohorts(
 /// 1. Checking each filter's cohort ID
 /// 2. Looking up the match result in the cohort_matches map
 /// 3. Applying the appropriate operator (IN/NOT_IN)
-pub fn apply_cohort_membership_logic(
-    cohort_filters: &[PropertyFilter],
+pub fn apply_cohort_membership_logic<F: Borrow<PropertyFilter>>(
+    cohort_filters: &[F],
     cohort_matches: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
     for filter in cohort_filters {
+        let filter = filter.borrow();
         let cohort_id = filter
             .get_cohort_id()
             .ok_or(FlagError::CohortFiltersParsingError)?;
@@ -475,6 +512,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     },
                     PropertyFilter {
                         key: "age".to_string(),
@@ -483,6 +521,7 @@ mod tests {
                         prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
+                        compiled_regex: None,
                     },
                 ],
             }],
@@ -563,6 +602,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         };
 
         // This should not fail even though the filters are malformed
@@ -588,6 +629,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         };
 
         let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
@@ -610,6 +653,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         };
 
         // This should fail because it's dynamic and the filters are malformed
@@ -653,6 +698,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         }
     }
 
@@ -698,6 +745,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         };
 
         // Create a dynamic cohort (cohort 20) that depends on the static cohort
@@ -730,6 +779,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         };
 
         let cohorts = vec![static_cohort, dynamic_cohort];
@@ -815,6 +866,8 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
         };
 
         let cohorts = vec![cohort_with_negation];

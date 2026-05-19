@@ -76,10 +76,10 @@ async def resolve_single_repository(issue) -> list[RepositoryContext]:
     if not org or not repo:
         # If not configured, use the first available repository
         github = GitHubIntegration(integration)
-        repositories = github.list_repositories()
+        repositories = await github.list_all_cached_repositories_async()
         if repositories:
             org = github.organization()
-            repo = repositories[0]
+            repo = repositories[0]["name"]
         else:
             return []
 
@@ -125,13 +125,14 @@ async def resolve_smart_select_repositories(issue) -> list[RepositoryContext]:
     for integration in allowed_integrations:
         github = GitHubIntegration(integration)
         try:
-            repos = github.list_repositories()
+            repos = await github.list_all_cached_repositories_async()
             org = github.organization()
 
             for repo in repos:
-                if await _meets_smart_select_constraints(org, repo, constraints):
+                repo_name = repo["name"]
+                if await _meets_smart_select_constraints(org, repo_name, constraints):
                     available_repos.append(
-                        RepositoryContext(integration=integration, repository=repo, organization=org)
+                        RepositoryContext(integration=integration, repository=repo_name, organization=org)
                     )
         except Exception:
             continue
@@ -158,14 +159,17 @@ async def resolve_legacy_repository(issue) -> list[RepositoryContext]:
         return []
 
     github = GitHubIntegration(integration)
-    repositories = github.list_repositories()
+    repositories, _ = await github.list_cached_repositories_async()
 
     if not repositories:
         return []
 
     return [
         RepositoryContext(
-            integration=integration, repository=repositories[0], organization=github.organization(), is_primary=True
+            integration=integration,
+            repository=repositories[0]["name"],
+            organization=github.organization(),
+            is_primary=True,
         )
     ]
 

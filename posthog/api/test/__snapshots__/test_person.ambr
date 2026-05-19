@@ -45,7 +45,7 @@
         WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'distinct_id' )
+     where distinct_id = 'distinct_id')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -68,7 +68,7 @@
         WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'another_one' )
+     where distinct_id = 'another_one')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -119,7 +119,7 @@
         WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'inexistent' )
+     where distinct_id = 'inexistent')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -134,7 +134,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
+         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -235,7 +235,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (JSONHas(properties, 'email')) )
+         AND (JSONHas(properties, 'email')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -254,7 +254,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
+         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%'))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -273,7 +273,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (notEmpty("pmat_email")) )
+         AND (notEmpty("pmat_email")))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -292,7 +292,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND ("pmat_email" ILIKE '%another@gm%') )
+         AND ("pmat_email" ILIKE '%another@gm%'))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -321,7 +321,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm' )) )
+                 WHERE distinct_id = 'another@gm')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -335,7 +335,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm' ))
+          WHERE distinct_id = 'another@gm'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -360,7 +360,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3' )) )
+                 WHERE distinct_id = 'distinct_id_3')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -374,7 +374,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3' ))
+          WHERE distinct_id = 'distinct_id_3'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -399,7 +399,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm' )) )
+                 WHERE distinct_id = 'another@gm')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -413,7 +413,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm' ))
+          WHERE distinct_id = 'another@gm'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -438,7 +438,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3' )) )
+                 WHERE distinct_id = 'distinct_id_3')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -452,7 +452,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3' ))
+          WHERE distinct_id = 'distinct_id_3'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -478,7 +478,7 @@
                         WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
+                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -493,7 +493,7 @@
                  WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
+              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -519,7 +519,7 @@
                         WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
+                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -534,7 +534,7 @@
                  WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
+              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -585,7 +585,7 @@
         WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'distinct_id' )
+     where distinct_id = 'distinct_id')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -608,7 +608,7 @@
         WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'another_one' )
+     where distinct_id = 'another_one')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -659,7 +659,7 @@
         WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'inexistent' )
+     where distinct_id = 'inexistent')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -674,7 +674,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
+         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -775,7 +775,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (JSONHas(properties, 'email')) )
+         AND (JSONHas(properties, 'email')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -794,7 +794,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
+         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%'))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -813,7 +813,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND (notEmpty("pmat_email")) )
+         AND (notEmpty("pmat_email")))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -832,7 +832,7 @@
       (SELECT id
        FROM person
        WHERE team_id = 99999
-         AND ("pmat_email" ILIKE '%another@gm%') )
+         AND ("pmat_email" ILIKE '%another@gm%'))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -861,7 +861,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm' )) )
+                 WHERE distinct_id = 'another@gm')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -875,7 +875,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm' ))
+          WHERE distinct_id = 'another@gm'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -900,7 +900,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3' )) )
+                 WHERE distinct_id = 'distinct_id_3')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -914,7 +914,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3' ))
+          WHERE distinct_id = 'distinct_id_3'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -939,7 +939,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm' )) )
+                 WHERE distinct_id = 'another@gm')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -953,7 +953,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm' ))
+          WHERE distinct_id = 'another@gm'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -978,7 +978,7 @@
                     WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3' )) )
+                 WHERE distinct_id = 'distinct_id_3')))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -992,7 +992,7 @@
              WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3' ))
+          WHERE distinct_id = 'distinct_id_3'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -1018,7 +1018,7 @@
                         WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
+                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -1033,7 +1033,7 @@
                  WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
+              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -1059,7 +1059,7 @@
                         WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
+                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -1074,7 +1074,7 @@
                  WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
+              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''

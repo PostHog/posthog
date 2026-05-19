@@ -13,7 +13,12 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
     path(['scenes', 'experiments', 'Metrics', 'sharedMetricModalLogic']),
 
     connect(() => ({
-        actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricAssigned']],
+        actions: [
+            sharedMetricsLogic,
+            ['loadSharedMetrics', 'updateSharedMetricTags'],
+            eventUsageLogic,
+            ['reportExperimentSharedMetricAssigned'],
+        ],
         values: [sharedMetricsLogic, ['sharedMetrics', 'sharedMetricsLoading']],
     })),
 
@@ -24,6 +29,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         }),
         closeSharedMetricModal: true,
         setSharedMetric: (sharedMetric: SharedMetric) => ({ sharedMetric }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
 
     listeners(({ actions }) => ({
@@ -59,6 +65,13 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
             {
                 openSharedMetricModal: (_, { sharedMetricId }) => !!sharedMetricId,
                 closeSharedMetricModal: () => false,
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+                closeSharedMetricModal: () => '',
             },
         ],
     }),

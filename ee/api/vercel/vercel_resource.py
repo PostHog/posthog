@@ -7,6 +7,7 @@ https://vercel.com/docs/integrations/create-integration/marketplace-api
 from typing import Any
 
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -166,6 +167,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         "partial_update": ["user"],
         "destroy": ["user", "system"],
         "retrieve": ["system"],
+        "rotate_secrets": ["system"],
     }
 
     def _validate_resource_access(self, resource_id: str, installation_id: str) -> None:
@@ -227,3 +229,22 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
 
         VercelIntegration.delete_resource(resource_id)
         return Response(status=204)
+
+    @action(detail=True, methods=["POST"], url_path="secrets/rotate")
+    def rotate_secrets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Handle Vercel-initiated secrets rotation request.
+        https://vercel.com/docs/integrations/create-integration/marketplace-api#rotate-secrets
+
+        Returns the current secrets without rotating the PostHog API key, since
+        the key is embedded in customer SDK code and rotating it would break
+        existing integrations.
+        """
+        resource_id = validate_resource_id(self.kwargs.get("resource_id"))
+        installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
+        self._validate_resource_access(resource_id, installation_id)
+
+        resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
+        secrets = VercelIntegration._build_secrets(resource.team)
+
+        return Response({"secrets": secrets})

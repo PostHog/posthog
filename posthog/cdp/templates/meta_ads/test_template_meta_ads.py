@@ -118,3 +118,21 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
         assert user_data["external_id"] == ["user123", "crm456"]
         assert custom_data["content_ids"] == ["product123", "product456"]
         assert custom_data["contents"] == [{"id": "product123", "quantity": 2}]
+
+    def test_function_handles_numeric_values_in_custom_data(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        inputs = self._inputs(
+            customData={
+                "currency": "EUR",
+                "value": 99.8,
+                "quantity": 2,
+            }
+        )
+        self.run_function(inputs)
+
+        call = self.get_mock_fetch_calls()[0]
+        custom_data = call[1]["body"]["data"][0]["custom_data"]
+
+        assert custom_data["currency"] == "EUR"
+        assert custom_data["value"] == 99.8
+        assert custom_data["quantity"] == 2

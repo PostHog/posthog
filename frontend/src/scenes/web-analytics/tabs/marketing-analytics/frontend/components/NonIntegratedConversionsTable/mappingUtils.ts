@@ -77,7 +77,8 @@ export function removeCampaignFromMappings(
  */
 export function getAvailableIntegrationsForSource(
     utmSource: string,
-    config: MarketingAnalyticsConfig | null
+    config: MarketingAnalyticsConfig | null,
+    enabledSources: readonly NativeMarketingSource[] = VALID_NATIVE_MARKETING_SOURCES
 ): NativeMarketingSource[] {
     if (!utmSource) {
         return []
@@ -86,7 +87,7 @@ export function getAvailableIntegrationsForSource(
     const normalizedSource = utmSource.toLowerCase().trim()
     const available: NativeMarketingSource[] = []
 
-    for (const integration of VALID_NATIVE_MARKETING_SOURCES) {
+    for (const integration of enabledSources) {
         // Check if it conflicts with defaults
         const defaults = MARKETING_DEFAULT_SOURCE_MAPPINGS[integration] || []
         if (defaults.some((d) => d.toLowerCase() === normalizedSource)) {
@@ -150,12 +151,13 @@ export function getGlobalCampaignMapping(
  */
 export function getAvailableIntegrationsForCampaign(
     utmCampaign: string,
-    config: MarketingAnalyticsConfig | null
+    config: MarketingAnalyticsConfig | null,
+    enabledSources: readonly NativeMarketingSource[] = VALID_NATIVE_MARKETING_SOURCES
 ): NativeMarketingSource[] {
     if (!utmCampaign || getGlobalCampaignMapping(utmCampaign, config) !== null) {
         return []
     }
-    return [...VALID_NATIVE_MARKETING_SOURCES]
+    return [...enabledSources]
 }
 
 export enum MappingTypes {

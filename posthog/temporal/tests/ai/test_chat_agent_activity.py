@@ -26,7 +26,17 @@ class TestProcessChatAgentActivity:
     @pytest.fixture
     def mock_redis_stream(self):
         stream = AsyncMock()
-        stream.write_to_stream = AsyncMock()
+        stream.mark_complete = AsyncMock()
+
+        async def consume_generator(generator, callback=None, emit_completion=True):
+            async for _ in generator:
+                if callback:
+                    try:
+                        callback()
+                    except RuntimeError:
+                        pass
+
+        stream.write_to_stream = AsyncMock(side_effect=consume_generator)
         return stream
 
     @pytest.fixture
@@ -35,9 +45,9 @@ class TestProcessChatAgentActivity:
 
         async def mock_astream():
             chunks = [
-                {"type": "ai", "content": "Hello", "id": "1"},
-                {"type": "ai", "content": " world", "id": "1"},
-                {"type": "ai", "content": "!", "id": "1"},
+                ("message", {"type": "ai", "content": "Hello", "id": "1"}),
+                ("message", {"type": "ai", "content": " world", "id": "1"}),
+                ("message", {"type": "ai", "content": "!", "id": "1"}),
             ]
             for chunk in chunks:
                 yield chunk
@@ -204,7 +214,7 @@ class TestProcessChatAgentActivity:
         ):
             callback_invocations = []
 
-            async def mock_write_to_stream(generator, callback=None):
+            async def mock_write_to_stream(generator, callback=None, emit_completion=True):
                 if callback:
                     start_time = time.time()
                     for _ in range(20):
@@ -217,6 +227,81 @@ class TestProcessChatAgentActivity:
 
             assert mock_activity.heartbeat.call_count == 20
             assert len(callback_invocations) == 20
+
+    @pytest.mark.asyncio
+    async def test_starts_queued_workflow(self, conversation_inputs, mock_redis_stream, mock_assistant):
+        queue_store = Mock()
+        queue_store.pop_next_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
+        queue_store.clear_async = AsyncMock()
+        queue_store.requeue_front_async = AsyncMock()
+
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock()
+
+        with (
+            patch("posthog.temporal.ai.chat_agent.ConversationQueueStore", return_value=queue_store),
+            patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
+            patch("posthog.temporal.ai.chat_agent.async_connect", return_value=mock_client),
+        ):
+            await process_chat_agent_activity(conversation_inputs)
+
+        mock_client.start_workflow.assert_called_once()
+        assert not mock_redis_stream.mark_complete.called
+        queue_store.requeue_front_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_requeues_and_raises_on_workflow_start_failure(
+        self, conversation_inputs, mock_redis_stream, mock_assistant
+    ):
+        queue_store = Mock()
+        queue_store.pop_next_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
+        queue_store.clear_async = AsyncMock()
+        queue_store.requeue_front_async = AsyncMock()
+
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with (
+            patch("posthog.temporal.ai.chat_agent.ConversationQueueStore", return_value=queue_store),
+            patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
+            patch("posthog.temporal.ai.chat_agent.async_connect", return_value=mock_client),
+        ):
+            with pytest.raises(RuntimeError):
+                await process_chat_agent_activity(conversation_inputs)
+
+        queue_store.requeue_front_async.assert_called_once()
+        mock_redis_stream.mark_complete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_marks_complete_with_invalid_queue_message(
+        self, conversation_inputs, mock_redis_stream, mock_assistant
+    ):
+        queue_store = Mock()
+        queue_store.pop_next_async = AsyncMock(
+            side_effect=[
+                {"id": "queue-1", "content": ""},
+                None,
+            ]
+        )
+        queue_store.clear_async = AsyncMock()
+        queue_store.requeue_front_async = AsyncMock()
+
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock()
+
+        with (
+            patch("posthog.temporal.ai.chat_agent.ConversationQueueStore", return_value=queue_store),
+            patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
+            patch("posthog.temporal.ai.chat_agent.async_connect", return_value=mock_client),
+        ):
+            await process_chat_agent_activity(conversation_inputs)
+
+        mock_client.start_workflow.assert_not_called()
+        mock_redis_stream.mark_complete.assert_called_once()
+        queue_store.requeue_front_async.assert_not_called()
 
 
 class TestUtilityFunctions:

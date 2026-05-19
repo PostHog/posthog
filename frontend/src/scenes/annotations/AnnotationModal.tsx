@@ -8,11 +8,11 @@ import {
     LemonModalProps,
     LemonSelect,
     LemonSelectOptions,
-    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -37,6 +37,7 @@ export function AnnotationModal({
         isModalOpen,
         existingModalAnnotation,
         annotationModal,
+        annotationModalChanged,
         isAnnotationModalSubmitting,
         onSavedInsight,
         timezone,
@@ -103,6 +104,7 @@ export function AnnotationModal({
             contentRef={contentRef}
             isOpen={isModalOpen}
             onClose={closeModal}
+            hasUnsavedInput={annotationModalChanged}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
             description="Use annotations to comment on insights, dashboards"
             footer={
@@ -154,7 +156,7 @@ export function AnnotationModal({
                         label={
                             <span>
                                 Date and time (
-                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
                                     {shortTimeZone(timezone)}
                                 </Link>
                                 )

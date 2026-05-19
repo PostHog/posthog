@@ -16,6 +16,7 @@ from llm_gateway.metrics.prometheus import CALLBACK_SUCCESS, TOKENS_INPUT, TOKEN
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ANTHROPIC_TEST_MODEL = "claude-haiku-4-5-20251001"
 
 
 class TestCallbacksFireOnAnthropicRequest:
@@ -26,7 +27,7 @@ class TestCallbacksFireOnAnthropicRequest:
         initial_prometheus = CALLBACK_SUCCESS.labels(callback="prometheus")._value.get()
 
         anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+            model=ANTHROPIC_TEST_MODEL,
             messages=[{"role": "user", "content": "Say 'test'"}],
             max_tokens=5,
         )
@@ -39,7 +40,7 @@ class TestCallbacksFireOnAnthropicRequest:
         initial_prometheus = CALLBACK_SUCCESS.labels(callback="prometheus")._value.get()
 
         with anthropic_client.messages.stream(
-            model="claude-3-haiku-20240307",
+            model=ANTHROPIC_TEST_MODEL,
             messages=[{"role": "user", "content": "Say 'hi'"}],
             max_tokens=5,
         ) as stream:
@@ -50,28 +51,24 @@ class TestCallbacksFireOnAnthropicRequest:
 
     def test_prometheus_callback_records_tokens(self, anthropic_client: Anthropic) -> None:
         initial_input = TOKENS_INPUT.labels(
-            provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
+            provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway"
         )._value.get()
         initial_output = TOKENS_OUTPUT.labels(
-            provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
+            provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway"
         )._value.get()
 
         anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+            model=ANTHROPIC_TEST_MODEL,
             messages=[{"role": "user", "content": "Say 'a'"}],
             max_tokens=5,
         )
 
         assert (
-            TOKENS_INPUT.labels(
-                provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
-            )._value.get()
+            TOKENS_INPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway")._value.get()
             > initial_input
         )
         assert (
-            TOKENS_OUTPUT.labels(
-                provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
-            )._value.get()
+            TOKENS_OUTPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway")._value.get()
             > initial_output
         )
 
@@ -126,7 +123,7 @@ class TestCallbacksReceiveCorrectData:
 
         with patch.object(PrometheusCallback, "_on_success", capture_on_success):
             anthropic_client.messages.create(
-                model="claude-3-haiku-20240307",
+                model=ANTHROPIC_TEST_MODEL,
                 messages=[{"role": "user", "content": "Say 'x'"}],
                 max_tokens=5,
             )
@@ -152,7 +149,7 @@ class TestCallbacksReceiveCorrectData:
 
         with patch.object(PrometheusCallback, "_on_success", capture_on_success):
             with anthropic_client.messages.stream(
-                model="claude-3-haiku-20240307",
+                model=ANTHROPIC_TEST_MODEL,
                 messages=[{"role": "user", "content": "Say 'y'"}],
                 max_tokens=5,
             ) as stream:
@@ -165,8 +162,11 @@ class TestCallbacksReceiveCorrectData:
 class TestEndUserIdExtraction:
     pytestmark = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
 
-    def test_openai_user_param_extracted_as_end_user(self, openai_client: OpenAI) -> None:
-        """Verify that the 'user' parameter in OpenAI requests is extracted as end_user_id."""
+    def test_openai_user_param_is_not_used_as_end_user(self, openai_client: OpenAI) -> None:
+        """Verify that the 'user' parameter in OpenAI requests is NOT used as end_user_id.
+
+        The end_user_id is always the authenticated user's ID to prevent rate limit poisoning.
+        """
         received_data: dict[str, object] = {}
 
         async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
@@ -183,11 +183,13 @@ class TestEndUserIdExtraction:
                 user="test-end-user-123",
             )
 
-        assert received_data.get("end_user_id") == "test-end-user-123"
+        # end_user_id is always the authenticated user's ID (123 from conftest fixture),
+        # never the client-provided 'user' param
+        assert received_data.get("end_user_id") == "123"
         assert received_data.get("user_in_kwargs") == "test-end-user-123"
 
     def test_openai_request_without_user_param(self, openai_client: OpenAI) -> None:
-        """Verify that requests without 'user' parameter have no end_user_id."""
+        """Verify that requests without 'user' parameter still have end_user_id from auth."""
         received_data: dict[str, str | None] = {}
 
         async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
@@ -202,4 +204,5 @@ class TestEndUserIdExtraction:
                 max_tokens=5,
             )
 
-        assert received_data.get("end_user_id") is None
+        # end_user_id is always the authenticated user's ID (123 from conftest fixture)
+        assert received_data.get("end_user_id") == "123"

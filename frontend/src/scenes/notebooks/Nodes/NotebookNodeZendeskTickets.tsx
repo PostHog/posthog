@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconX } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
 
 import { Query } from '~/queries/Query/Query'
@@ -22,9 +23,11 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsAttributes>): JSX.Element | null => {
     const { personId, groupKey, nodeId } = attributes
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setMenuItems } = useActions(notebookNodeLogic)
-    const { status, priority, orderBy, orderDirection } = useValues(zendeskTicketsFiltersLogic({ logicKey: nodeId }))
+    const mountedZendeskLogic = zendeskTicketsFiltersLogic({ logicKey: nodeId })
+    useAttachedLogic(mountedZendeskLogic, notebookLogic)
+    const { status, priority, orderBy, orderDirection } = useValues(mountedZendeskLogic)
     const { removeNode } = useActions(customerProfileLogic)
 
     useOnMountEffect(() => {
@@ -55,8 +58,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
     }
 
     return (
-        <ZendeskSourceSetupPrompt className="border-none">
-            <Query query={{ ...query, embedded: true }} context={context} />
+        <ZendeskSourceSetupPrompt className="border-none" attachTo={notebookLogic}>
+            <Query query={{ ...query, embedded: true }} context={context} attachTo={notebookLogic} />
         </ZendeskSourceSetupPrompt>
     )
 }

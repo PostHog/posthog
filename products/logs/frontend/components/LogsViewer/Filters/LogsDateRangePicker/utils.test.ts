@@ -100,6 +100,24 @@ describe('formatDateRangeLabel', () => {
         expect(result).toBe('2024-01-10 10:00 - 2024-01-15 12:00')
     })
 
+    it.each([
+        ['-10M', 'Last 10 minutes'],
+        ['-1M', 'Last 1 minute'],
+        ['-5h', 'Last 5 hours'],
+        ['-1h', 'Last 1 hour'], // also matches preset, but relative fallback produces same label
+        ['-3d', 'Last 3 days'],
+        ['-1d', 'Last 1 day'],
+        ['-2w', 'Last 2 weeks'],
+        ['-1w', 'Last 1 week'],
+        ['-6m', 'Last 6 months'],
+        ['-1y', 'Last 1 year'],
+        ['-2q', 'Last 2 quarters'],
+        ['-45s', 'Last 45 seconds'],
+    ])('formats non-preset relative expression %s as "%s"', (dateFrom, expected) => {
+        const result = formatDateRangeLabel({ date_from: dateFrom, date_to: null }, TEST_TIMEZONE, [])
+        expect(result).toBe(expected)
+    })
+
     it('returns default message when date_from is empty', () => {
         const result = formatDateRangeLabel({ date_from: '', date_to: null }, TEST_TIMEZONE, TEST_DATE_OPTIONS)
         expect(result).toBe('Select date range')

@@ -9,9 +9,6 @@ import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
 // The side panel imports a lot of other components so this allows us to avoid circular dependencies
 
-/**
- * @deprecated Sidepanel is soft-deprecated as only notebooks will be kept in sidepanel in future releases.
- */
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
     actions({
@@ -20,6 +17,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         setSidePanelOpen: (open: boolean) => ({ open }),
         setSidePanelOptions: (options: string | null) => ({ options }),
         setSidePanelAvailable: (available: boolean) => ({ available }),
+        onSceneTabChanged: (previousTabId: string | null, newTabId: string) => ({ previousTabId, newTabId }),
     }),
 
     reducers(() => ({
@@ -54,9 +52,9 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         ],
     })),
     windowValues(() => ({
-        modalMode: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+        modalMode: (window: Window) => window?.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally
         // use this logic instead of sidePanelStateLogic
         openSidePanel: ({ tab }) => {
@@ -71,6 +69,38 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             } else if (values.selectedTab === tab) {
                 // Otherwise we only close it if the tab is the currently open one
                 actions.setSidePanelOpen(false)
+            }
+        },
+        onSceneTabChanged: ({ previousTabId, newTabId }) => {
+            // Skip if we already processed this exact transition (activateTab fires early, setScene fires later)
+            const transitionKey = `${previousTabId}->${newTabId}`
+            if (cache.lastProcessedTransition === transitionKey) {
+                return
+            }
+            cache.lastProcessedTransition = transitionKey
+
+            if (!cache.sidePanelStateByTab) {
+                cache.sidePanelStateByTab = {}
+            }
+
+            // Save current side panel state for the previous tab
+            if (previousTabId) {
+                cache.sidePanelStateByTab[previousTabId] = {
+                    open: values.sidePanelOpen,
+                    selectedTab: values.selectedTab,
+                    selectedTabOptions: values.selectedTabOptions,
+                }
+            }
+
+            // Restore state for the new tab (preserve current state for never-visited tabs
+            // so the URL hash handler can set it if needed)
+            const savedState = cache.sidePanelStateByTab[newTabId]
+            if (savedState) {
+                if (savedState.open && savedState.selectedTab) {
+                    actions.openSidePanel(savedState.selectedTab, savedState.selectedTabOptions ?? undefined)
+                } else {
+                    actions.closeSidePanel()
+                }
             }
         },
     })),

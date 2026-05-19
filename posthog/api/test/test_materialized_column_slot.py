@@ -7,7 +7,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestMaterializedColumnSlotAPI(APIBaseTest):
@@ -650,7 +651,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             response = self.client.get(endpoint)
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("loginas.utils.is_impersonated_session")
+    @patch("posthog.permissions.is_impersonated_session")
     @patch("posthog.api.materialized_column_slot.async_to_sync")
     def test_endpoints_allow_impersonated_sessions(self, mock_async_to_sync, mock_is_impersonated):
         """Test that impersonated sessions can access endpoints."""

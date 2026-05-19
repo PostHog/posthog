@@ -1,24 +1,13 @@
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
 import { RateLimitToOverflowStepInput } from './rate-limit-to-overflow-step'
 
 const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
-    headers: {
-        token,
-        distinct_id: distinctId,
-        now: now ?? new Date(),
-        force_disable_person_processing: false,
-        historical_migration: false,
-    },
-    eventWithTeam: {
-        message: createTestMessage(),
-        event: { distinct_id: distinctId, token } as PipelineEvent,
-        team: { id: 1 } as Team,
-        headers: {} as EventHeaders,
-    },
+    headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
+    event: createTestPipelineEvent({ distinct_id: distinctId }),
 })
 
 const createMockService = (): jest.Mocked<OverflowRedirectService> => ({

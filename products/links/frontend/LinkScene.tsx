@@ -81,7 +81,6 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
         type: 'link',
         ref: linkId,
         enabled: Boolean(linkId && !linkLoading),
-        deps: [linkId, linkLoading],
     })
 
     if (linkMissing) {

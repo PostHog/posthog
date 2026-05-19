@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
+    get_leading_index_keys,
     get_schemas as get_mongo_schemas,
     mongo_client,
     mongo_source,
@@ -35,16 +36,26 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        mongo_schemas = get_mongo_schemas(config)
+    def get_schemas(
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
         connection_params = _parse_connection_string(config.connection_string)
-        with mongo_client(config.connection_string) as client:
+        leading_keys_by_collection: dict[str, set[str] | None] = {}
+        with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
             filtered_results = [
                 (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
                 for collection_name, columns in mongo_schemas.items()
             ]
+            for collection_name in mongo_schemas:
+                leading_keys_by_collection[collection_name] = get_leading_index_keys(db[collection_name])
 
         return [
             SourceSchema(
@@ -57,6 +68,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                         "type": field_type,
                         "field": field_name,
                         "field_type": field_type,
+                        "is_indexed": (
+                            True
+                            if leading_keys_by_collection.get(name) is None
+                            else field_name in (leading_keys_by_collection.get(name) or set())
+                        ),
                     }
                     for field_name, field_type in incremental_fields
                 ],
@@ -77,13 +93,18 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         if not connection_params.get("database"):
             return False, "Database name is required in connection string"
 
-        if not connection_params.get("is_srv"):
-            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id, False)
+        if not connection_params["is_srv"]:
+            # For SRV connections the hostname is a DNS namespace (e.g.
+            # cluster0.mongodb.net), not a real host. Actual server addresses
+            # are resolved at connection time and validated by
+            # _make_safe_server_selector instead.
+            # This check allows an early failure for obviously invalid connection strings for non SRV connections.
+            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
             if not valid_host:
                 return False, host_errors
 
         try:
-            collection_names = get_collection_names(config)
+            collection_names = get_collection_names(config, team_id=team_id)
             if len(collection_names) == 0:
                 return False, "No collections found in database"
         except OperationFailure as e:
@@ -104,6 +125,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             incremental_field=inputs.incremental_field,
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            team_id=inputs.team_id,
         )
 
     @property
@@ -112,7 +134,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             name=SchemaExternalDataSourceType.MONGO_DB,
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/Mongodb.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/mongodb",
             fields=cast(
@@ -124,6 +146,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
+                        secret=True,
                     )
                 ],
             ),

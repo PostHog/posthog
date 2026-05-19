@@ -9,6 +9,7 @@ import dns.resolver
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -118,8 +119,10 @@ class OrganizationDomainManager(models.Manager):
         return candidate_sso_enforcement
 
 
-class OrganizationDomain(UUIDTModel):
+class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
+
+    activity_logging_on_delete = True
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
     domain = models.CharField(max_length=128, unique=True)

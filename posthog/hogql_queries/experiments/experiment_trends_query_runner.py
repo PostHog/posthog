@@ -47,8 +47,9 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models.experiment import Experiment
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):
@@ -61,7 +62,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:

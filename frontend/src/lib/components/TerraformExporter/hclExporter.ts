@@ -1,7 +1,7 @@
 import { formatHclValue, sanitizeResourceName } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
 // Schema version this exporter targets - update when provider schema changes
-export const POSTHOG_PROVIDER_VERSION = '1.0.2'
+export const POSTHOG_PROVIDER_VERSION = '1.0.6'
 
 export interface HclExportResult {
     hcl: string

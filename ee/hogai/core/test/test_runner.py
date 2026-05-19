@@ -13,7 +13,7 @@ from parameterized import parameterized
 from posthog.schema import AssistantEventType, FailureMessage
 
 from ee.hogai.core.base import BaseAssistantGraph
-from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantState, ConversationTitleAction, PartialAssistantState
 from ee.models.assistant import Conversation
 
 
@@ -235,6 +235,70 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+    @parameterized.expand(
+        [
+            (
+                "httpx_read_error",
+                httpx.ReadError("Connection reset by peer"),
+                "ReadError",
+            ),
+            (
+                "httpx_connect_error",
+                httpx.ConnectError("Connection refused"),
+                "ConnectError",
+            ),
+        ]
+    )
+    async def test_httpx_transport_errors_tracked_separately_from_provider_errors(
+        self, _name, exception, expected_error_type
+    ):
+        """httpx transport errors are network issues, not LLM provider errors, and use a separate counter."""
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.LLM_TRANSPORT_ERROR_COUNTER") as mock_transport_counter,
+            patch("ee.hogai.core.runner.LLM_PROVIDER_ERROR_COUNTER") as mock_provider_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertEqual(
+                message.content,
+                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            )
+
+            mock_graph.aupdate_state.assert_called()
+
+            # Transport counter is incremented with error_type (not provider)
+            mock_transport_counter.labels.assert_called_with(error_type=expected_error_type)
+            mock_transport_counter.labels.return_value.inc.assert_called_once()
+
+            # Provider counter is NOT incremented
+            mock_provider_counter.labels.assert_not_called()
+
+            # Logged as transport error, not provider error
+            mock_logger.exception.assert_called_once()
+            call_args = mock_logger.exception.call_args
+            self.assertEqual(call_args[0][0], "llm_transport_error")
+            self.assertEqual(call_args[1]["error_type"], expected_error_type)
+
+            # Captured with transport error type, no provider field
+            mock_posthog.capture_exception.assert_called_once()
+            capture_call_args = mock_posthog.capture_exception.call_args
+            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_transport_error")
+            self.assertNotIn("provider", capture_call_args[1]["properties"])
 
     @parameterized.expand(
         [
@@ -581,3 +645,98 @@ class TestRunnerSubagentBehavior(BaseTest):
             self.assertIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
             handler = cast(SubagentCallbackHandler, runner._callback_handlers[0])
             self.assertEqual(handler._parent_span_id, parent_span_id)
+
+
+class TestRunnerConversationTitleAction(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def _create_runner(self, stream_updates=None):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        async def _fake_astream(*args, **kwargs):
+            for update in stream_updates or []:
+                yield update
+
+        mock_graph = MagicMock()
+        mock_graph.astream = MagicMock(return_value=_fake_astream())
+        mock_graph.aget_state = AsyncMock(return_value=MagicMock(values={}, next=None))
+        mock_graph.aupdate_state = AsyncMock()
+
+        mock_stream_processor = MagicMock()
+        mock_stream_processor.mark_id_as_streamed = MagicMock()
+        mock_stream_processor.process = AsyncMock(return_value=None)
+        mock_stream_processor.process_langgraph_update = AsyncMock(return_value=None)
+
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
+        class TestRunner(BaseAgentRunner):
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        runner = TestRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
+            state_type=AssistantState,
+            partial_state_type=PartialAssistantState,
+            stream_processor=mock_stream_processor,
+        )
+        runner._graph = mock_graph
+
+        return runner, mock_graph
+
+    async def test_process_update_sets_conversation_title_and_pending_flag(self):
+        runner, _ = self._create_runner()
+        runner._pending_conversation_update = False
+
+        # In the LangGraph custom stream, ConversationTitleAction arrives as (namespace, "custom", action)
+        action = ConversationTitleAction(title="My Generated Title")
+        raw_update = (("title_generator",), "custom", action)
+        result = await runner._process_update(raw_update)
+
+        self.assertIsNone(result)
+        self.assertEqual(runner._conversation.title, "My Generated Title")
+        self.assertTrue(runner._pending_conversation_update)
+
+    async def test_process_update_does_not_set_pending_flag_for_other_updates(self):
+        runner, _ = self._create_runner()
+        runner._pending_conversation_update = False
+
+        # A values update — (namespace, "values", state_dict) format from LangGraph multi-mode streaming
+        other_update: tuple[tuple[str, ...], str, dict] = (("some_node",), "values", {})
+        await runner._process_update(other_update)
+
+        self.assertFalse(runner._pending_conversation_update)
+
+    async def test_astream_yields_conversation_event_when_title_action_received(self):
+        title_action = ConversationTitleAction(title="Streamed Title")
+        # Wrap in the LangGraph custom stream tuple format
+        raw_update = (("title_generator",), "custom", title_action)
+
+        runner, mock_graph = self._create_runner(stream_updates=[raw_update])
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+        ):
+            results = []
+            async for event_type, payload in runner.astream(
+                stream_message_chunks=False,
+                stream_first_message=False,
+                stream_only_assistant_messages=False,
+            ):
+                results.append((event_type, payload))
+
+        conversation_events = [(et, p) for et, p in results if et == AssistantEventType.CONVERSATION]
+        self.assertEqual(len(conversation_events), 1)
+        _, conversation = conversation_events[0]
+        self.assertEqual(conversation.title, "Streamed Title")

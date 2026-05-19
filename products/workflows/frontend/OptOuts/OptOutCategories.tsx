@@ -4,16 +4,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { CustomerIOImportModal } from './CustomerIOImportModal'
-import { NewCategoryModal } from './NewCategoryModal'
-import { OptOutList } from './OptOutList'
 import { customerIOImportLogic } from './customerIOImportLogic'
+import { NewCategoryModal } from './NewCategoryModal'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { OptOutList } from './OptOutList'
 
 interface MessageCategory {
     id: string
@@ -28,7 +27,6 @@ export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
     const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
         useActions(optOutCategoriesLogic)
-    const { isImportModalOpen } = useValues(customerIOImportLogic)
     const { openImportModal } = useActions(customerIOImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
@@ -114,7 +112,7 @@ export function OptOutCategories(): JSX.Element {
                             )}
                         </div>
                         <div>
-                            <h4 className="font-medium mb-2">Opt-out list</h4>
+                            <h4 className="font-medium mb-4">Opt-out list</h4>
                             {category.category_type === 'marketing' ? (
                                 <OptOutList category={category} />
                             ) : (
@@ -168,8 +166,6 @@ export function OptOutCategories(): JSX.Element {
                 }}
                 category={editingCategory}
             />
-
-            {isImportModalOpen && <CustomerIOImportModal />}
         </>
     )
 }

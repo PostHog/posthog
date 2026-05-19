@@ -348,14 +348,32 @@ class ConversationRedisStream:
                 logger.exception("Failed to delete stream", stream_key=self._stream_key)
                 return False
 
+    async def mark_complete(self) -> None:
+        await self._write_status(StatusPayload(status="complete"))
+
+    async def _write_status(self, status: StatusPayload) -> None:
+        message = self._serializer.dumps(status)
+        if message is None:
+            return
+        await self._redis_client.xadd(
+            self._stream_key,
+            message,
+            maxlen=self._max_length,
+            approximate=True,
+        )
+
     async def write_to_stream(
-        self, generator: AsyncGenerator[AssistantOutput, None], callback: Callable[[], None] | None = None
+        self,
+        generator: AsyncGenerator[AssistantOutput, None],
+        callback: Callable[[], None] | None = None,
+        emit_completion: bool = True,
     ) -> None:
         """Write to the Redis stream.
 
         Args:
             generator: AsyncGenerator of AssistantOutput
             callback: Callback to trigger after each message is written to the stream
+            emit_completion: Whether to mark the stream as complete
         """
         try:
             await self._redis_client.expire(self._stream_key, self._timeout)
@@ -379,24 +397,9 @@ class ConversationRedisStream:
                 if callback:
                     callback()
 
-            # Mark the stream as complete
-            status_message = StatusPayload(status="complete")
-            completion_message = self._serializer.dumps(status_message)
-            await self._redis_client.xadd(
-                self._stream_key,
-                completion_message,
-                maxlen=self._max_length,
-                approximate=True,
-            )
+            if emit_completion:
+                await self._write_status(StatusPayload(status="complete"))
 
         except Exception as e:
-            # Mark the stream as failed
-            error_message = StatusPayload(status="error", error=str(e))
-            message = self._serializer.dumps(error_message)
-            await self._redis_client.xadd(
-                self._stream_key,
-                message,
-                maxlen=self._max_length,
-                approximate=True,
-            )
+            await self._write_status(StatusPayload(status="error", error=str(e)))
             raise StreamError("Failed to write to stream")

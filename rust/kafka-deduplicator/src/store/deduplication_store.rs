@@ -3,16 +3,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use common_types::RawEvent;
-use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
+use rocksdb::{ColumnFamilyDescriptor, SliceTransform};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::EventSimilarity;
-use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
+use crate::rocksdb::store::{
+    column_family_options, RocksDbConfig, RocksDbStore, TIMESTAMP_PREFIX_LEN,
+};
 
 use super::keys::TimestampKey;
-use super::metadata::TimestampMetadata;
+use crate::pipelines::ingestion_events::TimestampMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStoreConfig {
@@ -20,6 +20,8 @@ pub struct DeduplicationStoreConfig {
     pub path: PathBuf,
     // Maximum capacity in bytes
     pub max_capacity: u64,
+    // RocksDB tuning knobs
+    pub rocksdb: RocksDbConfig,
 }
 
 /// Entry for batch writing timestamp records
@@ -35,102 +37,16 @@ pub struct DeduplicationStore {
     partition: i32,
 }
 
-#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
-pub enum DeduplicationResultReason {
-    OnlyUuidDifferent,
-    SameEvent,
-}
-
-#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
-pub enum DeduplicationType {
-    Timestamp,
-}
-
-#[derive(strum_macros::Display, Debug)]
-pub enum DeduplicationResult {
-    ConfirmedDuplicate(
-        DeduplicationType,
-        DeduplicationResultReason,
-        EventSimilarity,
-        RawEvent, // Original event from metadata
-    ), // The reason why it's a confirmed duplicate
-    PotentialDuplicate(DeduplicationType, EventSimilarity, RawEvent), // Original event
-    New,
-    Skipped,
-}
-
-impl PartialEq for DeduplicationResult {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                DeduplicationResult::ConfirmedDuplicate(
-                    deduplication_type,
-                    deduplication_reason,
-                    _,
-                    _,
-                ),
-                DeduplicationResult::ConfirmedDuplicate(
-                    other_deduplication_type,
-                    other_deduplication_reason,
-                    _,
-                    _,
-                ),
-            ) => {
-                deduplication_type == other_deduplication_type
-                    && deduplication_reason == other_deduplication_reason
-            }
-            (
-                DeduplicationResult::PotentialDuplicate(deduplication_type, _, _),
-                DeduplicationResult::PotentialDuplicate(other_deduplication_type, _, _),
-            ) => deduplication_type == other_deduplication_type,
-            (DeduplicationResult::New, DeduplicationResult::New) => true,
-            (DeduplicationResult::Skipped, DeduplicationResult::Skipped) => true,
-            _ => false,
-        }
-    }
-}
-
-impl DeduplicationResult {
-    pub fn is_duplicate(&self) -> bool {
-        matches!(self, DeduplicationResult::ConfirmedDuplicate(_, _, _, _))
-    }
-
-    pub fn get_similarity(&self) -> Option<&EventSimilarity> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, similarity, _) => Some(similarity),
-            DeduplicationResult::PotentialDuplicate(_, similarity, _) => Some(similarity),
-            _ => None,
-        }
-    }
-
-    pub fn get_original_event(&self) -> Option<&RawEvent> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
-            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
-            _ => None,
-        }
-    }
-
-    pub fn take_original_event(self) -> Option<RawEvent> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
-            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
-            _ => None,
-        }
-    }
-}
-
 impl DeduplicationStore {
     // Column family for timestamp-based deduplication
     const TIMESTAMP_CF: &'static str = "timestamp_records";
 
     pub fn new(config: DeduplicationStoreConfig, topic: String, partition: i32) -> Result<Self> {
         // Create metrics helper for the RocksDB store
-        let metrics = MetricsHelper::with_partition(&topic, partition)
-            .with_label("service", "kafka-deduplicator");
+        let metrics = MetricsHelper::with_partition(&topic, partition);
 
-        let cf_descriptors = Self::get_cf_descriptors();
-        let store = RocksDbStore::new(&config.path, cf_descriptors, metrics)?;
+        let cf_descriptors = Self::get_cf_descriptors(&config.rocksdb);
+        let store = RocksDbStore::new(&config.path, cf_descriptors, metrics, &config.rocksdb)?;
 
         Ok(Self {
             store: Arc::new(store),
@@ -139,18 +55,11 @@ impl DeduplicationStore {
         })
     }
 
-    fn get_cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
-        let block_opts = block_based_table_factory();
-
-        // ----- CF: TimestampKey (prefix = 8-byte BE timestamp)
-        let mut ts_cf_opts = Options::default();
-        ts_cf_opts.set_block_based_table_factory(&block_opts);
-        ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8)); // <- per-CF
-        ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
-        ts_cf_opts.set_max_write_buffer_number(3);
-        // IMPORTANT: CF options don't inherit from DB options, must set compression explicitly
-        // LZ4 is ~2x faster than Snappy for both compression and decompression
-        ts_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    fn get_cf_descriptors(rocksdb_config: &RocksDbConfig) -> Vec<ColumnFamilyDescriptor> {
+        // column_family_options() provides all tuning (write buffers, compaction, compression,
+        // shared block cache) since CF options don't inherit from DB options.
+        let mut ts_cf_opts = column_family_options(rocksdb_config);
+        ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(TIMESTAMP_PREFIX_LEN));
 
         vec![ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts)]
     }
@@ -419,30 +328,21 @@ impl DeduplicationStore {
         self.store.update_db_metrics(Self::TIMESTAMP_CF)
     }
 
-    /// Create a checkpoint and return metadata about the checkpoint
-    /// This ensures consistency by:
-    /// 1. Flushing WAL to disk
-    /// 2. Flushing all column families
-    /// 3. Capturing sequence number for consistency verification
-    /// 4. Creating the checkpoint with hard links
+    /// Create a checkpoint and return metadata about the checkpoint.
+    /// Consistency is ensured by:
+    /// 1. Flushing WAL to disk (explicit)
+    /// 2. Capturing sequence number for consistency verification
+    /// 3. Creating the checkpoint with hard links (internally flushes
+    ///    memtables via log_size_for_flush=0 in rust-rocksdb 0.24)
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
         checkpoint_path: P,
     ) -> Result<LocalCheckpointInfo> {
-        // Step 1: Flush WAL to ensure durability
-        self.store.flush_wal(true)?;
-
-        // Step 2: Flush all column families to ensure data is in SST files
-        self.flush()?;
-
-        // Step 3: Get sequence number for consistency tracking
         let sequence = self.store.latest_sequence_number();
 
-        // Step 4: Get SST files after flush
-        let sst_files = self.get_sst_file_names()?;
-
-        // Step 5: Create the checkpoint (RocksDB internally handles file deletion safety)
         self.store.create_checkpoint(checkpoint_path)?;
+
+        let sst_files = self.get_sst_file_names()?;
 
         Ok(LocalCheckpointInfo {
             sst_files,
@@ -471,6 +371,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
         let store = DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
         (store, temp_dir)

@@ -10,14 +10,16 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
+import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
-import { exceptionCardLogic } from './exceptionCardLogic'
 
 interface ExceptionCardContentProps {
     timestamp?: string
     label?: JSX.Element
+    /** Hide timestamp and label from the tab bar (e.g. when shown elsewhere on mobile) */
+    hideEventMeta?: boolean
 
     renderStackTraceActions?: () => JSX.Element | null
 }
@@ -64,14 +66,19 @@ export function ExceptionCard({
     )
 }
 
-function ExceptionCardContent({ timestamp, renderStackTraceActions, label }: ExceptionCardContentProps): JSX.Element {
+function ExceptionCardContent({
+    timestamp,
+    renderStackTraceActions,
+    label,
+    hideEventMeta,
+}: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-y-auto w-full border-0 rounded-none">
-            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
-                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
+        <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
+            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
+                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
                             <div className="flex items-center gap-1 text-lg h-full">
@@ -91,14 +98,14 @@ function ExceptionCardContent({ timestamp, renderStackTraceActions, label }: Exc
                             </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
-                            {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
-                            {label}
+                            {!hideEventMeta && timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
+                            {!hideEventMeta && label}
                         </div>
                     </TabsPrimitiveList>
                 </div>
-                <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} />
-                <PropertiesTab value="properties" />
-                <SessionTab value="session" timestamp={timestamp} />
+                <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
+                <PropertiesTab value="properties" className="flex-1 min-h-0" />
+                <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
             </TabsPrimitive>
         </LemonCard>
     )

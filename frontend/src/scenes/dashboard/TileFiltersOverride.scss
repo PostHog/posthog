@@ -1,6 +1,5 @@
 .tile-filters-override {
-    // Override the grow class for add filter buttons in this modal
-    .new-prop-filter.grow {
+    .new-prop-filter {
         flex-grow: 0 !important;
         max-width: fit-content !important;
     }

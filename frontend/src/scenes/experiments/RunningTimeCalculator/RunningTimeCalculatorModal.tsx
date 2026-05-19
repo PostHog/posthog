@@ -9,9 +9,9 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { EventSelectorStep } from './EventSelectorStep'
 import { MetricSelectorStep } from './MetricSelectorStep'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalFooter } from './RunningTimeCalculatorModalFooter'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
-import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
 export function RunningTimeCalculatorModal(): JSX.Element {
     /**

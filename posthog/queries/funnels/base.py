@@ -123,9 +123,9 @@ class ClickhouseFunnelBase(ABC):
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
-            name = step.get_action().name
+            name = step.get_action(self._team.pk).name
         else:
-            name = step.id
+            name = str(step.id) if step.id is not None else None
 
         return {
             "action_id": step.id,
@@ -237,7 +237,7 @@ class ClickhouseFunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self._team)
                             if self._filter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -289,7 +289,7 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
-            settings={"allow_experimental_analyzer": 0},
+            settings={"enable_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -461,6 +461,8 @@ class ClickhouseFunnelBase(ABC):
             all_step_cols.extend(step_cols)
 
         for exclusion_id, entity in enumerate(self._filter.exclusions):
+            if entity.funnel_from_step is None:
+                continue
             step_cols = self._get_step_col(
                 entity,
                 entity.funnel_from_step,
@@ -558,7 +560,7 @@ class ClickhouseFunnelBase(ABC):
     def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
         filters = self._build_filters(entity, index, entity_name)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = entity.get_action()
+            action = entity.get_action(self._team.pk)
             for action_step_event in action.get_step_events():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step_event)
@@ -792,7 +794,7 @@ class ClickhouseFunnelBase(ABC):
 
             breakdown = self._filter.breakdown
             if isinstance(breakdown, list):
-                expressions = [translate_hogql(exp, self._filter.hogql_context) for exp in breakdown]
+                expressions = [translate_hogql(str(exp), self._filter.hogql_context) for exp in breakdown]
                 expression = f"array({','.join(expressions)})"
             else:
                 expression = translate_hogql(cast(str, breakdown), self._filter.hogql_context)

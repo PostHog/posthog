@@ -13,6 +13,8 @@ from posthog.api.utils import (
     format_paginated_url,
     get_data,
     get_target_entity,
+    is_async_query,
+    is_insight_query,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
     PublicIPOnlyHttpAdapter,
@@ -37,7 +39,7 @@ class TestUtils(BaseTest):
         # Valid request with event
         request = HttpRequest()
         request.method = "POST"
-        request.POST = {"data": json.dumps({"event": "some event"})}
+        request.POST = cast(Any, {"data": json.dumps({"event": "some event"})})
         data, error_response = get_data(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)
@@ -238,6 +240,75 @@ class TestUtils(BaseTest):
 
     @parameterized.expand(
         [
+            ("TrendsQuery is insight", {"kind": "TrendsQuery"}, True, True),
+            ("FunnelsQuery is insight", {"kind": "FunnelsQuery"}, True, True),
+            ("HogQLQuery is insight", {"kind": "HogQLQuery"}, True, True),
+            ("TracesQuery gets extended timeout only", {"kind": "TracesQuery"}, False, True),
+            ("ExperimentQuery gets extended timeout only", {"kind": "ExperimentQuery"}, False, True),
+            (
+                "ExperimentTrendsQuery gets extended timeout only",
+                {"kind": "ExperimentTrendsQuery"},
+                False,
+                True,
+            ),
+            (
+                "ExperimentFunnelsQuery gets extended timeout only",
+                {"kind": "ExperimentFunnelsQuery"},
+                False,
+                True,
+            ),
+            (
+                "ExperimentExposureQuery gets extended timeout only",
+                {"kind": "ExperimentExposureQuery"},
+                False,
+                True,
+            ),
+            (
+                "InsightVizNode wrapping FunnelsQuery",
+                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}},
+                True,
+                True,
+            ),
+            (
+                "InsightVizNode wrapping ExperimentQuery",
+                {"kind": "InsightVizNode", "source": {"kind": "ExperimentQuery"}},
+                False,
+                True,
+            ),
+            (
+                "DataTableNode wrapping TrendsQuery",
+                {"kind": "DataTableNode", "source": {"kind": "TrendsQuery"}},
+                True,
+                True,
+            ),
+            (
+                "DataTableNode wrapping TracesQuery",
+                {"kind": "DataTableNode", "source": {"kind": "TracesQuery"}},
+                False,
+                True,
+            ),
+            (
+                "DataVisualizationNode wrapping TracesQuery",
+                {"kind": "DataVisualizationNode", "source": {"kind": "TracesQuery"}},
+                False,
+                True,
+            ),
+            ("EventsQuery is neither", {"kind": "EventsQuery"}, False, False),
+            ("SessionsQuery is neither", {"kind": "SessionsQuery"}, False, False),
+            (
+                "DataTableNode wrapping EventsQuery",
+                {"kind": "DataTableNode", "source": {"kind": "EventsQuery"}},
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_is_async_query(self, _name: str, query: dict, expected_insight: bool, expected_async: bool) -> None:
+        assert is_insight_query(query) == expected_insight
+        assert is_async_query(query) == expected_async
+
+    @parameterized.expand(
+        [
             ("empty allowlist", [], "http://localhost:8123", False),
             ("no allowlist", None, "http://localhost:8123", False),
             ("allowlist is empty string", ["     "], "http://localhost:8123", False),
@@ -252,6 +323,15 @@ class TestUtils(BaseTest):
             ("needle is not in allowlist", ["http://localhost"], "http://posthog.com:8123", False),
             ("regex needle is not in allowlist", ["http://*.com"], "http://localhost:8123", False),
             ("regex needle is in allowlist", ["http://*.com"], "http://posthog.com:8123", True),
+            ("www needle matches bare domain in allowlist", ["https://example.com"], "https://www.example.com", True),
+            ("bare needle matches www domain in allowlist", ["https://www.example.com"], "https://example.com", True),
+            ("www to www still matches", ["https://www.example.com"], "https://www.example.com", True),
+            (
+                "www equivalence does not match different domains",
+                ["https://example.com"],
+                "https://www.other.com",
+                False,
+            ),
         ]
     )
     def test_unparsed_hostname_in_allowed_url_list(

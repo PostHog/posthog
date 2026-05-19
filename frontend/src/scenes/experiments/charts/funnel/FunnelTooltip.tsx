@@ -5,8 +5,8 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { IconHandClick } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
@@ -60,15 +60,18 @@ function FunnelTooltipContent({
                         <td>{humanFriendlyNumber(series.count)}</td>
                     </tr>
                     {stepIndex > 0 && (
-                        <tr>
-                            <td>Dropped off</td>
-                            <td>{humanFriendlyNumber(series.droppedOffFromPrevious || 0)}</td>
-                        </tr>
+                        <>
+                            <tr>
+                                <td>Dropped off</td>
+                                <td>{humanFriendlyNumber(series.droppedOffFromPrevious || 0)}</td>
+                            </tr>
+
+                            <tr>
+                                <td>Conversion so far</td>
+                                <td>{percentage(series.conversionRates.total || 0, 2, true)}</td>
+                            </tr>
+                        </>
                     )}
-                    <tr>
-                        <td>Conversion so far</td>
-                        <td>{percentage(series.conversionRates.total || 0, 2, true)}</td>
-                    </tr>
                     {stepIndex > 0 && (
                         <tr>
                             <td>Conversion from previous</td>
@@ -90,10 +93,10 @@ function FunnelTooltipContent({
                 </tbody>
             </table>
             {hasSessionData && (
-                <div className="table-subtext table-subtext-click-to-inspect">
-                    <IconHandClick className="mr-1 mb-0.5" />
-                    Click to view persons dropping off
-                </div>
+                <>
+                    <LemonDivider className="my-2" />
+                    <ClickToInspectActors groupTypeLabel="persons" />
+                </>
             )}
         </div>
     )

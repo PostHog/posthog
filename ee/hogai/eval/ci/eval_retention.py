@@ -81,8 +81,8 @@ Retention:
                         retentionFilter=AssistantRetentionFilter(
                             period="Week",
                             totalIntervals=11,
-                            returningEntity=AssistantRetentionEventsNode(name="$pageview"),
-                            targetEntity=AssistantRetentionEventsNode(name="$pageview"),
+                            returningEntity=AssistantRetentionEventsNode(id="$pageview"),
+                            targetEntity=AssistantRetentionEventsNode(id="$pageview"),
                         ),
                     ),
                 ),
@@ -103,8 +103,8 @@ Retention:
                         retentionFilter=AssistantRetentionFilter(
                             period="Month",
                             totalIntervals=11,
-                            returningEntity=AssistantRetentionEventsNode(name="signed_up"),
-                            targetEntity=AssistantRetentionEventsNode(name="viewed_dashboard"),
+                            returningEntity=AssistantRetentionEventsNode(id="signed_up"),
+                            targetEntity=AssistantRetentionEventsNode(id="viewed_dashboard"),
                         ),
                     ),
                 ),
@@ -134,7 +134,7 @@ Filters:
                             period="Day",
                             totalIntervals=14,
                             returningEntity=AssistantRetentionEventsNode(
-                                name="signed_up",
+                                id="signed_up",
                                 properties=[
                                     {
                                         "key": "$browser",
@@ -144,7 +144,7 @@ Filters:
                                     },
                                 ],
                             ),
-                            targetEntity=AssistantRetentionEventsNode(name="purchased"),
+                            targetEntity=AssistantRetentionEventsNode(id="purchased"),
                         ),
                     ),
                 ),
@@ -172,8 +172,8 @@ Time period: last 3 months
                         retentionFilter=AssistantRetentionFilter(
                             period="Week",
                             totalIntervals=12,
-                            returningEntity=AssistantRetentionEventsNode(name="signed_up"),
-                            targetEntity=AssistantRetentionEventsNode(name="purchased"),
+                            returningEntity=AssistantRetentionEventsNode(id="signed_up"),
+                            targetEntity=AssistantRetentionEventsNode(id="purchased"),
                         ),
                     ),
                 ),
@@ -194,8 +194,8 @@ Retention:
                         retentionFilter=AssistantRetentionFilter(
                             period="Week",
                             totalIntervals=11,
-                            returningEntity=AssistantRetentionEventsNode(name="viewed_pricing_page"),
-                            targetEntity=AssistantRetentionEventsNode(name="upgraded_plan"),
+                            returningEntity=AssistantRetentionEventsNode(id="viewed_pricing_page"),
+                            targetEntity=AssistantRetentionEventsNode(id="upgraded_plan"),
                         ),
                     ),
                 ),

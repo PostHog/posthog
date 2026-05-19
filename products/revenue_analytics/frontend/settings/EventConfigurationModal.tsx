@@ -23,7 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
-interface EventConfigurationModalProps {
+export interface EventConfigurationModalProps {
     event?: RevenueAnalyticsEventItem
     onClose: () => void
 }
@@ -143,6 +143,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                                 }}
                                 value={''}
                                 placeholder="Select or type an event name"
+                                selectingKeyOnly
                             />
                         )}
                     </div>
@@ -164,6 +165,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             }}
                             value={currentEvent?.revenueProperty || undefined}
                             placeholder="Select the property that contains revenue amount"
+                            selectingKeyOnly
                             disabledReason={
                                 !currentEvent?.eventName
                                     ? 'Select an event name first'

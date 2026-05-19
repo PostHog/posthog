@@ -6,11 +6,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { ProductSetupPopover } from './ProductSetupPopover'
 import { globalSetupLogic } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
+import { ProductSetupPopover } from './ProductSetupPopover'
 
 /**
  * ProductSetupButton - A button that appears in the scene title section
@@ -22,6 +24,7 @@ export function ProductSetupButton(): JSX.Element | null {
     const { selectedProduct, isGlobalModalOpen, sceneHasNoSetup } = useValues(globalSetupLogic)
     const { openGlobalSetup, closeGlobalSetup, setSelectedProduct } = useActions(globalSetupLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
+    const showPulseIndicator = useFeatureFlag('QUICK_START_PULSE_INDICATOR', 'test')
 
     // Get the setup state for the selected product
     const logic = productSetupLogic({ productKey: selectedProduct })
@@ -70,6 +73,7 @@ export function ProductSetupButton(): JSX.Element | null {
                     showBadge={shouldShowSetup}
                     isActive={isGlobalModalOpen}
                     onClick={handleToggle}
+                    showPulse={showPulseIndicator}
                 />
             )}
         </ProductSetupPopover>
@@ -93,9 +97,7 @@ const MinimizedButton = forwardRef<HTMLButtonElement, MinimizedButtonProps>(func
                 <span className="relative">
                     <IconTarget />
                     {remainingCount > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center w-3.5 h-3.5 text-[9px] font-bold bg-warning text-white rounded-full">
-                            {remainingCount}
-                        </span>
+                        <LemonBadge.Number count={remainingCount} status="warning" size="medium" position="top-right" />
                     )}
                 </span>
             }
@@ -114,12 +116,17 @@ interface ExpandedButtonProps {
     showBadge: boolean
     isActive: boolean
     onClick: () => void
+    showPulse: boolean
 }
 
 const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(function ExpandedButton(
-    { remainingCount, showBadge, isActive, onClick },
+    { remainingCount, showBadge, isActive, onClick, showPulse },
     ref
 ) {
+    // Hide the pulse when the popover is open to avoid distracting the user, but keep the
+    // numeric badge visible in the control variant so its behavior matches the pre-experiment baseline.
+    const showIndicator = showBadge && remainingCount > 0 && (!showPulse || !isActive)
+
     return (
         <LemonButton
             ref={ref}
@@ -130,10 +137,15 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
             active={isActive}
             data-attr="global-product-setup-button"
             sideIcon={
-                showBadge && remainingCount > 0 ? (
-                    <span className="flex items-center justify-center min-w-5 h-5 px-1 text-xs font-bold bg-warning text-white rounded-full">
-                        {remainingCount}
-                    </span>
+                showIndicator ? (
+                    showPulse ? (
+                        <span className="relative flex h-3 w-3">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-danger animate-ping opacity-75" />
+                            <span className="relative inline-flex h-3 w-3 rounded-full bg-danger" />
+                        </span>
+                    ) : (
+                        <LemonBadge.Number count={remainingCount} status="warning" size="small" />
+                    )
                 ) : undefined
             }
         >

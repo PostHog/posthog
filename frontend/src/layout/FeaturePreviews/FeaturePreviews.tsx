@@ -2,89 +2,125 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+
+type AvailableFeatureChecker = (feature: AvailableFeature) => boolean
+
+interface FeaturePreviewWarning {
+    /** Returns the warning to display for a feature, or null if none should show. */
+    resolve: (hasAvailableFeature: AvailableFeatureChecker) => React.ReactNode | null
+}
+
+/**
+ * Per-flag warnings shown on the early-access card. Add an entry here to surface a warning
+ * for a specific preview without touching the FeaturePreview component itself.
+ */
+const FEATURE_PREVIEW_WARNINGS: Record<string, FeaturePreviewWarning> = {
+    [FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]: {
+        resolve: (hasAvailableFeature) =>
+            hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+                ? null
+                : 'This feature requires the Enterprise plan or the Scale add-on. Enabling the preview will not unlock it on your current plan.',
+    },
+}
 
 const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError
 
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
-    const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
+
+    useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
+
+    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta')
+    const shouldShowEmptyState =
+        filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
+    const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
+
+    return (
+        <div className="flex flex-col gap-2">
+            {failedToLoadFeaturePreviews && (
+                <LemonBanner type="warning" className="mb-2">
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            We couldn't load our internal feature flags. This could be due to the presence of adblockers
+                            running in your browser or due to a network issue (e.g. slow wifi).
+                        </span>
+                        <span className="italic">
+                            Note: If you use feature flags for your app, you can avoid this issue for your users by
+                            using a{' '}
+                            <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
+                                reverse proxy
+                            </Link>
+                            .
+                        </span>
+                    </div>
+                </LemonBanner>
+            )}
+            {rawEarlyAccessFeaturesLoading ? (
+                <SpinnerOverlay />
+            ) : (
+                <>
+                    {!shouldShowEmptyState && (
+                        <LemonInput
+                            type="search"
+                            placeholder="Search feature previews..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            allowClear
+                        />
+                    )}
+                    {betaFeatures.length === 0 && searchTerm.trim() ? (
+                        <p className="text-secondary text-center mt-4">No matching feature previews</p>
+                    ) : (
+                        betaFeatures.map((feature) => (
+                            <div key={feature.flagKey}>
+                                <FeaturePreview
+                                    feature={feature}
+                                    warning={FEATURE_PREVIEW_WARNINGS[feature.flagKey]?.resolve(hasAvailableFeature)}
+                                />
+                            </div>
+                        ))
+                    )}
+                </>
+            )}
+        </div>
+    )
+}
+
+export function FeaturePreviewsComingSoon(): JSX.Element {
+    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
-    const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
-    const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
-    const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
-    const failedToLoadFeaturePreviews = earlyAccessFeatures.length === 0 && hasPosthogJsFailedToLoadFeaturePreviews()
+    const conceptFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept')
 
     return (
-        <div className="flex flex-col gap-y-8">
-            <div className="flex flex-col">
-                <div>
-                    <h3>Previews</h3>
-                    <p>Get early access to these upcoming features. Let us know what you think!</p>
-                    <LemonBanner type="info" className="mb-4">
-                        Note that toggling these features will enable it for your account only. Each individual user in
-                        your organization will need to enable it separately.
-                    </LemonBanner>
-
-                    {failedToLoadFeaturePreviews && (
-                        <LemonBanner type="warning" className="mb-4">
-                            <div className="flex flex-col gap-2">
-                                <span>
-                                    We couldn't load our internal feature flags. This could be due to the presence of
-                                    adblockers running in your browser or due to a network issue (e.g. slow wifi).
-                                </span>
-                                <span className="italic">
-                                    Note: If you use feature flags for your app, you can avoid this issue for your users
-                                    by using a{' '}
-                                    <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
-                                        reverse proxy
-                                    </Link>
-                                    .
-                                </span>
-                            </div>
-                        </LemonBanner>
-                    )}
-                </div>
-                <div className="flex flex-col flex-1 gap-2 overflow-y-auto">
-                    {rawEarlyAccessFeaturesLoading ? (
-                        <SpinnerOverlay />
-                    ) : (
-                        betaFeatures.map((feature) => (
-                            <div key={feature.flagKey}>
-                                <FeaturePreview feature={feature} />
-                            </div>
-                        ))
-                    )}
-                </div>
-            </div>
-            <div className="flex flex-col">
-                <div>
-                    <h3>Coming soon {disabledConceptFeatureCount > 0 && `(${disabledConceptFeatureCount})`}</h3>
-                    <p>Get notified when upcoming features are ready!</p>
-                </div>
-                <div className="flex flex-col flex-1 gap-2 overflow-y-auto">
-                    {rawEarlyAccessFeaturesLoading ? (
-                        <SpinnerOverlay />
-                    ) : (
-                        conceptFeatures.map((feature) => (
-                            <div key={feature.flagKey}>
-                                <ConceptPreview feature={feature} />
-                            </div>
-                        ))
-                    )}
-                </div>
-            </div>
+        <div className="flex flex-col gap-2">
+            {rawEarlyAccessFeaturesLoading ? (
+                <SpinnerOverlay />
+            ) : (
+                conceptFeatures.map((feature) => (
+                    <div key={feature.flagKey}>
+                        <ConceptPreview feature={feature} />
+                    </div>
+                ))
+            )}
         </div>
     )
 }
@@ -159,7 +195,13 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     )
 }
 
-function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
+interface FeaturePreviewProps {
+    feature: EnrichedEarlyAccessFeature
+    /** Optional warning rendered under the description (e.g. plan/add-on requirements). */
+    warning?: React.ReactNode
+}
+
+function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element {
     const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading } = useValues(featurePreviewsLogic)
     const {
         beginEarlyAccessFeatureFeedback,
@@ -197,9 +239,10 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                 </div>
             }
             description={
-                <p className="m-0 max-w-prose">
-                    {description || <span className="text-tertiary">No description</span>}
-                </p>
+                <div className="flex flex-col gap-2 max-w-prose">
+                    <p className="m-0">{description || <span className="text-tertiary">No description</span>}</p>
+                    {warning && <LemonBanner type="warning">{warning}</LemonBanner>}
+                </div>
             }
             actions={
                 <div className="flex flex-col gap-2">

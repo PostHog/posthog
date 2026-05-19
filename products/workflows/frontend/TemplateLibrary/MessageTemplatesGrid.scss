@@ -1,0 +1,46 @@
+@keyframes MessageTemplateSlider__SlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.MessageTemplateSlider__SlideIn--animate {
+    animation: MessageTemplateSlider__SlideIn 0.25s ease-out both;
+}
+
+.MessageTemplateItem {
+    width: 100%;
+    height: 100%;
+    padding: 4px;
+
+    .MessageTemplateItemInner {
+        width: 100%;
+        height: 100%;
+        transition:
+            transform 0.2s ease,
+            box-shadow 0.2s ease;
+    }
+
+    &:hover .MessageTemplateItemInner {
+        z-index: 1;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+        transform: scale(1.05);
+    }
+}
+
+.MessageTemplatesGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 340px);
+    gap: 0.75em;
+
+    .MessageTemplateItem {
+        width: 340px;
+        height: 360px;
+    }
+}

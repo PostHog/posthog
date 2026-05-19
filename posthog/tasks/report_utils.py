@@ -15,8 +15,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import get_machine_id
 
-logger = structlog.get_logger(__name__)
-
 
 def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     # Find the membership object for the org owner
@@ -47,7 +45,6 @@ def capture_event(
     properties: dict[str, Any],
     timestamp: Optional[Union[datetime, str]] = None,
     distinct_id: Optional[str] = None,
-    set_on_organization: bool = False,
 ) -> None:
     """
     Captures a single event.
@@ -69,6 +66,15 @@ def capture_event(
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
 
     if is_cloud():
+        # Get logger at call time (not module import time) so it uses the correct
+        # structlog configuration in both Temporal and non-Temporal contexts
+        logger = structlog.get_logger(__name__)
+        logger.info(
+            "[Usage Report] Capturing usage report event",
+            event_name=name,
+            organization_id=organization_id,
+        )
+
         pha_client.capture(
             distinct_id=distinct_id,
             event=name,
@@ -76,14 +82,6 @@ def capture_event(
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
-
-        # Also set properties as group properties on the organization
-        if set_on_organization:
-            pha_client.group_identify(
-                group_type="organization",
-                group_key=str(organization_id),
-                properties=properties,
-            )
     else:
         pha_client.capture(
             distinct_id=get_machine_id(),

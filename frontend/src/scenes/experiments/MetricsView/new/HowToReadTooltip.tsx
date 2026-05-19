@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { IconTrending } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ExperimentStatsMethod } from '~/types'
@@ -82,15 +82,20 @@ export function HowToReadTooltip(): JSX.Element {
                             className="rounded border object-contain mb-2"
                             alt="How to read metrics"
                         />
-                        <p className="text-sm mb-0">
-                            <Link to="https://posthog.com/docs/experiments/analyzing-results">
-                                Learn more about analyzing results
-                            </Link>
+                        <p className="mb-0">
+                            PostHog uses its own statistical methods. Results may differ from other tools.
                         </p>
                     </div>
                 }
             >
-                <span className="text-xs text-secondary cursor-help">How to read</span>
+                <Link
+                    to="https://posthog.com/docs/experiments/analyzing-results"
+                    target="_blank"
+                    className="text-xs text-secondary cursor-help"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    How to read
+                </Link>
             </Tooltip>
         </>
     )

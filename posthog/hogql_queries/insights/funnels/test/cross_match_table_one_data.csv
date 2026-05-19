@@ -1,0 +1,3 @@
+id,user_id,created,step_tag
+row_1,user_1,2025-11-01T10:00:00.000,go
+row_2,user_2,2025-11-02T10:00:00.000,go

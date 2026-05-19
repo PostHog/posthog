@@ -211,6 +211,7 @@ class TestDashboardContext(BaseTest):
 
         self.assertIn("Dashboard name: No ID Dashboard", result)
         self.assertNotIn("Dashboard ID:", result)
+        self.assertNotIn("Dashboard URL:", result)
 
     async def test_dashboard_without_name(self):
         """Test that dashboard works without a name"""
@@ -224,6 +225,42 @@ class TestDashboardContext(BaseTest):
 
         self.assertIn("Dashboard name: Dashboard", result)
         self.assertIn("Dashboard ID: 606", result)
+        self.assertIn(f"Dashboard URL: /project/{self.team.id}/dashboard/606", result)
+
+    async def test_dashboard_url_included_in_format_schema(self):
+        dashboard_ctx = DashboardContext(
+            team=self.team,
+            insights_data=[],
+            name="URL Test Dashboard",
+            dashboard_id="12345",
+        )
+
+        result = await dashboard_ctx.format_schema()
+
+        self.assertIn(f"Dashboard URL: /project/{self.team.id}/dashboard/12345", result)
+
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_dashboard_url_included_in_execute_and_format(self, mock_execute):
+        mock_execute.return_value = "Result"
+
+        insights_data: list[DashboardInsightContext] = [
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="pageview")]),
+                name="Test Insight",
+                insight_id="insight-1",
+            )
+        ]
+
+        dashboard_ctx = DashboardContext(
+            team=self.team,
+            insights_data=insights_data,
+            name="URL Test Dashboard",
+            dashboard_id="67890",
+        )
+
+        result = await dashboard_ctx.execute_and_format()
+
+        self.assertIn(f"Dashboard URL: /project/{self.team.id}/dashboard/67890", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_custom_max_concurrent_queries(self, mock_execute):

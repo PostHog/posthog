@@ -1,8 +1,12 @@
 """Hubspot source settings and constants"""
 
-from dlt.common import pendulum
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional
 
-STARTDATE = pendulum.datetime(year=2000, month=1, day=1)
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
+
+STARTDATE = datetime(year=2000, month=1, day=1)
 
 CONTACT = "contact"
 COMPANY = "company"
@@ -55,6 +59,12 @@ ENDPOINTS = (
     OBJECT_TYPE_PLURAL[EMAILS],
     OBJECT_TYPE_PLURAL[MEETINGS],
 )
+
+# CRM search API constants — shared between windowing and pagination logic
+SEARCH_PAGE_SIZE = 200
+SEARCH_RESULT_CAP = 10_000  # HubSpot returns at most 10k total results per search query
+SEARCH_WINDOW_DAYS = 30
+ASSOCIATIONS_BATCH_SIZE = 1000  # HubSpot v4 batch-read limit
 
 DEFAULT_DEAL_PROPS = [
     "amount",
@@ -113,6 +123,8 @@ DEFAULT_QUOTE_PROPS = [
 
 DEFAULT_EMAIL_PROPS = [
     "hs_timestamp",
+    "hs_lastmodifieddate",
+    "hs_object_id",
     "hs_email_direction",
     "hs_email_html",
     "hs_email_status",
@@ -124,6 +136,8 @@ DEFAULT_EMAIL_PROPS = [
 
 DEFAULT_MEETINGS_PROPS = [
     "hs_timestamp",
+    "hs_lastmodifieddate",
+    "hs_object_id",
     "hs_meeting_title",
     "hs_meeting_body",
     "hs_internal_meeting_notes",
@@ -144,4 +158,85 @@ DEFAULT_PROPS = {
     OBJECT_TYPE_PLURAL[QUOTE]: DEFAULT_QUOTE_PROPS,
     OBJECT_TYPE_PLURAL[EMAILS]: DEFAULT_EMAIL_PROPS,
     OBJECT_TYPE_PLURAL[MEETINGS]: DEFAULT_MEETINGS_PROPS,
+}
+
+
+def _incremental_field(name: str) -> IncrementalField:
+    return IncrementalField(
+        label=name,
+        type=IncrementalFieldType.DateTime,
+        field=name,
+        field_type=IncrementalFieldType.DateTime,
+    )
+
+
+@dataclass
+class HubspotEndpointConfig:
+    name: str
+    path: str
+    associations: list[str]
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    partition_key: Optional[str] = None
+    # Name of the HubSpot property used both as the search filter and as the incremental cursor
+    # (e.g. hs_lastmodifieddate). None means the endpoint does not support incremental sync.
+    cursor_filter_property_field: Optional[str] = None
+
+
+HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
+    "contacts": HubspotEndpointConfig(
+        name="contacts",
+        path="/crm/v3/objects/contacts",
+        associations=["deals", "tickets", "quotes"],
+        partition_key="createdate",
+        cursor_filter_property_field="lastmodifieddate",
+        incremental_fields=[_incremental_field("lastmodifieddate")],
+    ),
+    "companies": HubspotEndpointConfig(
+        name="companies",
+        path="/crm/v3/objects/companies",
+        associations=["contacts", "deals", "tickets", "quotes"],
+        partition_key="createdate",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
+    "deals": HubspotEndpointConfig(
+        name="deals",
+        path="/crm/v3/objects/deals",
+        associations=[],
+        partition_key="createdate",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
+    "tickets": HubspotEndpointConfig(
+        name="tickets",
+        path="/crm/v3/objects/tickets",
+        associations=[],
+        partition_key="createdate",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
+    "quotes": HubspotEndpointConfig(
+        name="quotes",
+        path="/crm/v3/objects/quotes",
+        associations=[],
+        partition_key="hs_createdate",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
+    "emails": HubspotEndpointConfig(
+        name="emails",
+        path="/crm/v3/objects/emails",
+        associations=[],
+        partition_key="hs_timestamp",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
+    "meetings": HubspotEndpointConfig(
+        name="meetings",
+        path="/crm/v3/objects/meetings",
+        associations=[],
+        partition_key="hs_timestamp",
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+    ),
 }

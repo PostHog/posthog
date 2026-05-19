@@ -1,33 +1,4 @@
 .ColumnConfiguratorModal {
-    .Columns {
-        display: flex;
-        column-gap: 1rem;
-        width: 1200px;
-        max-width: 90vw;
-        padding: 0.5rem;
-        background-color: var(--color-bg-primary);
-        border-radius: var(--radius);
-
-        @media (max-width: 960px) {
-            display: block;
-            width: auto;
-        }
-    }
-
-    .HalfColumn {
-        &:first-child {
-            width: 40%;
-        }
-
-        &:last-child {
-            width: 60%;
-        }
-
-        @media (max-width: 960px) {
-            width: 100%;
-        }
-    }
-
     .SelectedColumn {
         display: flex;
         align-items: center;

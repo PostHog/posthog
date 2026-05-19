@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
@@ -34,10 +34,14 @@ export function DangerousOperationApprovalCard({ operation }: DangerousOperation
     // Show pending state while waiting for resolution
     if (!resolvedStatus) {
         return (
-            <div className="flex items-center gap-2 text-muted text-xs">
-                <IconWarning className="size-4" />
-                <span>Awaiting approval...</span>
-                <Spinner className="size-3" />
+            <div className="flex text-xs text-muted">
+                <div className="flex items-center justify-center size-5">
+                    <IconWarning />
+                </div>
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                    <span>Awaiting approval...</span>
+                    <Spinner className="size-3" />
+                </div>
             </div>
         )
     }
@@ -53,10 +57,13 @@ export function DangerousOperationApprovalCard({ operation }: DangerousOperation
             : `${subject} declined this operation`
 
     return (
-        <div className="flex items-center gap-1 text-xs text-muted">
-            <IconWarning className="size-4" />
-            <span>{text}</span>
-            {isApproved ? <IconCheck className="text-success size-3" /> : <IconX className="text-danger size-3" />}
+        <div className="flex text-xs text-muted">
+            <div className="flex items-center justify-center size-5">
+                <IconWarning />
+            </div>
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+                <span>{text}</span>
+            </div>
         </div>
     )
 }

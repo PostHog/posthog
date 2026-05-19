@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,13 +8,19 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    GenerateSurveyTranslationsRequestApi,
+    GenerateSurveyTranslationsResponseApi,
     PaginatedSurveyListApi,
-    PatchedSurveySerializerCreateUpdateOnlyApi,
+    PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
+    SurveyGlobalStatsResponseApi,
     SurveySerializerCreateUpdateOnlyApi,
+    SurveySerializerCreateUpdateOnlySchemaApi,
+    SurveyStatsResponseApi,
+    SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
+    SurveysStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -66,14 +73,14 @@ export const getSurveysCreateUrl = (projectId: string) => {
 
 export const surveysCreate = async (
     projectId: string,
-    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
+    surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlySchemaApi),
     })
 }
 
@@ -113,14 +120,14 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSurveySerializerCreateUpdateOnlyApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlyApi>,
+    patchedSurveySerializerCreateUpdateOnlySchemaApi?: NonReadonly<PatchedSurveySerializerCreateUpdateOnlySchemaApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlyApi),
+        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlySchemaApi),
     })
 }
 
@@ -135,15 +142,19 @@ export const surveysDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
-export const getSurveysActivityRetrieve2Url = (projectId: string, id: string) => {
+export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
-export const surveysActivityRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieve2Url(projectId, id), {
+export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getSurveysArchivedResponseUuidsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/archived-response-uuids/`
 }
 
 /**
@@ -152,10 +163,6 @@ export const surveysActivityRetrieve2 = async (projectId: string, id: string, op
 Returns list of UUIDs that the frontend can use to filter out archived responses
 in HogQL queries.
  */
-export const getSurveysArchivedResponseUuidsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/archived-response-uuids/`
-}
-
 export const surveysArchivedResponseUuidsRetrieve = async (
     projectId: string,
     id: string,
@@ -167,16 +174,16 @@ export const surveysArchivedResponseUuidsRetrieve = async (
     })
 }
 
+export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/duplicate_to_projects/`
+}
+
 /**
  * Duplicate a survey to multiple projects in a single transaction.
 
 Accepts a list of target team IDs and creates a copy of the survey in each project.
 Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
  */
-export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/duplicate_to_projects/`
-}
-
 export const surveysDuplicateToProjectsCreate = async (
     projectId: string,
     id: string,
@@ -191,13 +198,31 @@ export const surveysDuplicateToProjectsCreate = async (
     })
 }
 
-/**
- * Archive a single survey response.
- */
+export const getSurveysGenerateTranslationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/generate_translations/`
+}
+
+export const surveysGenerateTranslationsCreate = async (
+    projectId: string,
+    id: string,
+    generateSurveyTranslationsRequestApi: GenerateSurveyTranslationsRequestApi,
+    options?: RequestInit
+): Promise<GenerateSurveyTranslationsResponseApi> => {
+    return apiMutator<GenerateSurveyTranslationsResponseApi>(getSurveysGenerateTranslationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(generateSurveyTranslationsRequestApi),
+    })
+}
+
 export const getSurveysResponsesArchiveCreateUrl = (projectId: string, id: string, responseUuid: string) => {
     return `/api/projects/${projectId}/surveys/${id}/responses/${responseUuid}/archive/`
 }
 
+/**
+ * Archive a single survey response.
+ */
 export const surveysResponsesArchiveCreate = async (
     projectId: string,
     id: string,
@@ -213,13 +238,13 @@ export const surveysResponsesArchiveCreate = async (
     })
 }
 
-/**
- * Unarchive a single survey response.
- */
 export const getSurveysResponsesUnarchiveCreateUrl = (projectId: string, id: string, responseUuid: string) => {
     return `/api/projects/${projectId}/surveys/${id}/responses/${responseUuid}/unarchive/`
 }
 
+/**
+ * Unarchive a single survey response.
+ */
 export const surveysResponsesUnarchiveCreate = async (
     projectId: string,
     id: string,
@@ -235,6 +260,22 @@ export const surveysResponsesUnarchiveCreate = async (
     })
 }
 
+export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params?: SurveysStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/stats/`
+}
+
 /**
  * Get survey response statistics for a specific survey.
 
@@ -246,12 +287,13 @@ Args:
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const getSurveysStatsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/stats/`
-}
-
-export const surveysStatsRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieve2Url(projectId, id), {
+export const surveysStatsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: SurveysStatsRetrieveParams,
+    options?: RequestInit
+): Promise<SurveyStatsResponseApi> => {
+    return apiMutator<SurveyStatsResponseApi>(getSurveysStatsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -293,15 +335,19 @@ export const surveysSummaryHeadlineCreate = async (
     })
 }
 
-export const getSurveysActivityRetrieveUrl = (projectId: string) => {
+export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/activity/`
 }
 
-export const surveysActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId), {
+export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/surveys/responses_count/`
 }
 
 /**
@@ -314,15 +360,27 @@ Args:
 Returns:
     Dictionary mapping survey IDs to response counts
  */
-export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/surveys/responses_count/`
-}
-
 export const surveysResponsesCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysResponsesCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: SurveysGlobalStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/stats/`
 }
 
 /**
@@ -335,12 +393,12 @@ Args:
 Returns:
     Aggregated statistics across all surveys including total counts and rates
  */
-export const getSurveysStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/surveys/stats/`
-}
-
-export const surveysStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieveUrl(projectId), {
+export const surveysGlobalStatsRetrieve = async (
+    projectId: string,
+    params?: SurveysGlobalStatsRetrieveParams,
+    options?: RequestInit
+): Promise<SurveyGlobalStatsResponseApi> => {
+    return apiMutator<SurveyGlobalStatsResponseApi>(getSurveysGlobalStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

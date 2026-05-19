@@ -1,5 +1,5 @@
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
-use common_types::error_tracking::{ExceptionData, FrameData, RawFrameId};
+use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -14,7 +14,21 @@ use crate::fingerprinting::{
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
+use crate::langs::apple::AppleDebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
+use crate::tokenizer::CL100K_BPE;
+
+mod exception;
+mod stacktrace;
+
+pub mod batch;
+pub mod event;
+pub mod exception_properties;
+pub mod operator;
+pub mod stage;
+
+pub use exception::*;
+pub use stacktrace::*;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -29,38 +43,19 @@ pub struct Mechanism {
     pub synthetic: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Stacktrace {
-    Raw { frames: Vec<RawFrame> },
-    Resolved { frames: Vec<Frame> },
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Exception {
-    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
-    pub exception_id: Option<String>,
-    #[serde(rename = "type")]
-    pub exception_type: String,
-    #[serde(rename = "value", default)]
-    pub exception_message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mechanism: Option<Mechanism>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "stacktrace")]
-    pub stack: Option<Stacktrace>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
 
 impl From<Vec<Exception>> for ExceptionList {
     fn from(exceptions: Vec<Exception>) -> Self {
         ExceptionList(exceptions)
+    }
+}
+
+impl From<&[Exception]> for ExceptionList {
+    fn from(exceptions: &[Exception]) -> Self {
+        ExceptionList(exceptions.to_vec())
     }
 }
 
@@ -74,6 +69,15 @@ impl Deref for ExceptionList {
 impl DerefMut for ExceptionList {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl IntoIterator for ExceptionList {
+    type Item = Exception;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -116,28 +120,6 @@ impl ExceptionList {
     }
 }
 
-impl From<&ExceptionList> for Vec<ExceptionData> {
-    fn from(exception_list: &ExceptionList) -> Self {
-        exception_list
-            .iter()
-            .map(|exception| ExceptionData {
-                exception_type: exception.exception_type.clone(),
-                exception_value: exception.exception_message.clone(),
-                frames: exception
-                    .stack
-                    .as_ref()
-                    .map(|stack| match stack {
-                        Stacktrace::Raw { frames: _ } => vec![], // Exception
-                        Stacktrace::Resolved { frames } => {
-                            frames.clone().into_iter().map(FrameData::from).collect()
-                        }
-                    })
-                    .unwrap_or_default(),
-            })
-            .collect()
-    }
-}
-
 // Given a Clickhouse Event's properties, we care about the contents
 // of only a small subset. This struct is used to give us a strongly-typed
 // "view" of those event properties we care about.
@@ -156,6 +138,12 @@ pub struct RawErrProps {
     pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
     #[serde(rename = "$exception_handled", skip_serializing_if = "Option::is_none")]
     pub handled: Option<bool>, // Clients can send us handled status, which we'll use if present
+    #[serde(
+        rename = "$debug_images",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub debug_images: Vec<AppleDebugImage>, // Debug images from iOS/macOS crash reports for symbolication
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -173,7 +161,7 @@ pub struct FingerprintedErrProps {
 }
 
 // We emit this
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
@@ -382,12 +370,55 @@ impl OutputErrProps {
         });
     }
 
-    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
+    /// Render exception types, messages, and stack frames as a human-readable string.
+    ///
+    /// If `max_tokens` is `Some(limit)`, the output is measured against `limit`
+    /// tokens (using the cl100k_base tiktoken encoding). When the full output
+    /// would exceed the limit, only the first and last frame of each exception
+    /// are kept with a `...` marker between them. If the truncated output is
+    /// still over the limit, the string is hard-truncated to exactly `limit`
+    /// tokens.
+    pub fn print_stacktrace(&self, max_tokens: Option<usize>) -> String {
+        let full = self.render_stacktrace(false);
+
+        let Some(limit) = max_tokens else {
+            return full;
+        };
+
+        let bpe = &*CL100K_BPE;
+        let tokens = bpe.encode_with_special_tokens(&full);
+
+        if tokens.len() <= limit {
+            return full;
+        }
+
+        let truncated = self.render_stacktrace(true);
+        let tokens = bpe.encode_with_special_tokens(&truncated);
+
+        if tokens.len() <= limit {
+            return truncated;
+        }
+
+        // Hard-truncate to `limit` tokens. Truncation can split a multi-byte
+        // character's token sequence, producing bytes that aren't valid UTF-8
+        // on decode. Drop trailing tokens until we land on a clean boundary.
+        let mut tokens: Vec<_> = tokens.into_iter().take(limit).collect();
+        loop {
+            match bpe.decode(tokens.clone()) {
+                Ok(text) => break text,
+                Err(_) => {
+                    tokens.pop();
+                }
+            }
+        }
+    }
+
+    fn render_stacktrace(&self, truncate: bool) -> String {
         let mut content = String::with_capacity(2048);
 
         for exception in &self.exception_list.0 {
             // Add exception type and value
-            let type_and_value = &format!(
+            let type_and_value = format!(
                 "{}: {}\n",
                 exception.exception_type,
                 exception
@@ -397,39 +428,54 @@ impl OutputErrProps {
                     .collect::<String>()
             );
 
-            content.push_str(type_and_value);
+            content.push_str(&type_and_value);
 
             let Some(stack) = &exception.stack else {
                 continue;
             };
 
-            // Add frame information
-            for frame in stack.get_frames() {
-                // Add resolved or mangled name
-                if let Some(resolved_name) = &frame.resolved_name {
-                    content.push_str(resolved_name);
-                } else {
-                    content.push_str(&frame.mangled_name);
-                }
+            let frames = stack.get_frames();
 
-                // Add source file if available
-                if let Some(source) = &frame.source {
-                    content.push_str(&format!(" in {source}"));
+            if truncate && frames.len() > 2 {
+                content.push_str(&Self::render_frame(&frames[0]));
+                content.push_str("...\n");
+                content.push_str(&Self::render_frame(frames.last().unwrap()));
+            } else {
+                for frame in frames {
+                    content.push_str(&Self::render_frame(frame));
                 }
-
-                // Add line number if available
-                if let Some(line) = frame.line {
-                    content.push_str(&format!(" line {line}"));
-                }
-
-                if let Some(column) = frame.column {
-                    content.push_str(&format!(" column {column}"));
-                }
-
-                content.push('\n');
             }
         }
 
+        content
+    }
+
+    fn render_frame(frame: &Frame) -> String {
+        let mut output = String::new();
+
+        if let Some(resolved_name) = &frame.resolved_name {
+            output.push_str(resolved_name);
+        } else {
+            output.push_str(&frame.mangled_name);
+        }
+
+        if let Some(source) = &frame.source {
+            output.push_str(&format!(" in {source}"));
+        }
+
+        if let Some(line) = frame.line {
+            output.push_str(&format!(" line {line}"));
+        }
+
+        if let Some(column) = frame.column {
+            output.push_str(&format!(" column {column}"));
+        }
+
+        output.push('\n');
+        output
+    }
+
+    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
         EmbeddingRequest {
             team_id: issue.team_id,
             product: "error_tracking".to_string(),
@@ -437,7 +483,7 @@ impl OutputErrProps {
             rendering: "type_message_and_stack".to_string(),
             document_id: self.fingerprint.clone(),
             timestamp: issue.created_at,
-            content,
+            content: self.print_stacktrace(Some(7000)),
             models: vec![
                 EmbeddingModel::OpenAITextEmbeddingLarge,
                 EmbeddingModel::OpenAITextEmbeddingSmall,

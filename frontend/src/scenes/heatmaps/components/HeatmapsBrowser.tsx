@@ -2,15 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonLabel,
-    LemonSkeleton,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -23,12 +15,12 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
-import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function ExportButton({
     iframeRef,
@@ -72,12 +64,7 @@ function ExportButton({
                 data-attr="export-heatmap"
                 disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
             >
-                <div className="flex w-full gap-x-2 justify-between items-center">
-                    Export{' '}
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
-                </div>
+                Export
             </LemonButton>
         </div>
     )
@@ -332,7 +319,7 @@ function Warnings(): JSX.Element | null {
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-autocapture', settingId: 'heatmaps' }),
+                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"

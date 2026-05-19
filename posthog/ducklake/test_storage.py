@@ -1,6 +1,13 @@
+from unittest.mock import MagicMock, patch
+
 from parameterized import parameterized
 
-from posthog.ducklake.storage import DuckLakeStorageConfig, normalize_endpoint
+from posthog.ducklake.storage import (
+    _DELTA_LOG_VERSION_RE,
+    DuckLakeStorageConfig,
+    _collect_delta_log_keys,
+    normalize_endpoint,
+)
 
 
 class TestNormalizeEndpoint:
@@ -279,3 +286,276 @@ class TestDuckLakeStorageConfigEdgeCases:
         assert config.access_key == "override_key"
         assert config.secret_key == "override_secret"
         assert config.is_local is True
+
+
+class TestCrossAccountDestination:
+    def test_destination_attributes(self):
+        from posthog.ducklake.storage import CrossAccountDestination
+
+        dest = CrossAccountDestination(
+            role_arn="arn:aws:iam::123456789012:role/MyRole",
+            external_id="ext-id-123",
+            bucket_name="my-customer-bucket",
+            region="us-west-2",
+        )
+        assert dest.role_arn == "arn:aws:iam::123456789012:role/MyRole"
+        assert dest.external_id == "ext-id-123"
+        assert dest.bucket_name == "my-customer-bucket"
+        assert dest.region == "us-west-2"
+
+    def test_optional_fields_default_to_none(self):
+        from posthog.ducklake.storage import CrossAccountDestination
+
+        dest = CrossAccountDestination(
+            role_arn="arn:aws:iam::123456789012:role/MyRole",
+            bucket_name="bucket",
+        )
+        assert dest.external_id is None
+        assert dest.region is None
+
+
+class TestDuckLakeCatalogToCrossAccountDestination:
+    def test_converts_to_cross_account_destination(self):
+        from unittest.mock import MagicMock
+
+        from posthog.ducklake.models import DuckLakeCatalog
+
+        # Create a mock catalog with the required attributes
+        catalog = MagicMock(spec=DuckLakeCatalog)
+        catalog.cross_account_role_arn = "arn:aws:iam::222222222222:role/CustomerRole"
+        catalog.cross_account_external_id = "external-id-456"
+        catalog.bucket = "customer-bucket"
+        catalog.bucket_region = "eu-west-1"
+
+        # Call the real method on the mock
+        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
+
+        assert dest.role_arn == "arn:aws:iam::222222222222:role/CustomerRole"
+        assert dest.external_id == "external-id-456"
+        assert dest.bucket_name == "customer-bucket"
+        assert dest.region == "eu-west-1"
+
+    def test_none_region_handled(self):
+        from unittest.mock import MagicMock
+
+        from posthog.ducklake.models import DuckLakeCatalog
+
+        catalog = MagicMock(spec=DuckLakeCatalog)
+        catalog.cross_account_role_arn = "arn:aws:iam::111:role/Role"
+        catalog.cross_account_external_id = "ext-id"
+        catalog.bucket = "bucket"
+        catalog.bucket_region = ""  # Empty string should become None
+
+        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
+
+        assert dest.region is None
+
+
+def _make_s3_page(keys: list[str]) -> list[dict]:
+    return [{"Contents": [{"Key": k} for k in keys]}]
+
+
+def _mock_paginator(pages: list[dict]):
+    paginator = MagicMock()
+    paginator.paginate.return_value = pages
+    return paginator
+
+
+class TestCollectDeltaLogKeys:
+    @parameterized.expand(
+        [
+            (
+                "includes_commit_and_checkpoint_up_to_version",
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                    "data/table/_delta_log/00000000000000000001.json",
+                    "data/table/_delta_log/00000000000000000002.json",
+                    "data/table/_delta_log/00000000000000000003.json",
+                    "data/table/_delta_log/00000000000000000002.checkpoint.parquet",
+                ],
+                2,
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                    "data/table/_delta_log/00000000000000000001.json",
+                    "data/table/_delta_log/00000000000000000002.json",
+                    "data/table/_delta_log/00000000000000000002.checkpoint.parquet",
+                ],
+            ),
+            (
+                "excludes_log_files_above_max_version",
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                    "data/table/_delta_log/00000000000000000001.json",
+                    "data/table/_delta_log/00000000000000000002.json",
+                ],
+                0,
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                ],
+            ),
+            (
+                "handles_multi_part_checkpoint",
+                [
+                    "data/table/_delta_log/00000000000000000010.checkpoint.0000000001.0000000002.parquet",
+                    "data/table/_delta_log/00000000000000000010.checkpoint.0000000002.0000000002.parquet",
+                    "data/table/_delta_log/00000000000000000011.json",
+                ],
+                10,
+                [
+                    "data/table/_delta_log/00000000000000000010.checkpoint.0000000001.0000000002.parquet",
+                    "data/table/_delta_log/00000000000000000010.checkpoint.0000000002.0000000002.parquet",
+                ],
+            ),
+            (
+                "version_zero_edge_case",
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                    "data/table/_delta_log/00000000000000000001.json",
+                    "data/table/_delta_log/_last_checkpoint",
+                ],
+                0,
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                ],
+            ),
+            (
+                "empty_log_directory",
+                [],
+                5,
+                [],
+            ),
+        ]
+    )
+    def test_collect_delta_log_keys(self, _name, s3_keys, max_version, expected):
+        s3 = MagicMock()
+        s3.get_paginator.return_value = _mock_paginator(_make_s3_page(s3_keys))
+
+        result = _collect_delta_log_keys(s3, "src-bucket", "data/table/", max_version)
+        assert result == expected
+
+
+class TestDeltaLogVersionRegex:
+    @parameterized.expand(
+        [
+            ("00000000000000000000.json", "00000000000000000000", 0),
+            ("00000000000000000042.checkpoint.parquet", "00000000000000000042", 42),
+            ("00000000000000000010.checkpoint.0000000001.0000000002.parquet", "00000000000000000010", 10),
+        ]
+    )
+    def test_matches_valid_filenames(self, filename, expected_group, expected_version):
+        m = _DELTA_LOG_VERSION_RE.match(filename)
+        assert m is not None
+        assert m.group(1) == expected_group
+        assert int(m.group(1)) == expected_version
+
+    @parameterized.expand(
+        [
+            ("_last_checkpoint",),
+            (".hidden_file",),
+        ]
+    )
+    def test_does_not_match_non_versioned_files(self, filename):
+        assert _DELTA_LOG_VERSION_RE.match(filename) is None
+
+
+class TestGetDeltaSnapshotFiles:
+    def test_returns_version_and_data_keys(self, monkeypatch):
+        import sys
+        import types
+
+        mock_dt = MagicMock()
+        mock_dt.version.return_value = 3
+        mock_dt.file_uris.return_value = [
+            "s3://customer-bucket/data/table/part-00000.parquet",
+            "s3://customer-bucket/data/table/part-00001.parquet",
+        ]
+
+        mock_delta_table_cls = MagicMock(return_value=mock_dt)
+        mock_deltalake = types.ModuleType("deltalake")
+        mock_deltalake.DeltaTable = mock_delta_table_cls  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "deltalake", mock_deltalake)
+        monkeypatch.setattr(
+            "posthog.ducklake.storage.get_deltalake_storage_options",
+            lambda storage_config=None, *, team_id=None, organization_id=None: {
+                "team_id": str(team_id),
+                "organization_id": str(organization_id),
+            },
+        )
+
+        from posthog.ducklake.storage import _get_delta_snapshot_files
+
+        version, keys = _get_delta_snapshot_files(
+            "s3://customer-bucket/data/table",
+            team_id=123,
+            organization_id="org-123",
+        )
+        assert version == 3
+        assert keys == ["data/table/part-00000.parquet", "data/table/part-00001.parquet"]
+
+        mock_delta_table_cls.assert_called_once_with(
+            table_uri="s3://customer-bucket/data/table",
+            storage_options={"team_id": "123", "organization_id": "org-123"},
+        )
+
+
+class TestStageDeltaTable:
+    @patch("boto3.client")
+    def test_copies_only_pinned_version_files(self, mock_boto3_client, monkeypatch):
+        mock_get_snapshot_files = MagicMock(
+            return_value=(
+                2,
+                ["data/table/part-00000.parquet", "data/table/part-00001.parquet"],
+            )
+        )
+        monkeypatch.setattr("posthog.ducklake.storage._get_delta_snapshot_files", mock_get_snapshot_files)
+        monkeypatch.setattr(
+            "posthog.ducklake.storage._get_cross_account_credentials",
+            lambda role_arn, external_id=None: ("ak", "sk", "tok"),
+        )
+
+        mock_s3 = MagicMock()
+        mock_s3.get_paginator.return_value = _mock_paginator(
+            _make_s3_page(
+                [
+                    "data/table/_delta_log/00000000000000000000.json",
+                    "data/table/_delta_log/00000000000000000001.json",
+                    "data/table/_delta_log/00000000000000000002.json",
+                    "data/table/_delta_log/00000000000000000003.json",
+                    "data/table/_delta_log/_last_checkpoint",
+                ]
+            )
+        )
+        mock_boto3_client.return_value = mock_s3
+
+        from posthog.ducklake.storage import stage_delta_table
+
+        result = stage_delta_table(
+            source_uri="s3://customer-bucket/data/table",
+            catalog_bucket="catalog-bucket",
+            role_arn="arn:aws:iam::123:role/Role",
+            organization_id="org-123",
+        )
+
+        assert result == "s3://catalog-bucket/__posthog_staging/data/table"
+        mock_get_snapshot_files.assert_called_once_with(
+            "s3://customer-bucket/data/table",
+            storage_config=None,
+            team_id=None,
+            organization_id="org-123",
+        )
+
+        copied_keys = sorted(call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list)
+        expected = sorted(
+            [
+                "__posthog_staging/data/table/part-00000.parquet",
+                "__posthog_staging/data/table/part-00001.parquet",
+                "__posthog_staging/data/table/_delta_log/00000000000000000000.json",
+                "__posthog_staging/data/table/_delta_log/00000000000000000001.json",
+                "__posthog_staging/data/table/_delta_log/00000000000000000002.json",
+            ]
+        )
+        assert copied_keys == expected
+
+        # version 3 log entry must NOT have been copied
+        all_copied = [call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list]
+        assert "__posthog_staging/data/table/_delta_log/00000000000000000003.json" not in all_copied

@@ -13,20 +13,18 @@ interface ExceptionsPanelProps {
 }
 
 export function ExceptionsPanel({ exceptionsQuery, sessionId, distinctId }: ExceptionsPanelProps): JSX.Element {
-    const title = (
-        <>
-            Exceptions
-            {sessionId && <span className="text-muted-alt font-normal ml-1">(session)</span>}
-        </>
-    )
-
     return (
         <LemonCollapse
             className="bg-surface-primary"
             panels={[
                 {
                     key: 'exceptions',
-                    header: title,
+                    header: (
+                        <>
+                            Exceptions
+                            {sessionId && <span className="text-muted-alt font-normal ml-1">(session)</span>}
+                        </>
+                    ),
                     content: (
                         <div>
                             {!exceptionsQuery ? (

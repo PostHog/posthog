@@ -12,6 +12,7 @@ import type { twilioSetupModalLogicType } from './twilioSetupModalLogicType'
 export interface TwilioSetupModalLogicProps {
     integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
+    onClose: () => void
 }
 
 export interface TwilioFormType {

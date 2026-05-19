@@ -32,7 +32,7 @@ export const DuckSqlRunMenu = ({
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const duckSqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
-    const duckSqlRunTooltip = `Run SQL (duckdb) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
+    const duckSqlRunTooltip = `Run SQL (DuckDB) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
     const duckSqlRunMenuItems: LemonMenuItems = [...buildRunMenuItems(onRun)]
 

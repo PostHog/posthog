@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
@@ -11,8 +11,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof ItemSessionChange>
-const meta: Meta<typeof ItemSessionChange> = {
+type Story = StoryObj<ItemSessionChangeProps>
+const meta: Meta<ItemSessionChangeProps> = {
     title: 'Components/PlayerInspector/ItemSessionChange',
     component: ItemSessionChange,
     decorators: [
@@ -20,6 +20,15 @@ const meta: Meta<typeof ItemSessionChange> = {
             get: {},
         }),
     ],
+    render: (props) => {
+        return (
+            <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
+                <div className="flex flex-col gap-2 min-w-96">
+                    <ItemSessionChange {...props} />
+                </div>
+            </BindLogic>
+        )
+    },
 }
 export default meta
 
@@ -38,23 +47,14 @@ const makeSessionChangeItem = (
     }
 }
 
-const BasicTemplate: StoryFn<typeof ItemSessionChange> = (props: ItemSessionChangeProps) => {
-    return (
-        <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
-            <div className="flex flex-col gap-2 min-w-96">
-                <ItemSessionChange {...props} />
-            </div>
-        </BindLogic>
-    )
+export const SessionPrevious: Story = {
+    args: {
+        item: makeSessionChangeItem('$session_starting', { previousSessionId: 'wxyz-5678' }),
+    },
 }
 
-export const SessionPrevious: Story = BasicTemplate.bind({})
-
-SessionPrevious.args = {
-    item: makeSessionChangeItem('$session_starting', { previousSessionId: 'wxyz-5678' }),
-}
-
-export const SessionNext: Story = BasicTemplate.bind({})
-SessionNext.args = {
-    item: makeSessionChangeItem('$session_ending', { nextSessionId: 'abcd-1234' }),
+export const SessionNext: Story = {
+    args: {
+        item: makeSessionChangeItem('$session_ending', { nextSessionId: 'abcd-1234' }),
+    },
 }

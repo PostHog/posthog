@@ -9,7 +9,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
-    JSWebInstallation,
+    WebInstallation,
     LaravelInstallation,
     NextJSInstallation,
     NodeJSInstallation,
@@ -18,8 +18,10 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     SvelteInstallation,
     VueInstallation,
     WebflowInstallation,
@@ -36,12 +38,13 @@ import { JSEventCapture, NodeEventCapture, PythonEventCapture } from '@posthog/s
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations
 // JS Web SDKs - client-side with full JS capabilities
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -52,7 +55,7 @@ const JS_WEB_SNIPPETS = {
 
 // React - client-side with React hooks
 const REACT_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
     BooleanFlagSnippet,
     MultivariateFlagSnippet,
     FlagPayloadSnippet,
@@ -109,8 +112,8 @@ const JS_FRAMEWORK_SNIPPETS = {
 }
 
 // Wrapped instruction components
-const ExperimentsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
+const ExperimentsWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 const ExperimentsReactInstructionsWrapper = withOnboardingDocsWrapper({
@@ -125,6 +128,7 @@ const ExperimentsNodeInstructionsWrapper = withOnboardingDocsWrapper({
 const ExperimentsPythonInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PythonInstallation,
     snippets: PYTHON_SNIPPETS,
+    wizardIntegrationName: 'Python',
 })
 const ExperimentsPHPInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PHPInstallation,
@@ -133,6 +137,12 @@ const ExperimentsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 const ExperimentsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
     snippets: SERVER_SDK_SNIPPETS,
+    wizardIntegrationName: 'Ruby',
+})
+const ExperimentsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+    wizardIntegrationName: 'Ruby on Rails',
 })
 const ExperimentsGoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoInstallation,
@@ -145,12 +155,14 @@ const ExperimentsAndroidInstructionsWrapper = withMobileReplay({
     sdkKey: SDKKey.ANDROID,
     onboardingContext: 'experiments-onboarding',
     snippets: MOBILE_SNIPPETS,
+    wizardIntegrationName: 'Android',
 })
 const ExperimentsIOSInstructionsWrapper = withMobileReplay({
     Installation: IOSInstallation,
     sdkKey: SDKKey.IOS,
     onboardingContext: 'experiments-onboarding',
     snippets: MOBILE_SNIPPETS,
+    wizardIntegrationName: 'Swift',
 })
 const ExperimentsFlutterInstructionsWrapper = withMobileReplay({
     Installation: FlutterInstallation,
@@ -177,19 +189,27 @@ const ExperimentsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: SSR_FRAMEWORK_SNIPPETS,
     wizardIntegrationName: 'Svelte',
 })
+const ExperimentsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'React Router',
+})
 const ExperimentsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const ExperimentsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
 })
 
 // JS Frameworks (with wizard support where available)
 const ExperimentsAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     snippets: JS_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'Angular',
 })
 const ExperimentsAstroInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AstroInstallation,
@@ -207,6 +227,7 @@ const ExperimentsFramerInstructionsWrapper = withOnboardingDocsWrapper({
 const ExperimentsVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VueInstallation,
     snippets: JS_FRAMEWORK_SNIPPETS,
+    wizardIntegrationName: 'Vue',
 })
 const ExperimentsWebflowInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: WebflowInstallation,
@@ -224,10 +245,11 @@ const ExperimentsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
 const ExperimentsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: LaravelInstallation,
     snippets: SERVER_SDK_SNIPPETS,
+    wizardIntegrationName: 'Laravel',
 })
 
 export const ExperimentsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: ExperimentsJSWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ExperimentsWebInstructionsWrapper,
     [SDKKey.ANDROID]: ExperimentsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: ExperimentsAngularInstructionsWrapper,
     [SDKKey.ASTRO]: ExperimentsAstroInstructionsWrapper,
@@ -245,6 +267,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ExperimentsPythonInstructionsWrapper,
     [SDKKey.REACT]: ExperimentsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ExperimentsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ExperimentsReactRouterInstructionsWrapper,
     [SDKKey.TANSTACK_START]: withOnboardingDocsWrapper({
         Installation: ReactInstallation,
         snippets: REACT_SNIPPETS,
@@ -252,6 +275,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     }),
     [SDKKey.REMIX]: ExperimentsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: ExperimentsRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: ExperimentsRubyOnRailsInstructionsWrapper,
     [SDKKey.SVELTE]: ExperimentsSvelteInstructionsWrapper,
     [SDKKey.VITE]: withOnboardingDocsWrapper({
         Installation: ReactInstallation,

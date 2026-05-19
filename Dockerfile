@@ -10,6 +10,7 @@
 #
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
+# - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -34,7 +35,9 @@ COPY bin/ bin/
 COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
+COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
+COPY packages/quill/ packages/quill/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -81,7 +84,27 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
+# Build plugin transpiler and other Node.js build artifacts.
+#
+FROM node:24.13.0-bookworm-slim AS node-scripts-build
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+# Build plugin transpiler for site destinations/apps
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY bin/turbo bin/turbo
+COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/plugin_transpiler/ common/plugin_transpiler/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
+
+
+#
+# ---------------------------------------------------------
+#
+FROM ghcr.io/astral-sh/uv:0.10.2 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
@@ -113,6 +136,7 @@ RUN apt-get update && \
 RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -159,11 +183,50 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.12
+# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
+FROM unit:1.34.2-python3.12
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+ARG UNIT_GIT_TAG=1.35.0
+ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
+
+# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpcre2-dev" \
+    "zlib1g-dev" \
+    && \
+    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
+    cd /tmp/unit && \
+    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
+    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
+    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
+    CONFIGURE_ARGS="--prefix=/usr \
+        --statedir=/var/lib/unit \
+        --control=unix:/var/run/control.unit.sock \
+        --runstatedir=/var/run \
+        --pid=/var/run/unit.pid \
+        --logdir=/var/log \
+        --log=/var/log/unit.log \
+        --tmpdir=/var/tmp \
+        --user=unit \
+        --group=unit \
+        --openssl \
+        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
+        --modulesdir=/usr/lib/unit/modules" && \
+    ./configure $CONFIGURE_ARGS && \
+    make -j "$NCPU" unitd && \
+    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
+    make clean && \
+    ./configure $CONFIGURE_ARGS && \
+    ./configure python --config=/usr/local/bin/python3-config && \
+    make -j "$NCPU" python3-install && \
+    rm -rf /tmp/unit && \
+    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
@@ -176,9 +239,8 @@ RUN apt-get update && \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
-    "ffmpeg=7:5.1.8-0+deb12u1" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.19-1~deb12u2" \
+    "libssl3=3.0.19-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -189,6 +251,48 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/truste
     apt-get update && \
     ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
     rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification
+ENV NODE_VERSION 24.13.0
+
+RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
+    && case "${dpkgArch##*-}" in \
+    amd64) ARCH='x64';; \
+    ppc64el) ARCH='ppc64le';; \
+    s390x) ARCH='s390x';; \
+    arm64) ARCH='arm64';; \
+    armhf) ARCH='armv7l';; \
+    i386) ARCH='x86';; \
+    *) echo "unsupported architecture"; exit 1 ;; \
+    esac \
+    && export GNUPGHOME="$(mktemp -d)" \
+    && set -ex \
+    && for key in \
+    5BE8A3F6C8A5C01D106C0AD820B1A390B168D356 \
+    C0D6248439F1D5604AAFFB4021D900FFDB233756 \
+    DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7 \
+    CC68F5A3106FF448322E48ED27F5E38D5B0A215F \
+    8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600 \
+    890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4 \
+    C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C \
+    108F52B48DB57BB0CC439B2997B01419BD92F80A \
+    A363A499291CBBC940DD62E41F10027AF002F8B0 \
+    ; do \
+    { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$key" && gpg --batch --fingerprint "$key"; } || \
+    { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key" && gpg --batch --fingerprint "$key"; } ; \
+    done \
+    && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz" \
+    && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
+    && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc \
+    && gpgconf --kill all \
+    && rm -rf "$GNUPGHOME" \
+    && grep " node-v$NODE_VERSION-linux-$ARCH.tar.xz\$" SHASUMS256.txt | sha256sum -c - \
+    && tar -xJf "node-v$NODE_VERSION-linux-$ARCH.tar.xz" -C /usr/local --strip-components=1 --no-same-owner \
+    && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
+    && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
+    && node --version \
+    && npm --version \
+    && rm -rf /tmp/*
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
@@ -206,7 +310,7 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for video export (as root for system deps)
+# Install Playwright Chromium browser for heatmap screenshots (as root for system deps)
 # Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -217,11 +321,6 @@ RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
     cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
-
-# Validate video export dependencies
-RUN ffmpeg -version
-RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
-RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
 
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
@@ -236,8 +335,17 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
+# Copy plugin transpiler (used by Django for site destinations/apps).
+# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
+COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
+
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
+# Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
+COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
@@ -245,8 +353,13 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
+# Validate browser dependencies
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+
 # Setup ENV.
-ENV CHROME_BIN=/usr/bin/chromium \
+ENV NODE_ENV=production \
+    CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright

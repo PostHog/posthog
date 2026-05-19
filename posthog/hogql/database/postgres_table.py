@@ -2,11 +2,13 @@ from typing import Optional
 
 from django.conf import settings
 
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
+from posthog.scopes import APIScopeObject
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
@@ -33,7 +35,12 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         database = databases[db_name]
 
         address = add_param("db:5432")  # docker container for postgres from clickhouse
-        db = add_param(database["NAME"])
+        from django.db import connections
+
+        actual_db_name = connections[db_name].settings_dict[
+            "NAME"
+        ]  # during tests, django uses test-prefixed db name rather than the configured NAME
+        db = add_param(actual_db_name)
         user = add_param(database["USER"])
         password = add_param(database["PASSWORD"])
     else:
@@ -57,6 +64,11 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
+    access_scope: Optional[APIScopeObject] = None
+    predicates: list[Expr] = []
+
+    def get_predicates(self) -> list[Expr]:
+        return self.predicates
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

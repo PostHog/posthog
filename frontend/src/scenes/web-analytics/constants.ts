@@ -1,6 +1,8 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping, formatDateRange } from 'lib/utils'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, DateMappingOption, PropertyFilterType, PropertyOperator } from '~/types'
 
 export const WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES = [
     '$host',
@@ -33,6 +35,20 @@ export const WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST = {
     [TaxonomicFilterGroupType.EventProperties]: WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES,
     [TaxonomicFilterGroupType.SessionProperties]: WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES,
 }
+
+const last28Days: DateMappingOption = {
+    key: 'Last 28 days',
+    values: ['-28d'],
+    getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(28, 'd'), date.endOf('d')),
+    defaultInterval: 'day',
+}
+
+const last30DaysIndex = dateMapping.findIndex((option) => option.key === 'Last 30 days')
+export const webAnalyticsDateMapping: DateMappingOption[] = [
+    ...dateMapping.slice(0, last30DaysIndex),
+    last28Days,
+    ...dateMapping.slice(last30DaysIndex),
+]
 
 export const PROPERTY_CURRENT_URL = '$current_url' as const
 export const PROPERTY_HOST = '$host' as const

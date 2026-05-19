@@ -10,12 +10,40 @@ import {
     ProfilePicture,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
 import { slackIntegrationLogic } from './slackIntegrationLogic'
+
+export function SlackNotConfiguredBanner(): JSX.Element {
+    return (
+        <LemonBanner type="info">
+            <div className="flex justify-between gap-2 items-center">
+                <span>
+                    Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.
+                </span>
+                <Link
+                    to={api.integrations.authorizeUrl({
+                        kind: 'slack',
+                        next: window.location.pathname + '?target_type=slack',
+                    })}
+                    disableClientSideRouting
+                >
+                    <img
+                        alt="Add to Slack"
+                        height="40"
+                        width="139"
+                        src="https://platform.slack-edge.com/img/add_to_slack.png"
+                        srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                    />
+                </Link>
+            </div>
+        </LemonBanner>
+    )
+}
 
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
@@ -55,7 +83,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
 
-    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `getChannelRefreshButtonDisabledReason`
+    const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
+    // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
+    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
@@ -109,7 +139,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 action={{
                     children: <span className="Link">Refresh channels</span>,
                     onClick: () => loadAllSlackChannels(true),
-                    disabledReason: getChannelRefreshButtonDisabledReason(),
+                    disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
                     <p className="text-secondary italic p-1">

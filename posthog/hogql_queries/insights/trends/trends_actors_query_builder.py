@@ -31,7 +31,7 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -355,43 +355,9 @@ class TrendsActorsQueryBuilder:
                     right=ast.Constant(value=str(self.entity.event)),
                 )
         elif isinstance(self.entity, GroupNode):
-            return self._get_group_expr(self.entity)
+            return group_node_to_expr(self.entity, self.team)
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
-
-        return None
-
-    def _get_group_expr(self, group: GroupNode) -> ast.Expr | None:
-        group_filters: list[ast.Expr] = []
-        for node in group.nodes:
-            if isinstance(node, EventsNode):
-                if node.event is not None:
-                    group_filters.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["event"]),
-                            right=ast.Constant(value=str(node.event)),
-                        )
-                    )
-            elif isinstance(node, ActionsNode):
-                try:
-                    action = Action.objects.get(pk=int(node.id), team__project_id=self.team.project_id)
-                    group_filters.append(action_to_expr(action))
-                except Action.DoesNotExist:
-                    # If an action doesn't exist, skip it
-                    pass
-
-        if len(group_filters) == 0:
-            return None
-
-        if len(group_filters) == 1:
-            return group_filters[0]
-
-        if group.operator == "OR":
-            return ast.Or(exprs=group_filters)
-
-        if group.operator == "AND":
-            return ast.And(exprs=group_filters)
 
         return None
 

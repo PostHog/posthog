@@ -6,7 +6,9 @@ import React, { useEffect, useState } from 'react'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
@@ -40,6 +42,7 @@ export interface PropertyFiltersProps {
     addText?: string | null
     editable?: boolean
     buttonText?: string
+    buttonClassName?: string
     buttonSize?: 'xsmall' | 'small' | 'medium'
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
@@ -50,10 +53,12 @@ export interface PropertyFiltersProps {
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string
-    exactMatchFeatureFlagCohortOperators?: boolean
+    excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
+    hogQLGlobals?: Record<string, any>
 }
 
 export function PropertyFilters({
@@ -74,6 +79,7 @@ export function PropertyFilters({
     propertyGroupType = null,
     addText = null,
     buttonText = 'Filter',
+    buttonClassName = '',
     editable = true,
     buttonSize,
     hasRowOperator = true,
@@ -85,20 +91,24 @@ export function PropertyFilters({
     excludedProperties,
     allowRelativeDateOptions,
     disabledReason = undefined,
-    exactMatchFeatureFlagCohortOperators = false,
+    excludedOperators,
+    selectingKeyOnly,
     hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
+    hogQLGlobals,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
-    const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
+    const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
-    // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
     }, [propertyFilters, setFilters])
+
+    const displayedFilters = allowNew && editable ? filtersWithNew : filters
+    const displayedFilterIds = allowNew && editable ? filterIdsWithNew : filterIds
 
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
@@ -112,29 +122,28 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {(allowNew && editable ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
+                    {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
                         return (
-                            <React.Fragment key={index}>
-                                {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
+                            <React.Fragment key={displayedFilterIds[index]}>
+                                {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
                                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
                                 <FilterRow
-                                    key={index}
                                     item={item}
                                     index={index}
-                                    totalCount={filtersWithNew.length - 1} // empty state
-                                    filters={filtersWithNew}
+                                    totalCount={displayedFilters.length - 1} // empty state
+                                    filters={displayedFilters}
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    labelClassName={buttonClassName}
                                     size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     editable={editable}
                                     filterComponent={(onComplete) => (
                                         <TaxonomicPropertyFilter
-                                            key={index}
                                             pageKey={pageKey}
                                             index={index}
                                             filters={filters}
@@ -154,12 +163,14 @@ export function PropertyFilters({
                                             excludedProperties={excludedProperties}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
-                                            exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+                                            excludedOperators={excludedOperators}
+                                            selectingKeyOnly={selectingKeyOnly}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
                                             operatorAllowlist={operatorAllowlist}
+                                            hogQLGlobals={hogQLGlobals}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

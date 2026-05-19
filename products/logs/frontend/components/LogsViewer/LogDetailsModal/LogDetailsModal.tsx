@@ -1,21 +1,24 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDrawer, LemonTabs } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
 
 import { logsViewerLogic } from '../logsViewerLogic'
 import { LogComments } from './LogComments'
-import { LogExploreAI } from './Tabs/ExploreWithAI'
 import { LogDetailsTab, logDetailsModalLogic } from './logDetailsModalLogic'
+import { LogExploreAI } from './Tabs/ExploreWithAI'
+import { RelatedErrorsTab } from './Tabs/RelatedErrors'
 
 const SEVERITY_COLORS: Record<string, string> = {
     trace: 'bg-muted-alt',
@@ -54,7 +57,7 @@ interface LogDetailsModalProps {
 }
 
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
-    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab } = useValues(logDetailsModalLogic)
+    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId } = useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
     const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
 
@@ -75,17 +78,18 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
         : selectedLog.originalLog
 
     return (
-        <LemonModal
-            title="Log details"
+        <LemonDrawer
             isOpen={isLogDetailsOpen}
             onClose={closeLogDetails}
             simple
-            overlayClassName="backdrop-blur-none bg-transparent flex items-stretch justify-end pr-16 py-4 h-screen"
-            className="m-0! max-w-3xl w-[50vw] min-h-full"
+            width="50vw"
+            resizable
             hideCloseButton
+            overlayTransparent
+            aria-label="Log details"
         >
             <div className="flex flex-col h-full">
-                <LemonModal.Header className="flex flex-col gap-2">
+                <LemonDrawer.Header className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                         <h3>Log details</h3>
                         <div className="flex items-center gap-1">
@@ -105,6 +109,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 aria-label="Copy link to log"
                                 data-attr="logs-viewer-copy-link"
                             />
+                            <LogContextSelector log={selectedLog} />
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconX />}
@@ -114,29 +119,40 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             />
                         </div>
                     </div>
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2">
-                            <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
-                            <span className="text-xs font-mono">
-                                <TZLabel
-                                    time={selectedLog.timestamp}
-                                    formatDate="YYYY-MM-DD"
-                                    formatTime="HH:mm:ss.SSS"
-                                    displayTimezone={timezone}
-                                    timestampStyle="absolute"
-                                />
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="text-muted text-xs font-semibold uppercase">Severity</span>
-                            <div className="flex items-center gap-1.5">
-                                <div className={`w-2 h-2 rounded-full ${severityColor}`} />
-                                <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-2">
+                                <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
+                                <span className="text-xs font-mono">
+                                    <TZLabel
+                                        time={selectedLog.timestamp}
+                                        formatDate="YYYY-MM-DD"
+                                        formatTime="HH:mm:ss.SSS"
+                                        displayTimezone={timezone}
+                                        timestampStyle="absolute"
+                                    />
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-muted text-xs font-semibold uppercase">Severity</span>
+                                <div className="flex items-center gap-1.5">
+                                    <div className={`w-2 h-2 rounded-full ${severityColor}`} />
+                                    <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
+                                </div>
                             </div>
                         </div>
+                        {sessionId && (
+                            <ViewRecordingButton
+                                sessionId={sessionId}
+                                timestamp={selectedLog.timestamp}
+                                size="xsmall"
+                                openPlayerIn={RecordingPlayerType.Modal}
+                                checkRecordingExists
+                            />
+                        )}
                     </div>
-                </LemonModal.Header>
-                <LemonModal.Content>
+                </LemonDrawer.Header>
+                <LemonDrawer.Content>
                     <LemonTabs
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as LogDetailsTab)}
@@ -166,6 +182,17 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 ),
                             },
                             {
+                                key: 'related-errors',
+                                label: 'Related errors',
+                                content: (
+                                    <RelatedErrorsTab
+                                        logUuid={selectedLog.uuid}
+                                        logTimestamp={selectedLog.timestamp}
+                                        sessionId={sessionId}
+                                    />
+                                ),
+                            },
+                            {
                                 key: 'explore-ai',
                                 label: 'Explore with AI',
                                 content: (
@@ -183,8 +210,8 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             },
                         ]}
                     />
-                </LemonModal.Content>
+                </LemonDrawer.Content>
             </div>
-        </LemonModal>
+        </LemonDrawer>
     )
 }

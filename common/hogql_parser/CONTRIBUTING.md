@@ -74,3 +74,59 @@ Key takeaways:
 Antlr runtime provided in Ubuntu packages might be of an older version, which results in compilation errors.
 
 In that case run commands from [this step](https://github.com/PostHog/posthog/blob/4fba6a63e351131fdb27b85e7ba436446fdb3093/.github/actions/run-backend-tests/action.yml#L100).
+
+## WebAssembly (JavaScript/TypeScript) build
+
+The HogQL parser can also be compiled to WebAssembly for use in JavaScript/TypeScript environments via the `@posthog/hogql-parser` workspace package.
+
+### Prerequisites
+
+1. Install [Emscripten](https://emscripten.org/docs/getting_started/downloads.html):
+
+   ```bash
+   # macOS
+   brew install emscripten
+
+   # Ubuntu/Debian
+   sudo apt-get install emscripten
+   ```
+
+2. Install Ninja (recommended for faster builds):
+
+   ```bash
+   # macOS
+   brew install ninja
+
+   # Ubuntu/Debian
+   sudo apt-get install ninja-build
+   ```
+
+### Building
+
+From the repository root:
+
+```bash
+# Using Ninja (recommended, faster)
+pnpm --filter=@posthog/hogql-parser build
+
+# Or using Make
+pnpm --filter=@posthog/hogql-parser build:make
+```
+
+This will generate the following files in `common/hogql_parser/dist/`:
+
+- `hogql_parser_wasm.js` - ES module with embedded WASM
+- `index.cjs` - CommonJS wrapper
+- `index.d.ts` - TypeScript type definitions
+
+### Using in the frontend
+
+The frontend uses this as a workspace dependency. After building, the parser can be used:
+
+```typescript
+import createHogQLParser from '@posthog/hogql-parser'
+
+createHogQLParser().then((parser) => {
+  const ast = JSON.parse(parser.parseExpr('1 + 2'))
+})
+```

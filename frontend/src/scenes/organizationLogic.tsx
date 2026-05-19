@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
@@ -22,7 +23,6 @@ export type OrganizationUpdatePayload = Partial<
         OrganizationType,
         | 'name'
         | 'logo_media_id'
-        | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
         | 'members_can_use_personal_api_keys'
@@ -81,7 +81,10 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                 },
-                createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
+                createOrganization: async (name: string) => {
+                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    return await api.create('api/organizations/', { name })
+                },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
                     if (!values.currentOrganization) {
                         throw new Error('Current organization has not been loaded yet.')
@@ -95,9 +98,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     userLogic.actions.loadUser()
                     return updatedOrganization
                 },
-                completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
+                completeOnboarding: async () =>
+                    await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
                 migrateAccessControlVersion: async () => {
-                    await api.create(`api/organizations/${values.currentOrganization?.id}/migrate_access_control/`, {})
+                    await api.create(`api/organizations/${values.currentOrganization!.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway
                 },
@@ -105,6 +109,21 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
+        currentOrganizationId: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string => {
+                if (!currentOrganization || !currentOrganization.id) {
+                    // TODO: Fix callers that access currentOrganizationId before the organization is loaded,
+                    // then restore the throw. Temporarily falling back to "@current" to avoid crashes.
+                    posthog.captureException(new Error('currentOrganizationId accessed before organization loaded'), {
+                        severity: 'warning',
+                        tag: 'selector_accessed_before_loaded',
+                    })
+                    return '@current'
+                }
+                return currentOrganization.id
+            },
+        ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization, currentOrganizationLoading): boolean =>
@@ -147,6 +166,11 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
+            // Redirect to pending deletion page if organization deletion is in progress
+            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
+                router.actions.replace(urls.organizationPendingDeletion())
+                return
+            }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
             if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
                 router.actions.replace(urls.organizationDeactivated())
@@ -169,14 +193,18 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
-            router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
-                ...router.values.searchParams,
-                organizationDeleted: true,
-            })
-
-            lemonToast.success('Organization has been deleted', {
+            lemonToast.success('Organization deletion has been initiated', {
                 toastId: 'deleteOrganization',
             })
+
+            // When deleting an org as part of the delete-account flow, skip the
+            // page reload so the user stays in the modal. The org deletion is
+            // async, so a reload would still show the org in the list.
+            if (redirectPath === urls.settings('user-danger-zone')) {
+                return
+            }
+
+            // Reload the page — the middleware will redirect to the pending deletion screen
             location.reload()
         },
         deleteOrganizationFailure: ({ error }) => {

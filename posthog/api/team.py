@@ -1,4 +1,7 @@
+import re
 import json
+import math
+import hashlib
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -10,17 +13,22 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
+from pydantic import TypeAdapter
+from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode
+from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action, raise_if_user_provided_url_unsafe
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
+from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -34,13 +42,19 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
+from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
-from posthog.models.feature_flag import TeamDefaultEvaluationTag
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
+from posthog.models.product_intent.product_intent import (
+    ProductIntentSerializer,
+    cached_product_intents_for_team,
+    enqueue_product_activation_calc_debounced,
+)
 from posthog.models.project import Project
-from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
@@ -62,10 +76,22 @@ from posthog.session_recordings.data_retention import (
     retention_violates_entitlement,
     validate_retention_period,
 )
+from posthog.types import AnyPropertyFilter
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+from posthog.utils import (
+    get_instance_realm,
+    get_instance_region,
+    get_ip_address,
+    get_safe_cache,
+    get_week_start_for_country_code,
+    safe_cache_set,
+)
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.signals.backend.models import SignalSourceConfig
+
+tracer = trace.get_tracer(__name__)
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -134,7 +160,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
 
 TEAM_CONFIG_FIELDS = (
     "app_urls",
-    "slack_incoming_webhook",
     "anonymize_ips",
     "completed_snippet_onboarding",
     "test_account_filters",
@@ -163,6 +188,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
     "session_recording_trigger_match_type_config",
+    "session_recording_trigger_groups",
     "session_recording_retention_period",
     "session_replay_config",
     "survey_config",
@@ -191,18 +217,17 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
-    "experiment_recalculation_time",
-    "default_experiment_confidence_level",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
     "conversations_settings",
+    "proactive_tasks_enabled",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
-class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
     goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
@@ -228,7 +253,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
         return internal_value
 
 
-class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
     attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
@@ -250,6 +275,20 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             "custom_source_mappings",
             "campaign_field_preferences",
         ]
+
+    def to_internal_value(self, data):
+        internal_value = super().to_internal_value(data)
+        if "sources_map" in internal_value:
+            internal_value["_sources_map"] = internal_value["sources_map"]
+        if "conversion_goals" in internal_value:
+            internal_value["_conversion_goals"] = internal_value["conversion_goals"]
+        if "campaign_name_mappings" in internal_value:
+            internal_value["_campaign_name_mappings"] = internal_value["campaign_name_mappings"]
+        if "custom_source_mappings" in internal_value:
+            internal_value["_custom_source_mappings"] = internal_value["custom_source_mappings"]
+        if "campaign_field_preferences" in internal_value:
+            internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
+        return internal_value
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -288,12 +327,24 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         return instance
 
 
-class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
-    activity_event = serializers.JSONField(required=False)
-    signup_pageview_event = serializers.JSONField(required=False)
-    signup_event = serializers.JSONField(required=False)
-    subscription_event = serializers.JSONField(required=False)
-    payment_event = serializers.JSONField(required=False)
+class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
+    signup_pageview_event = serializers.JSONField(
+        required=False, help_text="Event used to count signup pageviews on dashboards."
+    )
+    signup_event = serializers.JSONField(required=False, help_text="Event used to count signups on dashboards.")
+    subscription_event = serializers.JSONField(
+        required=False, help_text="Event used to count subscriptions on dashboards."
+    )
+    payment_event = serializers.JSONField(required=False, help_text="Event used to count payments on dashboards.")
+    account_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Index of the group type to treat as an Account in customer analytics. "
+            "Must reference an existing group type configured for the project."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -303,7 +354,139 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
             "signup_event",
             "subscription_event",
             "payment_event",
+            "account_group_type_index",
         ]
+
+    @staticmethod
+    def validate_account_group_type_index(value):
+        return validate_group_type_index("account_group_type_index", value)
+
+
+_VALID_TRIGGER_PROPERTY_OPERATORS = {
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    "regex",
+    "not_regex",
+    "gt",
+    "lt",
+}
+
+# Property types the SDK can evaluate client-side
+_VALID_TRIGGER_PROPERTY_TYPES = {
+    "event",
+    "person",
+}
+
+
+def _validate_trigger_property_filters(properties: object, context: str) -> None:
+    """Validate property filters on trigger conditions (events, URLs)."""
+    if not isinstance(properties, list):
+        raise exceptions.ValidationError(f"{context}: 'properties' must be an array.")
+
+    for prop_idx, prop in enumerate(properties):
+        if not isinstance(prop, dict):
+            raise exceptions.ValidationError(f"{context}: property {prop_idx} must be a dictionary.")
+        if "key" not in prop or not isinstance(prop["key"], str):
+            raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a string 'key' field.")
+        if "type" not in prop or prop["type"] not in _VALID_TRIGGER_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                f"{context}: property {prop_idx} must have a 'type' field with value: "
+                f"{', '.join(sorted(_VALID_TRIGGER_PROPERTY_TYPES))}."
+            )
+        if "operator" in prop and prop["operator"] not in _VALID_TRIGGER_PROPERTY_OPERATORS:
+            raise exceptions.ValidationError(
+                f"{context}: property {prop_idx} has invalid operator '{prop['operator']}'. "
+                f"Valid operators: {', '.join(sorted(_VALID_TRIGGER_PROPERTY_OPERATORS))}."
+            )
+        # All supported operators require a value (is_set/is_not_set are not supported)
+        if "value" not in prop:
+            raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
+
+
+test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
+
+
+def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    try:
+        test_account_filters_adapter.validate_python(value)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
+
+    return cast(list[dict[str, object]], value)
+
+
+_default_theme_id_cache: int | None = None
+
+
+def _default_data_color_theme_id() -> int | None:
+    """Return the system-wide default DataColorTheme id, cached for process lifetime.
+
+    The default is created by data migration `0537_data_color_themes.py` and
+    is effectively a constant after deploy - cache it to skip a per-render PG
+    round-trip in `TeamSerializer.to_representation` for orgs without the
+    DATA_COLOR_THEMES feature.
+
+    We deliberately do NOT cache `None`: if the first call lands before the
+    migration is applied, or against an instance where no global default
+    exists yet, we want subsequent calls to recover automatically once the
+    row appears. `.order_by("id")` keeps the chosen ID deterministic across
+    workers if multiple globals ever exist.
+    """
+    global _default_theme_id_cache
+    if _default_theme_id_cache is None:
+        _default_theme_id_cache = (
+            DataColorTheme.objects.filter(team_id__isnull=True).order_by("id").values_list("id", flat=True).first()
+        )
+    return _default_theme_id_cache
+
+
+def _reset_default_data_color_theme_id_cache() -> None:
+    """Test-only helper for explicit cache invalidation."""
+    global _default_theme_id_cache
+    _default_theme_id_cache = None
+
+
+LIVE_EVENTS_TOKEN_TTL_SECONDS = 24 * 60 * 60
+
+
+def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
+    """Build the cache key for the live-events JWT.
+
+    Includes a short fingerprint of `settings.SECRET_KEY` so that rotating the
+    signing secret automatically partitions the cache namespace - cached tokens
+    signed with the old key become unreachable rather than served until TTL.
+    Hashing also defends the cache key against future api-token formats that
+    might contain the `:` separator we use between components.
+    """
+    signing_fingerprint = hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()[:16]
+    return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
+
+
+def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
+    """Return a cached live-events JWT for this (team, user) pair, minting one if missing.
+
+    The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
+    from cache still has at least 6 days of remaining validity. The cache key includes
+    every field that ends up in the claims so api-token rotations or organization
+    moves automatically force a fresh mint, plus a SECRET_KEY fingerprint so signing-
+    key rotation auto-partitions the cache namespace (no manual flush needed).
+    """
+    cache_key = _live_events_token_cache_key(team, user_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    claims = {
+        "team_id": team.id,
+        "api_token": team.api_token,
+        "user_id": user_id,
+        "organization_id": str(team.organization_id),
+    }
+    token = encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)
+    safe_cache_set(cache_key, token, timeout=LIVE_EVENTS_TOKEN_TTL_SECONDS)
+    return token
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -315,6 +498,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
+    available_setup_task_ids = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
@@ -347,6 +531,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "managed_viewsets",
+            "available_setup_task_ids",
         )
 
         read_only_fields = (
@@ -369,45 +554,50 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "available_setup_task_ids",
         )
 
     def to_representation(self, instance):
-        representation = super().to_representation(instance)
+        with tracer.start_as_current_span("team_serializer.default_fields"):
+            representation = super().to_representation(instance)
         # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            representation["default_data_theme"] = (
-                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
-            )
+            with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
+                representation["default_data_theme"] = _default_data_color_theme_id()
 
         return representation
 
+    @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
+    @tracer.start_as_current_span("team_serializer.has_group_types")
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
+        return bool(cached_group_types_for_team(team))
 
+    @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return list(
-            GroupTypeMapping.objects.filter(project_id=team.project_id)
-            .order_by("group_type_index")
-            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
-        )
+        return cached_group_types_for_team(team)
 
+    @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
-        return encode_jwt(
-            {"team_id": team.id, "api_token": team.api_token},
-            timedelta(days=7),
-            PosthogJwtAudience.LIVESTREAM,
-        )
+        request = self.context.get("request")
+        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
+        return get_or_mint_live_events_token(team, user_id)
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    @tracer.start_as_current_span("team_serializer.product_intents")
     def get_product_intents(self, obj):
-        calculate_product_activation.delay(obj.id, only_calc_if_days_since_last_checked=1)
-        return ProductIntent.objects.filter(team=obj).values(
-            "product_type", "created_at", "onboarding_completed_at", "updated_at"
-        )
+        # Debounce-then-enqueue rather than .delay() on every render. The helper
+        # checks a cache key first and skips the broker round-trip entirely if
+        # we've already enqueued for this team in the last 24h. 99% of renders
+        # become a cache hit; the remaining ones still enqueue exactly as before.
+        enqueue_product_activation_calc_debounced(obj.id)
+        return cached_product_intents_for_team(obj.id)
 
+    @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
+    @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
         from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
@@ -416,6 +606,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         enabled_set = set(enabled_viewsets)
 
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
+    )
+    def get_available_setup_task_ids(self, obj) -> list[str]:
+        return [e.value for e in SetupTaskId]
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -476,6 +676,171 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
             )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_trigger_groups(value) -> dict | None:
+        """
+        Validate V2 trigger groups configuration.
+
+        Expected schema:
+        {
+            "version": 2,
+            "groups": [
+                {
+                    "id": "string",
+                    "name": "string" (optional),
+                    "sampleRate": 0.0-1.0,
+                    "minDurationMs": 0-30000 (optional),
+                    "conditions": {
+                        "matchType": "any" | "all",
+                        "events": ["event1", ...] (optional),
+                        "urls": [{"url": "regex", "matching": "regex"}] (optional),
+                        "flag": "flag-key" | {"id": 1, "key": "flag-key", "variant": "test"} (optional, single flag)
+                    }
+                }
+            ]
+        }
+        """
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        # Validate version
+        if "version" not in value:
+            raise exceptions.ValidationError("Missing required field: 'version'.")
+
+        if value["version"] != 2:
+            raise exceptions.ValidationError(f"Invalid version: {value['version']}. Only version 2 is supported.")
+
+        # Validate groups array
+        if "groups" not in value:
+            raise exceptions.ValidationError("Missing required field: 'groups'.")
+
+        if not isinstance(value["groups"], list):
+            raise exceptions.ValidationError("Field 'groups' must be an array.")
+
+        # Validate each group
+        for idx, group in enumerate(value["groups"]):
+            # Inline validation of each trigger group
+            if not isinstance(group, dict):
+                raise exceptions.ValidationError(f"Group {idx}: must be a dictionary.")
+
+            # Required fields
+            required_fields = ["id", "sampleRate", "conditions"]
+            for field in required_fields:
+                if field not in group:
+                    raise exceptions.ValidationError(f"Group {idx}: missing required field '{field}'.")
+
+            # Validate sampleRate
+            rate = group["sampleRate"]
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not (0 <= rate <= 1):
+                raise exceptions.ValidationError(
+                    f"Group {idx}: invalid sampleRate '{rate}'. Must be a number between 0 and 1."
+                )
+
+            # Validate minDurationMs if present
+            if "minDurationMs" in group:
+                min_duration = group["minDurationMs"]
+                if isinstance(min_duration, bool) or not isinstance(min_duration, int):
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: 'minDurationMs' must be an integer, got {type(min_duration).__name__}."
+                    )
+                if min_duration < 0 or min_duration > 30000:
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: 'minDurationMs' must be between 0 and 30000 (30 seconds). Got: {min_duration}."
+                    )
+
+            # Validate conditions
+            conditions = group["conditions"]
+            if not isinstance(conditions, dict):
+                raise exceptions.ValidationError(f"Group {idx}: field 'conditions' must be a dictionary.")
+
+            # Validate matchType
+            if "matchType" in conditions:
+                if conditions["matchType"] not in ["any", "all"]:
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: invalid matchType '{conditions['matchType']}'. Must be 'any' or 'all'."
+                    )
+
+            # Validate events array if present
+            if "events" in conditions:
+                if not isinstance(conditions["events"], list):
+                    raise exceptions.ValidationError(f"Group {idx}: field 'events' must be an array.")
+                for event_idx, event in enumerate(conditions["events"]):
+                    if isinstance(event, str):
+                        pass  # Simple event name is valid
+                    elif isinstance(event, dict):
+                        if "name" not in event or not isinstance(event["name"], str):
+                            raise exceptions.ValidationError(
+                                f"Group {idx}: event {event_idx} object must have a string 'name' field."
+                            )
+                        if "properties" in event:
+                            _validate_trigger_property_filters(
+                                event["properties"], f"Group {idx}, event '{event['name']}'"
+                            )
+                    else:
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: event {event_idx} must be a string or object with 'name'."
+                        )
+
+            # Validate URLs array if present
+            if "urls" in conditions:
+                if not isinstance(conditions["urls"], list):
+                    raise exceptions.ValidationError(f"Group {idx}: field 'urls' must be an array.")
+                for url_config in conditions["urls"]:
+                    if not isinstance(url_config, dict):
+                        raise exceptions.ValidationError(f"Group {idx}: URL config must be a dictionary.")
+                    if "url" not in url_config or "matching" not in url_config:
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: URL config must have 'url' and 'matching' fields."
+                        )
+                    if url_config["matching"] != "regex":
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: URL matching must be 'regex'. Got: '{url_config['matching']}'."
+                        )
+                    # Validate regex pattern
+                    try:
+                        re.compile(url_config["url"])
+                    except re.error:
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: invalid regex pattern in URL: '{url_config['url']}'."
+                        )
+
+            # Validate flag (single) if present
+            if "flag" in conditions:
+                flag_config = conditions["flag"]
+                if isinstance(flag_config, str):
+                    pass  # Simple flag key is valid
+                elif isinstance(flag_config, dict):
+                    # LinkedFeatureFlag object with id, key, and optional variant
+                    if "key" not in flag_config:
+                        raise exceptions.ValidationError(f"Group {idx}: flag object must have 'key' field.")
+                    if not isinstance(flag_config["key"], str):
+                        raise exceptions.ValidationError(f"Group {idx}: flag 'key' must be a string.")
+                    # id and variant are optional
+                elif flag_config is not None:
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: 'flag' must be a string (flag key), object (LinkedFeatureFlag), or null."
+                    )
+
+            # Validate group-level property filters (shared WHERE clause for all triggers in group)
+            if "properties" in conditions:
+                _validate_trigger_property_filters(conditions["properties"], f"Group {idx}")
+
+        # Note: All matching groups are evaluated independently
+        # If any group's sample rate hits, the session is recorded (union behavior)
+
+        # Validate fallback sample rate if present
+        if "fallbackSampleRate" in value:
+            rate = value["fallbackSampleRate"]
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not (0 <= rate <= 1):
+                raise exceptions.ValidationError(
+                    f"Invalid fallbackSampleRate: {rate}. Must be a number between 0 and 1."
+                )
 
         return value
 
@@ -615,17 +980,50 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
-        return value
-
-    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        if not settings.DEBUG:
-            try:
-                raise_if_user_provided_url_unsafe(value)
-            except ValueError:
-                raise exceptions.ValidationError(
-                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+        # Integration state is managed only by dedicated endpoints, not user input
+        for managed_key in (
+            "slack_bot_token",
+            "slack_team_id",
+            "slack_enabled",
+            "email_enabled",
+            "teams_enabled",
+            "teams_tenant_id",
+            "teams_team_id",
+            "teams_team_name",
+            "teams_channel_id",
+            "teams_channel_name",
+        ):
+            value.pop(managed_key, None)
+        # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
+        if "slack_channel_ids" in value:
+            raw = value.get("slack_channel_ids")
+            if isinstance(raw, list):
+                cleaned: list[str] = []
+                seen: set[str] = set()
+                for item in raw:
+                    if isinstance(item, str) and item and item not in seen:
+                        seen.add(item)
+                        cleaned.append(item)
+                value["slack_channel_ids"] = cleaned[:50]
+            else:
+                value.pop("slack_channel_ids", None)
+        icon_url = value.get("slack_bot_icon_url")
+        if icon_url is not None:
+            if not isinstance(icon_url, str):
+                raise serializers.ValidationError({"slack_bot_icon_url": "Must be a string."})
+            icon_url = icon_url.strip()
+            value["slack_bot_icon_url"] = icon_url or None
+            if icon_url and not icon_url.startswith("https://"):
+                raise serializers.ValidationError({"slack_bot_icon_url": "Must be an HTTPS URL."})
+        display_name = value.get("slack_bot_display_name")
+        if display_name is not None:
+            if not isinstance(display_name, str):
+                raise serializers.ValidationError({"slack_bot_display_name": "Must be a string."})
+            display_name = display_name.strip()
+            value["slack_bot_display_name"] = display_name or None
+            if display_name and (len(display_name) > 200 or any(ord(c) < 32 for c in display_name)):
+                raise serializers.ValidationError(
+                    {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
         return value
 
@@ -651,9 +1049,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    VALID_RETENTION_DAYS = {14, 30, 90}
+
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None or not self.instance:
             return value
+
+        new_retention = value.get("retention_days")
+        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
+            raise exceptions.ValidationError(
+                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
+            )
 
         # Only validate retention changes if we have an existing instance
         logs_settings = (
@@ -663,7 +1069,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
         if self.instance and logs_settings:
             old_retention = logs_settings.get("retention_days")
-            new_retention = value.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
@@ -682,6 +1087,41 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                             )
 
         return value
+
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if "bounceRateDurationSeconds" in value:
+            bounce_rate = value["bounceRateDurationSeconds"]
+            if bounce_rate is not None:
+                if not isinstance(bounce_rate, (int, float)):
+                    raise exceptions.ValidationError({"bounceRateDurationSeconds": "Must be a number."})
+                if bounce_rate < 1 or bounce_rate > 120:
+                    raise exceptions.ValidationError(
+                        {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
+                    )
+
+        try:
+            HogQLQueryModifiers(**value)
+        except Exception:
+            raise exceptions.ValidationError(f"Invalid modifier key.")
+
+        return value
+
+    def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
+        if not value or settings.DEBUG:
+            return value
+
+        # Only team ID 2 in US region can enable proactive tasks
+        if self.instance and self.instance.id == 2 and get_instance_region() == "US":
+            return value
+
+        raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -820,6 +1260,23 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             }
 
         updated_team = super().update(instance, validated_data)
+
+        if "proactive_tasks_enabled" in validated_data:
+            # Backward compat for old proactive tasks enabled field, remove after February 2026
+            if validated_data["proactive_tasks_enabled"]:
+                SignalSourceConfig.objects.get_or_create(
+                    team=instance,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
+                )
+            else:
+                SignalSourceConfig.objects.filter(
+                    team=instance,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).delete()
+
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
 
         log_activity(
@@ -847,7 +1304,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         serializer = TeamRevenueAnalyticsConfigSerializer(
-            instance.revenue_analytics_config, data=validated_data, partial=True
+            instance.revenue_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
@@ -890,7 +1350,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
-            instance.marketing_analytics_config, data=validated_data, partial=True
+            instance.marketing_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not marketing_serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
@@ -916,10 +1379,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "signup_event": instance.customer_analytics_config.signup_event,
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
+            "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
-            instance.customer_analytics_config, data=validated_data, partial=True
+            instance.customer_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
@@ -977,7 +1444,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     Projects for the current organization.
     """
 
-    scope_object: APIScopeObjectOrNotSupported = "project"  # TODO: Change to `environment` on environments rollout
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     lookup_field = "id"
@@ -1013,10 +1480,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
+        # to modify any fields, preserving the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
+
+        # Team-level config actions that any member should be able to edit via the UI.
+        # Only downgrade for session auth to preserve read-only API key semantics.
+        if self.action in ("default_release_conditions", "default_evaluation_contexts"):
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
                 return ["project:read"]
 
         # Fall back to the default behavior
@@ -1104,7 +1583,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             detail=Detail(name=str(team_name)),
         )
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
-        report_user_action(user, f"team deleted", team=team)
+        report_user_action(user, "team deleted", team=team, request=self.request)
 
     @action(
         methods=["PATCH"],
@@ -1155,69 +1634,170 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="default_release_conditions",
+    )
+    def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default release conditions for new feature flags in this team."""
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamFeatureFlagDefaultsConfig)
+
+        if request.method == "GET":
+            return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+        # PUT: update the config
+        enabled = request.data.get("enabled", config.enabled)
+        default_groups = request.data.get("default_groups", config.default_groups)
+
+        if not isinstance(default_groups, list):
+            return response.Response({"error": "default_groups must be a list"}, status=400)
+
+        for i, group in enumerate(default_groups):
+            if not isinstance(group, dict):
+                return response.Response({"error": f"Group at index {i} must be an object"}, status=400)
+            if "properties" not in group or not isinstance(group["properties"], list):
+                return response.Response(
+                    {"error": f"Group at index {i} must have a 'properties' list"},
+                    status=400,
+                )
+            rollout = group.get("rollout_percentage")
+            if rollout is not None and (
+                not isinstance(rollout, (int, float)) or math.isnan(rollout) or rollout < 0 or rollout > 100
+            ):
+                return response.Response(
+                    {"error": f"Group at index {i} has invalid rollout_percentage (must be 0-100 or null)"},
+                    status=400,
+                )
+
+        config.enabled = enabled
+        config.default_groups = default_groups
+        config.save()
+
+        report_user_action(
+            request.user,
+            "default release conditions updated",
+            {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        )
+
+        return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="experiments_config",
+    )
+    def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage experiment configuration for this environment."""
+        from rest_framework import serializers
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = TeamExperimentsConfig
+                fields = [
+                    "experiment_recalculation_time",
+                    "default_experiment_confidence_level",
+                    "default_experiment_stats_method",
+                    "experiment_precomputation_enabled",
+                    "default_only_count_matured_users",
+                ]
+
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+        if request.method == "PATCH":
+            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return response.Response(serializer.data)
+
+        return response.Response(TeamExperimentsConfigSerializer(config).data)
+
+    @action(
         methods=["GET", "POST", "DELETE"],
         detail=True,
         permission_classes=[IsAuthenticated],
     )
-    def default_evaluation_tags(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default evaluation tags for a team"""
+    def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default evaluation contexts for a team."""
         team = self.get_object()
 
         if request.method == "GET":
-            # Return list of default evaluation tags
-            default_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
-            tags_data = [{"id": dt.id, "name": dt.tag.name} for dt in default_tags]
+            defaults = TeamDefaultEvaluationContext.objects.filter(team=team).select_related("evaluation_context")
+            defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
+            all_contexts = list(
+                EvaluationContext.objects.filter(team=team).values_list("name", flat=True).order_by("name")
+            )
             return response.Response(
-                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_contexts_enabled}
+                {
+                    "default_evaluation_contexts": defaults_data,
+                    "available_contexts": all_contexts,
+                    "enabled": team.default_evaluation_contexts_enabled,
+                }
             )
 
         elif request.method == "POST":
-            # Add a default evaluation tag
-            tag_name = request.data.get("tag_name", "").strip().lower()
-            if not tag_name:
-                return response.Response({"error": "tag_name is required"}, status=400)
+            context_name = request.data.get("context_name", "")
+            if not isinstance(context_name, str):
+                return response.Response({"error": "context_name must be a string"}, status=400)
+            context_name = normalize_context_name(context_name)
+            if not context_name:
+                return response.Response({"error": "context_name is required"}, status=400)
+            if len(context_name) > 255:
+                return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
             with transaction.atomic():
-                # Select and lock all existing tags for this team
-                existing_tags = list(TeamDefaultEvaluationTag.objects.filter(team=team).select_for_update())
-                if len(existing_tags) >= 10:
-                    return response.Response({"error": "Maximum of 10 default evaluation tags allowed"}, status=400)
+                existing = list(TeamDefaultEvaluationContext.objects.filter(team=team).select_for_update())
+                if len(existing) >= 10:
+                    return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
 
-                tag, _ = Tag.objects.get_or_create(name=tag_name, team=team)
-                default_tag, created = TeamDefaultEvaluationTag.objects.get_or_create(team=team, tag=tag)
+                ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=team)
+                default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
+                    team=team, evaluation_context=ctx
+                )
 
                 if created:
                     report_user_action(
                         cast(User, request.user),
-                        "default evaluation tag added",
-                        {"team_id": team.id, "tag_name": tag_name},
+                        "default evaluation context added",
+                        {"team_id": team.id, "context_name": context_name},
+                        team=team,
+                        request=request,
                     )
 
-            return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
+            return response.Response({"id": default_ctx.id, "name": ctx.name, "created": created})
 
         else:  # DELETE
-            # Remove a default evaluation tag
-            # Handle both request.data and query params for DELETE (test client compatibility)
-            tag_name = request.data.get("tag_name", "") or request.GET.get("tag_name", "")
-            tag_name = tag_name.strip().lower()
-            if not tag_name:
-                return response.Response({"error": "tag_name is required"}, status=400)
+            context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
+            if not isinstance(context_name, str):
+                return response.Response({"error": "context_name must be a string"}, status=400)
+            context_name = normalize_context_name(context_name)
+            if not context_name:
+                return response.Response({"error": "context_name is required"}, status=400)
 
             with transaction.atomic():
                 try:
-                    tag = Tag.objects.get(name=tag_name, team=team)
-                    deleted_count, _ = TeamDefaultEvaluationTag.objects.filter(team=team, tag=tag).delete()
+                    ctx = EvaluationContext.objects.get(name=context_name, team=team)
+                    deleted_count, _ = TeamDefaultEvaluationContext.objects.filter(
+                        team=team, evaluation_context=ctx
+                    ).delete()
 
                     if deleted_count > 0:
                         report_user_action(
                             cast(User, request.user),
-                            "default evaluation tag removed",
-                            {"team_id": team.id, "tag_name": tag_name},
+                            "default evaluation context removed",
+                            {"team_id": team.id, "context_name": context_name},
+                            team=team,
+                            request=request,
                         )
 
                     return response.Response({"success": True})
-                except Tag.DoesNotExist:
-                    return response.Response({"error": "Tag not found"}, status=404)
+                except EvaluationContext.DoesNotExist:
+                    return response.Response({"error": "Evaluation context not found"}, status=404)
 
     @action(
         methods=["GET"],
@@ -1320,6 +1900,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         detail=True,
         required_scopes=["project:read"],
     )
+    @disallow_if_impersonated(message="Impersonated sessions cannot set product intents.")
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         user = request.user
@@ -1345,6 +1926,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         detail=True,
         required_scopes=["project:read"],
     )
+    @disallow_if_impersonated(message="Impersonated sessions cannot set product intents.")
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         product_type = request.data.get("product_type")
@@ -1375,14 +1957,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 "product onboarding completed",
                 {
                     "product_key": product_type,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                     "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
                 },
                 team=team,
+                request=request,
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
@@ -1410,6 +1991,23 @@ class RootTeamViewSet(TeamViewSet):
     # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
     # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+
+
+@extend_schema_view(
+    list=extend_schema(deprecated=True),
+    retrieve=extend_schema(deprecated=True),
+    create=extend_schema(deprecated=True),
+    update=extend_schema(deprecated=True),
+    partial_update=extend_schema(deprecated=True),
+    destroy=extend_schema(deprecated=True),
+)
+class ProjectEnvironmentsViewSet(TeamViewSet):
+    """Deprecated: use /api/environments/{id}/ instead."""
+
+    def initial(self, request: request.Request, *args, **kwargs) -> None:
+        raise exceptions.PermissionDenied(
+            "Multiple environments per project are no longer available. Please contact support if you need assistance."
+        )
 
 
 def handle_conversations_token_on_update(
@@ -1467,7 +2065,7 @@ def validate_team_attrs(
 
 
 class PremiumMultiEnvironmentPermission(BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+    """Enforce one non-demo team per project limit."""
 
     message = "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
 
@@ -1483,24 +2081,14 @@ class PremiumMultiEnvironmentPermission(BasePermission):
             )
 
         if request.data.get("is_demo"):
-            # If we're requesting to make a demo project but the org already has a demo project
+            # Allow one demo team per organization
             if project.organization.teams.filter(is_demo=True).count() > 0:
                 return False
+            return True
 
-        environments_feature = project.organization.get_available_feature(AvailableFeature.ENVIRONMENTS)
+        # Only allow one non-demo team per project
         current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
-        if environments_feature:
-            allowed_team_per_project_count = environments_feature.get("limit")
-            # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_team_per_project_count is None:
-                return True
-            # Check current limit against allowed limit
-            if current_non_demo_team_count >= allowed_team_per_project_count:
-                return False
-        else:
-            # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_team_count >= 1:
-                return False
+        if current_non_demo_team_count >= 1:
+            return False
 
-        # in any other case, we're good to go
         return True

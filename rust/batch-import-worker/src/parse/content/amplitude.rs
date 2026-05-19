@@ -338,7 +338,9 @@ impl AmplitudeEvent {
             };
 
             let event_type = match event_type_raw.as_str() {
-                "session_start" => return Ok(vec![]),
+                // Amplitude generates synthetic session_start and session_end events as markers.
+                // PostHog calculates sessions from timestamp gaps, so these have no meaning and should be filtered.
+                "session_start" | "session_end" => return Ok(vec![]),
                 "[Amplitude] Page Viewed" => "$pageview".to_string(),
                 "[Amplitude] Element Clicked" | "[Amplitude] Element Changed" => {
                     "$autocapture".to_string()
@@ -708,15 +710,23 @@ fn parse_timestamp_string(time_str: &str) -> Result<chrono::DateTime<Utc>, chron
 }
 
 fn parse_timestamp(amp: &AmplitudeEvent) -> Result<chrono::DateTime<Utc>, Error> {
+    let now = Utc::now();
+
+    // Prefer event_time / client_event_time,
+    // fall back to server_received_time if they resolve to a future timestamp.
     if let Some(event_time) = &amp.event_time {
         if let Ok(timestamp) = parse_timestamp_string(event_time) {
-            return Ok(timestamp);
+            if timestamp <= now {
+                return Ok(timestamp);
+            }
         }
     }
 
     if let Some(client_event_time) = &amp.client_event_time {
         if let Ok(timestamp) = parse_timestamp_string(client_event_time) {
-            return Ok(timestamp);
+            if timestamp <= now {
+                return Ok(timestamp);
+            }
         }
     }
 
@@ -727,7 +737,7 @@ fn parse_timestamp(amp: &AmplitudeEvent) -> Result<chrono::DateTime<Utc>, Error>
     }
 
     // If all timestamp parsing fails, use current time as last resort
-    Ok(Utc::now())
+    Ok(now)
 }
 
 #[cfg(test)]
@@ -841,17 +851,21 @@ mod tests {
     }
 
     #[test]
-    fn test_session_start_filtered_out() {
-        let amp_event = AmplitudeEvent {
-            event_type: Some("session_start".to_string()),
-            user_id: Some("user123".to_string()),
-            ..Default::default()
-        };
+    fn test_synthetic_session_events_filtered_out() {
+        // Amplitude generates synthetic session_start and session_end events.
+        // PostHog calculates sessions from timestamp gaps, so these should be filtered.
+        for event_type in ["session_start", "session_end"] {
+            let amp_event = AmplitudeEvent {
+                event_type: Some(event_type.to_string()),
+                user_id: Some("user123".to_string()),
+                ..Default::default()
+            };
 
-        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap();
+            let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+            let result = parser(amp_event).unwrap();
 
-        assert!(result.is_empty());
+            assert!(result.is_empty(), "{} should be filtered out", event_type);
+        }
     }
 
     #[test]
@@ -981,6 +995,44 @@ mod tests {
                 assert!(data.timestamp.is_some());
             }
         }
+    }
+
+    #[test]
+    fn test_parse_timestamp_falls_back_to_server_time_when_event_time_is_in_future() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2099-01-01 00:00:00".to_string()),
+            client_event_time: Some("2099-01-01 00:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:00".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
+    }
+
+    #[test]
+    fn test_parse_timestamp_prefers_event_time_when_valid() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2024-06-01 12:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:05".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
+    }
+
+    #[test]
+    fn test_parse_timestamp_falls_back_to_client_event_time_when_event_time_is_in_future() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2099-01-01 00:00:00".to_string()),
+            client_event_time: Some("2024-06-01 12:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:05".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
     }
 
     #[test]

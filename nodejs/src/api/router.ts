@@ -2,10 +2,29 @@ import * as prometheus from 'prom-client'
 import express, { Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/api/middleware/cors'
+import { httpMetricsMiddleware } from '~/api/middleware/http-metrics'
+import { createInternalApiAuthMiddleware } from '~/api/middleware/internal-api-auth'
 import { HealthCheckResultError, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
+
+export function initializePrometheusLabels(ingestionPipeline: string | null, ingestionLane: string | null): void {
+    const labels: Record<string, string> = {}
+    if (ingestionPipeline) {
+        labels['ingestion_pipeline'] = ingestionPipeline
+    }
+    if (ingestionLane) {
+        labels['ingestion_lane'] = ingestionLane
+    }
+    if (Object.keys(labels).length > 0) {
+        prometheus.register.setDefaultLabels(labels)
+    }
+}
+
+export interface SetupExpressAppOptions {
+    internalApiSecret?: string
+}
 
 export function setupCommonRoutes(
     app: express.Application,
@@ -19,15 +38,22 @@ export function setupCommonRoutes(
     return app
 }
 
-export function setupExpressApp(): express.Application {
+export function setupExpressApp(options: SetupExpressAppOptions = {}): express.Application {
     const app = express()
 
     // Add CORS middleware before other middleware
     app.use(corsMiddleware)
 
+    // Track HTTP request duration and status codes per route pattern
+    app.use(httpMetricsMiddleware)
+
+    // Add internal API authentication middleware for defense-in-depth.
+    // Primary protection comes from Contour routing at the infra level.
+    app.use(createInternalApiAuthMiddleware({ secret: options.internalApiSecret || '' }))
+
     app.use(
         express.json({
-            limit: '500kb',
+            limit: '20mb',
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')
             },
@@ -94,9 +120,8 @@ const buildGetHealth =
         )
 
         if (statusCode === 200) {
-            logger.info('💚', 'Server liveness check succeeded')
+            logger.debug('💚', 'Server liveness check succeeded')
         } else {
-            // Log detailed information for failures
             const failedServices = checkResults.filter((r) => r.status === 'error')
             logger.error('💔', 'Server liveness check failed', {
                 failedServices: failedServices.map((s) => ({

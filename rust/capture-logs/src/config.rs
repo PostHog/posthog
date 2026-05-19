@@ -25,6 +25,9 @@ pub struct Config {
     pub kafka: KafkaConfig,
 
     pub drop_events_by_token: Option<String>, // "<token>,<token>..."
+
+    #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
+    pub max_request_body_size_bytes: usize,
 }
 
 impl Config {

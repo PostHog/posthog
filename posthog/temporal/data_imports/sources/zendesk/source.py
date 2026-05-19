@@ -12,7 +12,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
 from posthog.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
@@ -38,8 +37,15 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
         }
 
-    def get_schemas(self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ZENDESK_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -49,6 +55,10 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             for endpoint in list(BASE_ENDPOINTS)
             + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: ZendeskSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -79,13 +89,15 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="email_address",
@@ -93,35 +105,40 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.EMAIL,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),
         )
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        zendesk_source_response = dlt_source_to_source_response(
-            zendesk_source(
-                subdomain=config.subdomain,
-                api_key=config.api_key,
-                email_address=config.email_address,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        resource = zendesk_source(
+            subdomain=config.subdomain,
+            api_key=config.api_key,
+            email_address=config.email_address,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )
+        response = SourceResponse(
+            name=resource.name,
+            items=lambda: resource,
+            primary_keys=["id"],
+            column_hints=resource.column_hints,
         )
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
 
         # All partition keys are datetime
         if partition_key:
-            zendesk_source_response.partition_count = 1
-            zendesk_source_response.partition_size = 1
-            zendesk_source_response.partition_mode = "datetime"
-            zendesk_source_response.partition_format = "week"
-            zendesk_source_response.partition_keys = [partition_key]
+            response.partition_count = 1
+            response.partition_size = 1
+            response.partition_mode = "datetime"
+            response.partition_format = "week"
+            response.partition_keys = [partition_key]
 
-        return zendesk_source_response
+        return response

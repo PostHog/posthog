@@ -10,6 +10,7 @@ interface ChannelSetupModalProps {
     channelType: ChannelType | null
     integration: IntegrationType | undefined
     onComplete: () => void
+    onClose: () => void
 }
 
 export function ChannelSetupModal({
@@ -17,6 +18,7 @@ export function ChannelSetupModal({
     channelType,
     integration,
     onComplete,
+    onClose,
 }: ChannelSetupModalProps): JSX.Element | null {
     if (!isOpen || !channelType) {
         return null
@@ -25,6 +27,7 @@ export function ChannelSetupModal({
     const modalProps = {
         integration,
         onComplete,
+        onClose,
     }
 
     switch (channelType) {

@@ -15,11 +15,10 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Comments } from 'scenes/data-management/comments/Comments'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { CoreEventsSettings } from 'scenes/settings/environment/CoreEventsSettings'
 import { urls } from 'scenes/urls'
-import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
@@ -34,6 +33,7 @@ import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsVie
 import { DataWarehouseManagedViewsetsScene } from './managed-viewsets/DataWarehouseManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
 import { SchemaManagement } from './schema/SchemaManagement'
+import { SqlVariablesTable } from './variables/SqlVariablesTable'
 
 export enum DataManagementTab {
     Actions = 'actions',
@@ -46,8 +46,8 @@ export enum DataManagementTab {
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     CoreEvents = 'core-events',
-    MarketingAnalytics = 'marketing-analytics',
     DataWarehouseManagedViewsets = 'data-warehouse-managed-viewsets',
+    Variables = 'variables',
 }
 
 type TabConfig = {
@@ -168,28 +168,21 @@ const tabs: Record<DataManagementTab, TabConfig> = {
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion warnings',
+        label: 'Event ingestion warnings',
         content: <IngestionWarningsView />,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
-    },
-    [DataManagementTab.MarketingAnalytics]: {
-        url: urls.marketingAnalytics(),
-        label: (
-            <>
-                Marketing{' '}
-                <LemonTag type="warning" size="small" className="ml-2">
-                    BETA
-                </LemonTag>
-            </>
-        ),
-        content: <MarketingAnalyticsSettings />,
-        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
     [DataManagementTab.DataWarehouseManagedViewsets]: {
         url: urls.dataWarehouseManagedViewsets(),
         label: 'Managed viewsets',
         content: <DataWarehouseManagedViewsetsScene />,
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+    },
+    [DataManagementTab.Variables]: {
+        url: urls.variables(),
+        label: 'SQL variables',
+        content: <SqlVariablesTable />,
+        tooltipDocLink: 'https://posthog.com/docs/sql',
     },
 }
 
@@ -265,15 +258,6 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                             name: sceneConfigurations[Scene.IngestionWarnings].name,
                             path: urls.ingestionWarnings(),
                             iconType: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
-                        },
-                    ]
-                } else if (tab === DataManagementTab.MarketingAnalytics) {
-                    return [
-                        {
-                            key: Scene.WebAnalyticsMarketing,
-                            name: sceneConfigurations[Scene.WebAnalyticsMarketing].name,
-                            path: urls.marketingAnalytics(),
-                            iconType: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
                         },
                     ]
                 }

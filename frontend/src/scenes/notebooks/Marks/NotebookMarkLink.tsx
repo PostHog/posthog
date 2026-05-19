@@ -21,7 +21,11 @@ export const NotebookMarkLink = Mark.create({
     },
 
     renderHTML({ HTMLAttributes }) {
-        const target = isPostHogLink(HTMLAttributes.href) ? undefined : '_blank'
+        const href = HTMLAttributes.href || ''
+        const target = isPostHogLink(href) ? undefined : '_blank'
+        if (!isSafeProtocol(href)) {
+            HTMLAttributes.href = ''
+        }
         return ['a', mergeAttributes(HTMLAttributes, { target }), 0]
     },
 
@@ -37,27 +41,44 @@ export const NotebookMarkLink = Mark.create({
                 props: {
                     handleDOMEvents: {
                         click(_, event) {
-                            if (event.metaKey) {
-                                const link = event.target as HTMLAnchorElement
-                                const href = link.href
+                            const link = (event.target as HTMLElement).closest?.('a')
+                            if (link) {
+                                event.preventDefault()
 
-                                if (href) {
-                                    event.preventDefault()
-                                    window.open(href, link.target)
-                                }
-                            } else {
-                                const range = getMarkRange(editor.state.selection.$anchor, markType)
-                                if (range) {
-                                    editor.commands.setTextSelection(range)
+                                if (event.metaKey) {
+                                    const href = link.href
+                                    if (href && isSafeProtocol(href)) {
+                                        window.open(href, link.target)
+                                    }
                                 }
                             }
                         },
+                    },
+                    handleClick(view, pos, event) {
+                        if (event.metaKey) {
+                            return false
+                        }
+
+                        const $pos = view.state.doc.resolve(pos)
+                        const range = getMarkRange($pos, markType)
+                        if (range) {
+                            editor.commands.setTextSelection(range)
+                            return true
+                        }
+
+                        return false
                     },
                 },
             }),
         ]
     },
 })
+
+const SAFE_LINK_PROTOCOLS = /^(https?:|mailto:)/i
+
+export const isSafeProtocol = (href: string): boolean => {
+    return SAFE_LINK_PROTOCOLS.test(href)
+}
 
 const isPostHogLink = (href: string): boolean => {
     try {

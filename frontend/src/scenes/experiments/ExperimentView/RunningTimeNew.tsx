@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconCheck, IconClock, IconGear } from '@posthog/icons'
+import { IconCalculator, IconCheck, IconClock, IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle/LemonProgressCircle'
@@ -15,10 +15,12 @@ export const RunningTimeNew = ({
     experiment,
     tabId,
     onClick,
+    isExperimentDraft,
 }: {
     experiment: Experiment
     tabId: string
     onClick: () => void
+    isExperimentDraft: boolean
 }): JSX.Element => {
     const {
         remainingDays,
@@ -34,14 +36,23 @@ export const RunningTimeNew = ({
     return (
         <>
             <div className="flex flex-col">
-                <Label intent="menu">Remaining time</Label>
+                <Label intent="menu">{isExperimentDraft ? 'Estimated duration' : 'Remaining time'}</Label>
                 <div className="inline-flex items-center gap-2">
                     {primaryMetricsResultsLoading && !isManualMode ? (
                         <span>Loading...</span>
                     ) : remainingDays === null ? (
                         <span className="inline-flex items-center gap-1">
-                            <IconClock />
-                            Pending
+                            {isExperimentDraft ? (
+                                <>
+                                    <IconCalculator />
+                                    Not calculated
+                                </>
+                            ) : (
+                                <>
+                                    <IconClock />
+                                    Pending
+                                </>
+                            )}
                         </span>
                     ) : isComplete ? (
                         <span className="inline-flex items-center gap-1">
@@ -67,7 +78,7 @@ export const RunningTimeNew = ({
                         size="xsmall"
                         onClick={onClick}
                         icon={<IconGear />}
-                        tooltip="Configure"
+                        tooltip={isExperimentDraft ? 'Calculate estimated duration' : 'Configure'}
                     />
                 </div>
             </div>

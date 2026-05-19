@@ -12,8 +12,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { DateRange } from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
-import { TimezoneSelect } from 'products/logs/frontend/components/LogsViewer/TimezoneSelect'
 import { logsViewerSettingsLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerSettingsLogic'
+import { TimezoneSelect } from 'products/logs/frontend/components/LogsViewer/TimezoneSelect'
 
 import { LOGS_DATE_OPTIONS } from './constants'
 import { logsDateRangePickerLogic } from './logsDateRangePickerLogic'

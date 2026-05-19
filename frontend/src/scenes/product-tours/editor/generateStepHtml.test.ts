@@ -1,6 +1,17 @@
 import type { JSONContent } from '@tiptap/core'
 
-import { generateStepHtml, prepareStepForRender, prepareStepsForRender } from './generateStepHtml'
+import type { ProductTourStep } from '~/types'
+
+import {
+    generateStepHtml,
+    generateTranslationsHtml,
+    prepareStepForRender,
+    prepareStepsForRender,
+} from './generateStepHtml'
+
+function makeStep(overrides: Partial<ProductTourStep> & { content: ProductTourStep['content'] }): ProductTourStep {
+    return { id: '1', type: 'modal', ...overrides }
+}
 
 jest.mock('@tiptap/html', () => ({
     generateHTML: jest.fn((content: JSONContent) => {
@@ -249,44 +260,108 @@ describe('generateStepHtml', () => {
     })
 })
 
-interface TestStep {
-    id: number
-    content?: Record<string, any> | null
-}
+const paragraph = (text: string): Record<string, any> => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+})
 
 describe('prepareStepForRender', () => {
     it('adds contentHtml to step with content', () => {
-        const step: TestStep = {
-            id: 1,
-            content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Test' }] }] },
-        }
+        const result = prepareStepForRender(makeStep({ content: paragraph('Test') }))
+
+        expect(result.contentHtml).toBe('<p>Test</p>')
+    })
+
+    it('returns undefined contentHtml for null content', () => {
+        expect(prepareStepForRender(makeStep({ content: null })).contentHtml).toBeUndefined()
+    })
+
+    it('generates contentHtml for each translation with content', () => {
+        const step = makeStep({
+            content: paragraph('Hello'),
+            translations: {
+                fr: { content: paragraph('Bonjour') },
+                de: { content: paragraph('Hallo') },
+            },
+        })
 
         const result = prepareStepForRender(step)
 
-        expect(result.contentHtml).toBe('<p>Test</p>')
-        expect(result.id).toBe(1)
+        expect(result.contentHtml).toBe('<p>Hello</p>')
+        expect(result.translations?.fr.contentHtml).toBe('<p>Bonjour</p>')
+        expect(result.translations?.de.contentHtml).toBe('<p>Hallo</p>')
     })
 
-    it('returns undefined contentHtml for step without content', () => {
-        expect(prepareStepForRender({ content: null }).contentHtml).toBeUndefined()
-        expect(prepareStepForRender({}).contentHtml).toBeUndefined()
+    it('preserves non-content translation fields', () => {
+        const step = makeStep({
+            content: paragraph('Hello'),
+            translations: {
+                fr: {
+                    content: paragraph('Bonjour'),
+                    buttons: { primary: { text: 'Suivant' } },
+                    survey: { questionText: 'Comment ça va?' },
+                },
+            },
+        })
+
+        const result = prepareStepForRender(step)
+
+        expect(result.translations?.fr.buttons).toEqual({ primary: { text: 'Suivant' } })
+        expect(result.translations?.fr.survey).toEqual({ questionText: 'Comment ça va?' })
+    })
+
+    it('skips contentHtml for translations without content', () => {
+        const step = makeStep({
+            content: paragraph('Hello'),
+            translations: {
+                fr: { buttons: { primary: { text: 'Suivant' } } },
+            },
+        })
+
+        const result = prepareStepForRender(step)
+
+        expect(result.translations?.fr.contentHtml).toBeUndefined()
+        expect(result.translations?.fr.buttons).toEqual({ primary: { text: 'Suivant' } })
+    })
+
+    it('does not add translations key when step has none', () => {
+        const result = prepareStepForRender(makeStep({ content: paragraph('Hello') }))
+
+        expect(result).not.toHaveProperty('translations')
     })
 })
 
 describe('prepareStepsForRender', () => {
     it('processes array of steps', () => {
-        const steps: TestStep[] = [
-            {
-                id: 1,
-                content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }] }] },
-            },
-            { id: 2, content: null },
-        ]
-
-        const results = prepareStepsForRender(steps)
+        const results = prepareStepsForRender([
+            makeStep({ id: '1', content: paragraph('A') }),
+            makeStep({ id: '2', content: null }),
+        ])
 
         expect(results).toHaveLength(2)
         expect(results[0].contentHtml).toBe('<p>A</p>')
         expect(results[1].contentHtml).toBeUndefined()
+    })
+})
+
+describe('generateTranslationsHtml', () => {
+    it.each([
+        [
+            'generates contentHtml for each language',
+            { fr: { content: paragraph('Bonjour') }, de: { content: paragraph('Hallo') } },
+            { fr: '<p>Bonjour</p>', de: '<p>Hallo</p>' },
+        ],
+        [
+            'skips contentHtml when content is missing',
+            { fr: { buttons: { primary: { text: 'Suivant' } } } },
+            { fr: undefined },
+        ],
+        ['handles null content', { fr: { content: null } }, { fr: undefined }],
+    ])('%s', (_name, translations, expectedHtml) => {
+        const result = generateTranslationsHtml(translations as any)
+
+        for (const [lang, expected] of Object.entries(expectedHtml)) {
+            expect(result[lang].contentHtml).toBe(expected)
+        }
     })
 })

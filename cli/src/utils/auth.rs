@@ -59,14 +59,20 @@ impl CredentialProvider for HomeDirProvider {
     }
 }
 
-/// Tries to read the token from the env var `POSTHOG_CLI_TOKEN`
+/// Tries to read the token from the env var `POSTHOG_CLI_API_KEY`
 pub struct EnvVarProvider;
 
 impl CredentialProvider for EnvVarProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
         let host = std::env::var("POSTHOG_CLI_HOST").ok();
-        let token = std::env::var("POSTHOG_CLI_TOKEN").context("While trying to read env var")?;
-        let env_id = std::env::var("POSTHOG_CLI_ENV_ID").context("While trying to read env var")?;
+        // Try POSTHOG_CLI_API_KEY first, fall back to POSTHOG_CLI_TOKEN for backward compatibility
+        let token = std::env::var("POSTHOG_CLI_API_KEY")
+            .or_else(|_| std::env::var("POSTHOG_CLI_TOKEN"))
+            .context("While trying to read env var POSTHOG_CLI_API_KEY")?;
+        // Try POSTHOG_CLI_PROJECT_ID first, fall back to POSTHOG_CLI_ENV_ID for backward compatibility
+        let env_id = std::env::var("POSTHOG_CLI_PROJECT_ID")
+            .or_else(|_| std::env::var("POSTHOG_CLI_ENV_ID"))
+            .context("While trying to read env var POSTHOG_CLI_PROJECT_ID")?;
         Ok(Token {
             host,
             token,

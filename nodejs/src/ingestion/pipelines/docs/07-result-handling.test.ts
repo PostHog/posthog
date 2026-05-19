@@ -10,7 +10,7 @@
  *
  * - **DLQ**: Send to dead-letter topic with error details
  * - **DROP**: Log and discard (no Kafka message)
- * - **REDIRECT**: Send to an alternate topic
+ * - **REDIRECT**: Send to a named output (e.g. overflow)
  *
  * ## Accessing handleResults()
  *
@@ -32,8 +32,7 @@
  * ## Configuration
  *
  * `handleResults()` requires a `PipelineConfig` with:
- * - `kafkaProducer`: For sending messages to DLQ and redirect topics
- * - `dlqTopic`: The dead-letter topic name
+ * - `outputs`: IngestionOutputs containing DLQ, ingestion warnings, and any redirect outputs
  * - `promiseScheduler`: For scheduling async operations
  *
  * ## Required: handleSideEffects()
@@ -54,12 +53,14 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineResult, dlq, drop, isDlqResult, isDropResult, isRedirectResult, ok, redirect } from '../results'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Result Handling', () => {
     /**
@@ -71,20 +72,14 @@ describe('Result Handling', () => {
      * - The step name where the failure occurred
      */
     it('DLQ sends failed items to dead-letter topic with error details', async () => {
-        const producedMessages: any[] = []
-
-        const mockProducer = {
-            produce: jest.fn((msg) => {
-                producedMessages.push(msg)
-                return Promise.resolve()
-            }),
-        }
+        const mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
 
         const promiseScheduler = new PromiseScheduler()
 
         const pipelineConfig = {
-            kafkaProducer: mockProducer as any,
-            dlqTopic: 'my-dlq-topic',
+            outputs: mockOutputs,
             promiseScheduler: promiseScheduler,
         }
 
@@ -110,7 +105,7 @@ describe('Result Handling', () => {
             .build()
 
         const message = createTestMessage()
-        const batch = [createContext(ok({ data: 'invalid' }), { message })]
+        const batch = [createOkContext({ data: 'invalid' }, { message })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -119,17 +114,21 @@ describe('Result Handling', () => {
         expect(results).toHaveLength(1)
         expect(isDlqResult(results![0].result)).toBe(true)
 
-        // Message was sent to DLQ topic with all expected fields
-        expect(mockProducer.produce).toHaveBeenCalledTimes(1)
-        const dlqMessage = producedMessages[0]
-        expect(dlqMessage.topic).toBe('my-dlq-topic')
-        expect(dlqMessage.value).toEqual(message.value)
-        expect(dlqMessage.key).toEqual(message.key)
-        expect(dlqMessage.headers).toMatchObject({
-            'dlq-reason': 'Invalid data format',
-            'dlq-step': 'validationStep',
-        })
-        expect(dlqMessage.headers['dlq-timestamp']).toBeDefined()
+        // Message was sent to DLQ output with all expected fields
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            DLQ_OUTPUT,
+            expect.objectContaining({
+                value: message.value,
+                key: message.key,
+                headers: expect.objectContaining({
+                    dlq_reason: 'Invalid data format',
+                    dlq_step: 'validationStep',
+                }),
+            })
+        )
+        const dlqMessage = mockOutputs.produce.mock.calls[0][1]
+        expect(dlqMessage.headers!['dlq_timestamp']).toBeDefined()
     })
 
     /**
@@ -138,15 +137,14 @@ describe('Result Handling', () => {
      * (e.g., internal events, duplicates, or items outside scope).
      */
     it('DROP discards items without sending to Kafka', async () => {
-        const mockProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
-        }
+        const mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
 
         const promiseScheduler = new PromiseScheduler()
 
         const pipelineConfig = {
-            kafkaProducer: mockProducer as any,
-            dlqTopic: 'dlq-topic',
+            outputs: mockOutputs,
             promiseScheduler: promiseScheduler,
         }
 
@@ -172,7 +170,7 @@ describe('Result Handling', () => {
             .build()
 
         const message = createTestMessage()
-        const batch = [createContext(ok({ eventType: 'internal-heartbeat' }), { message })]
+        const batch = [createOkContext({ eventType: 'internal-heartbeat' }, { message })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -181,31 +179,28 @@ describe('Result Handling', () => {
         expect(results).toHaveLength(1)
         expect(isDropResult(results![0].result)).toBe(true)
 
-        // No Kafka produce for dropped messages
-        expect(mockProducer.produce).not.toHaveBeenCalled()
+        // No produce calls for dropped messages
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
     })
 
     /**
-     * REDIRECT results send items to a different topic for alternative
-     * processing. This is useful for routing items based on content
-     * (e.g., high-priority events to a fast-track topic). The original
+     * REDIRECT results send items to a named output for alternative processing.
+     * Each redirect targets a specific output (e.g. overflow, high-priority)
+     * which is resolved to a Kafka topic and producer at runtime. The original
      * message key can optionally be preserved or discarded.
      */
-    it('REDIRECT sends items to specified topic with optional key preservation', async () => {
-        const producedMessages: any[] = []
-
-        const mockProducer = {
-            produce: jest.fn((msg) => {
-                producedMessages.push(msg)
-                return Promise.resolve()
-            }),
-        }
-
+    it('REDIRECT sends items to a named output with optional key preservation', async () => {
         const promiseScheduler = new PromiseScheduler()
 
+        const HIGH_PRIORITY_OUTPUT = 'high_priority' as const
+        const BROADCAST_OUTPUT = 'broadcast' as const
+
+        const mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof HIGH_PRIORITY_OUTPUT | typeof BROADCAST_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
+
         const pipelineConfig = {
-            kafkaProducer: mockProducer as any,
-            dlqTopic: 'dlq-topic',
+            outputs: mockOutputs,
             promiseScheduler: promiseScheduler,
         }
 
@@ -213,14 +208,14 @@ describe('Result Handling', () => {
             priority: string
         }
 
-        function createRoutingStep(): BatchProcessingStep<Event, Event> {
+        function createRoutingStep(): BatchProcessingStep<Event, Event, 'high_priority' | 'broadcast'> {
             return function routingStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
                         if (item.priority === 'high') {
-                            return redirect('High priority routing', 'high-priority-topic', true) // preserveKey = true
+                            return redirect('High priority routing', HIGH_PRIORITY_OUTPUT, true) // preserveKey = true
                         } else if (item.priority === 'broadcast') {
-                            return redirect('Broadcast routing', 'broadcast-topic', false) // preserveKey = false
+                            return redirect('Broadcast routing', BROADCAST_OUTPUT, false) // preserveKey = false
                         }
                         return ok(item)
                     })
@@ -239,8 +234,8 @@ describe('Result Handling', () => {
         const message1 = createTestMessage({ key: originalKey })
         const message2 = createTestMessage({ key: Buffer.from('another-key') })
         const batch = [
-            createContext(ok({ priority: 'high' }), { message: message1 }),
-            createContext(ok({ priority: 'broadcast' }), { message: message2 }),
+            createOkContext({ priority: 'high' }, { message: message1 }),
+            createOkContext({ priority: 'broadcast' }, { message: message2 }),
         ]
         pipeline.feed(batch)
 
@@ -252,26 +247,34 @@ describe('Result Handling', () => {
         expect(isRedirectResult(results![1].result)).toBe(true)
 
         // Two messages were produced
-        expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(2)
 
-        // First message: key preserved
-        const preservedKeyMessage = producedMessages[0]
-        expect(preservedKeyMessage.topic).toBe('high-priority-topic')
-        expect(preservedKeyMessage.value).toEqual(message1.value)
-        expect(preservedKeyMessage.key).toEqual(originalKey)
-        expect(preservedKeyMessage.headers).toMatchObject({
-            'redirect-step': 'routingStep',
-        })
-        expect(preservedKeyMessage.headers['redirect-timestamp']).toBeDefined()
+        // First message: key preserved, sent to high_priority output
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            HIGH_PRIORITY_OUTPUT,
+            expect.objectContaining({
+                value: message1.value,
+                key: originalKey,
+                headers: expect.objectContaining({
+                    'redirect-step': 'routingStep',
+                }),
+            })
+        )
+        const preservedKeyMessage = mockOutputs.produce.mock.calls[0][1]
+        expect(preservedKeyMessage.headers!['redirect-timestamp']).toBeDefined()
 
-        // Second message: key discarded
-        const discardedKeyMessage = producedMessages[1]
-        expect(discardedKeyMessage.topic).toBe('broadcast-topic')
-        expect(discardedKeyMessage.value).toEqual(message2.value)
-        expect(discardedKeyMessage.key).toBeNull()
-        expect(discardedKeyMessage.headers).toMatchObject({
-            'redirect-step': 'routingStep',
-        })
-        expect(discardedKeyMessage.headers['redirect-timestamp']).toBeDefined()
+        // Second message: key discarded, sent to broadcast output
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            BROADCAST_OUTPUT,
+            expect.objectContaining({
+                value: message2.value,
+                key: null,
+                headers: expect.objectContaining({
+                    'redirect-step': 'routingStep',
+                }),
+            })
+        )
+        const discardedKeyMessage = mockOutputs.produce.mock.calls[1][1]
+        expect(discardedKeyMessage.headers!['redirect-timestamp']).toBeDefined()
     })
 })

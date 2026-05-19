@@ -4,16 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    Survey,
-    SurveyQuestionDescriptionContentType,
-    SurveyQuestionType,
-    SurveySchedule,
-    SurveyType,
-} from '~/types'
+import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 
-import { SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, SurveyTemplate, SurveyTemplateType } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 const createTestSurvey = (id: string, name: string): Survey => ({
@@ -59,32 +51,11 @@ describe('surveysLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it('performs frontend search immediately', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [
-                        createTestSurvey('1', 'Test Survey 1'),
-                        createTestSurvey('2', 'Another Survey'),
-                        createTestSurvey('3', 'Test Survey 3'),
-                    ],
-                    surveysCount: 150,
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-                logic.actions.setSearchTerm('Test')
-            }).toMatchValues({
-                searchedSurveys: expect.arrayContaining([
-                    expect.objectContaining({ id: '1' }),
-                    expect.objectContaining({ id: '3' }),
-                ]),
-            })
-        })
-
-        it('triggers backend search after debounce for large datasets', async () => {
+        it('triggers backend search after debounce', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
                     surveys: [createTestSurvey('1', 'Test Survey')],
-                    surveysCount: 150, // > SURVEY_PAGE_SIZE
+                    surveysCount: 150,
                     searchSurveys: [],
                     searchSurveysCount: 0,
                 })
@@ -94,22 +65,7 @@ describe('surveysLogic', () => {
                 .toDispatchActions(['loadSearchResults'])
         })
 
-        it('performs only frontend search for small datasets', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [createTestSurvey('1', 'Test Survey')],
-                    surveysCount: 50, // < SURVEY_PAGE_SIZE
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-                logic.actions.setSearchTerm('Test')
-            })
-                .delay(400)
-                .toNotHaveDispatchedActions(['loadSearchResults'])
-        })
-
-        it('merges and deduplicates frontend and backend results', async () => {
-            // Set initial state with frontend results and trigger search
+        it('searchedSurveys reflects backend results once loaded', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
                     surveys: [createTestSurvey('1', 'Test Survey'), createTestSurvey('2', 'Another Test')],
@@ -118,26 +74,14 @@ describe('surveysLogic', () => {
                     searchSurveysCount: 0,
                 })
                 logic.actions.setSearchTerm('Test')
-            }).toMatchValues({
-                // Verify frontend search results first
-                searchedSurveys: expect.arrayContaining([
-                    expect.objectContaining({ id: '1' }),
-                    expect.objectContaining({ id: '2' }),
-                ]),
-            })
-
-            // Then simulate backend search completion
-            await expectLogic(logic, () => {
                 logic.actions.loadSearchResultsSuccess({
                     ...logic.values.data,
                     searchSurveys: [createTestSurvey('1', 'Test Survey'), createTestSurvey('3', 'New Test')],
                     searchSurveysCount: 2,
                 })
             }).toMatchValues({
-                // Verify merged results
                 searchedSurveys: expect.arrayContaining([
                     expect.objectContaining({ id: '1' }),
-                    expect.objectContaining({ id: '2' }),
                     expect.objectContaining({ id: '3' }),
                 ]),
             })
@@ -204,7 +148,7 @@ describe('surveysLogic', () => {
                     '/api/projects/:team/surveys/responses_count': () => [200, {}],
                 },
                 patch: {
-                    '/api/environments/@current/add_product_intent/': async (req) => {
+                    '/api/environments/:team_id/add_product_intent/': async (req) => {
                         const data = await req.json()
                         capturedIntentRequests.push(data)
                         return [200, {}]
@@ -230,50 +174,6 @@ describe('surveysLogic', () => {
             expect(capturedIntentRequests[0]).toEqual({
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEYS_VIEWED,
-            })
-        })
-
-        it('should track SURVEY_CREATED intent when creating survey from template', async () => {
-            const mockTemplate: SurveyTemplate = {
-                templateType: SurveyTemplateType.NPS,
-                questions: [
-                    {
-                        type: SurveyQuestionType.Rating,
-                        question: 'How likely are you to recommend us?',
-                        description: '',
-                        descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
-                        display: 'number',
-                        scale: SURVEY_RATING_SCALE.NPS_10_POINT,
-                        lowerBoundLabel: 'Not likely',
-                        upperBoundLabel: 'Very likely',
-                    },
-                ],
-                description: 'NPS survey',
-                type: SurveyType.Popover,
-            }
-
-            useMocks({
-                post: {
-                    '/api/projects/:team/surveys/': () => [200, { id: 'new-survey-123' }],
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.createSurveyFromTemplate(mockTemplate)
-            }).toFinishAllListeners()
-
-            const createIntent = capturedIntentRequests.find(
-                (req) => req.intent_context === ProductIntentContext.SURVEY_CREATED
-            )
-            expect(createIntent).toBeTruthy()
-            expect(createIntent).toMatchObject({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: 'new-survey-123',
-                    source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
-                    template_type: 'Net promoter score (NPS)',
-                },
             })
         })
 

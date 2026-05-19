@@ -9,6 +9,8 @@ interface ColorInputProps {
     value?: string
     onChange: (value: string) => void
     disabled?: boolean
+    disabledReason?: string
+    colorList?: string[]
 }
 
 // Survey-appropriate preset colors
@@ -61,7 +63,13 @@ function ColorGlyph({ color }: { color: string }): JSX.Element {
     )
 }
 
-export function ColorInput({ value = '', onChange, disabled }: ColorInputProps): JSX.Element {
+export function ColorInput({
+    value = '',
+    onChange,
+    disabled,
+    disabledReason,
+    colorList,
+}: ColorInputProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
 
     const showCssVariableWarning = isCssVariable(value)
@@ -75,7 +83,7 @@ export function ColorInput({ value = '', onChange, disabled }: ColorInputProps):
                     overlay={
                         <div className="p-2">
                             <LemonColorList
-                                colors={SURVEY_PRESET_COLORS}
+                                colors={colorList ?? SURVEY_PRESET_COLORS}
                                 selectedColor={value}
                                 onSelectColor={(color) => {
                                     onChange(color)
@@ -89,6 +97,7 @@ export function ColorInput({ value = '', onChange, disabled }: ColorInputProps):
                         type="button"
                         onClick={() => !disabled && setIsOpen(!isOpen)}
                         disabled={disabled}
+                        title={disabled ? disabledReason : undefined}
                         className="shrink-0 p-1 rounded border border-border hover:border-primary/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <ColorGlyph color={value} />
@@ -98,9 +107,10 @@ export function ColorInput({ value = '', onChange, disabled }: ColorInputProps):
                     value={value}
                     onChange={onChange}
                     placeholder="#000000 or var(--color)"
-                    className="flex-1 font-mono text-xs"
+                    className="flex-1 font-mono text-xs ignore-error-border"
                     size="small"
                     disabled={disabled}
+                    disabledReason={disabledReason}
                 />
             </div>
             {showCssVariableWarning && (

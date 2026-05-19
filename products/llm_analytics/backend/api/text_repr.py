@@ -15,7 +15,6 @@ Endpoint:
 import json
 import time
 import hashlib
-from typing import cast
 
 from django.core.cache import cache
 
@@ -30,7 +29,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
@@ -132,7 +131,8 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     Uses pure Python formatters for all processing.
     """
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of text formatting endpoint."""
@@ -364,7 +364,7 @@ The response includes the formatted text and metadata about the rendering.
 
             # Track user action
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma text repr generated",
                 {
                     "event_type": event_type,
@@ -372,7 +372,8 @@ The response includes the formatted text and metadata about the rendering.
                     "char_count": len(text),
                     "duration_seconds": duration_seconds,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

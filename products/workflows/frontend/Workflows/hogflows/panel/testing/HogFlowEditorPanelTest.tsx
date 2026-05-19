@@ -16,9 +16,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
@@ -185,15 +185,13 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         panels={[
                             {
                                 key: 'event',
-                                header: {
-                                    children: sampleGlobalsLoading ? (
-                                        <>
-                                            Loading test event... <Spinner />
-                                        </>
-                                    ) : (
-                                        <>Test event: {sampleGlobals?.event?.event} </>
-                                    ),
-                                },
+                                header: sampleGlobalsLoading ? (
+                                    <>
+                                        Loading test event... <Spinner />
+                                    </>
+                                ) : (
+                                    <>Test event: {sampleGlobals?.event?.event} </>
+                                ),
                                 className: 'bg-surface-secondary',
                                 content: (
                                     <div>

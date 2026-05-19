@@ -4,6 +4,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { fetchInsightsUsingVariable } from 'scenes/data-management/variables/insightsLoader'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { QueryBasedInsightModel } from '~/types'
 
 import {
     BooleanVariable,
@@ -90,9 +94,10 @@ export const variableModalLogic = kea<variableModalLogicType>([
     props({ key: '' } as AddVariableLogicProps),
     key((props) => props.key),
     connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
         actions: [
             variableDataLogic,
-            ['getVariables'],
+            ['loadVariables'],
             variablesLogic,
             ['addVariable', 'updateInternalSelectedVariable'],
         ],
@@ -103,7 +108,11 @@ export const variableModalLogic = kea<variableModalLogicType>([
         closeModal: true,
         updateVariable: (variable: Variable) => ({ variable }),
         save: true,
+        saveSuccess: true,
+        saveFailure: true,
         changeTypeExistingVariable: (variableType: VariableType) => ({ variableType }),
+        setInsightsUsingVariable: (insights: QueryBasedInsightModel[]) => ({ insights }),
+        setInsightsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         modalType: [
@@ -152,8 +161,46 @@ export const variableModalLogic = kea<variableModalLogicType>([
                 },
             },
         ],
+        insightsUsingVariable: [
+            [] as QueryBasedInsightModel[],
+            {
+                setInsightsUsingVariable: (_, { insights }) => insights,
+                closeModal: () => [],
+            },
+        ],
+        insightsLoading: [
+            false as boolean,
+            {
+                setInsightsLoading: (_, { loading }) => loading,
+                openExistingVariableModal: () => true,
+                closeModal: () => false,
+            },
+        ],
+        isSaving: [
+            false as boolean,
+            {
+                save: () => true,
+                saveSuccess: () => false,
+                saveFailure: () => false,
+                closeModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
+        openExistingVariableModal: async ({ variable }) => {
+            // Load insights that use this variable
+            if (variable.id && values.currentTeamId) {
+                actions.setInsightsLoading(true)
+                try {
+                    const matchingInsights = await fetchInsightsUsingVariable(values.currentTeamId, variable.id)
+                    actions.setInsightsUsingVariable(matchingInsights)
+                } catch {
+                    // Error already handled by fetchInsightsUsingVariable
+                } finally {
+                    actions.setInsightsLoading(false)
+                }
+            }
+        },
         save: async () => {
             try {
                 if (values.modalType === 'new') {
@@ -168,10 +215,12 @@ export const variableModalLogic = kea<variableModalLogicType>([
                         })
                     }
                 }
-                actions.getVariables()
+                actions.loadVariables()
+                actions.saveSuccess()
                 actions.closeModal()
             } catch (e: any) {
                 const error = e as ApiError
+                actions.saveFailure()
                 lemonToast.error(error.detail ?? error.message)
             }
         },

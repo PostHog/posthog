@@ -1,14 +1,15 @@
 import clsx from 'clsx'
 import posthog from 'posthog-js'
 import { useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 interface TemplateLinkSectionProps {
@@ -115,7 +116,7 @@ export function TemplateLinkSection({
                                 }}
                                 icon={<IconLink />}
                             >
-                                {copied ? 'Copied!' : copyButtonLabel}
+                                <TextMorph as="span">{copied ? 'Copied!' : copyButtonLabel}</TextMorph>
                             </LemonButton>
                         ) : null}
                     </div>

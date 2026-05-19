@@ -132,8 +132,9 @@ export const projectLogic = kea<projectLogicType>([
             try {
                 await api.delete(`api/projects/${project.id}`)
                 actions.deleteProjectSuccess()
-            } catch {
-                lemonToast.error('Failed to delete project. Please try again.')
+            } catch (e) {
+                const apiError = e as Record<string, any>
+                lemonToast.error(apiError.detail || 'Failed to delete project. Please try again.')
                 actions.deleteProjectFailure()
             }
         },
@@ -144,7 +145,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.onboarding())
+                actions.switchTeam(currentProject.id, urls.projectHomepage())
             }
         },
 

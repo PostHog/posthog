@@ -8,7 +8,6 @@ from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -23,6 +22,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
@@ -559,6 +559,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._retroactively_fix_folders_and_depth(cast(User, request.user))
 
         if self.user_access_control:
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from prior team-scoped query)
             qs = FileSystem.objects.filter(id__in=[f.id for f in files])
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
             file_count = qs.count()
@@ -700,15 +701,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET", "POST"], detail=False, url_path="log_view")
+    @disallow_if_impersonated(message="Impersonated sessions cannot log file system views.", allowed_methods=["GET"])
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if request.method == "GET":
             return self._list_log_views(request)
-
-        if is_impersonated_session(request):
-            return Response(
-                {"detail": "Impersonated sessions cannot log file system views."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
         serializer = FileSystemViewLogSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

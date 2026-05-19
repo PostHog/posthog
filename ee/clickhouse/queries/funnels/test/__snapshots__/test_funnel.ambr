@@ -46,11 +46,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -69,10 +68,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -85,14 +83,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -125,8 +121,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -192,11 +188,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -215,10 +210,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -231,14 +225,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -278,8 +270,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -336,11 +328,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -359,10 +350,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -375,14 +365,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -411,7 +399,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -427,8 +415,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -478,11 +466,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -501,10 +488,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -517,14 +503,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -553,7 +537,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -569,8 +553,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -621,11 +605,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -644,10 +627,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -660,14 +642,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -696,7 +676,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -712,8 +692,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -764,11 +744,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -787,10 +766,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -803,14 +781,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -839,7 +815,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -855,8 +831,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -907,11 +883,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -930,10 +905,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -946,14 +920,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -982,7 +954,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -998,8 +970,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1059,11 +1031,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1082,10 +1053,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -1098,14 +1068,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -1138,8 +1106,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1205,11 +1173,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1228,10 +1195,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -1244,14 +1210,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -1291,8 +1255,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1349,11 +1313,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1372,10 +1335,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -1388,14 +1350,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -1424,7 +1384,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -1440,8 +1400,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1491,11 +1451,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1511,14 +1470,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1546,7 +1503,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1559,8 +1516,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1611,11 +1568,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1631,14 +1587,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1666,7 +1620,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1679,8 +1633,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1731,11 +1685,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1751,14 +1704,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1786,7 +1737,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1799,8 +1750,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1851,11 +1802,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1871,14 +1821,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -1906,7 +1854,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1919,8 +1867,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1980,11 +1928,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -2003,10 +1950,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -2019,14 +1965,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -2059,8 +2003,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2126,11 +2070,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -2149,10 +2092,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -2165,14 +2107,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -2212,8 +2152,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2270,11 +2210,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -2293,10 +2232,9 @@
                                                     step_1,
                                                     latest_1,
                                                     step_2,
-                                                    min(latest_2) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                       prop
+                                                    prop
               FROM
                 (SELECT aggregation_target, timestamp, step_0,
                                                        latest_0,
@@ -2309,14 +2247,12 @@
                    (SELECT aggregation_target, timestamp, step_0,
                                                           latest_0,
                                                           step_1,
-                                                          min(latest_1) over (PARTITION by aggregation_target,
-                                                                                           prop
+                                                          min(latest_1) over (PARTITION by aggregation_target, prop
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                              prop
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                                if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT *,
                               prop_vals as prop
@@ -2345,7 +2281,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -2361,8 +2297,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2458,11 +2394,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2476,14 +2411,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2512,7 +2445,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2528,7 +2461,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2542,14 +2475,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2578,7 +2509,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2594,7 +2525,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2608,14 +2539,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2644,7 +2573,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2660,8 +2589,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2758,11 +2687,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2776,14 +2704,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2812,7 +2738,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2828,7 +2754,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2842,14 +2768,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2878,7 +2802,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2894,7 +2818,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2908,14 +2832,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -2944,7 +2866,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2960,8 +2882,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -3058,11 +2980,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3076,14 +2997,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3112,7 +3031,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3128,7 +3047,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3142,14 +3061,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3178,7 +3095,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3194,7 +3111,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3208,14 +3125,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3244,7 +3159,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3260,8 +3175,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -3358,11 +3273,10 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time,
+               prop
         FROM
           (SELECT *,
                   arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3376,14 +3290,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3412,7 +3324,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3428,7 +3340,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3442,14 +3354,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3478,7 +3388,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3494,7 +3404,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3508,14 +3418,12 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                       step_2,
-                                                                       min(latest_2) over (PARTITION by aggregation_target,
-                                                                                                        prop
-                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                                          if(has(['technology', 'finance'], prop), prop, 'Other') as prop
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target, prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
+                                                    if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT *,
                         prop_vals as prop
@@ -3544,7 +3452,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3560,8 +3468,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop

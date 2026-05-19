@@ -7,6 +7,14 @@ export const newAccountMenuLogic = kea<newAccountMenuLogicType>([
     actions({
         setAccountMenuOpen: (isOpen: boolean) => ({ isOpen }),
         toggleAccountMenu: true,
+        // Project switcher modal
+        openProjectSwitcher: true,
+        closeProjectSwitcher: true,
+        toggleProjectSwitcher: true,
+        // Org switcher modal
+        openOrgSwitcher: true,
+        closeOrgSwitcher: true,
+        toggleOrgSwitcher: true,
     }),
     reducers({
         isAccountMenuOpen: [
@@ -14,6 +22,22 @@ export const newAccountMenuLogic = kea<newAccountMenuLogicType>([
             {
                 setAccountMenuOpen: (_, { isOpen }) => isOpen,
                 toggleAccountMenu: (state) => !state,
+            },
+        ],
+        isProjectSwitcherOpen: [
+            false,
+            {
+                openProjectSwitcher: () => true,
+                closeProjectSwitcher: () => false,
+                toggleProjectSwitcher: (state) => !state,
+            },
+        ],
+        isOrgSwitcherOpen: [
+            false,
+            {
+                openOrgSwitcher: () => true,
+                closeOrgSwitcher: () => false,
+                toggleOrgSwitcher: (state) => !state,
             },
         ],
     }),

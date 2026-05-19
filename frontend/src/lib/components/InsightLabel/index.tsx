@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -39,7 +40,7 @@ interface InsightsLabelProps {
     iconStyle?: Record<string, any> // style on series color icon
     seriesStatus?: string // Used by lifecycle chart to display the series name
     fallbackName?: string // Name to display for the series if it can be determined from `action`
-    hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
+    hasMultipleSeries?: boolean // Whether the query defines multiple series (not breakdown values). Derived from !isSingleSeriesDefinition.
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     onLabelClick?: () => void // Click handler for inner label
@@ -47,6 +48,7 @@ interface InsightsLabelProps {
     showSingleName?: boolean // If label has default name and custom name, only show custom name. By default show both.
     pillMidEllipsis?: boolean // Whether to use mid ellipsis if pill text needs to be truncated
     pillMaxWidth?: number // Max width of each pill in px
+    showPathCleaningHighlight?: boolean // Whether to show path cleaning highlights on the breakdown value
 }
 
 interface MathTagProps {
@@ -78,10 +80,10 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
         return (
             <>
-                <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+                <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
                 {mathProperty && (
                     <>
-                        <span>of</span>
+                        <span className="shrink-0">of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}
@@ -92,7 +94,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
     }
     // Use mathDefinitions first, then fall back to capitalizing the math string
-    return <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+    return <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
 }
 
 export function InsightLabel({
@@ -117,6 +119,7 @@ export function InsightLabel({
     pillMidEllipsis = false,
     pillMaxWidth,
     showSingleName = false,
+    showPathCleaningHighlight = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
 
@@ -137,7 +140,7 @@ export function InsightLabel({
     )
 
     return (
-        <div className={clsx('insights-label', className)}>
+        <div className={clsx('insights-label', className)} data-attr="insight-label">
             <div className="flex items-center w-fit">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
@@ -203,7 +206,11 @@ export function InsightLabel({
                                     <LemonTag className="tag-pill">
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
                                         <span className="truncate" style={{ maxWidth: pillMaxWidth }}>
-                                            {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
+                                            {showPathCleaningHighlight
+                                                ? parseAliasToReadable(pill?.toString() ?? '')
+                                                : pillMidEllipsis
+                                                  ? midEllipsis(String(pill), 50)
+                                                  : pill}
                                         </span>
                                     </LemonTag>
                                 </Tooltip>

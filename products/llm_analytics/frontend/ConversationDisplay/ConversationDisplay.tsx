@@ -1,39 +1,67 @@
-import { useActions } from 'kea'
+import React from 'react'
 
-import { IconChat } from '@posthog/icons'
+import { IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from '../llmAnalyticsPlaygroundLogic'
-import { normalizeMessages } from '../utils'
+import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
+import { costContextFromProperties, normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
 export interface ConversationDisplayProps {
     eventProperties: EventType['properties']
     eventId: string
+    /** Event timestamp, needed to fetch heavy props via TraceQuery when they've been stripped from `events`. */
+    eventTimestamp?: string
 }
 
-export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
-
-    const { input, output, isLoading } = useAIData({
+export function ConversationDisplay({
+    eventProperties,
+    eventId,
+    eventTimestamp,
+}: ConversationDisplayProps): JSX.Element {
+    const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
+    const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
+    const rawTools = eventProperties.$ai_tools
+    const { input, output, tools, isLoading } = useAIData({
         uuid: eventId,
-        input: eventProperties.$ai_input,
-        output: eventProperties.$ai_output_choices,
+        input: rawInput,
+        output: rawOutput,
+        tools: rawTools,
+        traceId: eventProperties.$ai_trace_id,
+        timestamp: eventTimestamp,
     })
 
-    const handleTryInPlayground = (): void => {
-        setupPlaygroundFromEvent({
+    const handleOpenInPlayground = (): void => {
+        openInPlayground({
             model: eventProperties.$ai_model,
+            provider: eventProperties.$ai_provider,
             input,
+            output,
         })
     }
 
     const showPlaygroundButton = eventProperties.$ai_model && input
+
+    const inputSourceIndices = React.useMemo(() => {
+        const indices: number[] = []
+        if (tools) {
+            indices.push(-1)
+        }
+        if (Array.isArray(input)) {
+            for (let i = 0; i < input.length; i++) {
+                const expanded = normalizeMessage(input[i], 'user')
+                for (let j = 0; j < expanded.length; j++) {
+                    indices.push(i)
+                }
+            }
+        }
+        return indices
+    }, [input, tools])
 
     return (
         <>
@@ -43,9 +71,11 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     outputTokens={eventProperties.$ai_output_tokens}
                     cacheReadTokens={eventProperties.$ai_cache_read_input_tokens}
                     cacheWriteTokens={eventProperties.$ai_cache_creation_input_tokens}
-                    totalCostUsd={eventProperties.$ai_total_cost_usd}
+                    costContext={costContextFromProperties(eventProperties)}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
+                    timeToFirstToken={eventProperties.$ai_time_to_first_token}
+                    isStreaming={eventProperties.$ai_stream === true}
                     timestamp={eventProperties.timestamp}
                 />
 
@@ -53,12 +83,12 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconChat />}
-                        onClick={handleTryInPlayground}
-                        tooltip="Try this prompt in the playground"
-                        data-attr="try-in-playground-conversation"
+                        icon={<IconPlay />}
+                        onClick={handleOpenInPlayground}
+                        tooltip="Open in Playground"
+                        data-attr="llma-playground-open-from-conversation"
                     >
-                        Try in Playground
+                        Open in Playground
                     </LemonButton>
                 )}
             </header>
@@ -66,12 +96,15 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                 <AIDataLoading variant="block" />
             ) : (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(input, 'user', eventProperties.$ai_tools)}
+                    inputNormalized={normalizeMessages(input, 'user', tools)}
                     outputNormalized={normalizeMessages(output, 'assistant')}
+                    inputSourceIndices={inputSourceIndices}
                     errorData={eventProperties.$ai_error}
                     httpStatus={eventProperties.$ai_http_status}
                     raisedError={eventProperties.$ai_is_error}
                     bordered
+                    traceId={eventProperties.$ai_trace_id}
+                    generationEventId={eventId}
                 />
             )}
         </>

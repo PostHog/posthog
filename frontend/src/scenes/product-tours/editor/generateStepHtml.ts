@@ -1,13 +1,18 @@
 import type { JSONContent } from '@tiptap/core'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { Color } from '@tiptap/extension-color'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
+import { TextAlign } from '@tiptap/extension-text-align'
+import { TextStyle } from '@tiptap/extension-text-style'
 import { Underline } from '@tiptap/extension-underline'
 import { generateHTML } from '@tiptap/html'
 import StarterKit from '@tiptap/starter-kit'
 import { toHtml } from 'hast-util-to-html'
 import { decode } from 'he'
 import { common, createLowlight } from 'lowlight'
+
+import { ProductTourStep, ProductTourStepTranslation } from '~/types'
 
 import { EmbedExtension } from './EmbedExtension'
 
@@ -46,6 +51,11 @@ const htmlExtensions = [
         codeBlock: false,
     }),
     CodeBlockLowlight.configure({ lowlight }),
+    TextAlign.configure({
+        types: ['heading', 'paragraph'],
+    }),
+    TextStyle,
+    Color,
     Link.configure({
         openOnClick: false,
         HTMLAttributes: {
@@ -88,20 +98,32 @@ export function generateStepHtml(content: JSONContent | null): string {
  * Prepares a step for rendering by adding pre-computed contentHtml.
  * Use this when passing steps to renderProductTourPreview or the SDK.
  */
-export function prepareStepForRender<T extends { content?: Record<string, any> | null }>(
-    step: T
-): T & { contentHtml?: string } {
+export function prepareStepForRender(step: ProductTourStep): ProductTourStep {
     return {
         ...step,
         contentHtml: step.content ? generateStepHtml(step.content) : undefined,
+        ...(step.translations
+            ? {
+                  translations: generateTranslationsHtml(step.translations),
+              }
+            : {}),
     }
 }
 
 /**
  * Prepares multiple steps for rendering by adding pre-computed contentHtml to each.
  */
-export function prepareStepsForRender<T extends { content?: Record<string, any> | null }>(
-    steps: T[]
-): (T & { contentHtml?: string })[] {
+export function prepareStepsForRender(steps: ProductTourStep[]): ProductTourStep[] {
     return steps.map(prepareStepForRender)
+}
+
+export function generateTranslationsHtml(
+    translations: Record<string, ProductTourStepTranslation>
+): Record<string, ProductTourStepTranslation> {
+    return Object.fromEntries(
+        Object.entries(translations).map(([lang, t]) => [
+            lang,
+            { ...t, contentHtml: t.content ? generateStepHtml(t.content) : undefined },
+        ])
+    )
 }

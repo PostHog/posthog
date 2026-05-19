@@ -893,3 +893,39 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["status"] == "ok"
         assert response.data["distinct_id"] == "user_123"
+
+    def test_response_serializer_list_serializer_class(self):
+        """Response serializer can be a ListSerializer subclass with child defined"""
+
+        class ItemSerializer(serializers.Serializer):
+            id = serializers.IntegerField()
+            name = serializers.CharField()
+
+        class ItemListSerializer(serializers.ListSerializer):
+            child = ItemSerializer()
+
+        @validated_request(
+            responses={
+                200: OpenApiResponse(response=ItemListSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                [
+                    {"id": 1, "name": "first"},
+                    {"id": 2, "name": "second"},
+                ],
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+        assert response.data[0]["name"] == "first"

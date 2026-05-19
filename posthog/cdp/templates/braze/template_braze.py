@@ -11,10 +11,10 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Customer Success"],
     code_language="hog",
     code="""
-let getPayload := () -> [{
-  'attributes': inputs.attributes,
+let getPayload := () -> {
+  'attributes': [inputs.attributes],
   'events': [inputs.event]
-}]
+}
 
 let res := fetch(f'{inputs.brazeEndpoint}/users/track', {
   'method': 'POST',

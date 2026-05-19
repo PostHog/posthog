@@ -1,5 +1,4 @@
 import logging
-import datetime as dt
 
 import pytest
 
@@ -13,7 +12,7 @@ from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
 from posthog.api.test.batch_exports.operations import start_test_worker
-from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
 from posthog.temporal.common.client import sync_connect
 
 
@@ -51,16 +50,16 @@ async def describe_workflow(temporal: TemporalClient, workflow_id: str):
     return temporal_workflow
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def temporal():
     """Return a TemporalClient instance."""
     client = sync_connect()
     yield client
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="package")
 def temporal_worker(temporal):
-    """Use a module scoped fixture to start a Temporal Worker.
+    """Use a package scoped fixture to start a Temporal Worker.
 
     This saves a lot of time, as waiting for the worker to stop takes a while.
     """
@@ -68,7 +67,7 @@ def temporal_worker(temporal):
         yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cleanup(temporal):
     yield
     cleanup_temporal_schedules(temporal)
@@ -96,7 +95,7 @@ def assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int):
     # ensure it's running every day of the week
     assert calendars[0].day_of_week == (ScheduleRange(start=0, end=6),)
     assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
-    assert schedule.schedule.spec.jitter == dt.timedelta(minutes=30)
+    assert schedule.schedule.spec.jitter == BATCH_EXPORT_INTERVAL_TO_START_JITTER["day"]
 
 
 def assert_is_weekly_schedule(schedule: ScheduleDescription, expected_day: int, expected_hour: int):
@@ -105,4 +104,4 @@ def assert_is_weekly_schedule(schedule: ScheduleDescription, expected_day: int, 
     assert len(calendars) == 1
     assert calendars[0].day_of_week == (ScheduleRange(start=expected_day, end=expected_day),)
     assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
-    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
+    assert schedule.schedule.spec.jitter == BATCH_EXPORT_INTERVAL_TO_START_JITTER["week"]

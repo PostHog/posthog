@@ -72,21 +72,28 @@
     }
 
     .LemonTabs__tab {
+        color: var(--color-text-tertiary);
+
         .LemonTabs--transitioning & {
             transition: color 150ms ease;
         }
 
         &:hover {
-            color: var(--color-accent);
+            color: var(--color-text-primary);
         }
 
         &:active {
-            color: var(--color-accent);
+            color: var(--color-text-primary);
         }
 
         &.LemonTabs__tab--active {
             color: var(--color-accent);
             text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
+
+            .LemonTag {
+                color: var(--color-accent);
+                border-color: var(--color-accent);
+            }
         }
 
         a {
@@ -95,6 +102,15 @@
             // Make tab labels that are links the same colors as regular tab labels
             text-decoration: none;
             transition: none;
+        }
+
+        &[aria-selected='true'] {
+            color: var(--color-accent);
+
+            div,
+            a {
+                color: var(--color-accent);
+            }
         }
 
         .LemonTabs__tab-content {

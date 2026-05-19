@@ -201,6 +201,7 @@ const surveyActionsMapping: Record<
             textSubtleColor: 'text subtle color',
             inputBackground: 'input background',
             inputTextColor: 'input text color',
+            hideCancelButton: 'hide cancel button',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {

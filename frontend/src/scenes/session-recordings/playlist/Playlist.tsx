@@ -4,34 +4,31 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useRef, useState } from 'react'
 
-import { IconMagicWand, IconSidebarClose } from '@posthog/icons'
+import { IconSidebarClose } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonSkeleton,
-    LemonTag,
     Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { range } from 'lib/utils'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -73,9 +70,6 @@ export function Playlist({
     description,
     selectInitialItem,
 }: PlaylistProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
-
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
@@ -97,12 +91,13 @@ export function Playlist({
         activeSessionRecordingId,
         totalFiltersCount,
         sessionRecordingsResponseLoading,
-        pinnedRecordings,
+        visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
         useActions(sessionRecordingsPlaylistLogic)
+    const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
 
     const onScrollListEdge = (edge: 'bottom' | 'top'): void => {
         if (edge === 'top') {
@@ -169,6 +164,29 @@ export function Playlist({
                             'No more results'
                         )}
                     </div>
+                    {!sessionRecordingsResponseLoading && !hasNext && (
+                        <div className="flex flex-col items-center gap-1 pt-2 pb-2">
+                            <span className="text-xs text-secondary">Looking for older recordings?</span>
+                            <div className="flex gap-2">
+                                {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() =>
+                                            setFilters({
+                                                date_from: filters.date_from === '-3d' ? '-7d' : '-30d',
+                                            })
+                                        }
+                                    >
+                                        Search last {filters.date_from === '-3d' ? '7' : '30'} days
+                                    </LemonButton>
+                                )}
+                                <LemonButton type="secondary" size="small" onClick={() => setIsFiltersExpanded(true)}>
+                                    Show filters
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
                 </div>
             ),
         })
@@ -210,14 +228,16 @@ export function Playlist({
     // Show collapsed view
     if (isPlaylistCollapsed) {
         return (
-            <div className="flex items-center justify-center h-full w-full px-0">
+            <div
+                className="flex items-start justify-center h-full w-full pt-2 pr-1 cursor-pointer"
+                onClick={() => setPlaylistCollapsed(false)}
+                data-attr="expand-playlist"
+            >
                 <LemonButton
                     icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
-                    onClick={() => setPlaylistCollapsed(false)}
                     tooltip="Expand playlist"
                     size="xsmall"
                     noPadding
-                    data-attr="expand-playlist"
                 />
             </div>
         )
@@ -225,15 +245,18 @@ export function Playlist({
 
     return (
         <div className="flex flex-col min-w-60 h-full">
-            {!notebookNode && (
-                <DraggableToNotebook className="mb-2" href={urls.replay(ReplayTabs.Home, filters)}>
-                    <RecordingsUniversalFiltersEmbedButton
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        currentSessionRecordingId={activeSessionRecordingId}
-                    />
-                </DraggableToNotebook>
+            {!notebookNode && type !== 'collection' && (
+                <div className="mb-2 flex gap-2">
+                    <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
+                        <RecordingsUniversalFiltersEmbedButton
+                            filters={filters}
+                            setFilters={setFilters}
+                            totalFiltersCount={totalFiltersCount}
+                            currentSessionRecordingId={activeSessionRecordingId}
+                            onReload={() => maybeLoadSessionRecordings()}
+                        />
+                    </DraggableToNotebook>
+                </div>
             )}
             <div
                 ref={playlistRef}
@@ -271,7 +294,7 @@ export function Playlist({
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
-                                            shortId={logicKey}
+                                            shortId={type === 'collection' ? logicKey : undefined}
                                         />
                                     </div>
                                 </div>
@@ -285,7 +308,7 @@ export function Playlist({
                                     panels={sections.map((s) => {
                                         return {
                                             key: s.key,
-                                            header: s.title ?? '',
+                                            header: String(s.title),
                                             content: (
                                                 <SectionContent
                                                     section={s}
@@ -318,24 +341,6 @@ export function Playlist({
                             )}
                         </div>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION_BUTTON] && (
-                        <LemonButton
-                            icon={<IconMagicWand />}
-                            type="primary"
-                            onClick={() => {
-                                askSidePanelMax('Summarize recordings based on the current filters')
-                            }}
-                            fullWidth
-                            size="small"
-                            className="mt-2"
-                            disabledReason={!firstItem ? 'No recordings in the list' : undefined}
-                        >
-                            Summarize these recordings
-                            <LemonTag type="warning" size="small" className="ml-auto uppercase">
-                                Beta
-                            </LemonTag>
-                        </LemonButton>
-                    )}
                 </div>
             </div>
         </div>

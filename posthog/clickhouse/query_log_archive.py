@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_query__kind LowCardinality(String),
     lc_query__query String,
+    lc_query String,
 
     lc_temporal__workflow_namespace String,
     lc_temporal__workflow_type String,
@@ -235,7 +236,9 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_dagster__job_name String,
     lc_dagster__run_id String,
-    lc_dagster__owner String
+    lc_dagster__owner String,
+
+    lc_modifiers String
 ) ENGINE = {engine}{table_clauses}
     """.format(
         table_name=table_name,
@@ -351,6 +354,7 @@ SELECT
     multiIf(not is_initial_query, '',
         JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
+    if(is_initial_query, JSONExtractRaw(log_comment, 'query'), '') as lc_query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
@@ -362,7 +366,9 @@ SELECT
 
     JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
     JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
+    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner,
+
+    if(is_initial_query, JSONExtractRaw(log_comment, 'modifiers'), '') as lc_modifiers
 FROM system.query_log
 WHERE
     type != 'QueryStart'
@@ -462,3 +468,22 @@ def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
         ADD COLUMN IF NOT EXISTS is_initial_query UInt8 AFTER initial_query_id,
         ADD COLUMN IF NOT EXISTS ProfileEvents Map(String, UInt64) AFTER ProfileEvents_WriteBufferFromS3Bytes
     """
+
+
+# V9 - adding lc_query for storing full query JSON from log_comment
+def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_query String AFTER lc_query__query
+    """
+
+
+# V10 - adding lc_modifiers to store HogQL query modifiers
+def QUERY_LOG_ARCHIVE_ADD_MODIFIERS_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS lc_modifiers String AFTER lc_dagster__owner
+    """
+
+
+def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
+    return f"""ALTER TABLE {mv_name} MODIFY QUERY {MV_SELECT_SQL}"""

@@ -15,9 +15,9 @@
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
 export const EvaluationRuntimeEnumApi = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -26,10 +26,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `distinct_id` - User ID (default)
  * `device_id` - Device ID
@@ -37,8 +33,8 @@ export const NullEnumApi = {} as const
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
 export const BucketingIdentifierEnumApi = {
-    distinct_id: 'distinct_id',
-    device_id: 'device_id',
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
 } as const
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
@@ -54,8 +50,6 @@ export interface MinimalFeatureFlagApi {
     active?: boolean
     /** @nullable */
     ensure_experience_continuity?: boolean | null
-    /** @nullable */
-    has_encrypted_payloads?: boolean | null
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -64,16 +58,16 @@ export interface MinimalFeatureFlagApi {
     version?: number | null
     /** Specifies where this feature flag should be evaluated
 
-* `server` - Server
-* `client` - Client
-* `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+  * `server` - Server
+  * `client` - Client
+  * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_tags: readonly string[]
+  * `distinct_id` - User ID (default)
+  * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
+    readonly evaluation_contexts: readonly string[]
 }
 
 /**
@@ -89,20 +83,20 @@ export interface MinimalFeatureFlagApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -122,14 +116,14 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
  * Return the targeting flag filters, excluding the base exclusion properties.
  * @nullable
  */
-export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null | null
+export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null
 
 /**
  * Read-only serializer for ProductTour.
@@ -147,6 +141,8 @@ export interface ProductTourApi {
      */
     readonly targeting_flag_filters: ProductTourApiTargetingFlagFilters
     content?: unknown
+    readonly draft_content: unknown
+    readonly has_draft: boolean
     auto_launch?: boolean
     /** @nullable */
     start_date?: string | null
@@ -175,8 +171,8 @@ export type ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi =
     (typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi)[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi]
 
 export const ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi = {
-    app: 'app',
-    toolbar: 'toolbar',
+    App: 'app',
+    Toolbar: 'toolbar',
 } as const
 
 /**
@@ -191,7 +187,7 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     readonly linked_flag: MinimalFeatureFlagApi
     /** @nullable */
     linked_flag_id?: number | null
-    targeting_flag_filters?: unknown | null
+    targeting_flag_filters?: unknown
     content?: unknown
     auto_launch?: boolean
     /** @nullable */
@@ -204,8 +200,8 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     archived?: boolean
     /** Where the tour was created/updated from
 
-* `app` - app
-* `toolbar` - toolbar */
+  * `app` - app
+  * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 
@@ -221,7 +217,7 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     readonly linked_flag?: MinimalFeatureFlagApi
     /** @nullable */
     linked_flag_id?: number | null
-    targeting_flag_filters?: unknown | null
+    targeting_flag_filters?: unknown
     content?: unknown
     auto_launch?: boolean
     /** @nullable */
@@ -234,9 +230,32 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     archived?: boolean
     /** Where the tour was created/updated from
 
-* `app` - app
-* `toolbar` - toolbar */
+  * `app` - app
+  * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
+}
+
+export interface DraftStatusResponseApi {
+    updated_at: string
+    has_draft: boolean
+}
+
+export type GenerateRequestApiStepsItem = { [key: string]: unknown }
+
+export interface GenerateRequestApi {
+    title?: string
+    goal?: string
+    steps?: GenerateRequestApiStepsItem[]
+}
+
+export interface GenerateStepResponseApi {
+    step_id: string
+    title: string
+    description: string
+}
+
+export interface GenerateResponseApi {
+    steps: GenerateStepResponseApi[]
 }
 
 export type ProductToursListParams = {
@@ -249,7 +268,7 @@ export type ProductToursListParams = {
      */
     offset?: number
     /**
-     * A search term.
+     * Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string
 }

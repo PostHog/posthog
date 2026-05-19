@@ -1,7 +1,10 @@
 import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, useEdges } from '@xyflow/react'
+import { useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEdge } from '../types'
 import { MINIMUM_EDGE_SPACING } from './constants'
 
@@ -214,8 +217,12 @@ function getPointAtYValue(pathString: string, distance: number, targetY?: number
     }
 }
 
+const ANIMATION_DURATION_S = 1.5
+
 export function SmartEdge({
     id,
+    source,
+    target,
     sourceX,
     sourceY,
     targetX,
@@ -228,6 +235,10 @@ export function SmartEdge({
     ...props
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
+    const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
+
+    const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
+    const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path
     const [edgePath] = getSmartStepPath({
@@ -239,18 +250,45 @@ export function SmartEdge({
         currentEdgeId: id,
     })
 
+    useEffect(() => {
+        let animation: Animation | null = null
+        if (isAnimating && animPathRef.current) {
+            animation = animPathRef.current.animate(
+                [
+                    { strokeDashoffset: '1', opacity: 0.8 },
+                    { strokeDashoffset: '0', opacity: 0.8, offset: 0.7 },
+                    { strokeDashoffset: '0', opacity: 0 },
+                ],
+                { duration: ANIMATION_DURATION_S * 1000, easing: 'ease-out', fill: 'forwards' }
+            )
+        }
+        return () => animation?.cancel()
+    }, [isAnimating, edgePath])
+
     const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
 
     return (
         <>
             <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+            {isAnimating && (
+                <path
+                    ref={animPathRef}
+                    d={edgePath}
+                    pathLength={1}
+                    stroke="var(--success)"
+                    strokeWidth={1.5}
+                    fill="none"
+                    strokeDasharray={1}
+                    strokeDashoffset={1}
+                />
+            )}
             <EdgeLabelRenderer>
-                {data?.label && (
+                {data?.label ? (
                     <EdgeLabel
                         transform={`translate(-50%, -50%) translate(${labelPoint.x}px,${labelPoint.y}px)`}
                         label={(data?.label as string) || ''}
                     />
-                )}
+                ) : null}
             </EdgeLabelRenderer>
         </>
     )

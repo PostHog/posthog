@@ -13,6 +13,7 @@ import type { emailSetupModalLogicType } from './emailSetupModalLogicType'
 export interface EmailSetupModalLogicProps {
     integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
+    onClose: () => void
 }
 
 export interface ApiDnsRecord {
@@ -21,6 +22,7 @@ export interface ApiDnsRecord {
     recordValue: string
     recordType: string
     recordHostname: string
+    priority?: number
 }
 
 export interface DnsRecord extends ApiDnsRecord {

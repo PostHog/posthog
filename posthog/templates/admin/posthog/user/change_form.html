@@ -9,6 +9,10 @@
         opacity: 0.5;
         cursor: not-allowed;
     }
+    #loginas-confirm:hover {
+        background: var(--secondary, #205067);
+        color: #fff;
+    }
   </style>
 
   <script nonce="{{ request.csp_nonce }}">
@@ -25,6 +29,13 @@
             event.preventDefault();
             if (window.confirm("Revoke all sessions? This will log out the user from all devices."))
                 document.getElementById("revoke_sessions").submit();
+        });
+
+        document.getElementById("send_2fa_reset_email_button")?.addEventListener("click", (event) => {
+            // prevent anchor tag from navigating
+            event.preventDefault();
+            if (window.confirm("Send 2FA reset email? This will allow the user to disable their 2FA settings."))
+                document.getElementById("send_2fa_reset").submit();
         });
 
         // Add read-only toggle to loginas modal
@@ -75,6 +86,12 @@
         {% csrf_token %}
         <input type="hidden" name="revoke_sessions" value="1" />
     </form>
+
+    <form method="POST" id="send_2fa_reset">
+        {% csrf_token %}
+        <input type="hidden" name="send_2fa_reset" value="1" />
+    </form>
+
 {% endblock %}
 
 {% block footer %}

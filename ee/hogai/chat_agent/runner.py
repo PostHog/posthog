@@ -2,9 +2,14 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
+import posthoganalytics
+from opentelemetry import trace
+
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
+from posthog import event_usage
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
@@ -12,6 +17,8 @@ from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
 from ee.hogai.core.runner import BaseAgentRunner
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.models import Conversation
+
+_tracer = trace.get_tracer(__name__)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -69,6 +76,7 @@ class ChatAgentRunner(BaseAgentRunner):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         use_checkpointer: bool = True,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
@@ -88,6 +96,7 @@ class ChatAgentRunner(BaseAgentRunner):
             billing_context=billing_context,
             use_checkpointer=use_checkpointer,
             is_agent_billable=is_agent_billable,
+            is_impersonated=is_impersonated,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
@@ -111,7 +120,11 @@ class ChatAgentRunner(BaseAgentRunner):
             )
             # Only set the agent mode if it was explicitly set.
             if self._selected_agent_mode:
-                new_state.agent_mode = self._selected_agent_mode
+                if self._selected_agent_mode == AgentMode.PLAN:
+                    new_state.supermode = AgentMode.PLAN
+                    new_state.agent_mode = AgentMode.SQL
+                else:
+                    new_state.agent_mode = self._selected_agent_mode
             return new_state
 
         # When resuming, do not set the mode. It should start from the same mode as the previous generation.
@@ -137,6 +150,22 @@ class ChatAgentRunner(BaseAgentRunner):
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
+        if self._selected_agent_mode and self._user:
+            with _tracer.start_as_current_span("posthoganalytics.capture"):
+                await database_sync_to_async(posthoganalytics.capture)(
+                    distinct_id=self._user.distinct_id,
+                    event="ai mode executed",
+                    properties={
+                        "mode": self._selected_agent_mode,
+                        "previous_mode": None,
+                        "is_initial_mode": True,
+                        "conversation_id": str(self._conversation.id),
+                        "$session_id": self._session_id,
+                    },
+                    groups=event_usage.groups(team=self._team),
+                    send_feature_flags=True,
+                )
+
         last_ai_message: AssistantMessage | None = None
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages
@@ -159,5 +188,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 "is_new_conversation": self._is_new_conversation,
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
+                "agent_mode": self._selected_agent_mode,
             },
         )

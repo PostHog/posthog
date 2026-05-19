@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import {
+    IconArrowRight,
     IconChevronDown,
     IconChevronRight,
     IconComment,
@@ -10,7 +11,9 @@ import {
     IconGraph,
     IconHandwave,
     IconMegaphone,
+    IconNotebook,
     IconPeople,
+    IconPhone,
     IconPulse,
     IconSparkles,
     IconTarget,
@@ -18,9 +21,15 @@ import {
     IconTrending,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
-import { SurveyTemplate, SurveyTemplateType } from '../../constants'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+
+import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateMode, SurveyTemplateType } from '../../constants'
+import { surveysLogic } from '../../surveysLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
 
 const TEMPLATE_ICONS: Partial<Record<SurveyTemplateType, React.ComponentType<{ className?: string }>>> = {
@@ -37,6 +46,8 @@ const TEMPLATE_ICONS: Partial<Record<SurveyTemplateType, React.ComponentType<{ c
     [SurveyTemplateType.OnboardingFeedback]: IconHandwave,
     [SurveyTemplateType.BetaFeedback]: IconFlask,
     [SurveyTemplateType.Announcement]: IconMegaphone,
+    [SurveyTemplateType.UserResearchIntake]: IconPhone,
+    [SurveyTemplateType.ProductResearch]: IconNotebook,
 }
 
 interface TemplateCardProps {
@@ -82,17 +93,64 @@ function TemplateCard({ template, onClick, featured }: TemplateCardProps): JSX.E
     )
 }
 
-export function TemplateStep(): JSX.Element {
-    const { coreTemplates, otherTemplates } = useValues(surveyWizardLogic)
-    const { selectTemplate } = useActions(surveyWizardLogic)
+export function TemplateStep({ handleCustomizeMore }: { handleCustomizeMore: () => void }): JSX.Element {
+    const { coreTemplates, otherTemplates, templateMode } = useValues(surveyWizardLogic)
+    const { selectTemplate, setTemplateMode } = useActions(surveyWizardLogic)
+    const { reportSurveyAiPromptSubmitted } = useActions(eventUsageLogic)
+    const { handleMaxSurveyCreated } = useActions(surveysLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
     const [showOthers, setShowOthers] = useState(false)
+    const [prompt, setPrompt] = useState('')
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const { openMax } = useMaxTool({
+        identifier: 'create_survey',
+        initialMaxPrompt: `!${prompt.trim()}`,
+        callback: (toolOutput) => handleMaxSurveyCreated(toolOutput, SURVEY_CREATED_SOURCE.SURVEY_WIZARD),
+    })
+
+    const handleAiSubmit = (): void => {
+        if (prompt.trim()) {
+            reportSurveyAiPromptSubmitted(SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
+            openMax?.()
+            setPrompt('')
+        }
+    }
+
+    const isHostedMode = templateMode === 'hosted'
+    const modeDescription = isHostedMode
+        ? "Pick a template — you'll get a shareable link, no SDK needed."
+        : 'Start with a proven template, then customize it to your needs.'
 
     return (
         <div className="space-y-6">
             <div className="text-center space-y-2">
                 <h1 className="text-2xl font-semibold">Choose a survey template</h1>
-                <p className="text-secondary">Start with a proven template, then customize it to your needs</p>
+                <p className="text-secondary">{modeDescription}</p>
             </div>
+
+            {hostedEditorEnabled && (
+                <div className="flex justify-center">
+                    <LemonSegmentedButton
+                        value={templateMode}
+                        onChange={(value) => setTemplateMode(value as SurveyTemplateMode)}
+                        options={[
+                            { value: 'in_app', label: 'In-app survey' },
+                            {
+                                value: 'hosted',
+                                label: (
+                                    <span className="flex items-center gap-1.5">
+                                        Hosted link
+                                        <LemonTag type="warning" size="small">
+                                            Beta
+                                        </LemonTag>
+                                    </span>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
 
             {/* Core templates - 2x2 grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -108,7 +166,7 @@ export function TemplateStep(): JSX.Element {
 
             {/* Other templates - collapsible */}
             {otherTemplates.length > 0 && (
-                <div className="border-t border-border pt-6 space-y-4">
+                <div className="space-y-4">
                     <LemonButton
                         type="tertiary"
                         onClick={() => setShowOthers(!showOthers)}
@@ -130,6 +188,59 @@ export function TemplateStep(): JSX.Element {
                     )}
                 </div>
             )}
+
+            <div className="flex items-center gap-4">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-tertiary uppercase tracking-wide">
+                    or tell PostHog AI what you want to learn
+                </span>
+                <div className="flex-1 border-t border-border" />
+            </div>
+
+            <div className="rounded-xl border-2 border-[var(--color-ai)]">
+                <label
+                    htmlFor="wizard-ai-prompt"
+                    className="flex flex-col cursor-text"
+                    onClick={() => textAreaRef.current?.focus()}
+                >
+                    <LemonTextArea
+                        id="wizard-ai-prompt"
+                        ref={textAreaRef}
+                        value={prompt}
+                        onChange={setPrompt}
+                        onPressEnter={handleAiSubmit}
+                        placeholder="e.g., Create an NPS survey for users who completed onboarding"
+                        minRows={2}
+                        maxRows={5}
+                        className="!border-none !bg-transparent !shadow-none !rounded-none px-4 pt-4 pb-2 resize-none text-sm"
+                        hideFocus
+                        data-attr="wizard-ai-prompt-input"
+                    />
+                    <div className="flex items-center justify-between px-4 pb-3">
+                        <div className="flex items-center gap-1.5 text-xs text-tertiary">
+                            <IconSparkles className="text-ai size-3.5" />
+                            <span>PostHog AI</span>
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconArrowRight />}
+                            onClick={handleAiSubmit}
+                            disabledReason={!prompt.trim() ? 'Describe the survey you want' : undefined}
+                            data-attr="wizard-ai-prompt-submit"
+                        >
+                            Create with AI
+                        </LemonButton>
+                    </div>
+                </label>
+            </div>
+
+            <p className="text-center text-xs text-muted">
+                Need more control?{' '}
+                <button type="button" onClick={handleCustomizeMore} className="text-link hover:underline">
+                    Open full editor
+                </button>
+            </p>
         </div>
     )
 }

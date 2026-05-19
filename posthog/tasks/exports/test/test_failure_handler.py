@@ -26,6 +26,9 @@ class TestIsUserQueryErrorType(TestCase):
             ("CHQueryErrorUnknownFunction", True),
             ("ClickHouseQueryTimeOut", True),
             ("ClickHouseQueryMemoryLimitExceeded", True),
+            ("CHQueryErrorInvalidJoinOnExpression", True),
+            ("CHQueryErrorUnknownTable", True),
+            ("ExcelColumnLimitExceeded", True),
             # Non-user errors - should return False
             ("TimeoutError", False),
             ("ValueError", False),
@@ -33,6 +36,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("CHQueryErrorTooManySimultaneousQueries", False),
             ("ClickHouseAtCapacity", False),
             ("ConcurrencyLimitExceeded", False),
+            ("ReadTimeoutError", False),
             (None, False),
             ("", False),
         ]
@@ -53,11 +57,15 @@ class TestClassifyFailureType(TestCase):
             ("CHQueryErrorIllegalAggregation", FAILURE_TYPE_USER),
             ("ClickHouseQueryTimeOut", FAILURE_TYPE_USER),
             ("ClickHouseQueryMemoryLimitExceeded", FAILURE_TYPE_USER),
+            ("CHQueryErrorInvalidJoinOnExpression", FAILURE_TYPE_USER),
+            ("CHQueryErrorUnknownTable", FAILURE_TYPE_USER),
+            ("ExcelColumnLimitExceeded", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
             ("CHQueryErrorTooManySimultaneousQueries", FAILURE_TYPE_SYSTEM),
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
+            ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
             # Unknown errors
             ("ValueError", FAILURE_TYPE_UNKNOWN),
             ("RuntimeError", FAILURE_TYPE_UNKNOWN),

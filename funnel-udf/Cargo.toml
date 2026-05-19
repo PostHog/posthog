@@ -9,9 +9,15 @@ serde_json = "1.0.145"
 itertools = "0.14.0"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 ordered-float = "5.1.0"
+clickhouse-types = "0.1"
 
 [dev-dependencies]
 rstest = "0.26.1"
 
 [profile.release]
-lto = true
+# Aggressive: the UDF runs in a long-lived pool, but build size and startup
+# still matter for the respawn path.
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
