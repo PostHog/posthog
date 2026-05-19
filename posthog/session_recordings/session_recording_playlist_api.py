@@ -7,6 +7,7 @@ from typing import Any, Optional, cast
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
+from django.db.models.functions import Lower
 from django.utils.timezone import now
 
 import structlog
@@ -587,12 +588,17 @@ class SessionRecordingPlaylistViewSet(
         return super().safely_get_object(queryset)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Override list to include synthetic playlists."""
+        """Override list to include synthetic playlists.
+
+        Synthetic playlists have no DB row; each one's position in the merged
+        sorted list is computed up front and used to split the requested page
+        between synthetic items and a DB queryset slice. This keeps pagination
+        consistent for any supported order, including name-based sorts where
+        synthetics may be interleaved with DB rows.
+        """
         queryset = self.safely_get_queryset(self.get_queryset())
         db_count = queryset.count()
 
-        # Build and order the filtered synthetic playlists once so we can
-        # deterministically slice them across pages.
         all_synthetic_playlists = get_all_synthetic_playlists(self.team)
         synthetic_instances = [
             create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
@@ -607,27 +613,18 @@ class SessionRecordingPlaylistViewSet(
         limit = min(int(request.GET.get("limit", 100)), PLAYLIST_LIST_MAX_LIMIT)
         offset = max(0, int(request.GET.get("offset", 0)))
 
-        # Synthetic playlists have last_modified_at=None and are sorted via
-        # datetime.max in _order_playlists. For descending order they sit at
-        # the start of the global list; for ascending they sit at the end.
-        order = request.GET.get("order") or "-last_modified_at"
-        synthetics_first = order.startswith("-")
+        # Each synthetic's position in the global sorted list of (DB + synthetics).
+        synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
 
-        if synthetics_first:
-            synth_start = min(offset, synth_count)
-            synth_end = min(offset + limit, synth_count)
-            synth_for_page = sorted_synthetics[synth_start:synth_end]
-            db_offset = max(0, offset - synth_count)
-            db_take = limit - len(synth_for_page)
-        else:
-            db_take = max(0, min(limit, db_count - offset))
-            db_offset = offset
-            synth_start = max(0, offset - db_count)
-            synth_for_page = sorted_synthetics[synth_start : synth_start + (limit - db_take)]
+        page_end = offset + limit
+        synth_for_page = [s for r, s in zip(synth_ranks, sorted_synthetics) if offset <= r < page_end]
+        synths_before_page = sum(1 for r in synth_ranks if r < offset)
 
+        db_offset = max(0, offset - synths_before_page)
+        db_take = max(0, limit - len(synth_for_page))
         db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
-        combined = synth_for_page + db_items if synthetics_first else db_items + synth_for_page
-        combined = self._order_playlists(request, combined)
+
+        combined = self._order_playlists(request, synth_for_page + db_items)
 
         # Batch-fetch recording counts for the page to avoid the per-playlist
         # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
@@ -650,7 +647,8 @@ class SessionRecordingPlaylistViewSet(
         # Use the paginator only for next/previous link construction; we feed
         # it the total (DB + synthetic) count so the links span the merged list.
         paginator = self.paginator
-        assert paginator is not None
+        if paginator is None:
+            raise RuntimeError("paginator must not be None")
         paginator.count = total_count
         paginator.limit = limit
         paginator.offset = offset
@@ -664,6 +662,49 @@ class SessionRecordingPlaylistViewSet(
                 "results": serializer.data,
             }
         )
+
+    def _synthetic_global_ranks(
+        self,
+        request: request.Request,
+        queryset: QuerySet,
+        db_count: int,
+        sorted_synthetics: builtins.list[SessionRecordingPlaylist],
+    ) -> builtins.list[int]:
+        """Return the 0-based position of each synthetic in the global merged sort.
+
+        For timestamp orderings, synthetics map to datetime.max in _order_playlists
+        and so sit at one extreme. For name orderings, each synthetic's rank
+        depends on how many DB rows fall before it under a case-insensitive
+        comparison (matching _order_playlists' in-memory sort key).
+        """
+        if not sorted_synthetics:
+            return []
+
+        order = request.GET.get("order") or "-last_modified_at"
+        is_descending = order.startswith("-")
+        sort_field = order.lstrip("-")
+
+        if sort_field in ("last_modified_at", "created_at"):
+            if is_descending:
+                return list(range(len(sorted_synthetics)))
+            return [db_count + i for i in range(len(sorted_synthetics))]
+
+        if sort_field == "name":
+            annotated = queryset.annotate(_name_lower=Lower("name"))
+            ranks: builtins.list[int] = []
+            for synth_idx, synth in enumerate(sorted_synthetics):
+                synth_name = (synth.name or synth.derived_name or "").lower()
+                if is_descending:
+                    db_before = annotated.filter(_name_lower__gt=synth_name).count()
+                else:
+                    db_before = annotated.filter(_name_lower__lt=synth_name).count()
+                ranks.append(db_before + synth_idx)
+            return ranks
+
+        # Unrecognised order — fall back to the timestamp heuristic.
+        if is_descending:
+            return list(range(len(sorted_synthetics)))
+        return [db_count + i for i in range(len(sorted_synthetics))]
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):

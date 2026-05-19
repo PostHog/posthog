@@ -1052,6 +1052,28 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert result["added_count"] == 2  # Only new ones counted
         assert result["total_requested"] == 3
 
+    def test_pagination_with_name_sort_places_synthetics_by_name(self) -> None:
+        # Synthetics have specific names (e.g. "All sessions"); under name-ascending
+        # they must appear at their natural alphabetical position, not unconditionally
+        # at the start or end of the merged list.
+        SessionRecordingPlaylist.objects.create(
+            team=self.team, name="aaa-first", created_by=self.user, type="collection"
+        )
+        SessionRecordingPlaylist.objects.create(
+            team=self.team, name="zzz-last", created_by=self.user, type="collection"
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?order=name&limit=3&offset=0"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        names = [r["name"] for r in response.json()["results"]]
+        # "aaa-first" sorts ahead of every synthetic, so page 1 must include it.
+        assert "aaa-first" in names
+        # "zzz-last" sorts after every synthetic; it must not appear on page 1
+        # under name-ascending pagination.
+        assert "zzz-last" not in names
+
     def test_pagination_returns_displaced_db_playlists_on_later_pages(self) -> None:
         # Regression test: synthetic playlists occupy slots on page 1, pushing some DB
         # playlists across page boundaries. Subsequent pages must keep returning the
