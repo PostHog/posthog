@@ -447,11 +447,49 @@ pub(crate) struct Checkpoint {
 // Lexeme helpers (number / string / identifier text decoding)
 // ============================================================================
 
+/// Emit a finite float as a numeric Constant, or `±Infinity` / `NaN`
+/// when the value isn't finite — mirrors cpp's `stod` result (and its
+/// `out_of_range` → `±Infinity` fallthrough).
+fn emit_float_constant(f: f64) -> Value {
+    if !f.is_finite() {
+        return emit::constant_special_number(if f.is_nan() {
+            "NaN"
+        } else if f > 0.0 {
+            "Infinity"
+        } else {
+            "-Infinity"
+        });
+    }
+    emit::constant(
+        serde_json::Number::from_f64(f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+    )
+}
+
 pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, ParseError> {
-    // Hex — always an integer.
+    // Hex — an integer when it fits i64. cpp's `VISIT(NumberLiteral)`
+    // parses it with `stoll(text, 16)`; on `out_of_range` it falls
+    // back to `stod` and emits a float. We parse the (possibly signed)
+    // hex with `from_str_radix`, and on overflow accumulate the hex
+    // digits into an f64 by hand — Rust's f64 parser doesn't read a
+    // `0x` prefix.
     if let Some(rest) = src.strip_prefix("0x").or_else(|| src.strip_prefix("0X")) {
-        let n = i64::from_str_radix(rest, 16).unwrap_or(0);
-        return Ok(emit::constant(Value::from(if negative { -n } else { n })));
+        let signed = if negative {
+            format!("-{rest}")
+        } else {
+            rest.to_string()
+        };
+        match i64::from_str_radix(&signed, 16) {
+            Ok(n) => return Ok(emit::constant(Value::from(n))),
+            Err(_) => {
+                let mut f = 0.0_f64;
+                for c in rest.chars() {
+                    f = f * 16.0 + f64::from(c.to_digit(16).unwrap_or(0));
+                }
+                return Ok(emit_float_constant(if negative { -f } else { f }));
+            }
+        }
     }
     // `0o`-prefixed octal — cpp 1.3.45's `VISIT(NumberLiteral)`
     // unconditionally rejects it (matches ClickHouse and pre-pg16
@@ -517,24 +555,20 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
     let is_float = src.contains('.') || src.contains('e') || src.contains('E');
     if is_float {
         let f: f64 = src.parse().unwrap_or(0.0);
-        let f = if negative { -f } else { f };
-        if !f.is_finite() {
-            return Ok(emit::constant_special_number(if f.is_nan() {
-                "NaN"
-            } else if f > 0.0 {
-                "Infinity"
-            } else {
-                "-Infinity"
-            }));
-        }
-        Ok(emit::constant(
-            serde_json::Number::from_f64(f)
-                .map(Value::Number)
-                .unwrap_or(Value::Null),
-        ))
+        return Ok(emit_float_constant(if negative { -f } else { f }));
+    }
+    // Integer. cpp parses with `stoll(text, 10)`; the `text` carries
+    // the sign, so `-9223372036854775808` (i64::MIN) parses exactly.
+    // On `out_of_range` cpp falls back to `stod` (a float). Parse the
+    // signed text as i64, falling back to f64 on overflow.
+    let signed = if negative {
+        format!("-{src}")
     } else {
-        let i: i64 = src.parse().unwrap_or(0);
-        Ok(emit::constant(Value::from(if negative { -i } else { i })))
+        src.to_string()
+    };
+    match signed.parse::<i64>() {
+        Ok(i) => Ok(emit::constant(Value::from(i))),
+        Err(_) => Ok(emit_float_constant(signed.parse::<f64>().unwrap_or(0.0))),
     }
 }
 
@@ -555,7 +589,11 @@ fn decode_quoted_body(inner: &str, quote: char) -> String {
                 Some('n') => out.push('\n'),
                 Some('t') => out.push('\t'),
                 Some('r') => out.push('\r'),
-                Some('0') => out.push('\0'),
+                // cpp's `string.cpp` ignores `\0` (NUL is dropped, not
+                // emitted) and decodes `\a` → BEL, `\v` → VT.
+                Some('0') => {}
+                Some('a') => out.push('\u{07}'),
+                Some('v') => out.push('\u{0B}'),
                 Some('\'') => out.push('\''),
                 Some('"') => out.push('"'),
                 Some('\\') => out.push('\\'),
@@ -632,6 +670,25 @@ pub(crate) fn kw_valid_type_cast_ident(kw: Kw) -> bool {
 pub(crate) fn is_reserved_alias_name(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     matches!(n.as_str(), "true" | "false" | "null" | "team_id")
+}
+
+/// cpp's `assertValidAlias`: an unquoted alias / identifier equal to a
+/// reserved keyword is rejected. Callers invoke this only for the
+/// *unquoted* alias forms — a quoted alias (`"true"`, `` `team_id` ``)
+/// opts out, exactly as cpp's `isQuotedIdentifier` guard does.
+pub(crate) fn check_alias_not_reserved(
+    name: &str,
+    start: usize,
+    end: usize,
+) -> Result<(), ParseError> {
+    if is_reserved_alias_name(name) {
+        return Err(ParseError::syntax(
+            format!("\"{name}\" cannot be an alias or identifier, as it's a reserved keyword"),
+            start,
+            end,
+        ));
+    }
+    Ok(())
 }
 
 /// Keywords accepted as implicit column aliases (no `AS`). Matches the

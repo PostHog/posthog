@@ -12,8 +12,8 @@ use serde_json::{json, Value};
 
 use super::expr::is_bare_field;
 use super::{
-    format_set_op, identifier_text, inject_ctes_into_select, kw_allowed_as_implicit_alias,
-    merge_select_decorators, Parser, BP_COMPARE, BP_MULT,
+    check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
+    kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_COMPARE, BP_MULT,
 };
 use crate::emit;
 use crate::error::ParseError;
@@ -402,7 +402,19 @@ impl<'a> Parser<'a> {
         if distinct {
             obj.insert("distinct".into(), Value::Bool(true));
         }
-        // TOP n [WITH TIES] — skipped for v1 (the C++ throws NotImplemented).
+        // `topClause: TOP DECIMAL_LITERAL (WITH TIES)?` — accepted by
+        // the grammar, rejected by the cpp visitor as unsupported. A
+        // bare `top` (not followed by a number) is still a valid Field
+        // / column name, so only treat `TOP <number>` as the clause.
+        if matches!(self.peek(), TokenKind::Keyword(Kw::Top))
+            && matches!(self.peek_next(), TokenKind::Number)
+        {
+            return Err(ParseError::not_implemented(
+                "Unsupported: SelectStmt.topClause()",
+                self.peek0.start,
+                self.src.len(),
+            ));
+        }
         let columns = self.parse_select_columns()?;
         if columns.is_empty() {
             // `SELECT FROM …` / `SELECT WHERE …` — no expression in the
@@ -689,8 +701,17 @@ impl<'a> Parser<'a> {
         // the prefix is fully parsed — see parse_limit_clauses for the
         // disambiguation strategy (no bounded probe).
         self.parse_limit_clauses(&mut obj)?;
-        // SETTINGS — skip silently. The C++ visitor errors here; we treat
-        // it as a no-op so the test suite's SELECTs that don't use it pass.
+        // SETTINGS — accepted by the grammar, rejected by the cpp
+        // visitor as unsupported. Raise the same `NotImplementedError`
+        // class rather than letting the stray `SETTINGS` token fall
+        // through to a generic trailing-token `SyntaxError`.
+        if matches!(self.peek(), TokenKind::Keyword(Kw::Settings)) {
+            return Err(ParseError::not_implemented(
+                "Unsupported: SelectStmt.settingsClause()",
+                self.peek0.start,
+                self.src.len(),
+            ));
+        }
 
         Ok(Value::Object(obj))
     }
@@ -1325,16 +1346,18 @@ impl<'a> Parser<'a> {
         } else {
             return Err(self.err("expected PRECEDING or FOLLOWING after frame bound expression"));
         };
-        // The frame_value on a numeric bound is the inner Constant, not the
-        // wrapped WindowFrameExpr — match the AST shape.
-        let frame_value = if let Some(obj) = val.as_object() {
-            if obj.get("node").and_then(Value::as_str) == Some("Constant") {
+        // cpp's `VISIT(WinFrameBound)` unwraps a frame-bound `Constant`
+        // to a bare number only when the value `isInt()`; a float or
+        // string Constant keeps its full object form. Mirror that —
+        // unwrap only an integer-valued Constant.
+        let frame_value = match val.as_object() {
+            Some(obj)
+                if obj.get("node").and_then(Value::as_str) == Some("Constant")
+                    && obj.get("value").is_some_and(Value::is_i64) =>
+            {
                 obj.get("value").cloned().unwrap_or(Value::Null)
-            } else {
-                val
             }
-        } else {
-            val
+            _ => val,
         };
         Ok(json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": frame_value}))
     }
@@ -1389,6 +1412,9 @@ impl<'a> Parser<'a> {
             {
                 let name_tok = self.bump()?;
                 let name = identifier_text(self.text(name_tok), name_tok.kind);
+                if !matches!(name_tok.kind, TokenKind::QuotedIdent) {
+                    check_alias_not_reserved(&name, name_tok.start, name_tok.end)?;
+                }
                 self.bump()?; // consume `:`
                 let expr = self.parse_expr_bp(0)?;
                 cols.push(emit::alias(expr, &name));
@@ -1423,13 +1449,21 @@ impl<'a> Parser<'a> {
 
     fn try_consume_implicit_alias(&mut self) -> Result<Option<String>, ParseError> {
         match self.peek() {
-            TokenKind::Ident | TokenKind::QuotedIdent => {
+            TokenKind::Ident => {
+                let t = self.bump()?;
+                let name = identifier_text(self.text(t), t.kind);
+                check_alias_not_reserved(&name, t.start, t.end)?;
+                Ok(Some(name))
+            }
+            TokenKind::QuotedIdent => {
                 let t = self.bump()?;
                 Ok(Some(identifier_text(self.text(t), t.kind)))
             }
             TokenKind::Keyword(kw) if kw_allowed_as_implicit_alias(kw) => {
                 let t = self.bump()?;
-                Ok(Some(self.text(t).to_string()))
+                let name = self.text(t).to_string();
+                check_alias_not_reserved(&name, t.start, t.end)?;
+                Ok(Some(name))
             }
             _ => Ok(None),
         }

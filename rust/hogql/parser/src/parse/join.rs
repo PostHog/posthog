@@ -8,7 +8,9 @@
 
 use serde_json::{json, Value};
 
-use super::{chain_join, identifier_text, kw_valid_as_identifier, Parser};
+use super::{
+    chain_join, check_alias_not_reserved, identifier_text, kw_valid_as_identifier, Parser,
+};
 use crate::emit;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
@@ -466,6 +468,9 @@ impl<'a> Parser<'a> {
                 }
                 _ => return Err(self.err(format!("expected alias after AS, got {:?}", t.kind))),
             };
+            if !matches!(t.kind, TokenKind::QuotedIdent) {
+                check_alias_not_reserved(&name, t.start, t.end)?;
+            }
             return Ok(Some(name));
         }
         // Bare (no `AS`) alias — the grammar's `alias` rule:
@@ -474,7 +479,13 @@ impl<'a> Parser<'a> {
         // (none of which is a JOIN op or clause keyword, so consuming
         // one here is unambiguous).
         match self.peek() {
-            TokenKind::Ident | TokenKind::QuotedIdent => {
+            TokenKind::Ident => {
+                let t = self.bump()?;
+                let name = identifier_text(self.text(t), t.kind);
+                check_alias_not_reserved(&name, t.start, t.end)?;
+                Ok(Some(name))
+            }
+            TokenKind::QuotedIdent => {
                 let t = self.bump()?;
                 Ok(Some(identifier_text(self.text(t), t.kind)))
             }

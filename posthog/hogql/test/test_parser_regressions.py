@@ -16,7 +16,10 @@ ratio check intermittently. Running each backend once here avoids that.
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.parser import parse_expr, parse_program, parse_select
 from posthog.hogql.visitor import clear_locations
 
@@ -457,3 +460,97 @@ class TestParserRegressions(BaseTest):
                 self.assertIsInstance(node, ast.SelectQuery, msg=f"{backend}: {kw}")
                 self.assertEqual(len(node.group_by or []), 2, msg=f"{backend}: {kw}")
                 self.assertIsNotNone(node.having, msg=f"{backend}: {kw}")
+
+    def test_integer_literal_above_i64_max(self):
+        # A decimal/hex integer literal that overflows i64 must not
+        # silently become 0. cpp's VISIT(NumberLiteral) catches stoll's
+        # out_of_range and falls back to stod (a float); a magnitude
+        # that fits i64 only with the sign (`-9223372036854775808`)
+        # stays an exact integer. The Rust parse_number_literal used
+        # `.unwrap_or(0)` with no fallback. (The pure-Python backend
+        # keeps an exact bigint instead of cpp's float — a separate
+        # cpp-vs-python divergence — so this pins rust against cpp.)
+        cases = (
+            "9223372036854775808",
+            "18446744073709551616",
+            "-9223372036854775808",
+            "0x8000000000000000",
+            "0xFFFFFFFFFFFFFFFFFF",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            got = clear_locations(parse_expr(src, backend="rust-json"))
+            self.assertEqual(got, oracle, msg=f"rust-json: {src!r}")
+
+    def test_string_escape_nul_bel_vtab(self):
+        # cpp's string.cpp drops `\0` (NUL ignored) and decodes
+        # `\a`→0x07, `\v`→0x0B. The Rust decode_quoted_body emitted a
+        # real NUL for `\0` and left `\a`/`\v` as literal backslash
+        # sequences. `\0` also affects quoted identifiers.
+        cases = (
+            r"'a\0b'",
+            r"'\a'",
+            r"'\v'",
+            r"`a\0b`",
+            r'"a\0b"',
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_reserved_keyword_alias_rejected(self):
+        # cpp calls assertValidAlias at all four alias sites, rejecting
+        # an unquoted `true`/`false`/`null`/`team_id`. The Rust parser
+        # only checked the `AS`-infix path; the alias-before
+        # (`x : 1`), implicit-alias and table-alias sites were
+        # unchecked. Quoted forms opt out and must still parse.
+        for backend in _BACKENDS:
+            for src in (
+                "select 1 as team_id from t",  # AS-infix (already checked)
+                "select 1 team_id from t",  # implicit alias
+                "select team_id : 1 from t",  # alias-before
+                "select * from t as team_id",  # table alias (AS)
+                "select * from t team_id",  # table alias (bare)
+            ):
+                with self.assertRaises(ExposedHogQLError, msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+            # Quoted aliases opt out of the reserved-keyword check.
+            for src in (
+                'select 1 as "team_id" from t',
+                'select 1 "team_id" from t',
+                'select * from t as "team_id"',
+            ):
+                parse_select(src, backend=backend)
+
+    def test_settings_and_top_clause_error_class(self):
+        # SETTINGS and TOP are accepted by the grammar but rejected by
+        # the visitor as unsupported — cpp throws NotImplementedError,
+        # surfaced by the JSON backend as a bare ExposedHogQLError. The
+        # Rust parser never consumed either clause and fell out with a
+        # generic SyntaxError; the error *class* must match cpp's.
+        for src in ("SELECT 1 SETTINGS x = 1", "SELECT TOP 5 x FROM t"):
+            with self.assertRaises(ExposedHogQLError) as cpp_cm:
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError) as rust_cm:
+                parse_select(src, backend="rust-json")
+            self.assertIs(type(rust_cm.exception), type(cpp_cm.exception), msg=src)
+            self.assertNotIsInstance(rust_cm.exception, HogQLSyntaxError, msg=src)
+
+    def test_window_frame_non_int_bound_keeps_constant(self):
+        # cpp's VISIT(WinFrameBound) unwraps a frame-bound Constant to a
+        # bare number only when the value is an integer; a float or
+        # string Constant keeps its full object form. The Rust parser
+        # unwrapped any Constant. (The pure-Python backend diverges from
+        # cpp on a non-int bound too — a separate cpp-vs-python issue —
+        # so this pins rust against cpp.)
+        cases = (
+            "SELECT count() OVER (ROWS 1.5 PRECEDING) FROM t",
+            "SELECT count() OVER (ROWS '5' PRECEDING) FROM t",
+            "SELECT count() OVER (ROWS 2 PRECEDING) FROM t",  # guard: int still bare
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            got = clear_locations(parse_select(src, backend="rust-json"))
+            self.assertEqual(got, oracle, msg=f"rust-json: {src!r}")
