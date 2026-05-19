@@ -514,14 +514,19 @@ def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:
     )
 
 
+def _quarantine_common_fields(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None
+) -> tuple[contracts.UserBasicInfo | None, contracts.QuarantineSourceRun | None]:
+    """Fields shared by both quarantine DTOs. Callers must preload `source_run`
+    via `select_related` — both call sites do."""
+    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    return created_by, _to_quarantine_source_run(q.source_run)
+
+
 def _to_quarantined_entry(
     q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.QuarantinedIdentifierEntry:
-    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
-    # `q.source_run` is preloaded by callers that need it (e.g. the overview
-    # `select_related("source_run")`); for the per-identifier list endpoint we
-    # accept a single follow-up query per entry — small N (active + history).
-    source_run = _to_quarantine_source_run(q.source_run)
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
     return contracts.QuarantinedIdentifierEntry(
         id=q.id,
         identifier=q.identifier,
@@ -538,14 +543,14 @@ def _to_quarantined_entry(
 def _to_baseline_quarantine_summary(
     q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.BaselineQuarantineSummary:
-    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
     return contracts.BaselineQuarantineSummary(
         id=q.id,
         reason=q.reason,
         expires_at=q.expires_at,
         created_at=q.created_at,
         created_by=created_by,
-        source_run=_to_quarantine_source_run(q.source_run),
+        source_run=source_run,
     )
 
 

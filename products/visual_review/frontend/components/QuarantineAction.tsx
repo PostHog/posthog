@@ -14,6 +14,40 @@ const SUGGESTED_REASONS = [
 
 const DEFAULT_EXPIRY_DAYS = 30
 
+const COPY = {
+    create: {
+        triggerLabel: 'Quarantine this identifier',
+        modalTitle: 'Quarantine snapshot',
+        confirmLabel: 'Quarantine',
+        dataAttrOpen: 'visual-review-quarantine-open',
+        dataAttrConfirm: 'visual-review-quarantine-confirm',
+        expiresLabel: 'Expires',
+        description:
+            'Quarantined identifiers appear as quarantined immediately and are excluded from gating when future runs finalize — including pending runs on other branches. Snapshots are still captured and diffed, just not gated on.',
+    },
+    extend: {
+        triggerLabel: 'Extend',
+        modalTitle: 'Extend quarantine',
+        confirmLabel: 'Extend',
+        dataAttrOpen: 'visual-review-quarantine-extend-open',
+        dataAttrConfirm: 'visual-review-quarantine-extend-confirm',
+        expiresLabel: 'New expiry',
+        description:
+            'Extending creates a new quarantine entry that supersedes the current one — the audit trail keeps both. The reason can be edited; the expiry will be bumped to the date you pick below.',
+    },
+} as const
+
+// Bump from the current expiry, not "now", when extending. Falls back to a
+// fresh +30d window if the prior entry already expired.
+function computeDefaultExpiry(initialExpiresAt: string | null | undefined): dayjs.Dayjs {
+    if (initialExpiresAt) {
+        const prior = dayjs(initialExpiresAt)
+        const base = prior.isAfter(dayjs()) ? prior : dayjs()
+        return base.add(DEFAULT_EXPIRY_DAYS, 'day')
+    }
+    return dayjs().add(DEFAULT_EXPIRY_DAYS, 'day')
+}
+
 /**
  * Identifiers carry an optional `--light` / `--dark` theme suffix.
  * When the user quarantines one variant, they almost always want
@@ -54,10 +88,6 @@ interface QuarantineActionProps {
      * Forwarded to the parent via `onQuarantine` so the backend can store it.
      */
     sourceRunId?: string | null
-    /** Override the modal title (e.g. "Extend quarantine"). */
-    modalTitle?: string
-    /** Override the confirm button label (e.g. "Extend"). */
-    confirmLabel?: string
 }
 
 /**
@@ -73,32 +103,19 @@ export function QuarantineAction({
     initialReason,
     initialExpiresAt,
     sourceRunId,
-    modalTitle,
-    confirmLabel,
 }: QuarantineActionProps): JSX.Element {
     const isExtend = mode === 'extend'
-    const defaultExpiry = (): dayjs.Dayjs | null => {
-        if (initialExpiresAt) {
-            // Extending — bump from the current expiry, not "now". If the prior
-            // entry already expired, fall back to a fresh +30d window.
-            const prior = dayjs(initialExpiresAt)
-            const base = prior.isAfter(dayjs()) ? prior : dayjs()
-            return base.add(DEFAULT_EXPIRY_DAYS, 'day')
-        }
-        return dayjs().add(DEFAULT_EXPIRY_DAYS, 'day')
-    }
+    const copy = COPY[mode]
 
     const [isOpen, setIsOpen] = useState(false)
     const [reason, setReason] = useState(initialReason ?? '')
     const [includeSibling, setIncludeSibling] = useState(true)
-    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(defaultExpiry())
+    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(computeDefaultExpiry(initialExpiresAt))
 
-    // Reset local state whenever the prefilled values change (e.g. the user
-    // unquarantines + extends a different entry in the same session).
+    // Re-prefill if the parent swaps which entry we're acting on mid-session.
     useEffect(() => {
         setReason(initialReason ?? '')
-        setExpiresAt(defaultExpiry())
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        setExpiresAt(computeDefaultExpiry(initialExpiresAt))
     }, [initialReason, initialExpiresAt])
 
     const sibling = getThemeSibling(identifier)
@@ -120,18 +137,13 @@ export function QuarantineAction({
 
     return (
         <div>
-            <LemonButton
-                type="secondary"
-                size="small"
-                onClick={() => setIsOpen(true)}
-                data-attr={isExtend ? 'visual-review-quarantine-extend-open' : 'visual-review-quarantine-open'}
-            >
-                {triggerLabel ?? (isExtend ? 'Extend' : 'Quarantine this identifier')}
+            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)} data-attr={copy.dataAttrOpen}>
+                {triggerLabel ?? copy.triggerLabel}
             </LemonButton>
             <LemonModal
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
-                title={modalTitle ?? (isExtend ? 'Extend quarantine' : 'Quarantine snapshot')}
+                title={copy.modalTitle}
                 footer={
                     <>
                         <LemonButton
@@ -145,23 +157,15 @@ export function QuarantineAction({
                             type="primary"
                             disabledReason={!reason.trim() ? 'Reason is required' : undefined}
                             onClick={handleSubmit}
-                            data-attr={
-                                isExtend
-                                    ? 'visual-review-quarantine-extend-confirm'
-                                    : 'visual-review-quarantine-confirm'
-                            }
+                            data-attr={copy.dataAttrConfirm}
                         >
-                            {confirmLabel ?? (isExtend ? 'Extend' : 'Quarantine')}
+                            {copy.confirmLabel}
                         </LemonButton>
                     </>
                 }
             >
                 <div className="space-y-4">
-                    <p className="text-sm text-muted">
-                        {isExtend
-                            ? 'Extending creates a new quarantine entry that supersedes the current one — the audit trail keeps both. The reason can be edited; the expiry will be bumped to the date you pick below.'
-                            : 'Quarantined identifiers appear as quarantined immediately and are excluded from gating when future runs finalize — including pending runs on other branches. Snapshots are still captured and diffed, just not gated on.'}
-                    </p>
+                    <p className="text-sm text-muted">{copy.description}</p>
 
                     <div>
                         <label className="text-sm font-medium mb-1 block">Identifier</label>
@@ -203,7 +207,7 @@ export function QuarantineAction({
                     </div>
 
                     <div>
-                        <label className="text-sm font-medium mb-1 block">{isExtend ? 'New expiry' : 'Expires'}</label>
+                        <label className="text-sm font-medium mb-1 block">{copy.expiresLabel}</label>
                         <LemonCalendarSelectInput
                             value={expiresAt}
                             onChange={setExpiresAt}
