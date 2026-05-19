@@ -13,9 +13,7 @@ on:
             - 'posthog/clickhouse/client/migration_tools.py'
             - 'docker/clickhouse/config.d/multinode/**'
             - 'docker-compose.multinode-clickhouse.yml'
-            - 'bin/multinode-migration-smoke'
-            - 'bin/start-multinode-clickhouse'
-            - 'bin/verify-multinode-clickhouse.py'
+            - 'tools/infra-scripts/clickhouse-multinode/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
     merge_group:
     workflow_dispatch:
@@ -69,7 +67,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Run smoke test
-              run: bin/multinode-migration-smoke
+              run: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
 
             - name: Dump compose logs on failure
               if: failure()

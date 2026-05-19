@@ -33,6 +33,9 @@ def ON_CLUSTER_CLAUSE(on_cluster=True):
 # so without a per-host port override, every role-routed connection lands on
 # whichever container holds 127.0.0.1:9000 (the data node). The compose file
 # publishes each satellite on a distinct host port; this map mirrors that.
+#
+# Canonical source: `docker-compose.multinode-clickhouse.yml` (per-service
+# `ports:` blocks). Keep this map in sync when adding or renumbering nodes.
 _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-data": ("localhost", 9000),
     "clickhouse-ai-events": ("localhost", 9100),
