@@ -208,6 +208,22 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_set_level_offset_compound_body(self):
+        # `offsetOnlyClause: OFFSET columnExpr` at the selectSetStmt
+        # level takes a full `columnExpr`. The Rust parser parsed it
+        # bounded at BP_MULT+1, stranding a lower-precedence tail
+        # (`offset (x) or y`, `offset (x) ignore nulls`).
+        cases = (
+            "select 1 offset a or b",
+            "select 1 offset a ignore nulls",
+            "(select 1) offset a ?? b",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

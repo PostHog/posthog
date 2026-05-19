@@ -296,7 +296,11 @@ impl<'a> Parser<'a> {
                 out.push(("limit_with_ties".into(), Value::Bool(true)));
             }
         } else if self.eat_kw(Kw::Offset)? {
-            let off = self.parse_expr_bp(BP_MULT + 1)?;
+            // `offsetOnlyClause: OFFSET columnExpr` — a full
+            // `columnExpr`, so parse at BP=0; a `BP_MULT+1` bound
+            // stranded any lower-precedence tail (`offset (x) or y`,
+            // `offset (x) ignore nulls`).
+            let off = self.parse_expr_bp(0)?;
             out.push(("offset".into(), off));
         }
         Ok(out)
