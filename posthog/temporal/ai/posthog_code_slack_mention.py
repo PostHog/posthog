@@ -38,16 +38,6 @@ _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
 
 def _strip_context_tag(text: str) -> str:
-    """Stop untrusted Slack-thread text from forging the context delimiter.
-
-    The thread is wrapped in <slack_thread_context>…</slack_thread_context> so the
-    agent treats everything inside as inert background rather than instructions.
-    A participant who posts a literal open/close tag could otherwise break out of
-    the block and have the rest of their message read as the actual request.
-    Removing that one token is all the sanitization the structure needs — once
-    the block is tag-delimited, `---` and the placeholder are no longer
-    load-bearing and don't need defanging.
-    """
     return re.sub(rf"</?\s*{_THREAD_CONTEXT_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
 
 
