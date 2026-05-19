@@ -12,6 +12,7 @@ class NotificationType(str, Enum):
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"
     EXPERIMENT_CONCLUDED = "experiment_concluded"
+    PIPELINE_FAILURE = "pipeline_failure"
 
 
 class Priority(str, Enum):

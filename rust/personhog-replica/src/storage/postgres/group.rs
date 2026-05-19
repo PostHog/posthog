@@ -643,12 +643,13 @@ impl GroupStorage for PostgresStorage {
                 "operation".to_string(),
                 "delete_groups_batch_for_team".to_string(),
             ),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let result = sqlx::query!(
             r#"
@@ -673,7 +674,7 @@ impl GroupStorage for PostgresStorage {
                     "operation".to_string(),
                     "delete_groups_batch_for_team".to_string(),
                 ),
-                ("pool".to_string(), "primary".to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             result.rows_affected() as f64,
@@ -811,12 +812,13 @@ impl GroupStorage for PostgresStorage {
                 "operation".to_string(),
                 "delete_group_type_mappings_batch_for_team".to_string(),
             ),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let result = sqlx::query!(
             r#"
@@ -841,7 +843,7 @@ impl GroupStorage for PostgresStorage {
                     "operation".to_string(),
                     "delete_group_type_mappings_batch_for_team".to_string(),
                 ),
-                ("pool".to_string(), "primary".to_string()),
+                ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
             ],
             result.rows_affected() as f64,

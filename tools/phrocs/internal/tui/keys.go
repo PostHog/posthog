@@ -8,6 +8,8 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
 // procViewerCmd returns an exec.Cmd for the best available process viewer,
@@ -291,10 +293,14 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
-
 // updateProcKeys enables/disables start, stop, and restart bindings
 // based on the active process state.
 func (m *Model) updateProcKeys() {
+	// RestartAllFailed is global (operates across the whole sidebar) and is
+	// gated on at-least-one failed proc so the hotkey is a no-op when
+	// there's nothing to do.
+	m.keys.RestartAllFailed.SetEnabled(m.hasFailedProc())
+
 	p := m.activeProc()
 	if p == nil {
 		m.keys.Start.SetEnabled(false)
@@ -315,6 +321,41 @@ func (m *Model) updateProcKeys() {
 	m.keys.Stop.SetEnabled(running)
 	m.keys.Restart.SetEnabled(running)
 	m.keys.ClearLogs.SetEnabled(running)
+}
+
+// hasFailedProc reports whether any sidebar service is currently in
+// StatusCrashed — i.e. whether `R` has anything to do.
+func (m *Model) hasFailedProc() bool {
+	for _, p := range m.services {
+		if p.Status() == process.StatusCrashed {
+			return true
+		}
+	}
+	return false
+}
+
+// restartAllFailed starts every service currently in StatusCrashed in
+// display order. Manually-stopped, clean-exit, never-started, and standby
+// procs are all in different status states and naturally skipped, so the
+// hotkey only ever touches procs that actually died on their own.
+// Returns the number of procs that were kicked off.
+func (m *Model) restartAllFailed() int {
+	send := m.mgr.Send()
+	count := 0
+	for _, p := range m.services {
+		if p.Status() != process.StatusCrashed {
+			continue
+		}
+		m.dbg("restart failed: proc=%s", p.Name)
+		// Fan out so we don't block the TUI event loop while Start allocates
+		// a PTY and forks the child. As a side benefit, spawns happen in
+		// parallel rather than serially. Capture p locally to avoid the
+		// closure-over-loop-variable pitfall on older Go versions.
+		proc := p
+		go func() { _ = proc.Start(send) }()
+		count++
+	}
+	return count
 }
 
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
@@ -472,6 +513,11 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.dbg("restart: proc=%s", p.Name)
 			send := m.mgr.Send()
 			go p.Restart(send)
+		}
+
+	case key.Matches(msg, m.keys.RestartAllFailed):
+		if started := m.restartAllFailed(); started > 0 {
+			m.dbg("restart failed: kicked off %d procs", started)
 		}
 
 	case key.Matches(msg, m.keys.Stop):

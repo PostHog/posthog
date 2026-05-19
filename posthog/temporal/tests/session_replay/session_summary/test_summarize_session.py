@@ -1,5 +1,6 @@
 import json
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -132,6 +133,34 @@ class TestFetchSessionDataActivity:
 
 
 class TestExecuteSummarizeSessionVideoStream:
+    @pytest.fixture(autouse=True)
+    def cap_mocks(self) -> Iterator[SimpleNamespace]:
+        """Default cap behavior for the happy path: no in-flight workflow,
+        cap not exhausted. Tests that need to block, refund, or simulate Redis
+        failures flip the relevant return value rather than re-patching."""
+        workflow_is_running = AsyncMock(return_value=False)
+        atomic = MagicMock(return_value=MagicMock(allowed=True, used=1, cap=4000))
+        refund = MagicMock(return_value=None)
+        with (
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._workflow_is_running",
+                workflow_is_running,
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.atomic_check_and_consume",
+                atomic,
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.refund",
+                refund,
+            ),
+        ):
+            yield SimpleNamespace(
+                workflow_is_running=workflow_is_running,
+                atomic=atomic,
+                refund=refund,
+            )
+
     @staticmethod
     def _make_handle(check_handle_data_side_effect: list[tuple[Any, Any]]) -> MagicMock:
         handle = MagicMock()
@@ -586,6 +615,412 @@ class TestExecuteSummarizeSessionVideoStream:
         kwargs = client.start_workflow.call_args.kwargs
         assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
         assert kwargs["id_conflict_policy"] == expected_conflict_policy
+
+    @pytest.mark.asyncio
+    async def test_attach_to_running_workflow_skips_check_and_consume(
+        self,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        """When the same workflow is already RUNNING (silent attach via
+        ``id_conflict_policy=USE_EXISTING``), the cap MUST NOT fire. The other
+        caller already paid the LLM cost — gating here would 402 a teammate
+        reading work-in-progress."""
+        cap_mocks.workflow_is_running.return_value = True
+        handle = self._make_handle([(WorkflowExecutionStatus.COMPLETED, None)])
+        completed_summary = MagicMock()
+        completed_summary.id = "id"
+        completed_summary.summary = mock_enriched_llm_json_response
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects,
+                "get_summary",
+                MagicMock(side_effect=[None, completed_summary]),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+        ):
+            await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        cap_mocks.atomic.assert_not_called()
+        cap_mocks.refund.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_force_restart_charges_cap_even_when_already_running(
+        self,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        """``force_restart=True`` uses TERMINATE_EXISTING — that's a fresh LLM
+        run regardless of what was running before. The cap and consume must both
+        fire on this path."""
+        cap_mocks.workflow_is_running.return_value = True
+        handle = self._make_handle([(WorkflowExecutionStatus.COMPLETED, None)])
+        completed_summary = MagicMock()
+        completed_summary.id = "id"
+        completed_summary.summary = mock_enriched_llm_json_response
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects,
+                "get_summary",
+                MagicMock(side_effect=[None, completed_summary]),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+        ):
+            await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                    force_restart=True,
+                )
+            )
+
+        cap_mocks.atomic.assert_called_once_with(mock_team.id)
+        cap_mocks.refund.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_quota_blocked_emits_error_and_skips_workflow_start(
+        self,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+    ):
+        """When `atomic_check_and_consume` returns `allowed=False`, the generator
+        yields a session-summary-error event and never starts a workflow.
+        The atomic op already rolled the counter back, so no refund needed."""
+        cap_mocks.atomic.return_value = MagicMock(allowed=False, used=4000, cap=4000)
+        start_mock = AsyncMock()
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                start_mock,
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch("posthog.temporal.session_replay.session_summary.workflow.posthoganalytics.capture") as mock_capture,
+        ):
+            events = await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        assert len(events) == 1
+        assert events[0].startswith("event: session-summary-error\n")
+        assert "4000/4000" in events[0]
+        start_mock.assert_not_called()
+        cap_mocks.refund.assert_not_called()
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["event"] == "replay summary quota blocked"
+        assert mock_capture.call_args.kwargs["properties"]["used"] == 4000
+        assert mock_capture.call_args.kwargs["properties"]["cap"] == 4000
+
+    @pytest.mark.asyncio
+    async def test_cached_summary_fast_path_bypasses_cap_entirely(
+        self,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        """A cached SingleSessionSummary returns immediately — the cap MUST NOT
+        be consulted at all on this path, even when the team is over the cap.
+        This is the exact regression the gate-relocation fix targets."""
+        cached_summary = MagicMock()
+        cached_summary.id = "cached-id"
+        cached_summary.summary = mock_enriched_llm_json_response
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", return_value=cached_summary),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow"
+            ) as mock_start,
+        ):
+            await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        cap_mocks.atomic.assert_not_called()
+        cap_mocks.refund.assert_not_called()
+        mock_start.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestVideoStreamCapEndToEnd:
+    """Load-style cap regression: drive the video-stream entrypoint past the
+    cap with the LLM commit point (`_start_video_summary_workflow`) stubbed
+    out, so the only "real" thing under test is the cap module against the
+    real Redis counter.
+
+    Verifies, in one test:
+    - Requests 1..cap pass through and bump the counter.
+    - Requests cap+1..N yield `session-summary-error` and never call
+      `_start_video_summary_workflow`.
+    - The Redis counter ends at exactly cap (no overshoot in the sequential
+      case — concurrency is covered by `test_atomic_check_and_consume_is_overshoot_free`).
+    - One `replay summary quota blocked` analytics event per blocked request.
+
+    Cap is overridden to a small value via `get_cap_for_team` so the test
+    runs in <1s — the production default of 4000 would just multiply the
+    iteration count, not exercise any new behavior.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_redis_key(self, mock_team: MagicMock) -> Iterator[None]:
+        from datetime import UTC, datetime
+
+        from posthog.redis import get_client
+        from posthog.session_recordings.ai_summary_cap import _redis_key
+
+        key = _redis_key(mock_team.id, now=datetime.now(UTC))
+        client = get_client()
+        client.delete(key)
+        try:
+            yield
+        finally:
+            client.delete(key)
+
+    @pytest.mark.asyncio
+    async def test_cap_blocks_after_quota_exhausted_under_load(
+        self,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        from posthog.session_recordings.ai_summary_cap import current_usage
+
+        cap = 5
+        n_iterations = cap + 3  # 5 allowed, 3 blocked
+
+        completed_summary = MagicMock()
+        completed_summary.id = "completed-id"
+        completed_summary.summary = mock_enriched_llm_json_response
+
+        # Each iteration uses a unique session_id so we can use a per-session
+        # call counter instead of a global rotating side_effect — keeps the
+        # mapping trivial regardless of which iterations get blocked.
+        get_summary_calls: dict[str, int] = {}
+
+        def get_summary_fn(*args: Any, **kwargs: Any) -> Any:
+            sid = kwargs["session_id"]
+            n = get_summary_calls.get(sid, 0)
+            get_summary_calls[sid] = n + 1
+            # First call per session is the cache check (miss). Any later call
+            # is the post-COMPLETED read of the freshly written row.
+            return None if n == 0 else completed_summary
+
+        # Temporal handle that resolves to COMPLETED on the first describe so
+        # the polling loop exits without calling handle.query.
+        def _make_handle() -> MagicMock:
+            handle = MagicMock()
+            handle.describe = AsyncMock(return_value=MagicMock(status=WorkflowExecutionStatus.COMPLETED))
+            handle.query = AsyncMock(return_value={})
+            handle.result = AsyncMock(return_value=None)
+            return handle
+
+        start_mock = AsyncMock(side_effect=lambda *a, **kw: _make_handle())
+
+        with (
+            # Cap value comes from the production code path, but we override
+            # the Postgres lookup so we don't need a real SignalSourceConfig.
+            patch(
+                "posthog.session_recordings.ai_summary_cap.get_cap_for_team",
+                return_value=cap,
+            ),
+            patch.object(
+                SingleSessionSummary.objects,
+                "get_summary",
+                side_effect=get_summary_fn,
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._workflow_is_running",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                start_mock,
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+            patch("posthog.temporal.session_replay.session_summary.workflow.posthoganalytics.capture") as mock_capture,
+        ):
+            allowed_count = 0
+            blocked_count = 0
+            for i in range(n_iterations):
+                session_id = f"00000000-0000-0000-0001-{i:012d}"
+                events: list[str] = []
+                async for event in execute_summarize_session_video_stream(
+                    session_id=session_id,
+                    user=mock_user,
+                    team=mock_team,
+                ):
+                    events.append(event)
+
+                assert events, f"iteration {i}: generator yielded zero events"
+                last = events[-1]
+                if last.startswith("event: session-summary-error\n"):
+                    blocked_count += 1
+                    assert f"{cap}/{cap}" in last, f"iteration {i}: missing used/cap in {last!r}"
+                else:
+                    allowed_count += 1
+                    assert any(e.startswith("event: session-summary-stream\n") for e in events), (
+                        f"iteration {i}: no success event in {events!r}"
+                    )
+
+        assert allowed_count == cap, f"expected {cap} allowed, got {allowed_count}"
+        assert blocked_count == n_iterations - cap, f"expected {n_iterations - cap} blocked, got {blocked_count}"
+
+        # The LLM commit point fired exactly `cap` times — never on a blocked iteration.
+        assert start_mock.call_count == cap, (
+            f"_start_video_summary_workflow called {start_mock.call_count} times; expected {cap}"
+        )
+
+        # Real Redis counter advanced exactly to the cap (sequential — no overshoot expected).
+        assert current_usage(mock_team.id) == cap
+
+        # Each blocked iteration emitted exactly one quota-blocked analytics event.
+        blocked_capture_calls = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "replay summary quota blocked"
+        ]
+        assert len(blocked_capture_calls) == n_iterations - cap
+
+
+class TestWorkflowIsRunning:
+    """`_workflow_is_running` is the discriminator between a fresh LLM run (cap
+    applies) and a silent attach (cap must not). Behavior pinned with explicit
+    tests so a future refactor can't quietly flip it."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_status_is_running(self) -> None:
+        from posthog.temporal.session_replay.session_summary.workflow import _workflow_is_running
+
+        client = MagicMock()
+        handle = MagicMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=WorkflowExecutionStatus.RUNNING))
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        assert await _workflow_is_running(client, "wfid") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "terminal_status",
+        [
+            WorkflowExecutionStatus.COMPLETED,
+            WorkflowExecutionStatus.FAILED,
+            WorkflowExecutionStatus.CANCELED,
+            WorkflowExecutionStatus.TERMINATED,
+            WorkflowExecutionStatus.TIMED_OUT,
+        ],
+    )
+    async def test_returns_false_for_terminal_statuses(
+        self,
+        terminal_status: WorkflowExecutionStatus,
+    ) -> None:
+        from posthog.temporal.session_replay.session_summary.workflow import _workflow_is_running
+
+        client = MagicMock()
+        handle = MagicMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=terminal_status))
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        assert await _workflow_is_running(client, "wfid") is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_workflow_not_found(self) -> None:
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.temporal.session_replay.session_summary.workflow import _workflow_is_running
+
+        client = MagicMock()
+        handle = MagicMock()
+        handle.describe = AsyncMock(side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b""))
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        assert await _workflow_is_running(client, "wfid") is False
+
+    @pytest.mark.asyncio
+    async def test_reraises_non_not_found_rpc_errors(self) -> None:
+        # An UNAVAILABLE Temporal frontend should surface, not silently bypass
+        # the cap by claiming "not running".
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.temporal.session_replay.session_summary.workflow import _workflow_is_running
+
+        client = MagicMock()
+        handle = MagicMock()
+        handle.describe = AsyncMock(side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""))
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with pytest.raises(RPCError):
+            await _workflow_is_running(client, "wfid")
 
 
 class TestStartVideoSummaryWorkflow:

@@ -1,6 +1,7 @@
-import type { CSSProperties, ReactElement } from 'react'
+import type { ReactElement } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
@@ -182,34 +183,26 @@ export interface ComponentProps {
 }
 
 export function Component({ data }: ComponentProps): ReactElement {
-    const containerStyle: CSSProperties = {
-        fontFamily:
-            'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)',
-        color: 'var(--color-text-primary, #101828)',
-        backgroundColor: 'var(--color-background-primary, #fff)',
-        padding: '1rem',
-        borderRadius: 'var(--border-radius-lg, 0.5rem)',
-        border: '1px solid var(--color-border-primary, #e5e7eb)',
-    }
-
-    const titleStyle: CSSProperties = {
-        fontSize: '0.875rem',
-        fontWeight: 600,
-        color: 'var(--color-text-secondary, #6b7280)',
-        marginBottom: '1rem',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-    }
-
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
 
     if (!visualizationType) {
         return (
-            <div style={containerStyle}>
-                <div style={titleStyle}>Results</div>
-                <EmptyState icon="generic" description="This visualization type isn't supported in this view yet." />
-            </div>
+            <Card>
+                <CardContent>
+                    <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Results
+                    </div>
+                    <Empty>
+                        <EmptyHeader>
+                            <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
+                            <EmptyDescription>
+                                This visualization type isn't supported in this view yet.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                </CardContent>
+            </Card>
         )
     }
 
@@ -245,11 +238,7 @@ export function Component({ data }: ComponentProps): ReactElement {
                 return <TableVisualizer results={payload.results as HogQLResult} />
 
             default:
-                return (
-                    <div style={{ color: 'var(--color-text-secondary, #6b7280)' }}>
-                        Unknown visualization type: {visualizationType}
-                    </div>
-                )
+                return <div className="text-muted-foreground">Unknown visualization type: {visualizationType}</div>
         }
     }
 
@@ -271,9 +260,13 @@ export function Component({ data }: ComponentProps): ReactElement {
     }
 
     return (
-        <div style={containerStyle}>
-            <div style={titleStyle}>{getTitle()}</div>
-            {renderVisualization()}
-        </div>
+        <Card>
+            <CardContent>
+                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {getTitle()}
+                </div>
+                {renderVisualization()}
+            </CardContent>
+        </Card>
     )
 }

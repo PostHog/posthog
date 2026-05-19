@@ -34,8 +34,10 @@ CLICKHOUSE_HTTPS_PORT = 8443
 
 # Connect timeout for the HTTP client
 CONNECT_TIMEOUT_SECONDS = 15
-# Per-query timeout for metadata/discovery queries
-METADATA_QUERY_TIMEOUT_SECONDS = 30
+# Cloud cold-resume (idle services routinely take 30–60s to wake on the
+# first request) and to leave headroom over the server-side `max_execution_time`
+# caps on bounded probes
+METADATA_QUERY_TIMEOUT_SECONDS = 120
 # Per-query timeout for the main data extraction query
 DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 

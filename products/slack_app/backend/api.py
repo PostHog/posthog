@@ -688,7 +688,9 @@ def _collect_thread_messages(
             username = "Unknown"
 
         text = replace_user_mentions(_extract_message_text(msg))
-        messages.append({"user": username, "text": text})
+        # `ts` lets downstream callers distinguish the initiator message from surrounding thread
+        # context, since `app_mention` events surface only the initiator's ts.
+        messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})
 
     return messages
 

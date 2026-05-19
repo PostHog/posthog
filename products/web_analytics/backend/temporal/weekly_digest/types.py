@@ -34,10 +34,30 @@ class WAWeeklyDigestInput:
     dry_run: bool = False
     batch_size: int = 25
     max_concurrent: int = 4
-    rollout_percentage: float = 1.0
     failure_threshold: float = 0.2
     active_since_days: int | None = 30
     org_ids: list[str] | None = None
+
+
+@dataclasses.dataclass
+class OrgBatchPageInput:
+    workflow_input: WAWeeklyDigestInput
+    cursor: str | None = None
+    page_size: int = 5000
+
+
+@dataclasses.dataclass
+class OrgBatchPageResult:
+    batches: list[list[str]]
+    cursor: str | None
+
+    @property
+    def org_count(self) -> int:
+        return sum(len(batch) for batch in self.batches)
+
+    @property
+    def batch_count(self) -> int:
+        return len(self.batches)
 
 
 @dataclasses.dataclass
