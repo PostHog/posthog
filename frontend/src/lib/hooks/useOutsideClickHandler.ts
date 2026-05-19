@@ -24,34 +24,54 @@ export function useOutsideClickHandler(
     const exceptTagNamesRef = useRef(exceptTagNames)
     exceptTagNamesRef.current = exceptTagNames
 
+    // Tracks whether the pointer/touch gesture started inside any of the tracked refs.
+    const gestureStartedInsideRef = useRef(false)
+
     useEffect(() => {
+        function isInsideRefs(event: Event): boolean {
+            return refsRef.current.some((maybeRef) => {
+                if (typeof maybeRef === 'string') {
+                    return !!event.composedPath?.()?.find((e) => (e as HTMLElement)?.matches?.(maybeRef))
+                }
+                const ref = maybeRef.current
+
+                if (!event.target || !ref) {
+                    return false
+                }
+
+                const hasShadowRoot = !!(event.target as HTMLElement).shadowRoot
+                return hasShadowRoot
+                    ? !!event.composedPath?.()?.find((el) => el === ref)
+                    : `contains` in ref && ref.contains(event.target as Element)
+            })
+        }
+
+        function handleGestureStart(event: Event): void {
+            if (event instanceof MouseEvent && event.button !== 0) {
+                return
+            }
+            gestureStartedInsideRef.current = isInsideRefs(event)
+        }
+
         function handleClick(event: Event): void {
+            const startedInside = gestureStartedInsideRef.current
+            gestureStartedInsideRef.current = false
+
             // Ignore non-primary clicks (right-click, middle-click).
             // Radix context menus (BrowserLikeMenuItems) fire `contextmenu` before `mouseup`,
             // causing the browser to retarget `mouseup` to <html> which falsely triggers outside-click dismissal.
             if (event instanceof MouseEvent && event.button !== 0) {
                 return
             }
+            // If the gesture started inside a tracked ref (e.g. scrollbar drag, text selection
+            // that ends outside the popover), don't treat the release as an outside click.
+            if (startedInside) {
+                return
+            }
             if (exceptions.some((exception) => (event.target as Element)?.matches?.(exception))) {
                 return
             }
-            if (
-                refsRef.current.some((maybeRef) => {
-                    if (typeof maybeRef === 'string') {
-                        return event.composedPath?.()?.find((e) => (e as HTMLElement)?.matches?.(maybeRef))
-                    }
-                    const ref = maybeRef.current
-
-                    if (!event.target || !ref) {
-                        return false
-                    }
-
-                    const hasShadowRoot = !!(event.target as HTMLElement).shadowRoot
-                    return hasShadowRoot
-                        ? event.composedPath?.()?.find((el) => el === ref)
-                        : `contains` in ref && ref.contains(event.target as Element)
-                })
-            ) {
+            if (isInsideRefs(event)) {
                 return
             }
             const target = (event.composedPath?.()?.[0] || event.target) as HTMLElement
@@ -63,9 +83,13 @@ export function useOutsideClickHandler(
 
         // Only attach event listeners if there's something to track
         if (refsRef.current.length > 0) {
+            document.addEventListener('mousedown', handleGestureStart, true)
+            document.addEventListener('touchstart', handleGestureStart, true)
             document.addEventListener('mouseup', handleClick)
             document.addEventListener('touchend', handleClick)
             return () => {
+                document.removeEventListener('mousedown', handleGestureStart, true)
+                document.removeEventListener('touchstart', handleGestureStart, true)
                 document.removeEventListener('mouseup', handleClick)
                 document.removeEventListener('touchend', handleClick)
             }

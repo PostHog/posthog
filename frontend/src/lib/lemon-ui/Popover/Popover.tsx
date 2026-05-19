@@ -37,6 +37,7 @@ export interface PopoverProps {
     visible: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
+    onMouseDownInside?: MouseEventHandler<HTMLDivElement>
     onMouseEnterInside?: MouseEventHandler<HTMLDivElement>
     onMouseLeaveInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
@@ -101,6 +102,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         visible,
         onClickOutside,
         onClickInside,
+        onMouseDownInside,
         onMouseEnterInside,
         onMouseLeaveInside,
         placement = 'bottom-start',
@@ -318,6 +320,24 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }
 
+    const _onMouseDownInside: MouseEventHandler<HTMLDivElement> = (e): void => {
+        if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
+            return
+        }
+        onMouseDownInside?.(e)
+        if (parentPopoverLevel > -1 && !closeParentPopoverOnClickInside) {
+            nestedPopoverReceivedClick = true
+            const onUp = (): void => {
+                document.removeEventListener('mouseup', onUp, true)
+                // Hold the flag past the parent's outside-click setTimeout(1) check.
+                setTimeout(() => {
+                    nestedPopoverReceivedClick = false
+                }, 10)
+            }
+            document.addEventListener('mouseup', onUp, true)
+        }
+    }
+
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
     const floatingCallbackRef = useCallback(
@@ -373,6 +393,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                     ...style,
                                 }}
                                 onClick={_onClickInside}
+                                onMouseDown={_onMouseDownInside}
                                 onMouseEnter={onMouseEnterInside}
                                 onMouseLeave={onMouseLeaveInside}
                                 aria-level={currentPopoverLevel}

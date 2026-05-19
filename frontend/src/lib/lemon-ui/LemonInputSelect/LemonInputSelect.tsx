@@ -819,6 +819,9 @@ export function LemonInputSelect<T = string>({
                 popoverFocusRef.current = true
                 e.stopPropagation()
             }}
+            onMouseDownInside={() => {
+                popoverFocusRef.current = true
+            }}
             className={popoverClassName}
             placement="bottom-start"
             fallbackPlacements={['bottom-end', 'top-start', 'top-end']}
