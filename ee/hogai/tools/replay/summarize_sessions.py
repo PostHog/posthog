@@ -406,7 +406,6 @@ class SummarizeSessionsTool(MaxTool):
                     # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                     stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                     summary_str = stringifier.stringify_patterns()
-                    # Empty string if nothing failed.
                     note = self._format_failed_sessions_note(failed_sessions, total_requested=len(session_ids))
                     return note + summary_str, session_group_summary_id, failed_sessions
                 else:

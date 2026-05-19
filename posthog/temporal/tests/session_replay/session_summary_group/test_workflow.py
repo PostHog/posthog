@@ -57,6 +57,7 @@ from posthog.temporal.session_replay.session_summary_group.activities.group_patt
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.temporal.session_replay.session_summary_group.types import (
+    FailedSessionInfo,
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
     SessionSummaryStreamUpdate,
@@ -273,7 +274,22 @@ async def test_assign_events_to_patterns_activity_standalone(
     single_session_inputs = [
         mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
     ]
-    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
+    mock_failed_sessions = [
+        FailedSessionInfo(
+            session_id="failed-skipped-1",
+            category="skipped",
+            reason="Recording is too short or has no usable events",
+        ),
+        FailedSessionInfo(
+            session_id="failed-summarize-1",
+            category="summarization_failed",
+            reason="Couldn't generate a summary for this session",
+        ),
+    ]
+    activity_input = dataclasses.replace(
+        mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id),
+        failed_sessions=mock_failed_sessions,
+    )
     redis_client = get_async_client()
 
     # Store session summaries in DB for each session (following the new approach)
@@ -353,6 +369,20 @@ async def test_assign_events_to_patterns_activity_standalone(
         # Verify the summary content
         patterns = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
         assert len(patterns.patterns) >= 1  # Should have at least one pattern
+        assert session_group_summary.run_metadata is not None
+        persisted_failed = session_group_summary.run_metadata.get("failed_sessions")
+        assert persisted_failed == [
+            {
+                "session_id": "failed-skipped-1",
+                "category": "skipped",
+                "reason": "Recording is too short or has no usable events",
+            },
+            {
+                "session_id": "failed-summarize-1",
+                "category": "summarization_failed",
+                "reason": "Couldn't generate a summary for this session",
+            },
+        ]
         # Verify LLM was called (for pattern assignment)
         mock_call_llm.assert_called()  # May be called multiple times for chunks
         # Verify Redis operations:

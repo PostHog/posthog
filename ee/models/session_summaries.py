@@ -69,7 +69,6 @@ class SessionSummaryRunMeta:
     model_used: str
     visual_confirmation: bool
     visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
-    # Sessions dropped from the input batch; surfaced in the UI as a partial-result banner.
     failed_sessions: list[FailedSessionInfo] = field(default_factory=list)
 
 

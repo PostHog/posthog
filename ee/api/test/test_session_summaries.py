@@ -45,7 +45,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         yield (SessionSummaryStreamUpdate.UI_STATUS, "Processing sessions...")
         yield (SessionSummaryStreamUpdate.UI_STATUS, "Finding patterns...")
-        # failed_sessions defaults to empty for tests that don't care.
         patterns, summary_id = result
         yield (SessionSummaryStreamUpdate.FINAL_RESULT, (patterns, summary_id, failed_sessions or []))
 
@@ -110,7 +109,21 @@ class TestSessionSummariesAPI(APIBaseTest):
             datetime(2024, 1, 1, 11, 0, 0),
         )
         mock_result = self.create_mock_result()
-        mock_execute.return_value = self._create_async_generator((mock_result, "session-group-summary-id"))
+        mock_failed_sessions = [
+            FailedSessionInfo(
+                session_id="session-skipped-1",
+                category="skipped",
+                reason="Recording is too short or has no usable events",
+            ),
+            FailedSessionInfo(
+                session_id="session-errored-1",
+                category="summarization_failed",
+                reason="Couldn't generate a summary for this session",
+            ),
+        ]
+        mock_execute.return_value = self._create_async_generator(
+            (mock_result, "session-group-summary-id"), failed_sessions=mock_failed_sessions
+        )
         # Make request
         response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
         # Assertions
@@ -124,6 +137,17 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(data["patterns"][0]["pattern_name"], "Login Flow Pattern")
         self.assertEqual(data["patterns"][0]["severity"], "medium")
         self.assertEqual(data["patterns"][0]["stats"]["occurences"], 2)
+        self.assertIn("failed_sessions", data)
+        self.assertEqual(len(data["failed_sessions"]), 2)
+        self.assertEqual(
+            data["failed_sessions"][0],
+            {
+                "session_id": "session-skipped-1",
+                "category": "skipped",
+                "reason": "Recording is too short or has no usable events",
+            },
+        )
+        self.assertEqual(data["failed_sessions"][1]["category"], "summarization_failed")
         # Verify execute_summarize_session_group was called correctly
         mock_execute.assert_called_once_with(
             session_ids=["session1", "session2"],

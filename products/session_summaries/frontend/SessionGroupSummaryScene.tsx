@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
+import { IconCheck, IconSearch, IconShare, IconSort, IconSparkles } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -38,7 +38,7 @@ import {
 import { getIssueTags } from './utils'
 
 const FAILED_SESSION_CATEGORY_LABELS: Record<FailedSessionCategory, string> = {
-    skipped: 'Skipped (too short or no events)',
+    skipped: 'Skipped',
     summarization_failed: "Couldn't summarize",
     patterns_failed: "Couldn't extract patterns",
 }
@@ -53,7 +53,6 @@ function PartialResultBanner({
     if (failedSessions.length === 0) {
         return null
     }
-    // DB session_ids is the post-filter set; reconstruct the original total.
     const totalSessions = analyzedSessionCount + failedSessions.length
     const grouped = failedSessions.reduce<Record<FailedSessionCategory, FailedSessionInfo[]>>(
         (acc, fs) => {
@@ -63,47 +62,71 @@ function PartialResultBanner({
         },
         { skipped: [], summarization_failed: [], patterns_failed: [] }
     )
-    const summaryLine = `Analyzed ${analyzedSessionCount} of ${totalSessions} sessions · ${failedSessions.length} not included`
     return (
-        <LemonBanner type="info" className="mb-2">
+        <div className="border border-ai bg-ai/08 dark:bg-ai/20 rounded-lg overflow-hidden mb-2">
             <LemonCollapse
                 size="small"
                 embedded
                 panels={[
                     {
                         key: 'failed-sessions',
-                        header: <span className="text-sm font-medium">{summaryLine}</span>,
+                        header: (
+                            <div className="flex items-center gap-2">
+                                <IconSparkles className="text-ai shrink-0" />
+                                <span className="text-sm font-medium">
+                                    Analyzed {analyzedSessionCount} of {totalSessions} sessions
+                                </span>
+                                <span className="text-xs text-secondary">· {failedSessions.length} not included</span>
+                            </div>
+                        ),
                         content: (
-                            <div className="flex flex-col gap-3">
+                            <div className="flex flex-col gap-3 pt-1">
+                                <p className="text-xs text-secondary mb-0">
+                                    The patterns below are based on the {analyzedSessionCount} sessions that succeeded.
+                                </p>
                                 {(Object.keys(grouped) as FailedSessionCategory[])
                                     .filter((category) => grouped[category].length > 0)
-                                    .map((category) => (
-                                        <div key={category}>
-                                            <p className="text-xs font-semibold text-muted-alt mb-1">
-                                                {FAILED_SESSION_CATEGORY_LABELS[category]} ({grouped[category].length})
-                                            </p>
-                                            <p className="text-xs text-muted-alt mb-2">{grouped[category][0].reason}</p>
-                                            <div className="flex flex-wrap gap-1">
-                                                {grouped[category].map((fs) => (
-                                                    <LemonButton
-                                                        key={fs.session_id}
-                                                        size="xsmall"
-                                                        type="secondary"
-                                                        to={urls.replaySingle(fs.session_id)}
-                                                        targetBlank
-                                                    >
-                                                        {fs.session_id}
-                                                    </LemonButton>
-                                                ))}
+                                    .map((category) => {
+                                        const items = grouped[category]
+                                        const isClickable = category !== 'skipped'
+                                        return (
+                                            <div key={category} className="flex flex-col gap-1.5">
+                                                <p className="text-xs text-secondary mb-0">
+                                                    <span className="font-medium">
+                                                        {FAILED_SESSION_CATEGORY_LABELS[category]} ({items.length})
+                                                    </span>{' '}
+                                                    · {items[0].reason}
+                                                </p>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {items.map((fs) =>
+                                                        isClickable ? (
+                                                            <Tooltip key={fs.session_id} title="Open in player">
+                                                                <LemonButton
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                    icon={<IconPlayCircle />}
+                                                                    to={urls.replaySingle(fs.session_id)}
+                                                                    targetBlank
+                                                                >
+                                                                    {fs.session_id}
+                                                                </LemonButton>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            <LemonTag key={fs.session_id} size="small" type="muted">
+                                                                {fs.session_id}
+                                                            </LemonTag>
+                                                        )
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                             </div>
                         ),
                     },
                 ]}
             />
-        </LemonBanner>
+        </div>
     )
 }
 

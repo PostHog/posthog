@@ -85,11 +85,8 @@ async def test_run_summaries_keeps_partial_results_above_threshold():
 @pytest.mark.parametrize(
     "side_effects",
     [
-        # Small batch, all fail.
         [RuntimeError("a"), RuntimeError("b"), RuntimeError("c")],
-        # Small batch, single success below the floor.
         [None, RuntimeError("a"), RuntimeError("b"), RuntimeError("c"), RuntimeError("d")],
-        # Motivating case: 30 sessions, 1 succeeds, threshold=9.
         [None] + [RuntimeError(f"boom-{i}") for i in range(29)],
     ],
 )
