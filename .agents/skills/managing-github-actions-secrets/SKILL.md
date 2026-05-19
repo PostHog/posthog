@@ -29,7 +29,7 @@ below reads the value from stdin so it never appears in shell history:
 
 ```sh
 # Read from clipboard / a pipe / a file — never inline as an argument
-<secret-value> | gh secret set POSTHOGOS_PACKAGER_KEY --org posthog
+pbpaste | gh secret set POSTHOGOS_PACKAGER_KEY --org posthog
 ```
 
 Common variants:
