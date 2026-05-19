@@ -168,47 +168,29 @@ class TestTeam(BaseTest):
         # Ensure insights are created and linked
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
 
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
+    def test_team_on_cloud_defaults_to_v2_when_modifier_unset(self):
+        # Cloud teams are backfilled into team.modifiers["personsOnEventsMode"]
+        # (see posthog/dags/backfill_persons_on_events_mode.py). Brand-new cloud
+        # teams created after the backfill have a null modifier and should adopt
+        # v2 as the canonical modern default.
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
-                # called more than once when evaluating hogql
-                mock_feature_enabled.assert_called_with(
-                    "persons-on-events-v2-reads-enabled",
-                    str(team.uuid),
-                    groups={"organization": str(self.organization.id)},
-                    group_properties={
-                        "organization": {
-                            "id": str(self.organization.id),
-                            "created_at": self.organization.created_at.isoformat(),
-                        }
-                    },
-                    only_evaluate_locally=True,
-                    send_feature_flag_events=False,
-                )
 
-    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self, mock_feature_enabled):
+    def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
-                for args_list in mock_feature_enabled.call_args_list:
-                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
-                    assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
                 self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-                for args_list in mock_feature_enabled.call_args_list:
-                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
-                    assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
     def test_each_team_gets_project_with_default_name_and_same_id(self):
         # Can be removed once environments are fully rolled out
