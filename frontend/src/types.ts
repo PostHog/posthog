@@ -63,6 +63,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     QuerySchema,
     QueryStatus,
@@ -78,7 +79,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
 import { InferredSelector } from './toolbar/product-tours/elementInference'
@@ -193,7 +194,6 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
-    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     APPROVALS = 'approvals',
@@ -284,6 +284,8 @@ export enum AccessControlResourceType {
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
     ExternalDataSource = 'external_data_source',
+    WarehouseObjects = 'warehouse_objects',
+    WarehouseTable = 'warehouse_table',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -316,11 +318,16 @@ export interface SceneDashboardChoice {
 
 export type UserTheme = 'light' | 'dark' | 'system'
 export type UserShortcutPosition = 'above' | 'below' | 'hidden'
+// Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
+// hard dependency on generated types; when adopting generated `UserApi`, switch to
+// `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -349,6 +356,22 @@ export interface UserType extends UserBaseType {
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
+    onboarding_skipped_at?: string | null
+    onboarding_skipped_reason?: OnboardingSkippedReason
+    onboarding_skipped_organization_id?: string | null
+    onboarding_delegated_to_invite?: string | null
+    onboarding_delegated_to_organization_id?: string | null
+    onboarding_delegation_accepted_at?: string | null
+    is_organization_first_user?: boolean
+    pending_invites?: PendingInviteForCurrentUser[]
+}
+
+export interface PendingInviteForCurrentUser {
+    id: string
+    target_email: string
+    organization_id: string
+    organization_name: string
+    created_at: string
 }
 
 export type HedgehogColorOptions =
@@ -392,6 +415,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
+    realtime_notifications_disabled?: Record<string, Record<string, boolean>>
 }
 
 export interface InAppNotification {
@@ -442,6 +466,7 @@ export interface OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     is_active: boolean | null
     is_not_active_reason: string | null
+    is_pending_deletion: boolean
 }
 
 interface OrganizationMetadata {
@@ -552,6 +577,7 @@ export interface ListOrganizationMembersParams {
     offset?: number
     limit?: number
     updated_after?: string
+    search?: string
 }
 
 export interface APIErrorType {
@@ -642,15 +668,25 @@ export interface ConversationsSettings {
     slack_team_id?: string | null
     slack_channel_id?: string | null
     slack_channel_name?: string | null
+    slack_channel_ids?: string[] | null
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
     email_enabled?: boolean
+    teams_enabled?: boolean
+    teams_team_id?: string | null
+    teams_team_name?: string | null
+    teams_channel_id?: string | null
+    teams_channel_name?: string | null
+    github_enabled?: boolean
+    github_integration_id?: number | null
+    github_repos?: string[] | null
 }
 
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -661,7 +697,6 @@ export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
     recording_domains: string[]
-    slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
@@ -812,6 +847,8 @@ export interface ElementType {
     text?: string
 }
 
+// Keep the union literal so kea-typegen can inline its members; the runtime allowlist below
+// is asserted to satisfy the same members so TypeScript fails the build if either side drifts.
 export type ToolbarUserIntent =
     | 'add-action'
     | 'edit-action'
@@ -821,6 +858,17 @@ export type ToolbarUserIntent =
     | 'add-product-tour'
     | 'edit-product-tour'
     | 'preview-product-tour'
+
+export const TOOLBAR_USER_INTENTS = [
+    'add-action',
+    'edit-action',
+    'heatmaps',
+    'add-experiment',
+    'edit-experiment',
+    'add-product-tour',
+    'edit-product-tour',
+    'preview-product-tour',
+] as const satisfies readonly ToolbarUserIntent[]
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -903,7 +951,6 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
-    Home = 'home',
     All = 'all',
     Yours = 'yours',
     History = 'history',
@@ -948,6 +995,7 @@ export enum ProgressStatus {
 export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
+    Paused = 'paused',
     Stopped = 'stopped',
 }
 
@@ -1246,7 +1294,6 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
-    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
@@ -1568,6 +1615,7 @@ export interface CohortCriteriaType {
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
     explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
     total_periods?: number | null
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
@@ -2083,6 +2131,7 @@ export interface BillingProductV2AddonType {
     display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
     display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
+    default_unit_amount_usd?: string | null // Product's default (undiscounted) unit price
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
@@ -2344,9 +2393,10 @@ export interface EndpointType extends WithAccessControl {
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
-    cache_age_seconds: number | null
+    data_freshness_seconds: number
     is_materialized: boolean
     current_version: number
+    current_version_id: string
     versions_count: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2372,6 +2422,7 @@ export interface EndpointVersionMaterializationType {
     status?: string
     error?: string
     last_materialized_at?: string
+    saved_query_id?: string
     sync_frequency?: DataModelingSyncInterval
 }
 
@@ -2598,7 +2649,6 @@ export interface PluginConfigType {
 
     config: Record<string, any>
     error?: PluginErrorType
-    delivery_rate_24h?: number | null
     created_at?: string
 }
 
@@ -2618,7 +2668,6 @@ export interface PluginConfigTypeNew {
     name: string
     description?: string
     updated_at: string
-    delivery_rate_24h?: number | null
     config: Record<string, any>
 }
 
@@ -2986,6 +3035,12 @@ export interface RetentionEntity {
     custom_name?: string
     /** filters on the event */
     properties?: AnyPropertyFilter[]
+    /** Data warehouse table name */
+    table_name?: string
+    /** Data warehouse timestamp field */
+    timestamp_field?: string
+    /** Data warehouse field used as the actor identifier */
+    aggregation_target_field?: string
 }
 
 export enum RetentionDashboardDisplayType {
@@ -3447,6 +3502,7 @@ export interface OpenQuestionResponseData {
     /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
     personDisplayName?: string
     timestamp?: string
+    sessionId?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -3762,6 +3818,15 @@ export interface Survey extends WithAccessControl {
     headline_summary?: string | null
     headline_response_count?: number | null
     form_content?: Record<string, unknown> | null
+    translations?: Record<
+        string,
+        {
+            name?: string
+            thankYouMessageHeader?: string
+            thankYouMessageDescription?: string
+            thankYouMessageCloseButtonText?: string
+        }
+    > | null
 }
 
 export enum SurveyMatchType {
@@ -3867,6 +3932,18 @@ export interface SurveyQuestionBase {
         | ConfirmationMessageBranching
         | ResponseBasedBranching
         | SpecificQuestionBranching
+    translations?: Record<
+        string,
+        {
+            question?: string
+            description?: string
+            buttonText?: string
+            lowerBoundLabel?: string
+            upperBoundLabel?: string
+            choices?: string[]
+            link?: string
+        }
+    > | null
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -4039,6 +4116,7 @@ export interface OrganizationFeatureFlag {
     created_at: string | null
     filters: FeatureFlagFilters
     active: boolean
+    evaluations_7d?: number | null
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -4046,6 +4124,7 @@ export interface OrganizationFeatureFlagsCopyBody {
     from_project: TeamType['id']
     target_project_ids: TeamType['id'][]
     copy_schedule?: boolean
+    disable_copied_flag?: boolean
 }
 
 export type OrganizationFeatureFlags = {
@@ -4328,6 +4407,8 @@ export interface EventDefinition {
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
+    /** Name of a single property on this event to display alongside it in PostHog UI surfaces. */
+    primary_property?: string | null
 }
 
 export interface EventDefinitionMetrics {
@@ -4524,9 +4605,10 @@ export interface Experiment {
         frequentist?: {
             alpha?: number
         }
-    }
-    scheduling_config?: {
-        timeseries?: boolean
+        cuped?: {
+            enabled?: boolean
+            lookback_days?: number
+        }
     }
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
@@ -4605,6 +4687,8 @@ export interface CoreFilterDefinition {
     virtual?: boolean
     /** whether this is a property PostHog adds to aid with debugging */
     used_for_debug?: boolean
+    /** Name of a single property on events of this name that UIs should display alongside the event. */
+    primary_property?: string
 }
 
 export interface TileParams {
@@ -4952,6 +5036,9 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+// This hand-written interface predates the generated type and now requires
+// dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
     insight?: number
@@ -4962,7 +5049,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     target_type: string
     target_value: string
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null
@@ -4974,6 +5061,9 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    enabled?: boolean
+    summary_enabled?: boolean
+    summary_prompt_guide?: string
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -5002,6 +5092,7 @@ export const INTEGRATION_KINDS = [
     'google-sheets',
     'linkedin-ads',
     'snapchat',
+    'stripe',
     'intercom',
     'email',
     'twilio',
@@ -5019,6 +5110,9 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5135,6 +5229,7 @@ export interface HeatmapExportContext {
     heatmap_color_palette?: string | null
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
+    width?: number
 }
 
 export type ExportContext = (
@@ -5202,6 +5297,7 @@ export type APIScopeObject =
     | 'annotation'
     | 'approvals'
     | 'batch_export'
+    | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
     | 'customer_analytics'
@@ -5210,6 +5306,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'deployment'
     | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
@@ -5222,6 +5319,8 @@ export type APIScopeObject =
     | 'external_data_source'
     | 'export'
     | 'feature_flag'
+    | 'file_system'
+    | 'file_system_shortcut'
     | 'group'
     | 'health_issue'
     | 'heatmap'
@@ -5230,22 +5329,26 @@ export type APIScopeObject =
     | 'insight'
     | 'insight_variable'
     | 'integration'
+    | 'legal_document'
     | 'live_debugger'
     | 'llm_analytics'
     | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
+    | 'llm_skill'
     | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'replay_lens'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -5255,8 +5358,10 @@ export type APIScopeObject =
     | 'task'
     | 'ticket'
     | 'uploaded_media'
+    | 'usage_metric'
     | 'user'
     | 'visual_review'
+    | 'warehouse_objects'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
@@ -5433,6 +5538,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
@@ -5464,6 +5570,9 @@ export type CommentType = {
     item_context: Record<string, any> | null
     /** only on the type to support patching for soft delete */
     deleted?: boolean
+    is_task: boolean
+    completed_at: string | null
+    completed_by: UserBasicType | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }
@@ -5482,6 +5591,7 @@ export interface DataWarehouseTable {
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
+    user_access_level?: AccessControlLevel
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
@@ -5570,6 +5680,7 @@ export interface DataWarehouseSavedQuery {
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
     expires_at?: string
+    user_access_level?: AccessControlLevel
 }
 
 export interface DataWarehouseSavedQueryFolder {
@@ -5632,6 +5743,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
 
@@ -5658,6 +5770,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    created_via: 'web' | 'api' | 'mcp' | null
     engine?: 'duckdb' | 'postgres' | null
     latest_error: string | null
     last_run_at?: Dayjs
@@ -5679,6 +5792,8 @@ export interface WebhookExternalStatus {
     error?: string
 }
 
+export type WebhookInputValue = { secret: true } | { value: unknown }
+
 export interface WebhookInfo {
     supports_webhooks: boolean
     exists: boolean
@@ -5691,6 +5806,7 @@ export interface WebhookInfo {
     }
     webhook_url?: string
     schema_mapping?: Record<string, string>
+    inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
 }
 
@@ -5716,12 +5832,21 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
 }
 
+export interface AvailableColumn {
+    label: string
+    field: string
+    type: string
+    nullable: boolean
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
     supports_webhooks: boolean
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
     cdc_available?: boolean
 }
 
@@ -5734,10 +5859,12 @@ export interface IncrementalField {
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
+    is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
 }
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    label?: string | null
     rows?: number | null
     should_sync: boolean
     sync_time_of_day: string | null
@@ -5752,6 +5879,9 @@ export interface ExternalDataSourceSyncSchema {
     supports_webhooks: boolean
     description?: string | null
     should_sync_default: boolean
+    primary_key_columns: string[] | null
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5766,6 +5896,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
+    primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
 }
 
@@ -6039,6 +6170,7 @@ export type RawBatchExportRun = {
     records_completed?: number
     records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type BatchExportRun = {
@@ -6060,6 +6192,7 @@ export type BatchExportRun = {
     records_completed?: number
     records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type GroupedBatchExportRuns = {
@@ -6144,10 +6277,12 @@ export enum SDKKey {
     API = 'api',
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
+    CLOUDFLARE_AI_GATEWAY = 'cloudflare_ai_gateway',
     COHERE = 'cohere',
     CONVEX = 'convex',
     CREWAI = 'crewai',
     DJANGO = 'django',
+    DEDALUS = 'dedalus',
     DEEPSEEK = 'deepseek',
     DOCUSAURUS = 'docusaurus',
     DOTNET = 'dotnet',
@@ -6187,6 +6322,7 @@ export enum SDKKey {
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
     OPENROUTER = 'openrouter',
+    OPENTELEMETRY = 'opentelemetry',
     PERPLEXITY = 'perplexity',
     PHP = 'php',
     PORTKEY = 'portkey',
@@ -6237,39 +6373,15 @@ export enum SDKTag {
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ComposeWebhook = 'composeWebhook',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
-
-/*
-    WARNING: Everything below 'Notebooks' is to be removed in future releases
-*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
-    Docs = 'docs',
-    Changelog = 'changelog',
     Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
-    Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
-    Health = 'health',
     Info = 'info',
 }
 
@@ -6313,7 +6425,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
     | ProductKey.LLM_ANALYTICS
-    | ProductKey.WORKFLOWS,
+    | ProductKey.WORKFLOWS
+    | ProductKey.LOGS,
     OnboardingProduct
 >
 
@@ -6349,6 +6462,7 @@ export type CyclotronJobInputSchemaType = {
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -6491,6 +6605,8 @@ export type HogFunctionSubTemplateIdType =
     | 'experiment-significant'
     | 'logs-alert-firing'
     | 'logs-alert-resolved'
+    | 'logs-alert-auto-disabled'
+    | 'logs-alert-errored'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -6528,6 +6644,8 @@ export type HogFunctionTemplateType = Pick<
     flag?: string
     /** Whether this is a featured/recommended source */
     featured?: boolean
+    /** Release status, only populated for `type: 'source'` templates */
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -6806,6 +6924,13 @@ export interface FileSystemType {
     iconColor?: FileSystemIconColor
 }
 
+export interface FeaturePreviewGateConfig {
+    flag: string
+    title: string
+    description: string
+    docsURL?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -6814,7 +6939,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }
@@ -7292,6 +7417,8 @@ export interface WebAnalyticsFiltersConfig {
     compareFilter?: { compare?: boolean; compare_to?: string | null }
     domainFilter?: string | null
     deviceTypeFilter?: string | null
+    countryFilter?: string | null
+    referrerFilter?: string | null
     conversionGoal?: { actionId?: number; customEventName?: string } | null
     isPathCleaningEnabled?: boolean
     shouldFilterTestAccounts?: boolean

@@ -10,10 +10,14 @@ vi.mock('mcpcat', () => ({
     track: vi.fn(),
 }))
 
+// Mock PostHog MCP analytics module to avoid networked analytics in tests
+vi.mock('@posthog/mcp-analytics', () => ({
+    track: vi.fn(),
+}))
+
 // Mock cloudflare:workers module for Node.js test environment
 vi.mock('cloudflare:workers', () => ({
     env: {
-        INKEEP_API_KEY: undefined,
         MCP_CAT_PROJECT_ID: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,

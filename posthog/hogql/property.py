@@ -43,7 +43,7 @@ from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -282,9 +282,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         prop_type = None
 
         table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
-        if table_or_view:
+        if table_or_view and table_or_view.columns is not None:
             prop_type_dict = table_or_view.columns.get(property.key, None)
-            prop_type = prop_type_dict.get("hogql")
+            if prop_type_dict is not None:
+                prop_type = prop_type_dict.get("hogql")
 
         if not table_or_view:
             raise Exception(f"Could not find table or view for key {key}")
@@ -734,7 +735,7 @@ def property_to_expr(
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
-        return parse_expr(property.key)
+        return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -795,7 +796,19 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.type == "person" and property.key == "distinct_id":
+            # distinct_id is not stored in person.properties.
+            # - In event scope, events.distinct_id is a real column — no join needed.
+            # - In person scope, persons.pdi.distinct_id resolves via the lazy join on persons.
+            # Routing through `events.person.pdi` would break under person-on-events mode,
+            # where `events.person` is rebound to the `poe` virtual table which has no `pdi` field.
+            if scope == "event":
+                chain = []
+            elif scope == "person":
+                chain = ["pdi"]
+            else:
+                chain = ["person", "pdi"]
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -1104,6 +1117,8 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+        if not isinstance(property.value, (str, int)):
+            raise ValidationError("Cohort property value must be a cohort ID")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
@@ -1249,8 +1264,9 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
+        action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
         try:
-            action = Action.objects.get(pk=entity.id, team=team)
+            action = Action.objects.get(pk=action_id, team=team)
         except Action.DoesNotExist:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         event_expr = action_to_expr(action)

@@ -1,4 +1,4 @@
-import isEqual from 'lodash.isequal'
+import equal from 'fast-deep-equal'
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -33,6 +33,7 @@ import {
     ResultCustomizationBy,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
@@ -733,7 +734,7 @@ function arraysEqual(arr1: any[], arr2: any[]): boolean {
 
     // Compare each element
     for (let i = 0; i < sorted1.length; i++) {
-        if (!isEqual(sorted1[i], sorted2[i])) {
+        if (!equal(sorted1[i], sorted2[i])) {
             return false
         }
     }
@@ -744,7 +745,7 @@ function deepEqual(val1: any, val2: any): boolean {
     if (Array.isArray(val1) && Array.isArray(val2)) {
         return arraysEqual(val1, val2)
     }
-    return isEqual(val1, val2)
+    return equal(val1, val2)
 }
 
 export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
@@ -825,4 +826,23 @@ export const getOverrideWarningPropsForButton = (
               tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
           }
         : {}
+}
+
+/** Checks for breakdown features that are unsupported by trend insights with a
+ * data warehouse series. */
+export const hasUnsupportedBreakdownForDataWarehouseTrends = (
+    filtersOverride: DashboardFilter | TileFilters | null | undefined
+): boolean => {
+    const breakdownFilter = filtersOverride?.breakdown_filter
+
+    if (!breakdownFilter) {
+        return false
+    }
+
+    return !!(
+        breakdownFilter.breakdowns?.length ||
+        breakdownFilter.breakdown_type !== 'data_warehouse' ||
+        !breakdownFilter.breakdown ||
+        Array.isArray(breakdownFilter.breakdown)
+    )
 }

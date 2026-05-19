@@ -4,16 +4,17 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
@@ -30,6 +31,7 @@ import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
+import { AdLevelInfoBanner } from './AdLevelInfoBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -45,8 +47,9 @@ export const MarketingAnalyticsTable = ({
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
-    const { drillDownLevel } = useValues(marketingAnalyticsLogic)
+    const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
+    const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -64,28 +67,50 @@ export const MarketingAnalyticsTable = ({
                 }
                 return {}
             },
-            columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
-                (acc, column) => {
-                    const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
-                        (c) => c.columnAlias
-                    )
-                    const isGroupingColumn = allGroupingAliases.includes(column)
-                    acc[column] = {
-                        render: (props) => (
-                            <MarketingAnalyticsCell
-                                {...props}
-                                style={{
-                                    maxWidth: isGroupingColumn ? '200px' : undefined,
-                                }}
-                            />
-                        ),
-                    }
-                    return acc
-                },
-                {} as Record<string, QueryContextColumn>
-            ),
+            columns: (() => {
+                const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
+                    (c) => c.columnAlias
+                )
+                // Include every column the backend could ever return, not just the current select.
+                // When drill-down level changes, stale response data lingers in kea-cached state
+                // briefly; without a render fn for those stale columns, cells fall through to the
+                // raw JSON viewer. We register render functions for:
+                //   - all base columns (ID, Cost, Clicks, …)
+                //   - all grouping aliases (Channel, Medium, Ad group, …)
+                //   - all configured conversion goals + their "Cost per" variants — these are
+                //     dynamic per team and only exist in some levels, so they're the most likely
+                //     to flash through during a level switch
+                //   - the current select (covers draft conversion goals and any ad-hoc columns)
+                const conversionGoalColumns = conversion_goals.flatMap((goal) => [
+                    goal.conversion_goal_name,
+                    `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
+                ])
+                const allKnownColumns = new Set<string>([
+                    ...Object.values(MarketingAnalyticsBaseColumns),
+                    ...allGroupingAliases,
+                    ...conversionGoalColumns,
+                    ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
+                ])
+                return Array.from(allKnownColumns).reduce(
+                    (acc, column) => {
+                        const isGroupingColumn = allGroupingAliases.includes(column)
+                        acc[column] = {
+                            render: (props) => (
+                                <MarketingAnalyticsCell
+                                    {...props}
+                                    style={{
+                                        maxWidth: isGroupingColumn ? '200px' : undefined,
+                                    }}
+                                />
+                            ),
+                        }
+                        return acc
+                    },
+                    {} as Record<string, QueryContextColumn>
+                )
+            })(),
         }),
-        [insightProps, query.source, searchTerm]
+        [insightProps, query.source, searchTerm, conversion_goals]
     )
 
     return (
@@ -102,13 +127,61 @@ export const MarketingAnalyticsTable = ({
                             data-attr="marketing-analytics-search"
                         />
                         {hasDrillDown && (
-                            <LemonSegmentedButton
+                            <LemonSelect
                                 value={drillDownLevel}
-                                onChange={setDrillDownLevel}
+                                onChange={(value) => value && setDrillDownLevel(value)}
                                 options={[
-                                    { value: MarketingAnalyticsDrillDownLevel.Channel, label: 'Channel' },
-                                    { value: MarketingAnalyticsDrillDownLevel.Source, label: 'Source' },
-                                    { value: MarketingAnalyticsDrillDownLevel.Campaign, label: 'Campaign' },
+                                    {
+                                        title: 'Platform',
+                                        options: [
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Channel,
+                                                label: 'Channel',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Source,
+                                                label: 'Source',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Campaign,
+                                                label: 'Campaign',
+                                            },
+                                        ],
+                                    },
+                                    ...(hasExtendedDrillDown
+                                        ? [
+                                              {
+                                                  title: 'UTM',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                          label: 'Medium',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Content,
+                                                          label: 'Content',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Term,
+                                                          label: 'Term',
+                                                      },
+                                                  ],
+                                              },
+                                              {
+                                                  title: 'Ad level',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.AdGroup,
+                                                          label: 'Ad group',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Ad,
+                                                          label: 'Ad',
+                                                      },
+                                                  ],
+                                              },
+                                          ]
+                                        : []),
                                 ]}
                                 size="small"
                             />
@@ -125,6 +198,15 @@ export const MarketingAnalyticsTable = ({
             {validationWarnings && validationWarnings.length > 0 && (
                 <div className="pt-2">
                     <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+                </div>
+            )}
+            {(drillDownLevel === MarketingAnalyticsDrillDownLevel.AdGroup ||
+                drillDownLevel === MarketingAnalyticsDrillDownLevel.Ad) && (
+                <div className="pt-2 px-2">
+                    <AdLevelInfoBanner
+                        drillDownLevel={drillDownLevel}
+                        sourcesHierarchyStatus={nativeSourcesHierarchyStatus}
+                    />
                 </div>
             )}
             <div className="relative marketing-analytics-table-container">

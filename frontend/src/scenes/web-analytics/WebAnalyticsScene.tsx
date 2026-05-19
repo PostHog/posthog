@@ -3,6 +3,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsSceneMenuBar } from 'scenes/web-analytics/WebAnalyticsSceneMenuBar'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -12,6 +13,7 @@ export function WebAnalyticsScene(): JSX.Element {
     return (
         <>
             <SceneContent>
+                <WebAnalyticsSceneMenuBar />
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.WebAnalytics].name}
                     description={sceneConfigurations[Scene.WebAnalytics].description}

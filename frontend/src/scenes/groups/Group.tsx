@@ -1,6 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useFeatureFlagVariantKey } from 'posthog-js/react'
+
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -62,10 +65,18 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
         throw new Error('GroupScene rendered with no tabId')
     }
     const mountedGroupLogic = useMountedLogic(groupLogic)
-    const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
-        useValues(mountedGroupLogic)
+    const {
+        logicProps,
+        groupData,
+        groupDataLoading,
+        groupTypeName,
+        groupType,
+        groupTab,
+        groupEventsQuery,
+        groupEventsQueryIsDirty,
+    } = useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
+    const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -163,7 +174,22 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: 'force_blocking' }}
+                                context={{
+                                    refresh: 'force_blocking',
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-group-events-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetGroupEventsQuery()}
+                                            disabledReason={groupEventsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="group-events-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
+                                }}
                             />
                         ) : (
                             <Spinner />

@@ -7,7 +7,7 @@ from braintrust import EvalCase, Score
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HumanMessage
+from posthog.schema import AssistantHogQLQuery, DataVisualizationNode, HumanMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -77,7 +77,11 @@ async def call_graph(entry: DatasetInput, *args):
         return EvalOutput(
             database_schema=database_schema,
             query_kind=content.query.kind,
-            sql_query=content.query.query if isinstance(content.query, AssistantHogQLQuery) else None,
+            sql_query=content.query.source.query
+            if isinstance(content.query, DataVisualizationNode)
+            else content.query.query
+            if isinstance(content.query, AssistantHogQLQuery)
+            else None,
         )
     return EvalOutput(database_schema=database_schema, query_kind=None, sql_query=None)
 
@@ -85,7 +89,7 @@ async def call_graph(entry: DatasetInput, *args):
 @capture_score
 async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSemanticsCorrectness(client=get_eval_context().get_openai_client_for_tracing(input.trace_id))
-    return await metric.eval_async(
+    return await metric.eval_async(  # ty: ignore[invalid-return-type]
         output.sql_query,
         expected=expected,
         input=input.input["query"],
@@ -96,7 +100,7 @@ async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalO
 @capture_score
 async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSyntaxCorrectness()
-    return await metric.eval_async(
+    return await metric.eval_async(  # ty: ignore[invalid-return-type]
         output.sql_query,
         expected=expected,
         input=input.input["query"],

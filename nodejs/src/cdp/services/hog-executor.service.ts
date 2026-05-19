@@ -15,7 +15,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { UUIDT } from '../../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
-import {
+import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
@@ -559,6 +559,11 @@ export class HogExecutorService {
                     if (!handler) {
                         throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
+                    // Async handlers are responsible for ensuring the resumed VM stack contains
+                    // their return value before it next runs - either by pushing directly onto
+                    // result.invocation.state.vmState.stack (synchronous handlers) or by deferring
+                    // the push to executeFetch / executeSendEmail (queueing handlers). See the
+                    // RETURN-VALUE CONTRACT comment in cdp/async-functions/example.ts.
                     await handler.execute(
                         args,
                         { invocation: result.invocation, globals, ...this.asyncContext },
@@ -719,7 +724,7 @@ export class HogExecutorService {
             if (typeof body === 'string') {
                 try {
                     body = parseJSON(body)
-                } catch (e) {
+                } catch {
                     // Pass through the error
                 }
             }

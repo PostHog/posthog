@@ -55,15 +55,16 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |Account
                               |Action
                               |AgentArtifact
                               |Alert
                               |AlertConfiguration
                               |Annotation
                               |ApprovalPolicy
-                              |Artifact
                               |BatchExport
                               |BatchExportBackfill
+                              |BatchExportFileDownload
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
@@ -91,6 +92,9 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -105,6 +109,8 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingRecommendation
+                              |ErrorTrackingSettings
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -122,7 +128,9 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamSessionSummariesConfig
                               |FileSystem
+                              |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
@@ -136,19 +144,27 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsExclusionRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
+                              |LLMSkill
                               |LLMTraceSummary
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -156,13 +172,15 @@ rules:
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
+                              |PropertyAccessControl
+                              |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayLens
+                              |ReplayObservation
                               |Repo
                               |RepoRoutingRule
-                              |Run
-                              |RunSnapshot
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -171,20 +189,31 @@ rules:
                               |SessionRecording
                               |SessionRecordingPlaylist
                               |SharingConfiguration
+                              |SignalEmissionRecord
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalReportTask
+                              |SignalTeamConfig
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SourceBatch
+                              |StreamlitApp
                               |Subscription
+                              |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
                               |Tag
+                              |Tagger
                               |Task
+                              |TaskAutomation
                               |TaskRun
                               |EmailChannel
+                              |EvaluationReport
                               |Text
                               |Threshold
+                              |ToleratedHash
+                              |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
                               |ReviewQueue
@@ -193,6 +222,7 @@ rules:
                               |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
+                              |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
@@ -247,15 +277,16 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |Account
                         |Action
                         |AgentArtifact
                         |Alert
                         |AlertConfiguration
                         |Annotation
                         |ApprovalPolicy
-                        |Artifact
                         |BatchExport
                         |BatchExportBackfill
+                        |BatchExportFileDownload
                         |BatchImport
                         |ButtonTile
                         |ChangeRequest
@@ -283,6 +314,9 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -297,6 +331,8 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingRecommendation
+                        |ErrorTrackingSettings
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -314,7 +350,9 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamSessionSummariesConfig
                         |FileSystem
+                        |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
@@ -328,16 +366,23 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMProviderKey
+                        |LLMSkill
                         |LLMTraceSummary
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
@@ -345,13 +390,15 @@ rules:
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
+                        |PropertyAccessControl
+                        |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayLens
+                        |ReplayObservation
                         |Repo
                         |RepoRoutingRule
-                        |Run
-                        |RunSnapshot
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
@@ -360,20 +407,31 @@ rules:
                         |SessionRecording
                         |SessionRecordingPlaylist
                         |SharingConfiguration
+                        |SignalEmissionRecord
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalReportTask
+                        |SignalTeamConfig
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SourceBatch
+                        |StreamlitApp
                         |Subscription
+                        |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
                         |Tag
+                        |Tagger
                         |Task
+                        |TaskAutomation
                         |TaskRun
                         |EmailChannel
+                        |EvaluationReport
                         |Text
                         |Threshold
+                        |ToleratedHash
+                        |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
                         |ReviewQueue
@@ -382,6 +440,7 @@ rules:
                         |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
+                        |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
@@ -468,7 +527,9 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              OrganizationMembership
+                              CIMDVerificationToken
+                              |LegalDocument
+                              |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -476,6 +537,7 @@ rules:
                               |Project
                               |ProxyRecord
                               |Role
+                              |RoleExternalReference
                               |RoleMembership
                           )$
                 - focus-metavariable: $SINK
@@ -529,7 +591,9 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        OrganizationMembership
+                        CIMDVerificationToken
+                        |LegalDocument
+                        |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -537,6 +601,7 @@ rules:
                         |Project
                         |ProxyRecord
                         |Role
+                        |RoleExternalReference
                         |RoleMembership
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
@@ -626,6 +691,8 @@ rules:
                               DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
+                              |SignalUserAutonomyConfig
+                              |UserPushToken
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -676,6 +743,8 @@ rules:
                         DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
+                        |SignalUserAutonomyConfig
+                        |UserPushToken
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)

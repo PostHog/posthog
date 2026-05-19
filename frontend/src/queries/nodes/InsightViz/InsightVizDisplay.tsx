@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -26,6 +25,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
@@ -39,7 +39,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -127,7 +127,6 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
         useValues(insightLogic)
-    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -173,7 +172,10 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+        if (
+            display === ChartDisplayType.BoxPlot &&
+            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)
+        ) {
             return <BoxPlotMissingPropertyState />
         }
 
@@ -377,11 +379,6 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Check feature flag
-        if (!hasAIAnalysis) {
-            return null
-        }
-
         // Only show in view mode
         if (editMode) {
             return null
@@ -397,7 +394,7 @@ export function InsightVizDisplay({
             return null
         }
 
-        return <InsightAIAnalysis query={querySource} />
+        return <InsightAIAnalysis />
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor

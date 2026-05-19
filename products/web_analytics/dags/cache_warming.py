@@ -76,12 +76,14 @@ def queries_to_keep_fresh(
             WHERE
                 timestamp >= now() - INTERVAL %(days)s DAY
                 AND team_id = %(team_id)s
-                AND query_type IN (
-                    'stats_table_query',
+                AND (
+                    startsWith(query_type, 'stats_table_')
+                    OR query_type IN (
                     'web_goals_query',
                     'web_overview_preaggregated_query',
                     'web_overview_query',
                     'web_vitals_path_breakdown_query'
+                )
                 )
                 AND query_json_raw != ''
                 AND exception_code = 0

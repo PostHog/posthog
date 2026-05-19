@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -14,59 +15,48 @@ ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 McpScopePreset = Literal["read_only", "full"]
 
 
-# Scopes matching the MCP server's OAUTH_SCOPES_SUPPORTED (services/mcp/src/lib/constants.ts),
-# excluding OAuth auth scopes (openid, profile, email, introspection).
-MCP_READ_SCOPES: list[str] = [
-    "action:read",
-    "cohort:read",
-    "dashboard:read",
-    "error_tracking:read",
-    "event_definition:read",
-    "experiment:read",
-    "feature_flag:read",
-    "hog_flow:read",
-    "insight:read",
-    "llm_prompt:read",
-    "logs:read",
-    "organization:read",
-    "project:read",
-    "property_definition:read",
-    "query:read",
-    "survey:read",
-    "user:read",
-    "warehouse_table:read",
-    "warehouse_view:read",
-]
-
-MCP_WRITE_SCOPES: list[str] = [
-    "action:write",
-    "cohort:write",
-    "dashboard:write",
-    "error_tracking:write",
-    "event_definition:write",
-    "experiment:write",
-    "feature_flag:write",
-    "insight:write",
-    "llm_prompt:write",
-    "survey:write",
-]
-
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
 ]
+
+
+# Derived from posthog.scopes so the token issued to a sandboxed agent cannot
+# drift out of subset of what the MCP server advertises in
+# `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
+# `get_oauth_scopes_supported()` via `bin/build-mcp-oauth-scopes.py`). Scopes
+# already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
+# emit duplicates.
+def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
+    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS
+    internal_set = set(INTERNAL_SCOPES)
+    return [
+        f"{obj}:{action}"
+        for obj in API_SCOPE_OBJECTS
+        if obj not in excluded_objects and f"{obj}:{action}" not in internal_set
+    ]
+
+
+MCP_READ_SCOPES: list[str] = _build_mcp_scopes("read")
+MCP_WRITE_SCOPES: list[str] = _build_mcp_scopes("write")
+
+TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
 MCP_SCOPE_PRESETS = ("read_only", "full")
 
 
-def resolve_scopes(scopes: PosthogMcpScopes = "read_only") -> list[str]:
+def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
+    internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
-            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *INTERNAL_SCOPES]
-        return [*MCP_READ_SCOPES, *INTERNAL_SCOPES]
-    return [*scopes, *INTERNAL_SCOPES]
+            resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        else:
+            resolved = [*MCP_READ_SCOPES, *internal]
+    else:
+        resolved = [*scopes, *internal]
+    return list(dict.fromkeys(resolved))
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
@@ -90,8 +80,14 @@ def get_array_app() -> OAuthApplication:
         raise RuntimeError(f"Array app not found for region {region} (client_id={client_id})") from err
 
 
-def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcpScopes = "read_only") -> str:
-    resolved = resolve_scopes(scopes)
+def create_oauth_access_token_for_user(
+    user,
+    team_id: int,
+    *,
+    scopes: PosthogMcpScopes = "read_only",
+    include_internal_scopes: bool = True,
+) -> str:
+    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     app = get_array_app()
     token_value = generate_random_oauth_access_token(None)
 
@@ -99,7 +95,7 @@ def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcp
         user=user,
         application=app,
         token=token_value,
-        expires=timezone.now() + timedelta(hours=6),
+        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scope=" ".join(resolved),
         scoped_teams=[team_id],
     )

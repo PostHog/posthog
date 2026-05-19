@@ -24,6 +24,7 @@ import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/Le
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -31,17 +32,36 @@ import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelect
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+
+export function getSidebarAddJoinSourceTableName(
+    recordType: string | undefined,
+    itemName: string,
+    tableName?: string
+): string | null {
+    switch (recordType) {
+        case 'view':
+        case 'managed-view':
+            return itemName
+        case 'endpoint':
+            return tableName ?? null
+        default:
+            return null
+    }
+}
 
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
@@ -80,12 +100,21 @@ export const QueryDatabase = ({
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
+    const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
         useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
+    // Project-wide warehouse write actions (Add join, Materialization) — gated at the
+    // resource level regardless of per-object creator bypass. Per-object actions like
+    // Edit view use the view's own user_access_level inline below.
+    const resourceLevelEditorDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
+    const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
+    const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -291,7 +320,9 @@ export const QueryDatabase = ({
                 )
             }}
             expandedItemIds={expandedItemIds}
-            onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+            onSetExpandedItemIds={
+                searchTerm ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
+            }
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
                     toggleFolderOpen(folder.id, isExpanded)
@@ -315,9 +346,11 @@ export const QueryDatabase = ({
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     const currentQueryInput = builtTabLogic.values.queryInput
-                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName).then(
-                        setQueryInput
-                    )
+                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                        .then(setQueryInput)
+                        .catch(() => {
+                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
+                        })
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -331,6 +364,7 @@ export const QueryDatabase = ({
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
                     item.record?.folderType === 'view-folder' &&
@@ -356,7 +390,7 @@ export const QueryDatabase = ({
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
                                 {hasMatches && searchTerm ? (
                                     <SearchHighlightMultiple
-                                        string={item.name}
+                                        string={itemLabel}
                                         substring={searchTerm}
                                         className={cn(isColumn && 'font-mono text-xs')}
                                     />
@@ -373,7 +407,7 @@ export const QueryDatabase = ({
                                             'truncate shrink-0'
                                         )}
                                     >
-                                        {item.name}
+                                        {item.displayName ?? item.name}
                                     </span>
                                 )}
                                 {isColumn && columnType ? (
@@ -478,13 +512,12 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    newInternalTab(
+                                    const nextConnectionId =
+                                        connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
+                                    router.actions.push(
                                         urls.sqlEditor({
-                                            query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(item.name)}`,
-                                            connectionId:
-                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
-                                                    ? connectionId
-                                                    : undefined,
+                                            query: buildSelectAllQuery(item.name, null),
+                                            connectionId: nextConnectionId,
                                         })
                                     )
                                 }}
@@ -495,10 +528,20 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    if (addJoinAccessDisabledReason) {
+                                        return
+                                    }
                                     selectSourceTable(item.name)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
+                                <ButtonPrimitive
+                                    menuItem
+                                    disabledReasons={
+                                        addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                    }
+                                >
+                                    Add join
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild
@@ -625,6 +668,20 @@ export const QueryDatabase = ({
                     item.record?.type === 'managed-view'
                 ) {
                     const editLabel = item.record.type === 'endpoint' ? 'Edit endpoint' : 'Edit view'
+                    const addJoinSourceTableName = getSidebarAddJoinSourceTableName(
+                        item.record.type,
+                        item.name,
+                        item.record.type === 'endpoint' ? item.record.tableName : undefined
+                    )
+                    // Edit view is per-object — creators can edit their own views.
+                    const editViewAccessDisabledReason =
+                        item.record.type !== 'endpoint'
+                            ? getAccessControlDisabledReason(
+                                  AccessControlResourceType.WarehouseObjects,
+                                  AccessControlLevel.Editor,
+                                  item.record.view?.user_access_level
+                              )
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -635,10 +692,21 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (editViewAccessDisabledReason) {
+                                                    return
+                                                }
                                                 openItemEditor(item)
                                             }}
                                         >
-                                            <ButtonPrimitive menuItem className="flex-1 rounded-r-none">
+                                            <ButtonPrimitive
+                                                menuItem
+                                                className="flex-1 rounded-r-none"
+                                                disabledReasons={
+                                                    editViewAccessDisabledReason
+                                                        ? { [editViewAccessDisabledReason]: true }
+                                                        : {}
+                                                }
+                                            >
                                                 {editLabel}
                                             </ButtonPrimitive>
                                         </DropdownMenuItem>
@@ -646,6 +714,9 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (editViewAccessDisabledReason) {
+                                                    return
+                                                }
                                                 openItemEditor(item, true)
                                             }}
                                         >
@@ -654,6 +725,11 @@ export const QueryDatabase = ({
                                                 className="px-2 rounded-l-none"
                                                 iconOnly
                                                 tooltip={editLabel}
+                                                disabledReasons={
+                                                    editViewAccessDisabledReason
+                                                        ? { [editViewAccessDisabledReason]: true }
+                                                        : {}
+                                                }
                                             >
                                                 <IconExternal />
                                             </ButtonPrimitive>
@@ -680,15 +756,48 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {addJoinSourceTableName ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (addJoinAccessDisabledReason) {
+                                            return
+                                        }
+                                        selectSourceTable(addJoinSourceTableName)
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Add join
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                             {item.record.type === 'view' ? (
                                 <DropdownMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        if (materializationAccessDisabledReason) {
+                                            return
+                                        }
                                         openMaterializationModal(item.record?.view)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Materialization</ButtonPrimitive>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            materializationAccessDisabledReason
+                                                ? { [materializationAccessDisabledReason]: true }
+                                                : {}
+                                        }
+                                    >
+                                        Materialization
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuGroup>

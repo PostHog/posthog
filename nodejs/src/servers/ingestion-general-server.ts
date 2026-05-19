@@ -1,5 +1,4 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -18,8 +17,10 @@ import {
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import {
+    KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
@@ -73,6 +74,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
     IngestionOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -87,7 +89,6 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
-        | 'TASKS_PER_WORKER'
         | 'TASK_TIMEOUT'
         | 'POSTHOG_API_KEY'
         | 'POSTHOG_HOST_URL'
@@ -111,6 +112,7 @@ export class IngestionGeneralServer implements NodeServer {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
@@ -179,7 +181,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -230,7 +231,6 @@ export class IngestionGeneralServer implements NodeServer {
                 integrationManager,
                 monitoringOutputs: ingestionOutputs,
                 teamManager,
-                internalCaptureService,
             }
 
             const ingestionDeps: IngestionConsumerDeps = {

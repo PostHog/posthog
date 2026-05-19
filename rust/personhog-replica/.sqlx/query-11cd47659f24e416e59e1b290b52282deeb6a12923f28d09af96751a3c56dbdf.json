@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_cohortpeople\n            WHERE id IN (\n                SELECT id FROM posthog_cohortpeople\n                WHERE cohort_id = ANY($1)\n                LIMIT $2\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "11cd47659f24e416e59e1b290b52282deeb6a12923f28d09af96751a3c56dbdf"
+}

@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A standalone microservice for proxying LLM requests to Anthropic, OpenAI, Google Gemini, OpenRouter, and Fireworks AI APIs.
+A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
 
 ## Quick start
 
@@ -149,7 +149,7 @@ The product name is extracted from the first path segment and recorded as `ai_pr
 
 ## Supported models
 
-All OpenAI, Anthropic, Gemini, OpenRouter, and Fireworks AI chat models are supported.
+All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
 OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
 The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
 
@@ -196,17 +196,19 @@ Every request is scoped to a **product**. The product determines which models an
 
 Defined in `src/llm_gateway/products/config.py`:
 
+OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
+
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
+| `llm_gateway`        | API key only    | All                        | Default when no product in path |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `wizard`             | OAuth only      | All                        | Max AI assistant                |
-| `django`             | API key + OAuth | All                        | Server-side Django calls        |
-| `growth`             | API key + OAuth | All                        | Growth team                     |
-| `llma_translation`   | API key + OAuth | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
+| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
+| `django`             | API key only    | All                        | Server-side Django calls        |
+| `growth`             | API key only    | All                        | Growth team                     |
+| `llma_translation`   | API key only    | gpt-4.1-mini               | LLM analytics translation       |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                 | LLM analytics eval summary      |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
@@ -216,9 +218,9 @@ Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `sl
 
    ```python
    "my_product": ProductConfig(
-       allowed_application_ids=None,  # None = any OAuth app, or frozenset({...}) to restrict
-       allowed_models=None,           # None = all models, or frozenset({...}) to restrict
-       allow_api_keys=True,           # False = OAuth only
+       allowed_application_ids=frozenset({...}),  # empty/None = no OAuth apps allowed; list IDs to permit OAuth
+       allowed_models=None,                       # None = all models, or frozenset({...}) to restrict
+       allow_api_keys=True,                       # False = OAuth only
    ),
    ```
 
@@ -290,7 +292,7 @@ from posthog.llm.gateway_client import get_llm_client
 
 client = get_llm_client()
 response = client.chat.completions.create(
-    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, Gemini, OpenRouter, or Fireworks AI model
+    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, OpenRouter, or Fireworks AI model
     messages=[...],
     user=request.user.distinct_id,  # user for analytics and rate limiting
 )

@@ -6,9 +6,12 @@ import { TextMorph } from 'torph/react'
 
 import {
     IconArchive,
+    IconCheckCircle,
     IconCopy,
     IconEye,
     IconFlask,
+    IconGlobe,
+    IconList,
     IconPause,
     IconPlay,
     IconPlusSmall,
@@ -26,7 +29,6 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
-    LemonTagType,
     LemonTextArea,
     Link,
     Tooltip,
@@ -36,6 +38,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -66,9 +69,10 @@ import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor, isLegacyExperiment } from '../utils'
+import { ExperimentSceneMenuBar } from './ExperimentSceneMenuBar'
 
 export function VariantTag({
     variantKey,
@@ -79,7 +83,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -87,10 +91,6 @@ export function VariantTag({
                 <LemonTag type="danger">{variantKey}</LemonTag>
             </Tooltip>
         )
-    }
-
-    if (!legacyPrimaryMetricsResults) {
-        return <></>
     }
 
     const variantColor = experiment.feature_flag?.filters.multivariate?.variants
@@ -116,14 +116,11 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
-            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
-            {usesNewQueryRunner && (
-                <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: variantColor }}
-                />
-            )}
+            <div
+                className="w-2 h-2 rounded-full shrink-0"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ backgroundColor: variantColor }}
+            />
             <span
                 className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -132,40 +129,6 @@ export function VariantTag({
                 {variantKey}
             </span>
         </span>
-    )
-}
-
-export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element {
-    const { isPrimaryMetricSignificant, significanceDetails, experiment } = useValues(experimentLogic)
-
-    // Use first primary metric UUID if not provided
-    const uuid = metricUuid || experiment.metrics?.[0]?.uuid || ''
-    if (!uuid) {
-        return (
-            <LemonTag type="primary">
-                <b className="uppercase">Not significant</b>
-            </LemonTag>
-        )
-    }
-
-    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(uuid)
-        ? { color: 'success', label: 'Significant' }
-        : { color: 'primary', label: 'Not significant' }
-
-    if (significanceDetails(uuid)) {
-        return (
-            <Tooltip title={significanceDetails(uuid)}>
-                <LemonTag className="cursor-pointer" type={result.color}>
-                    <b className="uppercase">{result.label}</b>
-                </LemonTag>
-            </Tooltip>
-        )
-    }
-
-    return (
-        <LemonTag type={result.color}>
-            <b className="uppercase">{result.label}</b>
-        </LemonTag>
     )
 }
 
@@ -210,6 +173,7 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         launchExperiment,
         archiveExperiment,
+        unarchiveExperiment,
         createExposureCohort,
         createExperimentDashboard,
         updateExperiment,
@@ -249,6 +213,7 @@ export function PageHeaderCustom(): JSX.Element {
 
     return (
         <>
+            <ExperimentSceneMenuBar />
             <SceneTitleSection
                 name={experiment?.name}
                 description={null}
@@ -390,7 +355,15 @@ export function PageHeaderCustom(): JSX.Element {
 
                                 {isExperimentRunning &&
                                     experiment.feature_flag &&
-                                    (experiment.feature_flag.active ? (
+                                    (isExperimentPaused(experiment) ? (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr="resume-experiment"
+                                            onClick={() => openResumeExperimentModal()}
+                                        >
+                                            <IconPlay /> Resume experiment
+                                        </ButtonPrimitive>
+                                    ) : (
                                         <ButtonPrimitive
                                             variant="danger"
                                             menuItem
@@ -398,14 +371,6 @@ export function PageHeaderCustom(): JSX.Element {
                                             onClick={() => openPauseExperimentModal()}
                                         >
                                             <IconPause /> Pause experiment
-                                        </ButtonPrimitive>
-                                    ) : (
-                                        <ButtonPrimitive
-                                            menuItem
-                                            data-attr="resume-experiment"
-                                            onClick={() => openResumeExperimentModal()}
-                                        >
-                                            <IconPlay /> Resume experiment
                                         </ButtonPrimitive>
                                     ))}
 
@@ -418,6 +383,15 @@ export function PageHeaderCustom(): JSX.Element {
                         {canArchive && (
                             <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
                                 <IconArchive /> Archive experiment
+                            </ButtonPrimitive>
+                        )}
+                        {canEdit && experiment.archived && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="unarchive-experiment"
+                                onClick={() => unarchiveExperiment()}
+                            >
+                                <IconArchive /> Unarchive experiment
                             </ButtonPrimitive>
                         )}
 
@@ -656,7 +630,10 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
+    const showReleaseModeChoice = useFeatureFlag('EXPERIMENTS_SHIP_VARIANT_RELEASE_MODE', 'test')
+
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+    const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
 
     useEffect(() => {
         if (experiment.parameters?.feature_flag_variants?.length > 1) {
@@ -678,9 +655,31 @@ export function FinishExperimentModal(): JSX.Element {
         if (isSingleVariantShipped || !selectedVariantKey) {
             endExperimentWithoutShipping()
         } else {
-            finishExperiment({ selectedVariantKey })
+            // Control variant: preserve pre-flag behavior (prepend catch-all release condition).
+            // Test variant: honor the user's radio choice.
+            finishExperiment({
+                selectedVariantKey,
+                releaseToEveryone: showReleaseModeChoice ? releaseToEveryone : true,
+            })
         }
     }
+
+    const releaseOptions = [
+        {
+            value: false,
+            icon: <IconList className="text-lg" />,
+            label: 'Roll out to the experiment population',
+            recommended: true,
+            description: `Only ${aggregationTargetName} already in the experiment see the variant. Per-user variant overrides still apply.`,
+        },
+        {
+            value: true,
+            icon: <IconGlobe className="text-lg" />,
+            label: `Roll out to all ${aggregationTargetName}`,
+            recommended: false,
+            description: `All ${aggregationTargetName} see the variant, including those outside the experiment. Per-user variant overrides are bypassed.`,
+        },
+    ] as const
 
     return (
         <>
@@ -725,34 +724,95 @@ export function FinishExperimentModal(): JSX.Element {
                             </LemonBanner>
                         </div>
                     ) : (
-                        <div>
-                            <LemonLabel>Variant to keep</LemonLabel>
-                            <div className="text-sm text-secondary mb-2">
-                                The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
+                        <>
+                            <div>
+                                <LemonLabel>Variant to keep</LemonLabel>
+                                {!showReleaseModeChoice && (
+                                    <div className="text-sm text-secondary mb-2">
+                                        The selected variant will be rolled out to{' '}
+                                        <b>100% of {aggregationTargetName}</b>.
+                                    </div>
+                                )}
+                                <div className="w-1/2 mt-1">
+                                    <LemonSelect
+                                        className="w-full"
+                                        data-attr="metrics-selector"
+                                        value={selectedVariantKey}
+                                        placeholder="Select a variant"
+                                        onChange={(variantKey) => {
+                                            setSelectedVariantKey(variantKey)
+                                        }}
+                                        allowClear={true}
+                                        options={
+                                            experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
+                                                value: key,
+                                                label: (
+                                                    <div className="deprecated-space-x-2 inline-flex">
+                                                        <VariantTag variantKey={key} />
+                                                    </div>
+                                                ),
+                                            })) || []
+                                        }
+                                    />
+                                </div>
                             </div>
-                            <div className="w-1/2">
-                                <LemonSelect
-                                    className="w-full"
-                                    data-attr="metrics-selector"
-                                    value={selectedVariantKey}
-                                    placeholder="Select a variant"
-                                    onChange={(variantKey) => {
-                                        setSelectedVariantKey(variantKey)
-                                    }}
-                                    allowClear={true}
-                                    options={
-                                        experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
-                                            value: key,
-                                            label: (
-                                                <div className="deprecated-space-x-2 inline-flex">
-                                                    <VariantTag variantKey={key} />
+                            {showReleaseModeChoice && selectedVariantKey && (
+                                <div className="flex flex-col gap-2">
+                                    <LemonLabel>How to release this variant</LemonLabel>
+                                    <div
+                                        className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                                        role="radiogroup"
+                                        aria-label="How to release this variant"
+                                        data-attr="ship-variant-release-mode"
+                                    >
+                                        {releaseOptions.map((option) => {
+                                            const isSelected = releaseToEveryone === option.value
+                                            return (
+                                                <div
+                                                    key={String(option.value)}
+                                                    role="radio"
+                                                    aria-checked={isSelected}
+                                                    tabIndex={0}
+                                                    className={`rounded p-3 cursor-pointer transition-colors ${
+                                                        isSelected
+                                                            ? 'bg-accent-highlight-light border-2 border-accent'
+                                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                                    }`}
+                                                    onClick={() => setReleaseToEveryone(option.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault()
+                                                            setReleaseToEveryone(option.value)
+                                                        }
+                                                    }}
+                                                    data-attr={`ship-variant-release-mode-${
+                                                        option.value ? 'everyone' : 'population'
+                                                    }`}
+                                                >
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
+                                                            {option.icon}
+                                                            <span className="font-medium flex-1">
+                                                                {option.label}
+                                                                {option.recommended && (
+                                                                    <span className="text-secondary text-xs font-normal ml-1">
+                                                                        (recommended)
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                            {isSelected && (
+                                                                <IconCheckCircle className="text-accent text-base" />
+                                                            )}
+                                                        </div>
+                                                        <span className="text-xs text-muted">{option.description}</span>
+                                                    </div>
                                                 </div>
-                                            ),
-                                        })) || []
-                                    }
-                                />
-                            </div>
-                        </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
                     <ConclusionForm />
                     {!isSingleVariantShipped && (
@@ -823,10 +883,10 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
+export function StatusTag({ status }: { status: ExperimentStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
-            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status)}</b>
         </LemonTag>
     )
 }

@@ -10,7 +10,8 @@
         "build": "pnpm build:source && pnpm build:types && ls -lah dist/",
         "build:source": "echo \"Building source\" && node build.mjs",
         "build:types": "echo \"Building types\" && tsup src/index.ts --dts-only",
-        "prepublishOnly": "pnpm build"
+        "prepublishOnly": "pnpm build",
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "kea": "^4.0.0-pre.3",

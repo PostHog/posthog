@@ -148,7 +148,7 @@ def hourly_exchange_rates(
 
 
 def store_exchange_rates_in_clickhouse(
-    context: dagster.OpExecutionContext,
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext,
     date_str: str,
     exchange_rates: dict[str, Any],
     cluster: dagster.ResourceParam[ClickhouseCluster],

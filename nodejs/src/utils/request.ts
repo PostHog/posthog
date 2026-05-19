@@ -84,7 +84,7 @@ function validateUrl(url: string): URL {
     let parsedUrl: URL
     try {
         parsedUrl = new URL(url)
-    } catch (err) {
+    } catch {
         throw new InvalidRequestError('Invalid URL')
     }
     const { hostname, protocol } = parsedUrl
@@ -172,7 +172,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     const validAddrinfo: LookupAddress[] = []
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
-    } catch (err) {
+    } catch {
         throw new ResolutionError('Invalid hostname')
     }
     for (const addrInfo of addrinfo) {

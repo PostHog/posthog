@@ -1,22 +1,22 @@
 import { useValues } from 'kea'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from 'scenes/settings/environment/DefaultExperimentStatsMethod'
+import { DefaultOnlyCountMaturedUsers } from 'scenes/settings/environment/DefaultOnlyCountMaturedUsers'
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
-
-import { teamLogic } from '~/scenes/teamLogic'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 /**
  * although this works fine for now, if we keep adding more settings we need to refactor this to use the
  * <Settings /> component. That will require we create a new section for experiments on the SettingsMap.
  */
 export function ExperimentsSettings(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
 
-    if (currentTeamLoading && !currentTeam) {
-        return <Spinner className="text-2xl" />
+    if (experimentsConfigLoading && !experimentsConfig) {
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (
@@ -44,6 +44,14 @@ export function ExperimentsSettings(): JSX.Element {
                     project's timezone.
                 </p>
                 <ExperimentRecalculationTime />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Default conversion window filter</LemonLabel>
+                <p className="text-secondary mt-2">
+                    When enabled, new experiments will only count participants whose full conversion window has elapsed.
+                    Can be overridden per experiment.
+                </p>
+                <DefaultOnlyCountMaturedUsers />
             </div>
         </div>
     )

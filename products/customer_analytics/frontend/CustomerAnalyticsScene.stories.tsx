@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -94,5 +95,42 @@ export const B2BModeWithoutGroups: Story = {
     },
     parameters: {
         pageUrl: urls.customerAnalyticsDashboard(),
+    },
+}
+
+export const GatedWithoutMatchingEarlyAccessFeature: Story = {
+    render: () => <App />,
+    parameters: {
+        featureFlags: [],
+        pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '[data-attr="product-introduction-feature"]',
+        },
+    },
+}
+
+export const GatedWithFeatureToggle: Story = {
+    render: () => {
+        // Mock synchronously during render so the gate's mount useEffect —
+        // which calls `posthog.getEarlyAccessFeatures(callback)` — uses our data.
+        ;(posthog as any).getEarlyAccessFeatures = (callback: (features: any[]) => void): void =>
+            callback([
+                {
+                    flagKey: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+                    name: 'Customer analytics',
+                    description: 'Understand how your customers interact with your product',
+                    stage: 'beta',
+                    documentationUrl: '',
+                    payload: {},
+                },
+            ])
+        return <App />
+    },
+    parameters: {
+        featureFlags: [],
+        pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '#feature-preview-gate-switch',
+        },
     },
 }

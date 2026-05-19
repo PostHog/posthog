@@ -21,7 +21,8 @@ export function OrganizationAI(): JSX.Element {
                     updateOrganization({ is_ai_data_processing_approved: checked })
                 }}
                 checked={!!currentOrganization?.is_ai_data_processing_approved}
-                disabled={!!restrictionReason || currentOrganizationLoading}
+                disabledReason={restrictionReason || undefined}
+                loading={currentOrganizationLoading}
                 bordered
             />
         </div>

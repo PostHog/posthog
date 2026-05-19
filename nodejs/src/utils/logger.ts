@@ -100,7 +100,7 @@ export class Logger {
             if (this.transport) {
                 await this.transport.end()
             }
-        } catch (error) {
+        } catch {
             // Ignore errors during shutdown as the transport may already be closed
             // This prevents Jest from hanging on unhandled errors during teardown
         }
@@ -113,7 +113,7 @@ export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')
 
 export function serializeError(error: unknown): Record<string, unknown> | unknown {
     if (error instanceof Error) {
-        return { name: error.name, message: error.message }
+        return { name: error.name, message: error.message, stack: error.stack }
     }
     return error
 }

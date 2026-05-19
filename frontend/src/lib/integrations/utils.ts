@@ -5,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
@@ -25,6 +26,7 @@ import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
+import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
@@ -40,6 +42,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-ads': IconGoogleAds,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
+    stripe: IconStripe,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
@@ -58,6 +61,9 @@ export const ICONS: Record<IntegrationKind, any> = {
     firebase: IconFirebase,
     jira: IconJira,
     'pinterest-ads': IconPinterest,
+    'customerio-app': IconCustomerIO,
+    'customerio-webhook': IconCustomerIO,
+    'customerio-track': IconCustomerIO,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

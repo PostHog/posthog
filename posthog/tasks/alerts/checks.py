@@ -21,6 +21,7 @@ from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.alerts.detector import check_trends_alert_with_detector
@@ -30,10 +31,10 @@ from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
     AlertEvaluationResult,
     calculation_interval_to_order,
+    disable_invalid_alert,
+    dispatch_alert_notification,
     next_check_time,
-    send_notifications_for_breaches,
-    send_notifications_for_disabled,
-    send_notifications_for_errors,
+    record_alert_delivery,
     skip_because_of_weekend,
     validate_alert_config,
 )
@@ -66,6 +67,7 @@ def checks_cleanup_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+@skip_team_scope_audit
 def alerts_backlog_task() -> None:
     """
     This runs every 5min to check backlog for alerts
@@ -118,6 +120,7 @@ def alerts_backlog_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+@skip_team_scope_audit
 def reset_stuck_alerts_task() -> None:
     now = datetime.now(UTC)
 
@@ -146,6 +149,7 @@ def reset_stuck_alerts_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+@skip_team_scope_audit
 def check_alerts_task() -> None:
     """
     This runs every 2min to check for alerts that are due to recalculate
@@ -177,7 +181,12 @@ def check_alerts_task() -> None:
     grouped_by_team: defaultdict[int, list[tuple[str, int, str | None, int]]] = defaultdict(list)
     for alert in sorted_alerts:
         grouped_by_team[alert.team_id].append(
-            (str(alert.id), alert.team_id, alert.calculation_interval, alert.insight_id)
+            (
+                str(alert.id),
+                alert.team_id,
+                cast(AlertCalculationInterval | None, alert.calculation_interval),
+                alert.insight_id or 0,
+            )
         )
 
     for alert_data in grouped_by_team.values():
@@ -295,7 +304,7 @@ def check_alert(alert_id: str) -> None:
                 insight.query, alert.condition, alert.config, threshold_config, alert.calculation_interval
             )
     except ValueError as e:
-        _disable_invalid_alert(alert, str(e))
+        disable_invalid_alert(alert, str(e))
         return
 
     # we will attempt to check alert
@@ -368,7 +377,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     triggered_metadata = (
         getattr(alert_evaluation_result, "triggered_metadata", None) if alert_evaluation_result else None
     )
-    alert_check = add_alert_check(
+    alert_check, should_notify = add_alert_check(
         alert,
         value,
         breaches,
@@ -381,19 +390,13 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     )
 
     # 3. Notify users if needed
-    if not alert_check.targets_notified:
+    if not should_notify:
         return
 
     try:
-        match alert_check.state:
-            case AlertState.NOT_FIRING:
-                logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
-            case AlertState.ERRORED:
-                logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                send_notifications_for_errors(alert, alert_check.error)
-            case AlertState.FIRING:
-                assert breaches is not None
-                send_notifications_for_breaches(alert, breaches)
+        targets = dispatch_alert_notification(alert, alert_check, breaches)
+        if targets is not None:
+            record_alert_delivery(alert, alert_check, targets)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message, exc_info=err)
@@ -403,28 +406,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # so we raise again as @transaction.atomic decorator won't commit db updates
         # TODO: later should have a way just to retry notification mechanism
         raise
-
-
-def _disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
-    logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
-    AlertConfiguration.objects.filter(pk=alert.pk).update(
-        enabled=False,
-        state=AlertState.ERRORED,
-        last_checked_at=datetime.now(UTC),
-    )
-    alert.refresh_from_db()
-
-    targets_to_notify = alert.get_subscribed_users_emails()
-    AlertCheck.objects.create(
-        alert_configuration=alert,
-        calculated_value=None,
-        condition=alert.condition,
-        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
-        state=AlertState.ERRORED,
-        error={"message": reason},
-    )
-    if targets_to_notify:
-        send_notifications_for_disabled(alert, reason, targets_to_notify)
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
@@ -452,7 +433,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
                     return check_trends_alert_with_detector(alert, insight, query, alert.detector_config)
                 return check_trends_alert(alert, insight, query)
             case _:
-                raise NotImplementedError(f"AlertCheckError: Alerts for {query.kind} are not supported yet")
+                raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
 
 
 def add_alert_check(
@@ -465,36 +446,36 @@ def add_alert_check(
     triggered_dates: list[str] | None = None,
     interval: str | None = None,
     triggered_metadata: dict | None = None,
-) -> AlertCheck:
-    notify = False
-    targets_notified = {}
+) -> tuple[AlertCheck, bool]:
+    """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
+
+    `targets_notified` is always created empty; `notify_alert_activity` fills it on
+    successful delivery and treats a non-empty value as the idempotency sentinel on retry.
+    `last_notified_at` is likewise set by the notify activity on success, not here.
+    """
+    should_notify = False
 
     if error:
         alert.state = AlertState.ERRORED
-        notify = True
+        should_notify = True
     elif breaches:
         alert.state = AlertState.FIRING
-        notify = True
+        should_notify = True
     else:
         alert.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
         # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
 
-    now = datetime.now(UTC)
     alert.last_checked_at = datetime.now(UTC)
 
     # IMPORTANT: update next_check_at according to interval
     # ensure we don't recheck alert until the next interval is due
     alert.next_check_at = next_check_time(alert)
 
-    if notify:
-        alert.last_notified_at = now
-        targets_notified = {"users": alert.get_subscribed_users_emails()}
-
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=value,
         condition=alert.condition,
-        targets_notified=targets_notified,
+        targets_notified={},
         state=alert.state,
         triggered_metadata=triggered_metadata,
         error=error,
@@ -504,6 +485,6 @@ def add_alert_check(
         interval=interval,
     )
 
-    alert.save()
+    alert.save(update_fields=["state", "last_checked_at", "next_check_at"])
 
-    return alert_check
+    return alert_check, should_notify

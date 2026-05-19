@@ -5,14 +5,11 @@ from typing import Any, Optional
 
 import structlog
 from dateutil import parser
-from dlt.common.configuration import configspec
-from dlt.common.typing import TSecretStrValue
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.auth import AuthConfigBase
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from requests import PreparedRequest
+from requests import PreparedRequest, Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
@@ -330,13 +327,33 @@ class TikTokReportResource:
 class TikTokAdsPaginator(BasePaginator):
     """TikTok Ads API paginator that extends dlt's BasePaginator"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.current_page = 1
         self._has_next_page = False
         self.total_pages = 0
         self.total_number = 0
         self.page_size = 0
+
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded ``current_page`` on the first request so a resumed
+        # run targets the saved page instead of page 1.
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self.current_page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # rest_client only calls this when ``has_next_page`` is True, so
+        # ``current_page`` already points at the page still to fetch.
+        if self._has_next_page:
+            return {"page": self.current_page}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.current_page = int(page)
+            self._has_next_page = True
 
     def update_state(self, response: Response, data: Optional[Any] = None) -> None:
         """Update pagination state from TikTok API response."""
@@ -404,26 +421,19 @@ class TikTokAdsPaginator(BasePaginator):
         request.params["page"] = self.current_page
 
 
-@configspec
 class TikTokAdsAuth(AuthConfigBase):
-    """
-    TikTok Ads API authentication handler for dlt REST client.
+    """TikTok Ads API authentication handler.
 
     TikTok requires a custom 'Access-Token' header instead of the standard
-    'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
+    'Authorization: Bearer' pattern.
     """
 
-    access_token: TSecretStrValue = None
-
-    def parse_native_representation(self, value: Any) -> None:
-        if isinstance(value, str):
-            self.access_token = value
-        else:
-            raise ValueError(f"TikTok Ads access token must be a string, got {type(value)}")
+    def __init__(self, access_token: Optional[str] = None) -> None:
+        self.access_token = access_token
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
-        """Add TikTok Ads authentication headers to the request."""
+        if self.access_token is None:
+            raise ValueError("TikTok Ads access token is not configured")
         request.headers["Access-Token"] = self.access_token
         request.headers["Content-Type"] = "application/json"
-
         return request

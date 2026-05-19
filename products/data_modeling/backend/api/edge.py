@@ -54,7 +54,7 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id).exclude(dag__name__startswith="conflict_")
+        qs = queryset.filter(team_id=self.team_id)
         dag_id = self.request.query_params.get("dag")
         if dag_id:
             try:

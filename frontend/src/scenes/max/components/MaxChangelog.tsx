@@ -7,7 +7,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 
 import { AlertEntry, ChangelogEntry, maxChangelogLogic } from '../maxChangelogLogic'
 

@@ -4,9 +4,10 @@ import dts from 'vite-plugin-dts'
 
 /**
  * Builds the JavaScript entry for @posthog/quill. The CSS pipeline is
- * handled separately by `scripts/build-css.ts` so vite never touches
- * Tailwind or the pre-compiled stylesheet — it only bundles the thin
- * re-export layer that ties primitives + components + blocks together.
+ * handled separately by `scripts/build-css.ts` which just emits the
+ * tokens / base / tailwind.css metadata files — vite never runs
+ * Tailwind. It only bundles the thin re-export layer that ties
+ * primitives + components + blocks together.
  *
  * IMPORTANT: `@posthog/quill-primitives`, `@posthog/quill-components`,
  * and `@posthog/quill-blocks` are **not** externalized. They are
@@ -17,8 +18,8 @@ import dts from 'vite-plugin-dts'
  * and consumers would get ERR_MODULE_NOT_FOUND on first import.
  *
  * `@posthog/quill-tokens` stays external because it is independently
- * published. Actual runtime deps (@base-ui/react, cmdk, lucide-react,
- * etc.) are kept external too — they are redeclared as real
+ * published. Actual runtime deps (@base-ui/react, lucide-react, etc.)
+ * are kept external too — they are redeclared as real
  * `dependencies` on the aggregate's package.json so pnpm/npm pulls
  * them into the consumer's node_modules automatically.
  */
@@ -54,13 +55,14 @@ export default defineConfig({
                 /^@base-ui\/react\//,
                 'class-variance-authority',
                 'clsx',
-                'cmdk',
                 'lucide-react',
                 'react-resizable-panels',
                 'tailwind-merge',
                 'vaul',
             ],
         },
-        emptyOutDir: false, // dist/quill.css is written by build-css.ts before vite runs
+        // scripts/build-css.ts writes dist/{tokens,base,tailwind,color-system}.css
+        // before vite runs — don't let vite wipe them.
+        emptyOutDir: false,
     },
 })

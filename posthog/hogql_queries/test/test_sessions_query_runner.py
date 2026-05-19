@@ -22,6 +22,8 @@ from posthog.schema import (
     SessionsQuery,
 )
 
+from posthog.hogql.printer import to_printed_hogql
+
 from posthog.hogql_queries.sessions_query_runner import SUPPORTED_PERSON_PROPERTY_OPERATORS, SessionsQueryRunner
 from posthog.models.utils import uuid7
 
@@ -1099,6 +1101,120 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(response, CachedSessionsQueryResponse)
             assert len(response.results) == 2
 
+    def test_session_id_event_property_filter_short_circuits_events_subquery(self):
+        """When eventProperties only contains a $session_id filter, we should filter
+        directly on the sessions table without building an events subquery."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            # Get session IDs first
+            all_query = SessionsQuery(after="2024-01-01", kind="SessionsQuery", select=["session_id"])
+            all_response = SessionsQueryRunner(query=all_query, team=self.team).run()
+            assert isinstance(all_response, CachedSessionsQueryResponse)
+            assert len(all_response.results) == 2
+            target_session_id = all_response.results[0][0]
+
+            # Filter by $session_id as an event property — should short-circuit
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                eventProperties=[
+                    EventPropertyFilter(key="$session_id", value=target_session_id, operator="exact", type="event")
+                ],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][0] == target_session_id
+            # The generated HogQL should NOT contain "FROM events"
+            assert "FROM events" not in response.hogql
+
+    def test_session_id_event_property_filter_with_list_values(self):
+        """$session_id filter with a list of values should short-circuit."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            all_query = SessionsQuery(after="2024-01-01", kind="SessionsQuery", select=["session_id"])
+            all_response = SessionsQueryRunner(query=all_query, team=self.team).run()
+            assert isinstance(all_response, CachedSessionsQueryResponse)
+            session_ids = [r[0] for r in all_response.results]
+
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                eventProperties=[
+                    EventPropertyFilter(key="$session_id", value=session_ids[:2], operator="exact", type="event")
+                ],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 2
+            assert "FROM events" not in response.hogql
+
+    def test_session_id_event_property_filter_empty_list_returns_no_sessions(self):
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                eventProperties=[EventPropertyFilter(key="$session_id", value=[], operator="exact", type="event")],
+            )
+            response = SessionsQueryRunner(query=query, team=self.team).run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert response.results == []
+
+    def test_session_id_event_property_with_other_event_filters_keeps_subquery(self):
+        """When $session_id is combined with an event name filter, we still need the events subquery
+        for the event filter, but $session_id is applied directly to sessions."""
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                event="$pageview",
+                eventProperties=[
+                    EventPropertyFilter(key="$session_id", value="test-session-id", operator="exact", type="event")
+                ],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            hogql = runner.to_query()
+
+            from posthog.hogql.printer import to_printed_hogql
+
+            printed = to_printed_hogql(hogql, team=self.team)
+            # $session_id should be filtered directly on sessions
+            assert "in(session_id, tuple('test-session-id'))" in printed
+            # Events subquery should still exist for the event name filter
+            assert "events" in printed
+
     @snapshot_clickhouse_queries
     def test_filter_by_session_properties(self):
         self._create_test_sessions(
@@ -1123,3 +1239,166 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedSessionsQueryResponse)
             assert len(response.results) == 3
+
+    def test_default_after_is_one_hour(self):
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(kind="SessionsQuery", select=["session_id"])
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            printed = to_printed_hogql(runner.to_query(), team=self.team)
+
+            # With no explicit `after`, the lower bound must be one hour before `now`
+            # (13:00:00), not 24h earlier. The exact printed format depends on timezone
+            # conversion; asserting the hour is enough to catch regressions.
+            assert "13:00:00" in printed
+
+    def test_filter_test_accounts_with_event_property(self):
+        self.team.test_account_filters = [{"key": "$browser", "value": "Chrome", "operator": "exact", "type": "event"}]
+        self.team.save()
+
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {"$browser": "Chrome"}),
+                ("user2", "session2", "2024-01-01T12:05:00Z", {"$browser": "Firefox"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                filterTestAccounts=True,
+            )
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            # Only the Chrome session should match (event filter routes through events subquery)
+            assert len(response.results) == 1
+
+    def test_filter_test_accounts_with_person_property(self):
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@test.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["real_user"],
+            properties={"email": "real@company.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test_user"],
+            properties={"email": "bot@test.com"},
+        )
+
+        session1 = str(uuid7("2024-01-01T12:00:00Z"))
+        session2 = str(uuid7("2024-01-01T12:05:00Z"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="real_user",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="test_user",
+            timestamp="2024-01-01T12:05:00Z",
+            properties={"$session_id": session2},
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                filterTestAccounts=True,
+            )
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            # Only the real user session should remain (test.com email excluded)
+            assert len(response.results) == 1
+
+    def test_filter_test_accounts_with_cohort_filter(self):
+        from posthog.models import Cohort
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Users",
+            groups=[
+                {"properties": [{"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}]}
+            ],
+        )
+
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["real_user"],
+            properties={"email": "real@company.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test_user"],
+            properties={"email": "bot@test.com"},
+        )
+
+        session1 = str(uuid7("2024-01-01T12:00:00Z"))
+        session2 = str(uuid7("2024-01-01T12:05:00Z"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="real_user",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="test_user",
+            timestamp="2024-01-01T12:05:00Z",
+            properties={"$session_id": session2},
+        )
+        flush_persons_and_events()
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                filterTestAccounts=True,
+            )
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            # Should not raise — cohort filter routes through events subquery
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            # Cohort filter should actually exclude the test user
+            assert len(response.results) == 1
+
+    def test_filter_test_accounts_with_session_property(self):
+        self.team.test_account_filters = [
+            {"key": "$is_bounce", "value": "true", "operator": "exact", "type": "session"}
+        ]
+        self.team.save()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                filterTestAccounts=True,
+            )
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            # Should not raise — session property applied directly
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)

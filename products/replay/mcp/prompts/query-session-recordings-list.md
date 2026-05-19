@@ -20,7 +20,7 @@ Use property filters to narrow results. Only include filters directly relevant t
 When using a property filter, you should:
 
 - **Prioritize properties directly related to the user's query.**
-- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`.
+- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.
 - **Use `read-data-schema` to discover property names and values** before creating filters.
 
 ## Common properties
@@ -32,6 +32,8 @@ When using a property filter, you should:
 **Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.
 
 **Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.
+
+**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `"id"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ "type": "cohort", "key": "id", "value": 42, "operator": "in" }`. Use `cohorts-list` to find cohort IDs.
 
 ## Operators
 
@@ -118,9 +120,30 @@ Each recording in results contains:
 }
 ```
 
+## Recordings from a cohort of users
+
+```json
+{
+  "date_from": "-7d",
+  "filter_test_accounts": true,
+  "properties": [{ "key": "id", "operator": "in", "type": "cohort", "value": 42 }]
+}
+```
+
+## Fetch specific recordings by session ID
+
+When you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:
+
+```json
+{
+  "session_ids": ["session-id-1", "session-id-2", "session-id-3"]
+}
+```
+
 # Reminders
 
 - Use `filter_test_accounts: true` by default to exclude internal users.
 - Only include property filters directly relevant to the user's question.
 - Default time range is last 3 days. Adjust based on the user's needs.
 - For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.
+- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.

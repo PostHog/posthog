@@ -1,10 +1,12 @@
 import json
+import uuid
 import asyncio
 import datetime as dt
+import dataclasses
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -20,20 +22,59 @@ from posthog.temporal.exports.types import (
 )
 from posthog.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    create_delivery_record,
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    update_delivery_record,
+    validate_subscription_for_delivery,
 )
+from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
+    DeliverSubscriptionResult,
+    DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
+    SnapshotInsightsInputs,
     SubscriptionInfo,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
+    UpdateDeliveryRecordInputs,
 )
+
+# Rolling-deploy deprecation bundle (TODO slug: subscriptions-patched-cleanup)
+# ---------------------------------------------------------------------------
+# Step 1 of the two-step `patched()` -> `deprecate_patch()` -> deletion dance.
+# `workflow.deprecate_patch()` records a "deprecated" marker at the same
+# command-sequence position the original `workflow.patched()` guard occupied,
+# so workflows whose history already carries the `patched` marker replay
+# cleanly. The if-gate and legacy-replay helper are gone because pre-rollout
+# workflows (no marker in history) have drained by deploy time of this PR.
+#
+# Deploy-ordering precondition: `ProcessSubscriptionWorkflow.execution_timeout`
+# is 2h, so in theory any pre-rollout workflow completes 2h after #55943 deploys.
+# In practice, wait ≥24h after #55943's prod deploy before merging this PR —
+# the same buffer the predecessor comment prescribed. The same rule applies
+# from this PR's deploy to the step-2 cleanup below.
+#
+# The binding condition is "no workflow whose history was recorded pre-#55943
+# is still replayable" — continue-as-new chains and long signaled workflows
+# can outlive execution_timeout. Verify before merging each step by running:
+#   Temporal UI → WorkflowType="process-subscription" ExecutionStatus=Running
+#                 StartTime <= <preceding-PR-prod-deploy-timestamp>
+# and confirming zero results.
+#
+# Grep `subscriptions-patched-cleanup` to find every site. Step 2 (after
+# another ≥24h drain past this deploy) deletes: the `deprecate_patch()` call,
+# `_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE`,
+# `CreateExportAssetsResult.insight_snapshots`,
+# `UpdateDeliveryRecordInputs.content_snapshot`, and the shallow-merge branch
+# in `update_delivery_record` that the deprecated field fed.
+_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE = "subscriptions-content-snapshot-direct-write"
 
 
 def _build_outcome_assets(
@@ -102,6 +143,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     team_id=sub.team_id,
                     distinct_id=sub.distinct_id,
                     trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    scheduled_at=sub.next_delivery_date,
                     slo=SloConfig(
                         operation=SloOperation.SUBSCRIPTION_DELIVERY,
                         area=SloArea.ANALYTIC_PLATFORM,
@@ -158,13 +200,73 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
 
+        # Delivery record tracking
+        delivery_id: uuid.UUID | None = None
+        final_status = DeliveryStatus.SKIPPED
+        delivery_exported_asset_ids: list[int] = []
+        delivery_recipient_results: list[dict] = []
+        # Hoisted so the finally block can always pass it to update_delivery_record,
+        # even on early returns (no-assets SKIPPED) or exceptions before the summary
+        # activity runs.
+        change_summary: str | None = None
+
         try:
-            # Phase 1: Prepare — create ExportedAssets
+            # Create delivery history record — uuid4() is deterministic across
+            # activity retries (replay) but unique across workflow retries.
+            delivery_id = await temporalio.workflow.execute_activity(
+                create_delivery_record,
+                CreateDeliveryRecordInputs(
+                    subscription_id=inputs.subscription_id,
+                    team_id=inputs.team_id,
+                    trigger_type=inputs.trigger_type,
+                    scheduled_at=inputs.scheduled_at,
+                    temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                    idempotency_key=str(temporalio.workflow.uuid4()),
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+
+            # Validate up-front: if the subscription is already disabled or its target
+            # configuration is permanently broken, auto-disable and short-circuit before
+            # the export pipeline runs.
+            abort_info = await temporalio.workflow.execute_activity(
+                validate_subscription_for_delivery,
+                inputs.subscription_id,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+            if abort_info is not None:
+                # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
+                if abort_info.failed_recipient is not None:
+                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    final_status = DeliveryStatus.FAILED
+                return
+
+            # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
+            # onto SubscriptionDelivery.content_snapshot (written from within the
+            # activity to avoid shipping multi-MB query_results across Temporal's
+            # ~2 MiB payload boundary).
+            #
+            # Adding the new `delivery_id` input field is a safe, non-breaking
+            # change per Temporal's schema evolution guidance — activity inputs
+            # are not part of the workflow command state machine, so this does
+            # not need a workflow.patched() gate (unlike the Phase 2.5 removal
+            # below, which is a command-sequence change).
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
                     subscription_id=inputs.subscription_id,
                     previous_value=inputs.previous_value,
+                    delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -175,7 +277,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
             if not prepare_result.exported_asset_ids:
+                # No assets to export — SKIPPED status, finalized in finally
                 return
+
+            delivery_exported_asset_ids = prepare_result.exported_asset_ids
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
             export_tasks = []
@@ -215,6 +320,39 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
+            # Phase 2.5 (legacy) — deprecated. The pre-rollout `update_delivery_record`
+            # command at this position has drained; `deprecate_patch()` records a
+            # "deprecated" marker so any straggler replay from the original deploy
+            # reaches this point without tripping non-determinism. Next cleanup PR
+            # removes the call once the "deprecated"-marker histories have drained
+            # (verify via the Temporal UI query in the top-of-file comment block).
+            temporalio.workflow.deprecate_patch(_PATCH_ID_CONTENT_SNAPSHOT_DIRECT_WRITE)
+
+            # Generate LLM change summary (best-effort, skip if not enabled).
+            # Reads content_snapshot back from Postgres — persisted inline by
+            # create_export_assets above (via delivery_id, or via the
+            # workflow_id fallback lookup when replaying pre-rollout workflows).
+            if delivery_id is not None:
+                try:
+                    snapshot_result = await temporalio.workflow.execute_activity(
+                        snapshot_subscription_insights,
+                        SnapshotInsightsInputs(
+                            subscription_id=inputs.subscription_id,
+                            team_id=inputs.team_id,
+                            delivery_id=str(delivery_id),
+                            exported_asset_ids=list(successful_asset_ids),
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        heartbeat_timeout=dt.timedelta(seconds=60),
+                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                    )
+                    change_summary = snapshot_result.summary_text
+                except Exception:
+                    temporalio.workflow.logger.warning(
+                        "process_subscription.snapshot_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
+
             # Phase 3: Deliver — send all assets including failed ones (they show
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
@@ -222,7 +360,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # is_new is true for target change triggers, false for scheduled and manual sends
             is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
 
-            await temporalio.workflow.execute_activity(
+            deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
                 deliver_subscription,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
@@ -231,6 +369,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     is_new_subscription_target=is_new,
                     previous_value=inputs.previous_value,
                     invite_message=inputs.invite_message,
+                    change_summary=change_summary,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -240,12 +379,64 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 ),
             )
 
+            # Capture per-recipient results for the delivery record
+            delivery_recipient_results = [
+                {
+                    "recipient": r.recipient,
+                    "status": r.status,
+                    **({"error": r.error} if r.error else {}),
+                }
+                for r in deliver_result.recipient_results
+            ]
+            final_status = DeliveryStatus.COMPLETED
+
         except Exception as e:
+            # Preserve recipient outcomes carried in non-retryable delivery errors
+            # (e.g. Slack missing integration) so history isn't empty on failure.
+            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
+                details = e.cause.details
+                if details and isinstance(details[0], dict):
+                    recipient_results = details[0].get("recipient_results")
+                    if isinstance(recipient_results, list):
+                        delivery_recipient_results = recipient_results
             caught_error = e
+            final_status = DeliveryStatus.FAILED
             # Defer the re-raise until after the finally block — see note below.
 
         finally:
-            # Advance schedule — always for scheduled deliveries, even on failure
+            # Finalize delivery record with whatever state we have
+            if delivery_id is not None:
+                try:
+                    await temporalio.workflow.execute_activity(
+                        update_delivery_record,
+                        UpdateDeliveryRecordInputs(
+                            delivery_id=delivery_id,
+                            status=final_status,
+                            exported_asset_ids=delivery_exported_asset_ids or None,
+                            recipient_results=delivery_recipient_results or None,
+                            change_summary=change_summary,
+                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
+                            if caught_error
+                            else None,
+                            finished=True,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            initial_interval=dt.timedelta(seconds=5),
+                            maximum_interval=dt.timedelta(minutes=1),
+                            maximum_attempts=3,
+                        ),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
+                    )
+                    if caught_error is None:
+                        raise
+
+            # Advance schedule — always for scheduled deliveries, even on failure.
+            # The activity itself no-ops when the subscription is disabled, so a
+            # just-auto-disabled sub doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,

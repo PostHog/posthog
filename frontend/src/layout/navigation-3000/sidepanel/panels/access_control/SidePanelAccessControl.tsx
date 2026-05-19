@@ -6,7 +6,7 @@ import { AccessControlResourceType } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { AccessControlObject } from './AccessControlObject'
 
 export const SidePanelAccessControl = (): JSX.Element => {

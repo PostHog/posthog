@@ -69,11 +69,13 @@ describe('Projects', { concurrent: false }, () => {
     describe('switch-project tool', () => {
         const setTool = setActiveProjectTool()
 
-        it('should set active project', async () => {
+        it('should set active project and return context prompt', async () => {
             const targetProject = TEST_PROJECT_ID!
             const setResult = await setTool.handler(context, { projectId: Number(targetProject) })
 
-            expect(setResult.content[0]!.text).toBe(`Switched to project ${targetProject}`)
+            const text = setResult.content[0]!.text
+            expect(text).toContain(`Switched to project ${targetProject}`)
+            expect(text).toContain('Current context:')
         })
     })
 
@@ -338,7 +340,7 @@ describe('Projects', { concurrent: false }, () => {
             const targetProject = projects.find((p: any) => p.id === Number(TEST_PROJECT_ID)) || projects[0]
 
             const setResult = await setTool.handler(context, { projectId: targetProject.id })
-            expect(setResult.content[0]!.text).toBe(`Switched to project ${targetProject.id}`)
+            expect(setResult.content[0]!.text).toContain(`Switched to project ${targetProject.id}`)
 
             await context.cache.set('projectId', targetProject.id.toString())
         })

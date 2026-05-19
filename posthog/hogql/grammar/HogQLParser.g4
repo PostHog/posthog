@@ -22,14 +22,13 @@ statement      : returnStmt
                | forInStmt
                | forStmt
                | funcStmt
-               | varAssignment
                | block
                | exprStmt
                | emptyStmt
                ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
-throwStmt      : THROW expression? SEMICOLON?;
+throwStmt      : THROW expression SEMICOLON?;
 catchBlock     : CATCH (LPAREN catchVar=identifier (COLON catchType=identifier)? RPAREN)? catchStmt=block;
 tryCatchStmt   : TRY tryStmt=block catchBlock* (FINALLY finallyStmt=block)?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
@@ -42,7 +41,9 @@ forStmt        : FOR LPAREN
 forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : (FN | FUN) identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLONEQUALS expression ;
-exprStmt       : expression SEMICOLON?;
+// Assignment folded in as an optional suffix: one expression-leading alternative in
+// `statement` means `declaration*` parses without unbounded lookahead. `varAssignment` is forStmt-only.
+exprStmt       : expression (COLONEQUALS expression)? SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
@@ -100,7 +101,8 @@ groupingSetList: groupingSet (COMMA groupingSet)*;
 groupingSet: LPAREN columnExprList? RPAREN;
 havingClause: HAVING columnExpr;
 qualifyClause: QUALIFY columnExpr;
-orderByClause: ORDER BY orderExprList;
+orderByClause: ORDER BY orderExprList interpolateClause?;
+interpolateClause: INTERPOLATE (LPAREN interpolateExpr (COMMA interpolateExpr)* RPAREN)?;
 projectionOrderByClause: ORDER BY columnExprList;
 limitByClause: LIMIT limitExpr BY columnExprList;
 limitAndOffsetClause
@@ -143,7 +145,9 @@ joinConstraintClause
 sampleClause: SAMPLE ratioExpr PERCENT? (OFFSET ratioExpr)? (LPAREN identifier RPAREN)?;
 limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
-orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
+orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)? withFillClause?;
+withFillClause: WITH FILL (FROM columnExpr)? (TO columnExpr)? (STEP columnExpr)?;
+interpolateExpr: columnExpr (AS columnExpr)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
@@ -373,7 +377,7 @@ floatingLiteral
     | DOT (DECIMAL_LITERAL | OCTAL_LITERAL)
     | DECIMAL_LITERAL DOT (DECIMAL_LITERAL | OCTAL_LITERAL)?  // can't move this to the lexer or it will break nested tuple access: t.1.2
     ;
-numberLiteral: (PLUS | DASH)? (floatingLiteral | OCTAL_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
+numberLiteral: (PLUS | DASH)? (floatingLiteral | BINARY_LITERAL | OCTAL_LITERAL | OCTAL_PREFIX_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL | INF | NAN_SQL);
 literal
     : numberLiteral
     | STRING_LITERAL
@@ -384,13 +388,13 @@ keyword
     // except NULL_SQL, INF, NAN_SQL
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
     | CAST | COHORT | COLLATE | COLUMNS | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
-    | DISTINCT | ELSE | END | EXCLUDE | EXTRACT | FILTER | FINAL | FIRST
-    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
+    | DISTINCT | ELSE | END | EXCLUDE | EXTRACT | FILL | FILTER | FINAL | FIRST
+    | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | INTERPOLATE | IS
     | GROUPING | IF | IGNORE | ILIKE | INCLUDE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
     | LOCAL | NAME | NATURAL | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PIVOT | POSITIONAL | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
+    | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | STEP | SUBSTRING
     | THEN | TIES | TIME | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
     | UNBOUNDED | UNION | UNPIVOT | USING | VALUES | WHEN | WHERE | WINDOW | WITH
     | ZONE

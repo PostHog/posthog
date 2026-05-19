@@ -108,6 +108,10 @@ class Command(BaseCommand):
             logger.info("backfill_dry_run_complete", total=total_count)
             return
 
+        # ClickhouseProducer has a TEST-mode bypass that runs `sync_execute(sql, data)`
+        # directly, which is what the backfill tests rely on to count rows. In prod it
+        # routes through `posthog.kafka_client.routing.get_producer(topic=...)` and
+        # produces to Kafka like any other producer_scope site.
         producer = ClickhouseProducer()
         produced = 0
         since_last_flush = 0
@@ -129,8 +133,6 @@ class Command(BaseCommand):
                 since_last_flush += 1
 
                 if since_last_flush >= batch_size:
-                    if producer.producer is not None:
-                        producer.producer.flush()
                     since_last_flush = 0
                     elapsed = time.monotonic() - start_time
                     rate = produced / elapsed if elapsed > 0 else 0
@@ -143,8 +145,6 @@ class Command(BaseCommand):
                         elapsed_s=round(elapsed),
                     )
 
-        if producer.producer is not None:
-            producer.producer.flush()
         elapsed = time.monotonic() - start_time
         logger.info("backfill_complete", produced=produced, elapsed_s=round(elapsed))
 

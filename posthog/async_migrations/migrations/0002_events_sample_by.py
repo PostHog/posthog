@@ -40,7 +40,7 @@ Migration Summary
 """
 
 
-def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
+def generate_insert_into_op(partition_gte: int, partition_lt: int | None = None) -> AsyncMigrationOperation:
     lt_expression = f"AND toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
     op = AsyncMigrationOperationSQL(
         database=AnalyticsDBMS.CLICKHOUSE,
@@ -69,8 +69,8 @@ class Migration(AsyncMigrationDefinition):
 
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0")]
 
-    @cached_property
-    def operations(self):
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
         if self._events_table_engine() == "Distributed":
             # Note: This _should_ be impossible but hard to ensure.
             raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine.")
@@ -89,10 +89,11 @@ class Migration(AsyncMigrationDefinition):
             )
         ]
 
-        old_partition_ops = []
+        old_partition_ops: list[AsyncMigrationOperation] = []
         previous_partition = self._partitions[0] if len(self._partitions) > 0 else None
         for partition in self._partitions[1:]:
-            old_partition_ops.append(generate_insert_into_op(previous_partition, partition))
+            if previous_partition is not None:
+                old_partition_ops.append(generate_insert_into_op(previous_partition, partition))
             previous_partition = partition
 
         detach_mv_ops = [

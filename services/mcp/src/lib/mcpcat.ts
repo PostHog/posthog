@@ -1,19 +1,41 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { env } from 'cloudflare:workers'
 import { track } from 'mcpcat'
 
-/** Provider interface for resolving user/session identity. */
+import type { MCPAnalyticsContext } from '@/lib/analytics'
+import { env } from '@/lib/env'
+
+/** Provider interface for resolving user/session identity and workspace context. */
 export type McpCatIdentityProvider = {
     getDistinctId: () => Promise<string>
+    // PostHog-side session UUID. Resolved from the wrapper-app `?sessionId=`
+    // query hint via `SessionManager.getSessionUuid()` and used as `$session_id`
+    // / `$ai_session_id` to drive Session Replay and LLM Analytics grouping.
+    // Only set when a wrapping consumer app supplied the hint.
     getSessionUuid: () => Promise<string | undefined>
-    getMcpClientName: () => string | undefined
-    getMcpClientVersion: () => string | undefined
-    getMcpProtocolVersion: () => string | undefined
-    getRegion: () => string | undefined
-    getOrganizationId: () => string | undefined
-    getProjectId: () => string | undefined
-    getClientUserAgent: () => string | undefined
-    getVersion: () => number | undefined
+    getMcpClientName: () => Promise<string | undefined>
+    getMcpClientVersion: () => Promise<string | undefined>
+    getMcpProtocolVersion: () => Promise<string | undefined>
+    getRegion: () => Promise<string | undefined>
+    getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
+    getClientUserAgent: () => Promise<string | undefined>
+    getMcpVersion: () => Promise<number | undefined>
+    getOAuthClientName: () => Promise<string | undefined>
+    getReadOnly: () => Promise<boolean | undefined>
+    getTransport: () => Promise<string | undefined>
+    getMcpConsumer: () => Promise<string | undefined>
+    getMcpMode: () => Promise<string | undefined>
+    // Streamable-HTTP transport session id from the inbound `Mcp-Session-Id`
+    // header. Distinct from `getSessionUuid()` above: this one is minted by
+    // the MCP server per the protocol spec and is available on (almost) every
+    // request, whereas `getSessionUuid()` only resolves when a wrapper app
+    // also supplied a `?sessionId=` hint. Emitted on events as `mcp_session_id`.
+    getMcpSessionId: () => Promise<string | undefined>
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14
+    // (`enableConversationId: true`). Persists across transport reconnects.
+    // Sourced from tool-call arguments by the SDK; we scaffold the property
+    // here so it lands on events once the SDK is bumped. Returns undefined
+    // until that wiring is in place.
+    getMcpConversationId: () => Promise<string | undefined>
 }
 
 export function redactSensitiveInformation(text: string): string {
@@ -30,29 +52,6 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
         return
     }
 
-    // Calculate these only once and include with every single event
-    const eventProperties: Record<string, unknown> = {
-        ai_product: 'mcp',
-        mcp_version: identity.getVersion(),
-        client_user_agent: identity.getClientUserAgent(),
-        mcp_client_name: identity.getMcpClientName(),
-        mcp_client_version: identity.getMcpClientVersion(),
-        mcp_protocol_version: identity.getMcpProtocolVersion(),
-        mcp_region: identity.getRegion(),
-    }
-
-    // For tags, we need to override MCPcat's default $session_id and $ai_session_id with our own
-    // PostHog session UUID. $session_id drives Session Replay; $ai_session_id is what LLM Analytics
-    // groups traces by — without overriding it, MCPcat's exporter falls back to `mcpcat_<ksuid>`.
-    // We can't just do this with a single object because the type returned must be `Record<string, string>`,
-    // so we need some shenanigans here.
-    const sessionUuid = await identity.getSessionUuid()
-    const eventTags: Record<string, string> = {}
-    if (sessionUuid) {
-        eventTags.$session_id = sessionUuid
-        eventTags.$ai_session_id = sessionUuid
-    }
-
     // Compute the distinct ID only once and include with every single event
     const distinctId = await identity.getDistinctId()
     const identifyResult = { userId: distinctId }
@@ -65,8 +64,85 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
             enableToolCallContext: false,
             enableTracing: true, // Tracks tools and usage patterns
             identify: async () => identifyResult,
-            eventTags: () => eventTags,
-            eventProperties: () => eventProperties,
+            // For tags, we need to override MCPcat's default $session_id and $ai_session_id with our
+            // own PostHog session UUID. $session_id drives Session Replay; $ai_session_id is what
+            // LLM Analytics groups traces by — without overriding it, MCPcat's exporter falls back
+            // to `mcpcat_<ksuid>`. Recomputed per event so a late-bound session UUID is picked up.
+            eventTags: async () => {
+                const sessionUuid = await identity.getSessionUuid()
+                if (!sessionUuid) {
+                    return {}
+                }
+
+                return {
+                    $session_id: sessionUuid,
+                    $ai_session_id: sessionUuid,
+                }
+            },
+            // Recomputed per event so workspace switches (via `switch-project` / `switch-organization`)
+            // are reflected on subsequent events without a reinit.
+            eventProperties: async () => {
+                const [
+                    mcpVersion,
+                    clientUserAgent,
+                    mcpClientName,
+                    mcpClientVersion,
+                    mcpProtocolVersion,
+                    mcpRegion,
+                    analyticsContext,
+                    oauthClientName,
+                    readOnly,
+                    transport,
+                    mcpConsumer,
+                    mcpMode,
+                    mcpSessionId,
+                    mcpConversationId,
+                ] = await Promise.all([
+                    identity.getMcpVersion(),
+                    identity.getClientUserAgent(),
+                    identity.getMcpClientName(),
+                    identity.getMcpClientVersion(),
+                    identity.getMcpProtocolVersion(),
+                    identity.getRegion(),
+                    identity.getAnalyticsContext(),
+                    identity.getOAuthClientName(),
+                    identity.getReadOnly(),
+                    identity.getTransport(),
+                    identity.getMcpConsumer(),
+                    identity.getMcpMode(),
+                    identity.getMcpSessionId(),
+                    identity.getMcpConversationId(),
+                ])
+
+                // `$groups` is the raw event-payload key; mcpcat doesn't expose a typed
+                // `groups` option, so we set it directly alongside the other properties.
+                const groups = {
+                    ...(analyticsContext?.organizationId ? { organization: analyticsContext.organizationId } : {}),
+                    ...(analyticsContext?.projectUuid ? { project: analyticsContext.projectUuid } : {}),
+                }
+
+                return {
+                    ai_product: 'mcp',
+                    mcp_version: mcpVersion,
+                    client_user_agent: clientUserAgent,
+                    mcp_client_name: mcpClientName,
+                    mcp_client_version: mcpClientVersion,
+                    mcp_protocol_version: mcpProtocolVersion,
+                    mcp_region: mcpRegion,
+                    organization_id: analyticsContext?.organizationId,
+                    project_id: analyticsContext?.projectId,
+                    project_uuid: analyticsContext?.projectUuid,
+                    project_name: analyticsContext?.projectName,
+                    mcp_oauth_client_name: oauthClientName,
+                    read_only: readOnly,
+                    mcp_transport: transport,
+                    mcp_consumer: mcpConsumer,
+                    mcp_mode: mcpMode,
+                    mcp_session_id: mcpSessionId,
+                    mcp_conversation_id: mcpConversationId,
+                    ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+                }
+            },
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
             exporters: {
                 posthog: {

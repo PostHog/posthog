@@ -1029,14 +1029,14 @@ pub fn flag_list_with_metadata_and_filter(
     let mut flags_with_missing_deps: Vec<i32> = flags_with_missing_deps_set.into_iter().collect();
     flags_with_missing_deps.sort();
 
-    let evaluation_metadata = EvaluationMetadata {
+    let evaluation_metadata = Arc::new(EvaluationMetadata {
         dependency_stages: stages,
         flags_with_missing_deps,
         transitive_deps,
-    };
+    });
 
     FeatureFlagList {
-        flags,
+        flags: flags.into(),
         filtered_out_flag_ids,
         evaluation_metadata,
         cohorts: None,
@@ -1603,6 +1603,23 @@ impl TestContext {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
 
+        Ok(())
+    }
+
+    /// Populate cache for a team with custom flag definitions payload.
+    pub async fn populate_cache_for_team_with_flags(
+        &self,
+        team_id: i32,
+        flags_data: serde_json::Value,
+    ) -> Result<(), Error> {
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        let cache_key =
+            format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json");
+        let payload = serde_json::to_string(&flags_data)?;
+        redis_client
+            .set(cache_key, payload)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
         Ok(())
     }
 

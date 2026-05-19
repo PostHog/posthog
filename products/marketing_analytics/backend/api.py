@@ -14,6 +14,7 @@ from posthog.schema import SourceMap
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
@@ -84,6 +85,7 @@ class UtmAuditResponseSerializer(serializers.Serializer):
 
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     @validated_request(
@@ -157,9 +159,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
             query.limit = ast.Constant(value=10)
 
-            hogql_str = query.to_hogql()
-
-            result = execute_hogql_query(hogql_str, self.team)
+            result = execute_hogql_query(query, self.team)
 
             return Response(
                 {
@@ -167,7 +167,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                     "row_count": len(result.results) if result.results else 0,
                     "columns": result.columns or [],
                     "sample_data": (result.results or [])[:10],
-                    "hogql": hogql_str,
+                    "hogql": query.to_hogql(),
                 }
             )
 

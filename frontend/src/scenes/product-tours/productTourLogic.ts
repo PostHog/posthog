@@ -1,9 +1,9 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import isEqual from 'lodash.isequal'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -590,7 +590,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     values.draftSaveStatus === 'unsaved' || values.draftSaveStatus === 'saving'
                 const isOwnEcho =
                     values.isEditingProductTour &&
-                    isEqual(incomingPayload, cache.lastSentDraftPayload ?? cache.lastDraftPayload)
+                    equal(incomingPayload, cache.lastSentDraftPayload ?? cache.lastDraftPayload)
 
                 if (!isOwnEcho && !hasUnsavedLocalChanges) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -699,7 +699,7 @@ export const productTourLogic = kea<productTourLogicType>([
         hasCustomTargeting: [
             (s) => [s.targetingFlagFilters],
             (targetingFlagFilters: FeatureFlagFilters | undefined): boolean => {
-                return !!targetingFlagFilters && !isEqual(targetingFlagFilters, DEFAULT_TARGETING_FILTERS)
+                return !!targetingFlagFilters && !equal(targetingFlagFilters, DEFAULT_TARGETING_FILTERS)
             },
         ],
         selectedLanguage: [
@@ -801,7 +801,7 @@ export const productTourLogic = kea<productTourLogicType>([
                 return
             }
             const payload = buildDraftPayload(formValues)
-            if (isEqual(cache.lastDraftPayload, payload)) {
+            if (equal(cache.lastDraftPayload, payload)) {
                 return
             }
             cache.lastDraftPayload = payload

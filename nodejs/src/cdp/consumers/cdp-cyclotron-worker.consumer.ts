@@ -12,6 +12,7 @@ import {
     CyclotronJobQueueKind,
 } from '../types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
+import { mirrorCall } from '../utils/mirror-call'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 /**
@@ -71,7 +72,7 @@ export class CdpCyclotronWorker<
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 if (!hogFunction.enabled || hogFunction.deleted) {
@@ -81,7 +82,7 @@ export class CdpCyclotronWorker<
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
@@ -143,8 +144,7 @@ export class CdpCyclotronWorker<
     @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })
     private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
-            await this.hogFunctionMonitoringService.queueInvocationResults(invocationResults)
-            await this.hogFunctionMonitoringService.flush()
+            await this.invocationResultsService.queueInvocationResultsAndFlush(invocationResults)
         } catch (err) {
             captureException(err)
             logger.error('Error processing invocation results', { err })
@@ -154,7 +154,12 @@ export class CdpCyclotronWorker<
     @instrumented({ key: 'cdpConsumer.backgroundTask.hogWatcherObserve', timeoutMs: 10_000, sendException: false })
     private async observeResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
-            await this.hogWatcher.observeResults(invocationResults)
+            await Promise.all([
+                this.hogWatcher.observeResults(invocationResults),
+                mirrorCall('hog-watcher.observeResults', () =>
+                    this.hogWatcherMirror?.observeResults(invocationResults)
+                ),
+            ])
         } catch (err: any) {
             captureException(err)
             logger.error('Error observing results', { err })
@@ -166,12 +171,12 @@ export class CdpCyclotronWorker<
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
-    public async start() {
+    public override async start() {
         await super.start()
         await this.cyclotronJobQueue.start(this.queue, (batch) => this.processBatch(batch))
     }
 
-    public async stop() {
+    public override async stop() {
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
 

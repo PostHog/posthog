@@ -3,7 +3,7 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node } from '~/queries/schema/schema-general'
+import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -154,13 +154,16 @@ export const hasInvalidRegexFilter = (obj: unknown): boolean => {
     return false
 }
 
+export const isBoxPlotMissingProperty = (series: TrendsQuery['series'] | null | undefined): boolean =>
+    !series?.length || series.some((s) => !s?.math_property)
+
 export const validateQuery = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
     }
 
     if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
-        return q.series?.length > 0 && q.series.every((s) => !!s?.math_property)
+        return !isBoxPlotMissingProperty(q.series)
     }
     if (hasInvalidRegexFilter(q)) {
         return false

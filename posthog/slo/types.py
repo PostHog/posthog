@@ -10,7 +10,10 @@ class SloArea(StrEnum):
 class SloOperation(StrEnum):
     EXPORT = "export"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
+    SUBSCRIPTION_CREATE = "subscription_create"
+    SUBSCRIPTION_DELETE = "subscription_delete"
     ALERT_CHECK = "alert_check"
+    QUERY_SERVICE = "query_service"
 
 
 class SloOutcome(StrEnum):

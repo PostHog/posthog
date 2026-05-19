@@ -6,7 +6,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 
-from ee.models.assistant import CoreMemory
+from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class MaxCoreMemorySerializer(serializers.ModelSerializer):
@@ -14,7 +14,7 @@ class MaxCoreMemorySerializer(serializers.ModelSerializer):
         model = CoreMemory
         fields = ["id", "text", "scraping_status"]
 
-    text = serializers.CharField(allow_blank=True)
+    text = serializers.CharField(allow_blank=True, max_length=CORE_MEMORY_MAX_CHARACTERS)
 
     def create(self, validated_data):
         try:

@@ -68,6 +68,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'ELSE',
         'END',
         'EXTRACT',
+        'FILL',
         'FINAL',
         'FIRST',
         'FN',
@@ -81,6 +82,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'ID',
         'IF',
         'INF',
+        'INTERPOLATE',
         'INTERVAL',
         'KEY',
         'LAST',
@@ -110,6 +112,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'SELECT',
         'SEMI',
         'SETTINGS',
+        'STEP',
         'SUBSTRING',
         'THEN',
         'TIES',
@@ -858,7 +861,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
 })
 
 export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguage.hogQL): void {
-    if (!monaco.languages.getLanguages().some(({ id }) => id === lang)) {
+    if (!monaco.languages.getLanguages().some(({ id }: { id: string }) => id === lang)) {
         monaco.languages.register(
             lang === 'hogQL'
                 ? {

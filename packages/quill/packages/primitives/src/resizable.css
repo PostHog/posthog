@@ -1,0 +1,72 @@
+@layer components {
+    .quill-resizable__handle {
+        position: relative;
+        background-color: var(--border);
+    }
+
+    /* Expanded hit target via ::after */
+    .quill-resizable__handle::after {
+        position: absolute;
+        content: '';
+    }
+
+    /* Orientation: vertical (default) — 1px wide column, hit target is 4px wide centered */
+    .quill-resizable__handle[aria-orientation='vertical'] {
+        width: 1px;
+    }
+
+    .quill-resizable__handle[aria-orientation='vertical']::after {
+        inset-block: 0;
+        inset-inline-start: 50%;
+        width: 4px;
+        transform: translateX(-50%);
+    }
+
+    [dir='rtl'] .quill-resizable__handle[aria-orientation='vertical']::after {
+        transform: translateX(50%);
+    }
+
+    /* Orientation: horizontal — 1px tall row, hit target is 4px tall centered */
+    .quill-resizable__handle[aria-orientation='horizontal'] {
+        width: 100%;
+        height: 1px;
+    }
+
+    .quill-resizable__handle[aria-orientation='horizontal']::after {
+        inset-block-start: 50%;
+        inset-inline: 0;
+        height: 4px;
+        transform: translateY(-50%);
+    }
+
+    .quill-resizable__handle:hover::after {
+        background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+    }
+
+    .quill-resizable__handle:focus-visible::after {
+        background-color: var(--primary);
+    }
+
+    .quill-resizable__handle:focus-visible {
+        outline: none;
+    }
+
+    /* Inner drag pill */
+    .quill-resizable__handle > div {
+        z-index: 10;
+        display: flex;
+        flex-shrink: 0;
+        width: 0.25rem;
+        height: 1.5rem;
+        background-color: var(--border);
+        border-radius: var(--radius-lg);
+    }
+
+    .quill-resizable__handle[aria-orientation='horizontal'] > div {
+        rotate: 90deg;
+    }
+
+    .quill-resizable__handle:hover > div {
+        background-color: color-mix(in oklab, var(--primary) 80%, transparent);
+    }
+}

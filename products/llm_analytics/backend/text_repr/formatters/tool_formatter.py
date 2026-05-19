@@ -141,7 +141,7 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
     if len(tools_list) == 0:
         return lines
 
-    options = options or {}
+    options = options or {}  # ty: ignore[invalid-assignment]
     include_markers = options.get("include_markers", True)
     collapse_threshold: int = options.get("tools_collapse_threshold", DEFAULT_TOOLS_COLLAPSE_THRESHOLD)  # type: ignore[assignment]
 

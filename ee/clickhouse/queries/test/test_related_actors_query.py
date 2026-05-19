@@ -45,21 +45,18 @@ class BaseRelatedActorsTest(ABC, ClickhouseTestMixin, APIBaseTest):
             group_type_index=org_type_index,
             group_key="org:1",
             properties={"name": "org 1"},
-            sync=True,
         )
         self.another_org = create_group(
             team_id=self.team.id,
             group_type_index=org_type_index,
             group_key="another-org",
             properties={"name": "another org"},
-            sync=True,
         )
         self.instance = create_group(
             team_id=self.team.id,
             group_type_index=instance_type_index,
             group_key="instance:1",
             properties={"name": "instance 1"},
-            sync=True,
         )
 
         self._create_group_event("user1", RECENT_DATE, self.org1)
@@ -184,7 +181,6 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
             group_type_index=cast(GroupTypeIndex, self.org_group_type.group_type_index),
             group_key="org:2",
             properties={"name": "org 2"},
-            sync=True,
         )
         self._create_group_event("user1", RECENT_DATE, extra_org)
         flush_persons_and_events()

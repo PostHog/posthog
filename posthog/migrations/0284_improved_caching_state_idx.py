@@ -6,7 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    atomic: bool = False
+    atomic = False
 
     dependencies = [
         ("posthog", "0283_prompt_sequence_model"),

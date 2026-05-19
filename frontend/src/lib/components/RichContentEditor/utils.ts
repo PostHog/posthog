@@ -29,6 +29,7 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         chain: () => editor.chain().focus(),
         destroy: () => editor.destroy(),
         getMarks: (type: string) => getMarks(editor, type),
+        getAttributes: (typeOrName: string) => editor.getAttributes(typeOrName),
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
         isSelectionFullyWithinSingleMark: (markName: string) => {

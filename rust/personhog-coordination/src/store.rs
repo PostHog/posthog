@@ -3,8 +3,8 @@ use etcd_client::{Compare, CompareOp, PutOptions, Txn, TxnOp, WatchStream};
 
 use crate::error::{Error, Result};
 use crate::types::{
-    AssignmentStatus, HandoffState, LeaderInfo, PartitionAssignment, PodStatus, RegisteredPod,
-    RegisteredRouter, RouterCutoverAck,
+    AssignmentStatus, HandoffState, LeaderInfo, PartitionAssignment, PodDrainedAck, PodStatus,
+    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 
 /// All etcd key patterns used by the PersonHog store.
@@ -17,9 +17,18 @@ enum StoreKey<'a> {
     AssignmentsPrefix,
     Handoff(u32),
     HandoffsPrefix,
-    HandoffAck { partition: u32, router: &'a str },
-    HandoffAcksForPartition(u32),
-    HandoffAcksPrefix,
+    // Freeze acks: each router writes one when it has begun stashing for a partition.
+    FreezeAck { partition: u32, router: &'a str },
+    FreezeAcksForPartition(u32),
+    FreezeAcksPrefix,
+    // Drained acks: the old owner writes one when all inflight handlers have completed.
+    DrainedAck { partition: u32, pod: &'a str },
+    DrainedAcksForPartition(u32),
+    DrainedAcksPrefix,
+    // Warmed acks: the new owner writes one after consuming Kafka up to the stable HWM.
+    WarmedAck { partition: u32, pod: &'a str },
+    WarmedAcksForPartition(u32),
+    WarmedAcksPrefix,
     Leader,
     Generation,
     TotalPartitions,
@@ -36,11 +45,21 @@ impl StoreKey<'_> {
             StoreKey::AssignmentsPrefix => format!("{prefix}assignments/"),
             StoreKey::Handoff(p) => format!("{prefix}handoffs/{p}"),
             StoreKey::HandoffsPrefix => format!("{prefix}handoffs/"),
-            StoreKey::HandoffAck { partition, router } => {
-                format!("{prefix}handoff_acks/{partition}/{router}")
+            StoreKey::FreezeAck { partition, router } => {
+                format!("{prefix}freeze_acks/{partition}/{router}")
             }
-            StoreKey::HandoffAcksForPartition(p) => format!("{prefix}handoff_acks/{p}/"),
-            StoreKey::HandoffAcksPrefix => format!("{prefix}handoff_acks/"),
+            StoreKey::FreezeAcksForPartition(p) => format!("{prefix}freeze_acks/{p}/"),
+            StoreKey::FreezeAcksPrefix => format!("{prefix}freeze_acks/"),
+            StoreKey::DrainedAck { partition, pod } => {
+                format!("{prefix}drained_acks/{partition}/{pod}")
+            }
+            StoreKey::DrainedAcksForPartition(p) => format!("{prefix}drained_acks/{p}/"),
+            StoreKey::DrainedAcksPrefix => format!("{prefix}drained_acks/"),
+            StoreKey::WarmedAck { partition, pod } => {
+                format!("{prefix}warmed_acks/{partition}/{pod}")
+            }
+            StoreKey::WarmedAcksForPartition(p) => format!("{prefix}warmed_acks/{p}/"),
+            StoreKey::WarmedAcksPrefix => format!("{prefix}warmed_acks/"),
             StoreKey::Leader => format!("{prefix}coordinator/leader"),
             StoreKey::Generation => format!("{prefix}generation"),
             StoreKey::TotalPartitions => format!("{prefix}config/total_partitions"),
@@ -159,11 +178,6 @@ impl PersonhogStore {
         Ok(())
     }
 
-    pub async fn watch_assignments(&self) -> Result<WatchStream> {
-        let key = self.key(StoreKey::AssignmentsPrefix);
-        Ok(self.inner.watch(&key).await?)
-    }
-
     // ── Handoff operations ──────────────────────────────────────
 
     pub async fn get_handoff(&self, partition: u32) -> Result<Option<HandoffState>> {
@@ -181,6 +195,48 @@ impl PersonhogStore {
         Ok(self.inner.put(&key, handoff, None).await?)
     }
 
+    /// Compare-and-swap a handoff's phase. Reads the current handoff,
+    /// verifies its phase matches `expected`, and writes a copy with
+    /// `new_phase` only if the etcd key version hasn't changed.
+    ///
+    /// Returns `Ok(true)` if the swap succeeded, `Ok(false)` if the handoff
+    /// was concurrently modified or its phase no longer matches `expected`.
+    /// Used by `check_phase_advance` to avoid duplicate phase writes when
+    /// multiple watch loops fire `check_phase_advance` concurrently for the
+    /// same partition.
+    pub async fn cas_handoff_phase(
+        &self,
+        partition: u32,
+        expected: crate::types::HandoffPhase,
+        new_phase: crate::types::HandoffPhase,
+    ) -> Result<bool> {
+        let handoff_key = self.key(StoreKey::Handoff(partition));
+        let Some((mut handoff, version)) = self
+            .inner
+            .get_versioned::<HandoffState>(&handoff_key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if handoff.phase != expected {
+            return Ok(false);
+        }
+        handoff.phase = new_phase;
+        let txn = Txn::new()
+            .when(vec![Compare::version(
+                handoff_key.clone(),
+                CompareOp::Equal,
+                version,
+            )])
+            .and_then(vec![TxnOp::put(
+                handoff_key,
+                serde_json::to_vec(&handoff)?,
+                None,
+            )]);
+        let resp = self.inner.txn(txn).await?;
+        Ok(resp.succeeded())
+    }
+
     pub async fn delete_handoff(&self, partition: u32) -> Result<()> {
         let key = self.key(StoreKey::Handoff(partition));
         Ok(self.inner.delete(&key).await?)
@@ -191,29 +247,88 @@ impl PersonhogStore {
         Ok(self.inner.watch(&key).await?)
     }
 
-    // ── Router cutover ack operations ────────────────────────────
+    // ── Freeze ack operations (router -> coordinator) ────────────
 
-    pub async fn put_router_ack(&self, ack: &RouterCutoverAck) -> Result<()> {
-        let key = self.key(StoreKey::HandoffAck {
+    pub async fn put_freeze_ack(&self, ack: &RouterFreezeAck) -> Result<()> {
+        let key = self.key(StoreKey::FreezeAck {
             partition: ack.partition,
             router: &ack.router_name,
         });
         Ok(self.inner.put(&key, ack, None).await?)
     }
 
-    pub async fn list_router_acks(&self, partition: u32) -> Result<Vec<RouterCutoverAck>> {
-        let key = self.key(StoreKey::HandoffAcksForPartition(partition));
+    pub async fn list_freeze_acks(&self, partition: u32) -> Result<Vec<RouterFreezeAck>> {
+        let key = self.key(StoreKey::FreezeAcksForPartition(partition));
         Ok(self.inner.list(&key).await?)
     }
 
-    pub async fn delete_router_acks(&self, partition: u32) -> Result<()> {
-        let key = self.key(StoreKey::HandoffAcksForPartition(partition));
+    pub async fn delete_freeze_acks(&self, partition: u32) -> Result<()> {
+        let key = self.key(StoreKey::FreezeAcksForPartition(partition));
         Ok(self.inner.delete_prefix(&key).await?)
     }
 
-    pub async fn watch_handoff_acks(&self) -> Result<WatchStream> {
-        let key = self.key(StoreKey::HandoffAcksPrefix);
+    pub async fn watch_freeze_acks(&self) -> Result<WatchStream> {
+        let key = self.key(StoreKey::FreezeAcksPrefix);
         Ok(self.inner.watch(&key).await?)
+    }
+
+    // ── Drained ack operations (old owner -> coordinator) ────────
+
+    pub async fn put_drained_ack(&self, ack: &PodDrainedAck) -> Result<()> {
+        let key = self.key(StoreKey::DrainedAck {
+            partition: ack.partition,
+            pod: &ack.pod_name,
+        });
+        Ok(self.inner.put(&key, ack, None).await?)
+    }
+
+    pub async fn list_drained_acks(&self, partition: u32) -> Result<Vec<PodDrainedAck>> {
+        let key = self.key(StoreKey::DrainedAcksForPartition(partition));
+        Ok(self.inner.list(&key).await?)
+    }
+
+    pub async fn delete_drained_acks(&self, partition: u32) -> Result<()> {
+        let key = self.key(StoreKey::DrainedAcksForPartition(partition));
+        Ok(self.inner.delete_prefix(&key).await?)
+    }
+
+    pub async fn watch_drained_acks(&self) -> Result<WatchStream> {
+        let key = self.key(StoreKey::DrainedAcksPrefix);
+        Ok(self.inner.watch(&key).await?)
+    }
+
+    // ── Warmed ack operations (new owner -> coordinator) ─────────
+
+    pub async fn put_warmed_ack(&self, ack: &PodWarmedAck) -> Result<()> {
+        let key = self.key(StoreKey::WarmedAck {
+            partition: ack.partition,
+            pod: &ack.pod_name,
+        });
+        Ok(self.inner.put(&key, ack, None).await?)
+    }
+
+    pub async fn list_warmed_acks(&self, partition: u32) -> Result<Vec<PodWarmedAck>> {
+        let key = self.key(StoreKey::WarmedAcksForPartition(partition));
+        Ok(self.inner.list(&key).await?)
+    }
+
+    pub async fn delete_warmed_acks(&self, partition: u32) -> Result<()> {
+        let key = self.key(StoreKey::WarmedAcksForPartition(partition));
+        Ok(self.inner.delete_prefix(&key).await?)
+    }
+
+    pub async fn watch_warmed_acks(&self) -> Result<WatchStream> {
+        let key = self.key(StoreKey::WarmedAcksPrefix);
+        Ok(self.inner.watch(&key).await?)
+    }
+
+    /// Clean up every handoff-related ack for a partition. Called when a
+    /// handoff is completed or cancelled.
+    pub async fn delete_all_handoff_acks(&self, partition: u32) -> Result<()> {
+        self.delete_freeze_acks(partition).await?;
+        self.delete_drained_acks(partition).await?;
+        self.delete_warmed_acks(partition).await?;
+        Ok(())
     }
 
     // ── Transactional operations ────────────────────────────────
@@ -249,6 +364,14 @@ impl PersonhogStore {
     /// between our read and write).
     ///
     /// Returns `Ok(false)` if the handoff was modified concurrently (CAS failed).
+    ///
+    /// **Invariant:** this is the only code path that ever *changes* an
+    /// assignment's `owner`. Routers rely on observing handoff Complete
+    /// events to update their in-memory routing tables — they do not watch
+    /// assignments. Anything that mutates `assignments/{partition}` outside
+    /// of this method will be invisible to routers. If we ever need a
+    /// force-reassignment ops tool, it should create a handoff record and
+    /// let the protocol advance it, not write to the assignment key.
     pub async fn complete_handoff(&self, partition: u32) -> Result<bool> {
         let handoff_key = self.key(StoreKey::Handoff(partition));
 

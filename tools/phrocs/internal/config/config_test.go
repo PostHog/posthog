@@ -223,6 +223,92 @@ func TestLoad_globalShell(t *testing.T) {
 	}
 }
 
+func TestLoad_infersCapabilityGroup(t *testing.T) {
+	tests := []struct {
+		name       string
+		yaml       string
+		proc       string
+		wantCap    string // expected Groups["capability"] value (may be "")
+		wantAbsent bool   // if true, expect the key to be missing entirely
+	}{
+		{
+			name:    "copies capability into groups",
+			yaml:    "procs:\n  svc:\n    shell: echo hi\n    capability: event_ingestion\n",
+			proc:    "svc",
+			wantCap: "event_ingestion",
+		},
+		{
+			name:       "missing capability field leaves groups untouched",
+			yaml:       "procs:\n  svc:\n    shell: echo hi\n",
+			proc:       "svc",
+			wantAbsent: true,
+		},
+		{
+			name:    "explicit groups.capability in YAML takes precedence",
+			yaml:    "procs:\n  svc:\n    shell: echo hi\n    capability: event_ingestion\n    groups:\n      capability: pinned\n",
+			proc:    "svc",
+			wantCap: "pinned",
+		},
+		{
+			// Explicit empty override opts the proc out of capability grouping
+			// (i.e. later put into Ungrouped)
+			name:    "empty explicit override opts out of inference",
+			yaml:    "procs:\n  svc:\n    shell: echo hi\n    capability: event_ingestion\n    groups:\n      capability: \"\"\n",
+			proc:    "svc",
+			wantCap: "",
+		},
+		{
+			name:    "preserves sibling groups while adding capability",
+			yaml:    "procs:\n  svc:\n    shell: echo hi\n    capability: flag_evaluation\n    groups:\n      layer: Product services\n",
+			proc:    "svc",
+			wantCap: "flag_evaluation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeYAML(t, tt.yaml)
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := cfg.Procs[tt.proc].Groups["capability"]
+			if tt.wantAbsent {
+				if ok {
+					t.Errorf("unexpected Groups[\"capability\"]=%q, want absent", got)
+				}
+				return
+			}
+			if !ok {
+				t.Fatalf("Groups[\"capability\"] missing, want %q", tt.wantCap)
+			}
+			if got != tt.wantCap {
+				t.Errorf("Groups[\"capability\"]: got %q, want %q", got, tt.wantCap)
+			}
+		})
+	}
+}
+
+func TestLoad_inferCapabilityPreservesLayerAndTech(t *testing.T) {
+	path := writeYAML(t, `
+procs:
+  svc:
+    shell: echo hi
+    capability: event_ingestion
+    groups:
+      layer: Processing
+      tech: Rust
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Procs["svc"].Groups
+	if g["layer"] != "Processing" || g["tech"] != "Rust" || g["capability"] != "event_ingestion" {
+		t.Errorf("expected layer=Processing tech=Rust capability=event_ingestion, got %+v", g)
+	}
+}
+
 func TestLoad_cwd(t *testing.T) {
 	path := writeYAML(t, "procs:\n  svc:\n    shell: echo hi\n    cwd: /tmp/mydir\n")
 	cfg, err := Load(path)

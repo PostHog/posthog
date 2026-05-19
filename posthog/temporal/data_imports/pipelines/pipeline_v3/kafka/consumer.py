@@ -6,8 +6,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
 from confluent_kafka import (
@@ -18,11 +16,13 @@ from confluent_kafka import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
+from posthog.kafka_client.routing import get_producer, get_profile_settings, resolve_profile_name
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
     BATCH_PROCESSING_DURATION_SECONDS,
     BATCH_RETRY_EXHAUSTED_TOTAL,
     BATCH_RETRY_TOTAL,
     BATCH_SIZE,
+    BATCH_UTILIZATION,
     DLQ_MESSAGES_TOTAL,
     MESSAGES_PROCESSED_TOTAL,
     OFFSET_COMMITS_TOTAL,
@@ -66,14 +66,16 @@ class KafkaConsumerService:
     def __init__(
         self,
         config: ConsumerConfig,
-        process_message: Callable[[Any], None],
-        kafka_hosts: Optional[list[str]] = None,
-        kafka_security_protocol: Optional[str] = None,
+        process_message: Callable[..., None],
     ):
         self._config = config
         self._process_message = process_message
-        self._kafka_hosts = kafka_hosts or settings.WAREHOUSE_PIPELINES_KAFKA_HOSTS
-        self._kafka_security_protocol = kafka_security_protocol or settings.WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL
+        # Hosts + security come from the routing profile that the input topic maps to.
+        # Topics unknown to the routing map fall through to DEFAULT. The enum is cached
+        # alongside settings so the DLQ producer can route back to the consumer's own
+        # cluster without re-resolving via the DLQ topic (which may not be in TOPIC_ROUTING).
+        self._kafka_profile_name = resolve_profile_name(topic=config.input_topic)
+        self._kafka_profile = get_profile_settings(profile=self._kafka_profile_name)
         self._shutdown_requested = False
         self._consumer: Optional[ConfluentConsumer] = None
         self._dlq_producer: Optional[_KafkaProducer] = None
@@ -93,20 +95,34 @@ class KafkaConsumerService:
                 logger.warning("signal_registration_failed", signal=sig)
 
     def _create_consumer(self) -> ConfluentConsumer:
+        profile = self._kafka_profile
+        hosts = profile.hosts
         config: dict[str, str | int | float | bool | None] = {
-            "bootstrap.servers": ",".join(self._kafka_hosts)
-            if isinstance(self._kafka_hosts, list)
-            else self._kafka_hosts,
+            "bootstrap.servers": ",".join(hosts) if isinstance(hosts, list) else hosts,
+            "security.protocol": profile.security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
             "group.id": self._config.consumer_group,
             "auto.offset.reset": "latest",
             "enable.auto.commit": False,
-            "security.protocol": self._kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+            "partition.assignment.strategy": "cooperative-sticky",
+            "max.poll.interval.ms": self._config.max_poll_interval_ms,
         }
+        if profile.security_protocol in (
+            _KafkaSecurityProtocol.SASL_PLAINTEXT,
+            _KafkaSecurityProtocol.SASL_SSL,
+        ):
+            config["sasl.mechanism"] = profile.sasl_mechanism
+            config["sasl.username"] = profile.sasl_user
+            config["sasl.password"] = profile.sasl_password
+        if self._config.session_timeout_ms is not None:
+            config["session.timeout.ms"] = self._config.session_timeout_ms
+        if self._config.heartbeat_interval_ms is not None:
+            config["heartbeat.interval.ms"] = self._config.heartbeat_interval_ms
         consumer = ConfluentConsumer(config)
         consumer.subscribe(
             [self._config.input_topic],
             on_assign=self._on_assign,
             on_revoke=self._on_revoke,
+            on_lost=self._on_lost,
         )
         return consumer
 
@@ -120,13 +136,19 @@ class KafkaConsumerService:
             )
 
     def _on_revoke(self, consumer: ConfluentConsumer, partitions: list) -> None:
-        for p in partitions:
-            logger.info(
-                "partition_revoked",
-                topic=p.topic,
-                partition=p.partition,
-                offset=p.offset,
-            )
+        """Graceful revoke during a cooperative-sticky rebalance.
+
+        With cooperative-sticky the callback fires only for the partitions
+        actually being revoked; other assignments stay put. The synchronous
+        consume loop calls back here *between* batches, so there's no
+        in-flight processing to drain at this point. Commit stored offsets
+        so the next owner picks up from where we stopped.
+        """
+        logger.info(
+            "partition_revocation_starting",
+            revoked_partition_count=len(partitions),
+            revoked_partitions=[{"topic": p.topic, "partition": p.partition} for p in partitions],
+        )
         try:
             consumer.commit(asynchronous=False)
         except KafkaException as e:
@@ -137,13 +159,27 @@ class KafkaConsumerService:
                 logger.warning("failed_to_commit_on_revoke", error=str(e))
         except Exception as e:
             logger.warning("failed_to_commit_on_revoke", error=str(e))
+        logger.info("partition_revocation_complete", revoked_partition_count=len(partitions))
+
+    def _on_lost(self, consumer: ConfluentConsumer, partitions: list) -> None:
+        """Involuntary partition loss (session timeout, network blip, etc.).
+
+        Do NOT commit: another consumer may already own these partitions,
+        and committing here could cause the new owner to skip messages we
+        never finished processing.
+        """
+        logger.warning(
+            "partitions_lost",
+            lost_partition_count=len(partitions),
+            lost_partitions=[{"topic": p.topic, "partition": p.partition} for p in partitions],
+        )
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:
-            self._dlq_producer = _KafkaProducer(
-                kafka_hosts=self._kafka_hosts,
-                kafka_security_protocol=self._kafka_security_protocol,
-            )
+            # Route by the consumer's own profile rather than by topic so the DLQ
+            # always lands on the same cluster as the input — regardless of whether
+            # the DLQ topic is listed in TOPIC_ROUTING.
+            self._dlq_producer = get_producer(profile=self._kafka_profile_name)
         return self._dlq_producer
 
     def _send_to_dlq(self, message: Any, error: Exception) -> None:
@@ -196,7 +232,7 @@ class KafkaConsumerService:
             consumer_group=self._config.consumer_group,
             batch_size=self._config.batch_size,
             batch_timeout_seconds=self._config.batch_timeout_seconds,
-            kafka_hosts=self._kafka_hosts,
+            kafka_hosts=self._kafka_profile.hosts,
             dlq_topic=self._config.dlq_topic,
         )
 
@@ -214,7 +250,11 @@ class KafkaConsumerService:
                     timeout=self._config.batch_timeout_seconds,
                 )
 
-                messages: list[Any] = []
+                BATCH_UTILIZATION.labels(group_id=self._config.consumer_group).set(
+                    len(raw_messages) / self._config.batch_size
+                )
+
+                messages: list[tuple[Any, dict]] = []
                 for msg in raw_messages:
                     err = msg.error()
                     if err is not None:
@@ -225,7 +265,7 @@ class KafkaConsumerService:
                     raw = msg.value()
                     if raw is None:
                         continue
-                    messages.append(json.loads(raw.decode("utf-8")))
+                    messages.append((msg, json.loads(raw.decode("utf-8"))))
 
                 if not messages:
                     continue
@@ -243,8 +283,24 @@ class KafkaConsumerService:
         finally:
             self._cleanup()
 
+    def _commit_message(self, raw_msg: Any) -> None:
+        """Commit the offset for a single Kafka message synchronously.
+
+        Used on DLQ paths so a stuck message doesn't block the offset commit of
+        its healthy siblings in the same batch. Failures are logged but swallowed
+        so a commit blip doesn't prevent continued processing — redelivery will
+        hit the is_retry_exhausted branch and re-DLQ idempotently.
+        """
+        assert self._consumer is not None
+        try:
+            self._consumer.commit(message=raw_msg, asynchronous=False)
+            OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+        except Exception as e:
+            OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+            logger.warning("per_message_commit_failed", error=str(e))
+
     def _process_batch_with_retry(
-        self, messages: list[Any], health_reporter: Optional[Callable[[], None]] = None
+        self, messages: list[tuple[Any, dict]], health_reporter: Optional[Callable[[], None]] = None
     ) -> None:
         """Process a batch of messages with persistent retry tracking.
 
@@ -261,7 +317,25 @@ class KafkaConsumerService:
 
         dlq_count = 0
 
-        for message in messages:
+        for index, (raw_msg, message) in enumerate(messages):
+            if self._shutdown_requested:
+                # Graceful mid-batch shutdown: commit offsets for messages we've
+                # already handled (successes + per-message DLQ commits are idempotent)
+                # and leave the remainder for Kafka to redeliver after rebalance.
+                try:
+                    self._consumer.commit()
+                    OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+                except Exception:
+                    OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+                    logger.warning("shutdown_commit_failed", exc_info=True)
+                logger.info(
+                    "shutdown_during_batch",
+                    handled=index,
+                    dlq_count=dlq_count,
+                    remaining=len(messages) - index,
+                )
+                return
+
             team_id = str(message.get("team_id") or "unknown")
             schema_id = str(message.get("schema_id") or "unknown")
 
@@ -270,7 +344,7 @@ class KafkaConsumerService:
             if msg_key is None:
                 # Can't track retries without identifiers — process directly
                 with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
-                    self._process_message(message)
+                    self._process_message(message, progress_callback=health_reporter)
                 MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
                 if health_reporter:
                     health_reporter()
@@ -290,7 +364,12 @@ class KafkaConsumerService:
                 )
                 self._send_to_dlq(message, error)
                 self._mark_job_failed_from_message(message, error)
-                clear_retry_info(*msg_key)
+                # Deliberately keep retry_info in Redis: if this per-message
+                # commit or the trailing batch commit fails, redelivery must
+                # still observe the exhausted state and re-DLQ idempotently
+                # rather than starting a fresh retry cycle. Cleanup relies on
+                # the 72h TTL.
+                self._commit_message(raw_msg)
                 MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
                 DLQ_MESSAGES_TOTAL.labels(team_id=team_id, schema_id=schema_id, error_type="RetryExhausted").inc()
                 BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=retry_info.error_type or "unknown").inc()
@@ -323,10 +402,14 @@ class KafkaConsumerService:
                 BATCH_RETRY_TOTAL.labels(attempt=str(retry_info.count), error_type=type(e).__name__).inc()
 
                 if is_retry_exhausted(retry_info):
-                    # Exhausted after this attempt — DLQ and mark failed
+                    # Exhausted after this attempt — DLQ and mark failed.
+                    # Retry state stays in Redis (72h TTL) so that if the
+                    # per-message commit or a sibling failure prevents the
+                    # trailing batch commit, redelivery will re-DLQ via the
+                    # is_retry_exhausted branch rather than retrying from zero.
                     self._send_to_dlq(message, e)
                     self._mark_job_failed_from_message(message, e)
-                    clear_retry_info(*msg_key)
+                    self._commit_message(raw_msg)
                     MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
                     DLQ_MESSAGES_TOTAL.labels(team_id=team_id, schema_id=schema_id, error_type=type(e).__name__).inc()
                     BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=error_class).inc()
@@ -361,7 +444,7 @@ class KafkaConsumerService:
         for attempt in range(self._config.max_retries):
             try:
                 with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
-                    self._process_message(message)
+                    self._process_message(message, progress_callback=health_reporter)
                 if health_reporter:
                     health_reporter()
                 return

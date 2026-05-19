@@ -2,7 +2,9 @@ import { mean, sum } from 'd3'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -12,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
-import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
+import { isRetentionQuery, hasBreakdownFilter } from '~/queries/utils'
 import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
@@ -42,6 +44,8 @@ export const retentionLogic = kea<retentionLogicType>([
             ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
             teamLogic,
             ['timezone'],
+            featureFlagLogic,
+            ['featureFlags'],
             cohortsModel,
             ['cohortsById'],
         ],
@@ -145,7 +149,11 @@ export const retentionLogic = kea<retentionLogicType>([
         ],
     }),
     selectors({
-        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
+        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => hasBreakdownFilter(breakdownFilter)],
+        isRetentionDWHEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_RETENTION_DWH],
+        ],
         isPropertyValueAggregation: [
             (s) => [s.retentionFilter],
             (retentionFilter: RetentionFilter | undefined) =>

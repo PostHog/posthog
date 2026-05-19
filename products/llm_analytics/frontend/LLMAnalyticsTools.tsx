@@ -17,11 +17,12 @@ import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 
 export function LLMAnalyticsTools(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { setToolsSort } = useActions(llmAnalyticsToolsLogic)
     const {
         toolsQuery,
@@ -51,9 +52,16 @@ export function LLMAnalyticsTools(): JSX.Element {
                 }
                 const { filters = {} } = query.source
                 const { dateRange = {} } = filters
-                setDates(dateRange.date_from || null, dateRange.date_to || null)
-                setShouldFilterTestAccounts(filters.filterTestAccounts || false)
-                setPropertyFilters(filters.properties || [])
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: dateRange.date_from || null,
+                        dateTo: dateRange.date_to || null,
+                        shouldFilterTestAccounts: filters.filterTestAccounts || false,
+                        propertyFilters: filters.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
             }}
             context={{
                 customActions: showToolsCharts

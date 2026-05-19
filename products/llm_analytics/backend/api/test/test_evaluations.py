@@ -8,6 +8,7 @@ from rest_framework import status
 from posthog.models import Organization, Project, Team, User
 
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
+from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
@@ -73,6 +74,44 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.created_by, self.user)
         self.assertEqual(evaluation_config.deleted, False)
 
+        # The viewset auto-creates a default EvaluationReport so reports are generated
+        # from the start, even before the user configures delivery targets.
+        reports = EvaluationReport.objects.filter(evaluation=evaluation_config)
+        self.assertEqual(reports.count(), 1)
+        report = reports.first()
+        assert report is not None
+        self.assertEqual(report.frequency, "every_n")
+        self.assertEqual(report.trigger_threshold, 100)
+        self.assertTrue(report.enabled)
+        self.assertFalse(report.deleted)
+        self.assertEqual(report.delivery_targets, [])
+
+    def test_evaluation_rollback_when_auto_report_fails(self):
+        """
+        perform_create wraps the Evaluation save and the EvaluationReport auto-create in
+        transaction.atomic(). If the report insert raises, the evaluation must not persist.
+        """
+        with patch(
+            "products.llm_analytics.backend.api.evaluations.EvaluationReport.objects.create",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Will Rollback",
+                    "enabled": True,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test prompt"},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "conditions": [],
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(Evaluation.objects.filter(name="Will Rollback").count(), 0)
+        self.assertEqual(EvaluationReport.objects.count(), 0)
+
     def test_can_retrieve_list_of_evaluation_configs(self):
         Evaluation.objects.create(
             name="Evaluation 1",
@@ -80,6 +119,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             evaluation_config={"prompt": "Prompt 1"},
             output_type="boolean",
             output_config={},
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
             team=self.team,
             created_by=self.user,
         )
@@ -100,6 +140,45 @@ class TestEvaluationConfigsApi(APIBaseTest):
         evaluation_names = [evaluation["name"] for evaluation in response.data["results"]]
         self.assertIn("Evaluation 1", evaluation_names)
         self.assertIn("Evaluation 2", evaluation_names)
+
+        # Default (non-MCP) list keeps the full payload the web UI relies on.
+        first = next(e for e in response.data["results"] if e["name"] == "Evaluation 1")
+        self.assertIn("evaluation_config", first)
+        self.assertIn("conditions", first)
+        self.assertIn("output_config", first)
+        self.assertIn("model_configuration", first)
+        self.assertEqual(first["evaluation_config"], {"prompt": "Prompt 1"})
+
+    def test_mcp_list_returns_slim_payload(self):
+        Evaluation.objects.create(
+            name="Evaluation 1",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Prompt 1"},
+            output_type="boolean",
+            output_config={},
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/evaluations/",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        first = response.data["results"][0]
+        for dropped in (
+            "evaluation_config",
+            "output_config",
+            "conditions",
+            "model_configuration",
+            "created_by",
+            "deleted",
+        ):
+            self.assertNotIn(dropped, first)
+        self.assertIn("name", first)
+        self.assertIn("evaluation_type", first)
 
     def test_can_get_single_evaluation_config(self):
         evaluation_config = Evaluation.objects.create(
@@ -500,3 +579,90 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
+
+
+class TestReEnableValidatesRootCauseResolved(APIBaseTest):
+    """When an eval is in the error state, flipping enabled=True must fail unless the condition
+    that put it there is resolved — otherwise the next workflow run just re-disables it for the
+    same reason. Matters for agent callers who can't see a red banner."""
+
+    def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None):
+        mc = LLMModelConfiguration.objects.create(
+            team=self.team, provider="openai", model=model, provider_key=provider_key
+        )
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Errored",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "?"},
+            output_type="boolean",
+            model_configuration=mc,
+        )
+        eval_obj.set_status("error", status_reason)
+        eval_obj.refresh_from_db()
+        return eval_obj
+
+    def test_rejects_re_enable_when_model_still_not_allowed(self):
+        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not available on the trial plan", str(response.data))
+
+    def test_allows_re_enable_when_byok_key_attached_even_if_model_not_allowed(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertEqual(eval_obj.status, "active")
+        self.assertIsNone(eval_obj.status_reason)
+
+    def test_rejects_re_enable_when_provider_key_still_missing(self):
+        eval_obj = self._create_errored_eval(status_reason="provider_key_deleted")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("provider API key", str(response.data))
+
+    def test_allows_re_enable_when_provider_key_attached(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="provider_key_deleted", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.status_reason)

@@ -22,7 +22,7 @@ const cymbalRequestDuration = new Histogram({
     name: 'error_tracking_cymbal_request_duration_ms',
     help: 'Duration of Cymbal API requests in milliseconds',
     labelNames: ['status'],
-    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
 })
 
 const cymbalRequestCounter = new Counter({
@@ -47,6 +47,11 @@ const cymbalRoutingGroupsHistogram = new Histogram({
     name: 'error_tracking_cymbal_routing_groups',
     help: 'Number of distinct team routing groups per batch',
     buckets: [1, 2, 3, 5, 10, 20, 50],
+})
+
+const cymbalPoisonPillCounter = new Counter({
+    name: 'error_tracking_cymbal_poison_pill_total',
+    help: 'Events identified as poison pills via per-event fan-out on timeout',
 })
 
 /** Function signature for fetch implementation */
@@ -74,11 +79,13 @@ export interface CymbalClientConfig {
  */
 class CymbalError extends Error {
     isRetriable: boolean
+    isTimeout: boolean
 
-    constructor(message: string, isRetriable: boolean) {
+    constructor(message: string, isRetriable: boolean, isTimeout: boolean = false) {
         super(message)
         this.name = 'CymbalError'
         this.isRetriable = isRetriable
+        this.isTimeout = isTimeout
     }
 }
 
@@ -229,14 +236,69 @@ export class CymbalClient {
         const allResults: (CymbalResponse | null)[] = []
 
         for (const chunk of chunks) {
-            const results = await this.processChunk(
-                url,
-                chunk.map((item) => item.request)
-            )
-            allResults.push(...results)
+            try {
+                const results = await this.processChunk(
+                    url,
+                    chunk.map((item) => item.request)
+                )
+                allResults.push(...results)
+            } catch (error) {
+                if (!(error instanceof CymbalError) || !error.isTimeout || chunk.length <= 1) {
+                    throw error
+                }
+                // Timeout on a multi-event chunk — fan out to individual events
+                // to isolate the poison pill. Non-timeout errors on individual
+                // events are thrown to let the retry wrapper handle them.
+                logger.warn('⚠️', 'cymbal_timeout_fan_out', {
+                    url,
+                    chunkSize: chunk.length,
+                })
+                const results = await this.fanOutOnTimeout(url, chunk)
+                allResults.push(...results)
+            }
         }
 
         return allResults
+    }
+
+    /**
+     * Fan out a timed-out chunk to individual events. Each event gets a single
+     * attempt through processChunk. Events that succeed return their response.
+     * Events that timeout are confirmed poison pills and return null (dropped).
+     * Non-timeout errors (5xx, network) are thrown to abort the fan-out and let
+     * the retry wrapper handle them.
+     */
+    private async fanOutOnTimeout(
+        url: string,
+        items: { request: CymbalRequest; estimatedSize: number }[]
+    ): Promise<(CymbalResponse | null)[]> {
+        const results: (CymbalResponse | null)[] = []
+        const concurrency = 10
+
+        for (let i = 0; i < items.length; i += concurrency) {
+            const batch = items.slice(i, i + concurrency)
+            const batchResults = await Promise.all(
+                batch.map(async (item): Promise<CymbalResponse | null> => {
+                    try {
+                        const [result] = await this.processChunk(url, [item.request])
+                        return result
+                    } catch (error) {
+                        if (error instanceof CymbalError && error.isTimeout) {
+                            cymbalPoisonPillCounter.inc()
+                            logger.error('🧪', 'cymbal_poison_pill_identified', {
+                                uuid: item.request.uuid,
+                                teamId: item.request.team_id,
+                            })
+                            return null
+                        }
+                        throw error
+                    }
+                })
+            )
+            results.push(...batchResults)
+        }
+
+        return results
     }
 
     /**
@@ -331,8 +393,11 @@ export class CymbalClient {
         } catch (error) {
             const durationMs = performance.now() - startTime
             this.recordMetrics('error', durationMs, requests.length)
-            // Network/timeout errors are retriable
-            throw new CymbalError(error instanceof Error ? error.message : String(error), true)
+            // Network/timeout errors are retriable. Preserve whether the
+            // original error was a timeout so the retry wrapper can distinguish
+            // "Cymbal is hanging on this data" from "Cymbal is down."
+            const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+            throw new CymbalError(error instanceof Error ? error.message : String(error), true, isTimeout)
         }
     }
 

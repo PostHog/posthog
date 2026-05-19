@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -18,6 +18,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
@@ -44,7 +47,7 @@ class CredentialSerializer(serializers.ModelSerializer):
         extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
 
 
-class TableSerializer(serializers.ModelSerializer):
+class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
@@ -67,8 +70,17 @@ class TableSerializer(serializers.ModelSerializer):
             "external_data_source",
             "external_schema",
             "options",
+            "user_access_level",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "columns",
+            "external_data_source",
+            "external_schema",
+            "user_access_level",
+        ]
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
@@ -112,7 +124,7 @@ class TableSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
 
         validated_data["team_id"] = team_id
-        validated_data["created_by"] = self.context["request"].user
+        validated_data["created_by"] = cast(User, self.context["request"].user)
         credential = validated_data.get("credential")
 
         if not credential:
@@ -176,13 +188,13 @@ class TableSerializer(serializers.ModelSerializer):
         return name
 
 
-class SimpleTableSerializer(serializers.ModelSerializer):
+class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns", "row_count"]
-        read_only_fields = ["id", "name", "columns", "row_count"]
+        fields = ["id", "name", "columns", "row_count", "user_access_level"]
+        read_only_fields = ["id", "name", "columns", "row_count", "user_access_level"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
@@ -211,7 +223,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         ]
 
 
-class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
@@ -302,8 +314,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
-        columns = table.columns
-        column_keys: list[str] = columns.keys()
+        columns = table.columns or {}
+        column_keys = list(columns.keys())
         for key in updates.keys():
             if key not in column_keys:
                 return response.Response(
@@ -421,11 +433,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
+                created_by = request.user if isinstance(request.user, User) else None
                 table = DataWarehouseTable.objects.create(
                     team_id=team_id,
                     name=table_name,
                     format=file_format,
-                    created_by=request.user,
+                    created_by=created_by,
                 )
 
             # Generate URL pattern and store file in object storage

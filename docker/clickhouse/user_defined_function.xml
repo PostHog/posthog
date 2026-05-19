@@ -32,8 +32,10 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>JSONEachRow</format>
-        <command>aggregate_funnel steps</command>
+        <format>RowBinaryWithNamesAndTypes</format>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel steps --variant=plain</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -70,8 +72,10 @@
             <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>JSONEachRow</format>
-        <command>aggregate_funnel steps</command>
+        <format>RowBinaryWithNamesAndTypes</format>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel steps --variant=cohort</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -108,46 +112,10 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>JSONEachRow</format>
-        <command>aggregate_funnel steps</command>
-        <lifetime>600</lifetime>
-    </function>
-
-    <function>
-        <type>executable_pool</type>
-        <name>aggregate_funnel_test</name>
-        <return_type>String</return_type>
-        <return_name>result</return_name>
-        <argument>
-            <type>UInt8</type>
-            <name>num_steps</name>
-        </argument>
-        <argument>
-            <type>UInt64</type>
-            <name>conversion_window_limit</name>
-        </argument>
-        <argument>
-            <type>String</type>
-            <name>breakdown_attribution_type</name>
-        </argument>
-        <argument>
-            <type>String</type>
-            <name>funnel_order_type</name>
-        </argument>
-        <argument>
-            <type>Array(Array(String))</type>
-            <name>prop_vals</name>
-        </argument>
-        <argument>
-            <type>Array(Int8)</type>
-            <name>optional_steps</name>
-        </argument>
-        <argument>
-            <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
-            <name>value</name>
-        </argument>
-        <format>JSONEachRow</format>
-        <command>aggregate_funnel_test.py</command>
+        <format>RowBinaryWithNamesAndTypes</format>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel steps --variant=array</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -188,15 +156,269 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>JSONEachRow</format>
-        <command>aggregate_funnel trends</command>
+        <format>RowBinaryWithNamesAndTypes</format>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel trends --variant=plain</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_array_trends</name>
-        <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
+        <return_type>Array(Tuple(UInt64, Int8, Array(String), UUID))</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>from_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
+            <name>to_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Array(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>RowBinaryWithNamesAndTypes</format>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel trends --variant=array</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_cohort_trends</name>
+        <return_type>Array(Tuple(UInt64, Int8, UInt64, UUID))</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>from_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
+            <name>to_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(UInt64)</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, UInt64, Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>RowBinaryWithNamesAndTypes</format>
+        <send_chunk_header>true</send_chunk_header>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel trends --variant=cohort</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <!--
+      JSONEachRow mirrors, retained for manual benchmark comparison and for
+      piping JSON fixtures at the binary during debugging.
+    -->
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_json</name>
+        <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID)), UInt32))</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Nullable(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>JSONEachRow</format>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel steps --json --variant=plain</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_cohort_json</name>
+        <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID)), UInt32))</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(UInt64)</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>JSONEachRow</format>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel steps --json --variant=cohort</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_array_json</name>
+        <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID)), UInt32))</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Array(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>JSONEachRow</format>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel steps --json --variant=array</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_trends_json</name>
+        <return_type>Array(Tuple(UInt64, Int8, Nullable(String), UUID))</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>from_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
+            <name>to_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Nullable(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>JSONEachRow</format>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel trends --json --variant=plain</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_array_trends_json</name>
         <return_type>Array(Tuple(UInt64, Int8, Array(String), UUID))</return_type>
         <return_name>result</return_name>
         <argument>
@@ -232,14 +454,14 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel trends</command>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel trends --json --variant=array</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
         <type>executable_pool</type>
-        <name>aggregate_funnel_cohort_trends</name>
-        <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
+        <name>aggregate_funnel_cohort_trends_json</name>
         <return_type>Array(Tuple(UInt64, Int8, UInt64, UUID))</return_type>
         <return_name>result</return_name>
         <argument>
@@ -275,7 +497,49 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel trends</command>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel trends --json --variant=cohort</command>
+        <lifetime>600</lifetime>
+    </function>
+
+    <!-- Python-script debug UDFs -->
+
+    <function>
+        <type>executable_pool</type>
+        <name>aggregate_funnel_test</name>
+        <return_type>String</return_type>
+        <return_name>result</return_name>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Array(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>JSONEachRow</format>
+        <stderr_reaction>throw</stderr_reaction>
+        <command>aggregate_funnel_test.py</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -317,6 +581,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
+        <stderr_reaction>throw</stderr_reaction>
         <command>aggregate_funnel_array_trends_test.py</command>
         <lifetime>600</lifetime>
     </function>

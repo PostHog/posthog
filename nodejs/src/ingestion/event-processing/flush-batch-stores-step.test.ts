@@ -122,6 +122,7 @@ describe('flush-batch-stores-step', () => {
             expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: Buffer.from('value1'),
+                teamId: 1,
             })
         })
 
@@ -292,6 +293,7 @@ describe('flush-batch-stores-step', () => {
             expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: null,
+                teamId: 1,
             })
         })
 
@@ -352,6 +354,7 @@ describe('flush-batch-stores-step', () => {
             expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: Buffer.from('string-value'),
+                teamId: 1,
             })
         })
 

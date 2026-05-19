@@ -75,6 +75,11 @@ export async function getPromptsFromManifest(): Promise<ResourceManifest['resour
  * this function is a pure pass-through.
  */
 async function registerContextMillResources(server: McpServer, context: Context): Promise<void> {
+    // Tests disable context-mill registration via the workers config so init()
+    // doesn't fan out to a real GitHub fetch from inside the workerd test runtime.
+    if ((context.env as Record<string, string | undefined>)?.TEST === '1') {
+        return
+    }
     try {
         const archive = await fetchContextMillResources(context)
         const manifest = loadManifestFromArchive(archive)

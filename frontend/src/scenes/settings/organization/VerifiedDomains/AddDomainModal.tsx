@@ -11,7 +11,7 @@ import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function AddDomainModal(): JSX.Element {
     const { addModalShown, verifiedDomainsLoading } = useValues(verifiedDomainsLogic)
-    const { setAddModalShown, addVerifiedDomain } = useActions(verifiedDomainsLogic)
+    const { hideAddDomainModal, addVerifiedDomain } = useActions(verifiedDomainsLogic)
     const [newDomain, setNewDomain] = useState('')
     const [submitted, setSubmitted] = useState(false)
 
@@ -23,7 +23,7 @@ export function AddDomainModal(): JSX.Element {
     }
 
     const handleClose = (): void => {
-        setAddModalShown(false)
+        hideAddDomainModal()
         clean()
     }
 

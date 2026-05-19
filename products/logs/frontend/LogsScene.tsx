@@ -14,7 +14,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
+import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/LogsSqlEditor'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
@@ -90,10 +92,14 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+    const showAlerting = useFeatureFlag('LOGS_ALERTING')
+    const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
+        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
         { key: 'configuration', label: 'Configuration' },
     ]
 
@@ -121,7 +127,12 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             )}
             <LemonTabs<LogsSceneActiveTab>
                 activeKey={activeTab}
-                onChange={(key) => setActiveTab(key)}
+                onChange={(key) => {
+                    if (key === 'sql' && activeTab !== 'sql') {
+                        posthog.capture('logs sql tab opened')
+                    }
+                    setActiveTab(key)
+                }}
                 tabs={tabs}
                 sceneInset
             />
@@ -138,6 +149,8 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     <LogsViewerModal />
                 </>
             )}
+            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'sql' && showSqlView && <LogsSqlEditor id={tabId} />}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
             )}

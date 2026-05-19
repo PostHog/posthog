@@ -130,11 +130,15 @@ bin/hogli product:lint your_product_name
 The lint command validates:
 
 - **Presence**: `backend:test` must exist; isolated products must also have `backend:contract-check`
-- **Absence**: Non-isolated products must NOT have `backend:contract-check` — turbo-discover uses this key to classify products as isolated, which causes the full Django test suite to be skipped when that product changes
+- **Absence**: products must NOT have `backend:contract-check` if they are not isolated or have legacy interface leaks (where core still imports internals) — turbo-discover uses this key to classify products as isolated, which causes the full Django test suite to be skipped when that product changes
+- **Legacy leaks**: products with TODO legacy leak blocks in `tach.toml` show a `⚠` warning in the tach boundaries check
 - **Script content** (for `backend:test`):
   - No `|| true` or `|| exit 0` — these swallow test failures in CI
   - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
   - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+
+> [!NOTE]
+> To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
 ### Manual setup
 
@@ -206,6 +210,20 @@ Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. I
 
 1. Add a route in `products/db_routing.yaml` (this repo)
 2. Ask `#team-infrastructure` to provision the database — they'll handle the cluster, credentials, and connection plumbing
+
+### Team scoping (required)
+
+Every model that stores tenant data **must** have a `team_id` field. This is PostHog's primary tenant isolation boundary — without it, there's no way to enforce that one team can't see another's data.
+
+For product databases, use `ProductTeamModel` as your base class. It provides `team_id` plus a fail-closed manager that raises `TeamScopeError` when queries run without team context. See `posthog/models/scoping/README.md` for the full API.
+
+```python
+from posthog.models.scoping.product_mixin import ProductTeamModel
+
+class MyModel(ProductTeamModel):
+    name = models.CharField(max_length=255)
+    # team_id inherited — BigIntegerField, indexed, no FK
+```
 
 ### Cross-database constraints
 

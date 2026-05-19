@@ -1,10 +1,12 @@
-from functools import cached_property
-
 from django.conf import settings
 
 import structlog
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
@@ -42,9 +44,9 @@ class Migration(AsyncMigrationDefinition):
         )
         return result[0][0] if len(result) > 0 else ""
 
-    @cached_property
-    def operations(self):
-        operations = []
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
+        operations: list[AsyncMigrationOperation] = []
         on_cluster = lambda sharded_table: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if sharded_table else ""
 
         for table, sharded in PROJECTION_TABLES:

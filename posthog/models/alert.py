@@ -27,6 +27,27 @@ ALERT_STATE_CHOICES = [
 ]
 
 
+class InvestigationStatus(models.TextChoices):
+    PENDING = "pending", "pending"
+    RUNNING = "running", "running"
+    DONE = "done", "done"
+    FAILED = "failed", "failed"
+    SKIPPED = "skipped", "skipped"
+
+
+class InvestigationVerdict(models.TextChoices):
+    """The investigation agent's call on whether the firing alert was real.
+
+    We keep this independent from InvestigationStatus so that status tracks the
+    pipeline (did it run?) while verdict tracks the conclusion (was it real?).
+    Future work may let users override this field manually.
+    """
+
+    TRUE_POSITIVE = "true_positive", "true_positive"
+    FALSE_POSITIVE = "false_positive", "false_positive"
+    INCONCLUSIVE = "inconclusive", "inconclusive"
+
+
 def derive_detector_event_fields(detector_config: dict | None) -> dict:
     """Shared derivation of alert_mode/detector_type/ensemble_operator from a detector config.
 
@@ -132,6 +153,31 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
+    # When enabled and the alert transitions to FIRING, an investigation agent runs
+    # and writes its findings to a linked Notebook. Only effective for detector-based
+    # (anomaly) alerts. See posthog/tasks/alerts/checks.py for the trigger logic.
+    investigation_agent_enabled = models.BooleanField(default=False)
+
+    # When enabled (and investigation_agent_enabled is on), notification dispatch is
+    # held until the investigation agent produces a verdict — and suppressed if the
+    # verdict is false_positive. A safety-net celery task force-notifies after a
+    # grace period if the investigation stalls, so users can never silently miss a
+    # real fire. See posthog/tasks/alerts/investigation_notifications.py.
+    investigation_gates_notifications = models.BooleanField(default=False)
+
+    # What to do with an "inconclusive" verdict when notifications are gated.
+    # Default is notify — safest for anomaly alerts where the agent not being sure
+    # is itself informative.
+    INVESTIGATION_INCONCLUSIVE_ACTION_CHOICES = [
+        ("notify", "Notify"),
+        ("suppress", "Suppress"),
+    ]
+    investigation_inconclusive_action = models.CharField(
+        max_length=10,
+        choices=INVESTIGATION_INCONCLUSIVE_ACTION_CHOICES,
+        default="notify",
+    )
+
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 
@@ -176,17 +222,44 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             has_preprocessing = bool(detector_config.get("preprocessing"))
 
         schedule_restriction = self.schedule_restriction
+        has_schedule_restriction = False
         blocked_window_count: int | None = None
         if isinstance(schedule_restriction, dict):
             windows = schedule_restriction.get("blocked_windows")
             if isinstance(windows, list):
                 blocked_window_count = len(windows)
+                has_schedule_restriction = blocked_window_count > 0
+
+        threshold_configuration: dict = {}
+        if self.threshold and isinstance(self.threshold.configuration, dict):
+            threshold_configuration = self.threshold.configuration
+        threshold_bounds = threshold_configuration.get("bounds") or {}
+        has_threshold = self.threshold is not None
+        threshold_type = threshold_configuration.get("type") if has_threshold else None
+        has_lower_bound = threshold_bounds.get("lower") is not None if has_threshold else False
+        has_upper_bound = threshold_bounds.get("upper") is not None if has_threshold else False
+
+        trends_config = self.config if isinstance(self.config, dict) else {}
+
+        subscribed_users_count: int | None = None
+        if self.pk is not None:
+            subscribed_users_count = self.subscribed_users.count()
 
         return {
             "alert_id": self.id,
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
+            "enabled": self.enabled,
+            "skip_weekend": bool(self.skip_weekend),
+            "has_schedule_restriction": has_schedule_restriction,
+            "has_threshold": has_threshold,
+            "threshold_type": threshold_type,
+            "has_lower_bound": has_lower_bound,
+            "has_upper_bound": has_upper_bound,
+            "trends_series_index": trends_config.get("series_index"),
+            "trends_check_ongoing_interval": trends_config.get("check_ongoing_interval"),
+            "subscribed_users_count": subscribed_users_count,
             **derive_detector_event_fields(detector_config),
             "ensemble_detector_types": ensemble_detector_types,
             "has_preprocessing": has_preprocessing,
@@ -260,6 +333,32 @@ class AlertCheck(UUIDTModel):
     triggered_metadata = models.JSONField(
         null=True, blank=True
     )  # Additional trigger context (e.g. series_index, breakdown_value)
+
+    # Investigation agent linkage — populated when the alert transitions to FIRING and
+    # investigation_agent_enabled is true. Lives on the check record so the notebook is
+    # surfaced inline with the specific firing event it investigated.
+    investigation_status = models.CharField(max_length=10, choices=InvestigationStatus.choices, null=True, blank=True)
+    investigation_verdict = models.CharField(max_length=20, choices=InvestigationVerdict.choices, null=True, blank=True)
+    investigation_notebook = models.ForeignKey(
+        "notebooks.Notebook",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # Short plain-text summary the agent emits. Safe to show inline in lists, emails,
+    # and Slack follow-ups so a user can decide whether to click into the notebook.
+    investigation_summary = models.TextField(null=True, blank=True)
+    investigation_error = models.JSONField(null=True, blank=True)
+
+    # Populated when a notification is dispatched for this check. Lets the gating
+    # logic be idempotent across retries and is the audit trail for "when did the
+    # user actually get pinged?" when the investigation agent is gating notifications.
+    notification_sent_at = models.DateTimeField(null=True, blank=True)
+    # True when the investigation agent concluded false_positive (or inconclusive
+    # with suppress policy) and we skipped dispatching the notification. Surfaced
+    # in the UI so users can audit which fires the agent swallowed.
+    notification_suppressed_by_agent = models.BooleanField(default=False)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

@@ -61,6 +61,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "hog_flows" not in system_node.children
         assert "notebooks" not in system_node.children
         assert "error_tracking_issues" not in system_node.children
+        assert "support_tickets" not in system_node.children
         # But tracked in denied list for clear error messages
         assert "system.activity_logs" in database._denied_tables
         assert "system.dashboards" in database._denied_tables
@@ -74,6 +75,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.hog_flows" in database._denied_tables
         assert "system.notebooks" in database._denied_tables
         assert "system.error_tracking_issues" in database._denied_tables
+        assert "system.support_tickets" in database._denied_tables
         # Unscoped tables remain
         assert "cohorts" in system_node.children
         assert "teams" in system_node.children
@@ -91,9 +93,9 @@ class TestDeniedTableError(BaseTest):
 
         from ee.models import AccessControl
 
-        # Enable advanced permissions feature
+        # Enable access control feature
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 

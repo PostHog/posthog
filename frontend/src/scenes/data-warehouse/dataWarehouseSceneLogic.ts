@@ -8,6 +8,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import {
     BillingProductV2Type,
@@ -18,8 +19,9 @@ import {
     DataWarehouseSourceRowCount,
 } from '~/types'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
-import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
 export enum DataWarehouseTab {
@@ -35,7 +37,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         values: [
             databaseTableListLogic,
             ['database', 'dataWarehouseTables', 'databaseLoading'],
-            externalDataSourcesLogic,
+            sourcesDataLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
             ['billingPeriodUTC', 'billing'],
@@ -45,7 +47,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions: [
             databaseTableListLogic,
             ['loadDatabase'],
-            externalDataSourcesLogic,
+            sourcesDataLogic,
             ['loadSources'],
             billingLogic,
             ['loadBilling'],
@@ -231,6 +233,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (queries: DataWarehouseSavedQuery[]) => {
                 return queries.filter((q) => q.is_materialized)
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                access_control_resource: 'warehouse_objects',
+            }),
         ],
     }),
     listeners(({ values, actions }) => ({

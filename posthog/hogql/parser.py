@@ -1,8 +1,14 @@
+import sys
+import copy
+import threading
 from collections.abc import Callable
-from typing import Literal, cast
+from enum import StrEnum
+from types import FrameType
+from typing import Any, Literal, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
+from cachetools import LRUCache
 from hogql_parser import (
     parse_expr_json as _parse_expr_json_cpp,
     parse_full_template_string_json as _parse_full_template_string_json_cpp,
@@ -11,7 +17,7 @@ from hogql_parser import (
     parse_select_json as _parse_select_json_cpp,
 )
 from opentelemetry import trace
-from prometheus_client import Histogram
+from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
 
 from posthog.hogql import ast
@@ -25,6 +31,21 @@ from posthog.hogql.json_ast import deserialize_ast
 from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
+
+
+class CacheOrigin(StrEnum):
+    AUTO = "auto"
+    BUILTIN = "builtin"
+    USER = "user"
+
+
+class ParseRule(StrEnum):
+    EXPR = "expr"
+    ORDER_EXPR = "order_expr"
+    SELECT = "select"
+    FULL_TEMPLATE_STRING = "full_template_string"
+    PROGRAM = "program"
+
 
 tracer = trace.get_tracer(__name__)
 
@@ -62,40 +83,219 @@ def safe_lambda(f):
     return wrapped
 
 
-RULE_TO_PARSE_FUNCTION: dict[
-    HogQLParserBackend,
-    dict[Literal["expr", "order_expr", "select", "full_template_string", "program"], Callable],
-] = {
+RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
     "python": {
-        "expr": safe_lambda(
+        ParseRule.EXPR: safe_lambda(
             lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr())
         ),
-        "order_expr": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr())),
-        "select": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).select())),
-        "full_template_string": safe_lambda(
+        ParseRule.ORDER_EXPR: safe_lambda(
+            lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr())
+        ),
+        ParseRule.SELECT: safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).select())),
+        ParseRule.FULL_TEMPLATE_STRING: safe_lambda(
             lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString())
         ),
-        "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
+        ParseRule.PROGRAM: safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
     "cpp-json": {
-        "expr": lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
-        "order_expr": lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
-        "select": lambda string: deserialize_ast(_parse_select_json_cpp(string)),
-        "full_template_string": lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
-        "program": lambda string: deserialize_ast(_parse_program_json_cpp(string)),
+        ParseRule.EXPR: lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
+        ParseRule.ORDER_EXPR: lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
+        ParseRule.SELECT: lambda string: deserialize_ast(_parse_select_json_cpp(string)),
+        ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
+        ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_cpp(string)),
     },
 }
 
-RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_string"], Histogram] = {
-    cast(Literal["expr", "order_expr", "select", "full_template_string"], rule): Histogram(
+RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
+    rule: Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
         labelnames=["backend"],
     )
-    for rule in ("expr", "order_expr", "select", "full_template_string")
+    for rule in (ParseRule.EXPR, ParseRule.ORDER_EXPR, ParseRule.SELECT, ParseRule.FULL_TEMPLATE_STRING)
 }
 
 DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
+
+
+# Two caches so a flood of unique user-generated queries can't displace the
+# hot in-code-literal entries. Origin is auto-detected via the call-stack
+# `co_consts` walk; callers can override via `cache_origin`.
+
+_BUILTIN_CACHE_SIZE = 256
+_USER_CACHE_SIZE = 512
+_LITERAL_DETECTION_FRAME_DEPTH = 40
+# Short identifier-shaped strings are auto-interned by CPython and can
+# spuriously identity-match `co_consts` elsewhere, misrouting user input.
+_LITERAL_DETECTION_MIN_LEN = 32
+
+# Skip caching very short queries — they parse fast enough that caching
+# adds no measurable speedup and they'd churn cache slots that longer,
+# higher-value entries could use. Cap the upper end too, to bound memory
+# from user-controlled inputs. Explicit `cache_origin=BUILTIN` bypasses
+# only the upper bound (trusted opt-in for large queries — some in-code
+# templates run past this).
+_MIN_CACHEABLE_STATEMENT_LEN = 40
+_MAX_CACHEABLE_STATEMENT_LEN = 4 * 1024
+
+_PARSE_CACHE_EVENTS = Counter(
+    "hogql_parse_cache_events_total",
+    "HogQL parse-cache lookups",
+    labelnames=["origin", "result", "rule"],
+)
+_PARSE_CACHE_SIZE = Gauge(
+    "hogql_parse_cache_size",
+    "Current entries in the HogQL parse cache (compare against the configured maxsize to spot saturation)",
+    labelnames=["cache"],
+    multiprocess_mode="livemax",
+)
+_PARSE_CACHE_MAXSIZE = Gauge(
+    "hogql_parse_cache_maxsize",
+    "Configured maxsize of the HogQL parse cache",
+    labelnames=["cache"],
+    multiprocess_mode="livemax",
+)
+# Bucket boundaries align with the cache size bounds (40 and 4096) so the
+# fraction of statements below the min or above the max is directly
+# readable from the histogram.
+_PARSE_STATEMENT_LENGTH = Histogram(
+    "hogql_parse_statement_length_chars",
+    "Length of HogQL statements passed to the parser, in characters",
+    labelnames=["rule"],
+    buckets=(16, 32, 40, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 32768, 131072, 524288),
+)
+
+
+def _looks_like_code_literal(s: str) -> bool:
+    """True if ``s`` is a string literal somewhere in the active call stack.
+
+    Python literals share identity with their frame's ``co_consts``;
+    runtime-constructed strings don't. Module/class-level constants
+    referenced via ``LOAD_GLOBAL`` are missed — callers pass
+    ``cache_origin=CacheOrigin.BUILTIN`` explicitly for those.
+
+    This is a best-effort heuristic. A wrong classification only affects
+    which bucket a cache entry lands in; the returned AST is the same
+    either way, so functional behavior is correct regardless. The cost
+    of a miss is at worst a less-optimal cache layout.
+    """
+    if len(s) < _LITERAL_DETECTION_MIN_LEN:
+        return False
+    frame: FrameType | None = sys._getframe(1)
+    for _ in range(_LITERAL_DETECTION_FRAME_DEPTH):
+        if frame is None:
+            return False
+        for const in frame.f_code.co_consts:
+            if const is s:
+                return True
+        frame = frame.f_back
+    return False
+
+
+# Sentinel distinguishes "key absent" from a cached ``None``.
+_MISS: Any = object()
+
+_builtin_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_BUILTIN_CACHE_SIZE)
+_user_parse_cache: LRUCache[Any, Any] = LRUCache(maxsize=_USER_CACHE_SIZE)
+# `cachetools.LRUCache` is not thread-safe; the lock guards against
+# threaded WSGI/Celery workers.
+_PARSE_CACHE_LOCK = threading.Lock()
+
+_PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.BUILTIN).set(_BUILTIN_CACHE_SIZE)
+_PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
+
+
+def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
+    fn = RULE_TO_PARSE_FUNCTION[backend][rule]
+    # Histogram wraps only the parse so `parse_*_seconds` stays a parser-perf
+    # signal regardless of cache hit rate. Only `expr` takes a `start` arg;
+    # `PROGRAM` is the only rule without a histogram.
+    histogram = RULE_TO_HISTOGRAM.get(rule)
+    if histogram is None:
+        return fn(statement)
+    with histogram.labels(backend=backend).time():
+        return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
+
+
+def _parse_cached(
+    rule: ParseRule,
+    statement: str,
+    backend: HogQLParserBackend,
+    cache_origin: CacheOrigin,
+    *,
+    start: int | None = None,
+    classify_input: str | None = None,
+) -> Any:
+    """Look up a parsed AST, parsing on miss.
+
+    ``AUTO`` consults both caches before classifying via frame walk, so the
+    walk is on the cold path only. Explicit ``BUILTIN``/``USER`` only
+    consult their own cache.
+
+    ``classify_input`` lets callers key the cache on a derived string while
+    classifying on the original (e.g. ``parse_string_template`` keys on
+    ``"F'" + string`` but the frame literal it wants to match is ``string``).
+
+    Returns a deepcopy on hit so the resolver/printer can mutate freely.
+    The miss path returns the fresh parse directly and stores the deepcopy.
+    """
+    # Coerce so a stringly-typed call validates and a typo raises.
+    cache_origin = CacheOrigin(cache_origin)
+
+    _PARSE_STATEMENT_LENGTH.labels(rule=rule).observe(len(statement))
+
+    if len(statement) < _MIN_CACHEABLE_STATEMENT_LEN or (
+        cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN
+    ):
+        _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="skip", rule=rule).inc()
+        return _invoke_parser(backend, rule, statement, start)
+
+    key = (statement, backend, rule, start)
+
+    if cache_origin == CacheOrigin.AUTO:
+        with _PARSE_CACHE_LOCK:
+            cached = _builtin_parse_cache.get(key, _MISS)
+            if cached is _MISS:
+                cached = _user_parse_cache.get(key, _MISS)
+                hit_origin = CacheOrigin.USER if cached is not _MISS else None
+            else:
+                hit_origin = CacheOrigin.BUILTIN
+        if hit_origin is not None:
+            _PARSE_CACHE_EVENTS.labels(origin=hit_origin, result="hit", rule=rule).inc()
+            return copy.deepcopy(cached)
+        cache_origin = (
+            CacheOrigin.BUILTIN
+            if _looks_like_code_literal(classify_input if classify_input is not None else statement)
+            else CacheOrigin.USER
+        )
+    else:
+        cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
+        with _PARSE_CACHE_LOCK:
+            cached = cache.get(key, _MISS)
+        if cached is not _MISS:
+            _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="hit", rule=rule).inc()
+            return copy.deepcopy(cached)
+
+    # Parse outside the lock — it's the expensive part, and concurrent parses
+    # of the same key race idempotently.
+    cache = _builtin_parse_cache if cache_origin == CacheOrigin.BUILTIN else _user_parse_cache
+    parsed = _invoke_parser(backend, rule, statement, start)
+    cached_copy = copy.deepcopy(parsed)
+    with _PARSE_CACHE_LOCK:
+        cache[key] = cached_copy
+        currsize = cache.currsize
+    _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="miss", rule=rule).inc()
+    _PARSE_CACHE_SIZE.labels(cache=cache_origin).set(currsize)
+    return parsed
+
+
+def clear_parse_caches() -> None:
+    """Drop both parse caches. Used by tests."""
+    with _PARSE_CACHE_LOCK:
+        _builtin_parse_cache.clear()
+        _user_parse_cache.clear()
+    _PARSE_CACHE_SIZE.labels(cache=CacheOrigin.BUILTIN).set(0)
+    _PARSE_CACHE_SIZE.labels(cache=CacheOrigin.USER).set(0)
 
 
 def parse_string_template(
@@ -104,17 +304,26 @@ def parse_string_template(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
     if timings is None:
         timings = HogQLTimings()
+    # The cache is keyed on `"F'" + string` (a runtime concat that never
+    # matches a frame literal), so pass the raw `string` as the classify
+    # target — that keeps the frame walk on the cold path here too.
     with timings.measure(f"parse_full_template_string_{backend}"):
-        with RULE_TO_HISTOGRAM["full_template_string"].labels(backend=backend).time():
-            node = RULE_TO_PARSE_FUNCTION[backend]["full_template_string"]("F'" + string)
+        node = _parse_cached(
+            ParseRule.FULL_TEMPLATE_STRING,
+            "F'" + string,
+            backend,
+            cache_origin,
+            classify_input=string,
+        )
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.Call", node)
 
 
 def parse_expr(
@@ -124,18 +333,18 @@ def parse_expr(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Expr:
     if expr == "":
         raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
-            node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
+        node = _parse_cached(ParseRule.EXPR, expr, backend, cache_origin, start=start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.Expr", node)
 
 
 def parse_order_expr(
@@ -144,16 +353,16 @@ def parse_order_expr(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.OrderExpr:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
-        with RULE_TO_HISTOGRAM["order_expr"].labels(backend=backend).time():
-            node = RULE_TO_PARSE_FUNCTION[backend]["order_expr"](order_expr)
+        node = _parse_cached(ParseRule.ORDER_EXPR, order_expr, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.OrderExpr", node)
 
 
 def parse_select(
@@ -162,19 +371,17 @@ def parse_select(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
-        with (
-            RULE_TO_HISTOGRAM["select"].labels(backend=backend).time(),
-            tracer.start_as_current_span("parse_statement_to_node"),
-        ):
-            node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
+        with tracer.start_as_current_span("parse_statement_to_node"):
+            node = _parse_cached(ParseRule.SELECT, statement, backend, cache_origin)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.SelectQuery | ast.SelectSetQuery", node)
 
 
 def parse_program(
@@ -182,13 +389,13 @@ def parse_program(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Program:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
-            node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
-    return node
+        node = _parse_cached(ParseRule.PROGRAM, source, backend, cache_origin)
+    return cast("ast.Program", node)
 
 
 def get_parser(query: str) -> HogQLParser:
@@ -199,6 +406,31 @@ def get_parser(query: str) -> HogQLParser:
     parser.removeErrorListeners()
     parser.addErrorListener(HogQLErrorListener(query))
     return parser
+
+
+def _first_unexpected_character(query: str) -> tuple[str, int] | None:
+    """The first character outside the HogQL token set, with its offset.
+    Such a character lexes as an `UNEXPECTED_CHARACTER` token and makes the
+    program unparseable, so naming it pinpoints the real failure."""
+    try:
+        lexer = HogQLLexer(InputStream(data=query))
+        lexer.removeErrorListeners()
+        for token in lexer.getAllTokens():
+            if token.type == HogQLLexer.UNEXPECTED_CHARACTER:
+                return token.text, token.start
+    except Exception:
+        pass
+    return None
+
+
+def _describe_unexpected_character(char: str) -> str:
+    """Name an unexpected character by Unicode code point — essential when
+    it is invisible (a zero-width space, a control character, …). The
+    glyph is shown too for printable ASCII."""
+    code_point = f"U+{ord(char):04X}"
+    if 0x21 <= ord(char) <= 0x7E:
+        return f"Unexpected character {char!r} ({code_point})"
+    return f"Unexpected character {code_point}"
 
 
 class HogQLErrorListener(ErrorListener):
@@ -220,6 +452,14 @@ class HogQLErrorListener(ErrorListener):
 
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
         start = max(self.get_position(line, column), 0)
+        # A character outside the HogQL token set dooms the parse. The
+        # default message quotes the raw character, which is unactionable
+        # when it is invisible — report the code point and point at the
+        # character itself.
+        unexpected = _first_unexpected_character(self.query)
+        if unexpected is not None:
+            char, offset = unexpected
+            raise SyntaxError(_describe_unexpected_character(char), start=offset, end=len(self.query))
         raise SyntaxError(msg, start=start, end=len(self.query))
 
 
@@ -259,7 +499,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
         return ast.VariableDeclaration(
-            name=ctx.identifier().getText(),
+            name=self.visit(ctx.identifier()),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
         )
 
@@ -273,13 +513,30 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
-        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+        if ctx.COLONEQUALS():
+            return ast.VariableAssignment(
+                left=self.visit(ctx.expression(0)),
+                right=self.visit(ctx.expression(1)),
+            )
+        column_expr = ctx.expression(0).columnExpr()
+        # `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+        # statement is a variable assignment. Checked on the parse tree, not the visited node,
+        # so parens are not unwrapped: `(x := 1)` stays an expression statement, matching C++.
+        if isinstance(column_expr, HogQLParser.ColumnExprNamedArgContext):
+            named_arg = self.visit(column_expr)
+            left = ast.Field(chain=[named_arg.name])
+            identifier = column_expr.identifier()
+            if self.start is not None and identifier.start and identifier.stop:
+                left.start = identifier.start.start
+                left.end = identifier.stop.stop + 1
+            return ast.VariableAssignment(left=left, right=named_arg.value)
+        return ast.ExprStatement(expr=self.visit(ctx.expression(0)))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
     def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
-        return ast.ThrowStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+        return ast.ThrowStatement(expr=self.visit(ctx.expression()))
 
     def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
         return (
@@ -303,14 +560,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
-        return ast.WhileStatement(
-            expr=self.visit(ctx.expression()),
-            body=self.visit(ctx.statement()) if ctx.statement() else None,
-        )
+        statement = ctx.statement()
+        if statement is None:
+            raise SyntaxError("WHILE requires a statement body")
+        return ast.WhileStatement(expr=self.visit(ctx.expression()), body=self.visit(statement))
 
     def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):
-        first_identifier = ctx.identifier(0).getText()
-        second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
+        first_identifier = self.visit(ctx.identifier(0))
+        second_identifier = self.visit(ctx.identifier(1)) if ctx.identifier(1) else None
         return ast.ForInStatement(
             valueVar=second_identifier if second_identifier is not None else first_identifier,
             keyVar=first_identifier if second_identifier is not None else None,
@@ -331,7 +588,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
         return ast.Function(
-            name=ctx.identifier().getText(),
+            name=self.visit(ctx.identifier()),
             params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
             body=self.visit(ctx.block()),
         )
@@ -344,7 +601,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return (self.visit(k), self.visit(v))
 
     def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
-        return [ident.getText() for ident in ctx.nestedIdentifier()]
+        return [".".join(self.visit(nested)) for nested in ctx.nestedIdentifier()]
 
     def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
         return ast.ExprStatement(expr=None)
@@ -419,9 +676,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 else:
                     limit = self.visit(exprs[0]) if exprs else None
                     offset = None
-                if isinstance(initial_query, ast.SelectQuery):
+                # Apply set-level limit/offset to the initial query —
+                # SelectSetQuery too (not just SelectQuery), and don't
+                # let a bare `LIMIT n` clobber an existing offset. Both
+                # match C++.
+                if isinstance(initial_query, (ast.SelectQuery, ast.SelectSetQuery)):
                     initial_query.limit = limit
-                    initial_query.offset = offset
+                    if offset is not None:
+                        initial_query.offset = offset
+                    if limit_clause.PERCENT():
+                        initial_query.limit_percent = True
+                    if limit_clause.TIES():
+                        initial_query.limit_with_ties = True
                     return initial_query
             return initial_query
 
@@ -463,6 +729,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
+        order_by_result = self.visit(ctx.orderByClause()) if ctx.orderByClause() else None
+        order_by = order_by_result[0] if order_by_result else None
+        interpolate = order_by_result[1] if order_by_result else None
         select_query = ast.SelectQuery(
             ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.selectColumnExprListBeforeFrom()) if ctx.selectColumnExprListBeforeFrom() else [],
@@ -473,7 +742,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
             qualify=self.visit(ctx.qualifyClause()) if ctx.qualifyClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
-            order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
+            order_by=order_by,
+            interpolate=interpolate,
             limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
         )
 
@@ -577,7 +847,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):
-        return self.visit(ctx.orderExprList())
+        order_by = self.visit(ctx.orderExprList())
+        interpolate = self.visit(ctx.interpolateClause()) if ctx.interpolateClause() else None
+        return order_by, interpolate
+
+    def visitInterpolateClause(self, ctx: HogQLParser.InterpolateClauseContext):
+        exprs = ctx.interpolateExpr()
+        if not exprs:
+            return []
+        return [self.visit(expr) for expr in exprs]
 
     def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
         limit_expr = self.visit(ctx.limitExpr())
@@ -758,7 +1036,33 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitOrderExpr(self, ctx: HogQLParser.OrderExprContext):
         order = "DESC" if ctx.DESC() or ctx.DESCENDING() else "ASC"
-        return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
+        with_fill = self.visit(ctx.withFillClause()) if ctx.withFillClause() else None
+        return ast.OrderExpr(
+            expr=self.visit(ctx.columnExpr()),
+            order=cast(Literal["ASC", "DESC"], order),
+            with_fill=with_fill,
+        )
+
+    def visitWithFillClause(self, ctx: HogQLParser.WithFillClauseContext):
+        column_exprs = ctx.columnExpr()
+        idx = 0
+        from_value = None
+        to_value = None
+        step_value = None
+        if ctx.FROM():
+            from_value = self.visit(column_exprs[idx])
+            idx += 1
+        if ctx.TO():
+            to_value = self.visit(column_exprs[idx])
+            idx += 1
+        if ctx.STEP():
+            step_value = self.visit(column_exprs[idx])
+        return ast.WithFillExpr(from_value=from_value, to_value=to_value, step_value=step_value)
+
+    def visitInterpolateExpr(self, ctx: HogQLParser.InterpolateExprContext):
+        column_exprs = ctx.columnExpr()
+        value = self.visit(column_exprs[1]) if len(column_exprs) > 1 else None
+        return ast.InterpolateExpr(expr=self.visit(column_exprs[0]), value=value)
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
         if ctx.placeholder():
@@ -1231,7 +1535,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]
-        if ctx.caseExpr:
+        case_expr = getattr(ctx, "caseExpr", None)
+        if case_expr is not None:
             args = [columns[0], ast.Array(exprs=[]), ast.Array(exprs=[]), columns[-1]]
             for index, column in enumerate(columns):
                 if 0 < index < len(columns) - 1:
@@ -1288,7 +1593,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
         name = self.visit(ctx.identifier())
         parameters: list[ast.Expr] = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else []
-        within_group = self.visit(ctx.withinGroupClause())
+        within_group, _interpolate = self.visit(ctx.withinGroupClause())
         return ast.Call(name=name, params=parameters, args=[], within_group=within_group)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
@@ -1577,9 +1882,36 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
         text = ctx.getText().lower()
-        if "." in text or "e" in text or text == "-inf" or text == "inf" or text == "nan":
+        # Grammar allows an optional leading sign on every numberLiteral, including INF/NAN.
+        # Strip a leading '+' so the sign-stripping below is uniform and "+inf" → "inf".
+        if text.startswith("+"):
+            text = text[1:]
+        sign = 1
+        abs_text = text
+        if abs_text.startswith("-"):
+            sign = -1
+            abs_text = abs_text[1:]
+        # Hex before the float guard: hex digits include 'e', so "0xfe" would route through float().
+        if abs_text.startswith("0x"):
+            return ast.Constant(value=sign * int(abs_text, 16))
+        # `0b…` (BINARY_LITERAL): ClickHouse caps binary literals at 64 bits — magnitude
+        # must fit UInt64 (positive) or Int64 (negative); wider literals are rejected.
+        if abs_text.startswith("0b"):
+            magnitude = int(abs_text[2:], 2)
+            if magnitude > (2**63 if sign < 0 else 2**64 - 1):
+                raise SyntaxError(f"HogQL binary integer literals are limited to 64 bits; got {text!r}.")
+            return ast.Constant(value=sign * magnitude)
+        # `0o…` (OCTAL_PREFIX_LITERAL): rejected — ClickHouse and pre-pg16 Postgres reject it too.
+        if abs_text.startswith("0o"):
+            raise SyntaxError(
+                f"HogQL does not support `0o`-prefixed octal integer literals; got {text!r}. "
+                f"Use a plain decimal literal instead."
+            )
+        # INF/NAN_SQL tokens: `float()` handles both "inf"/"infinity" spellings.
+        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "infinity" or abs_text == "nan":
             return ast.Constant(value=float(text))
-        return ast.Constant(value=int(text))
+        # Leading zeros are no-ops, never octal — "017" → 17, "09" → 9 — matching ClickHouse/Postgres.
+        return ast.Constant(value=sign * int(abs_text, 10))
 
     def visitLiteral(self, ctx: HogQLParser.LiteralContext):
         if ctx.NULL_SQL():

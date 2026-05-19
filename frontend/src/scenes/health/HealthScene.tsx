@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconSupport, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -86,9 +87,21 @@ const LegacyHealthScene = (): JSX.Element => {
 }
 
 const UnifiedHealthScene = (): JSX.Element => {
-    const { showDismissed, healthIssuesLoading } = useValues(healthSceneLogic)
+    const { showDismissed, healthIssuesLoading, isRefreshInFlight, nextRefreshAvailableAt } =
+        useValues(healthSceneLogic)
     const { refreshHealthData, setShowDismissed } = useActions(healthSceneLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    const now = Date.now()
+    const inCooldown = nextRefreshAvailableAt !== null && nextRefreshAvailableAt > now
+    const cooldownLabel = inCooldown
+        ? `Refresh available in ${humanFriendlyDuration(Math.ceil((nextRefreshAvailableAt! - now) / 1000), {
+              maxUnits: 2,
+          })}`
+        : undefined
+    const refreshTooltip = isRefreshInFlight
+        ? 'Refreshing health checks...'
+        : (cooldownLabel ?? 'Re-run all health checks for this project')
 
     return (
         <SceneContent>
@@ -109,8 +122,9 @@ const UnifiedHealthScene = (): JSX.Element => {
                         icon={<IconRefresh />}
                         type="tertiary"
                         size="small"
-                        tooltip="Refresh"
-                        loading={healthIssuesLoading}
+                        tooltip={refreshTooltip}
+                        loading={isRefreshInFlight || healthIssuesLoading}
+                        disabledReason={cooldownLabel}
                         onClick={() => refreshHealthData()}
                     />
                     <LemonMenu
@@ -128,7 +142,15 @@ const UnifiedHealthScene = (): JSX.Element => {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-6 max-w-5xl">
+            <div className="flex flex-col gap-6">
+                <LemonBanner
+                    type="info"
+                    className="mb-2"
+                    dismissKey="unified-health-page-feedback-banner"
+                    action={{ children: 'Send feedback', id: 'unified-health-page-feedback-button' }}
+                >
+                    We'd love your feedback on the new Health page. Let us know what's working and what could be better!
+                </LemonBanner>
                 <PlatformStatusBanner />
                 <HealthIssueSummaryCards />
                 <HealthIssueList />
