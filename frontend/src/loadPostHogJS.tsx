@@ -1,4 +1,4 @@
-import posthog, { PostHogInterface } from 'posthog-js'
+import posthog, { CaptureResult, PostHogInterface } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +12,25 @@ export const SDK_DEFAULTS_DATE = '2026-01-30'
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
+}
+
+// `ResizeObserver loop completed with undelivered notifications` (and the legacy
+// `ResizeObserver loop limit exceeded`) is a benign browser warning that fires
+// whenever an observed element resizes during its own resize callback. It surfaces
+// as an unhandled error so posthog-js captures it, but it is a no-op for users
+// and drowns out real regressions. Drop it before it reaches the network.
+const RESIZE_OBSERVER_LOOP_RE = /^ResizeObserver loop /
+
+const dropResizeObserverLoopExceptions = (event: CaptureResult | null): CaptureResult | null => {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const exceptions = event.properties?.$exception_list
+    if (!Array.isArray(exceptions) || exceptions.length === 0) {
+        return event
+    }
+    const allBenign = exceptions.every((exc: { value?: string }) => RESIZE_OBSERVER_LOOP_RE.test(exc?.value ?? ''))
+    return allBenign ? null : event
 }
 
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
@@ -41,6 +60,7 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            before_send: dropResizeObserverLoopExceptions,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
