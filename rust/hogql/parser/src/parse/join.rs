@@ -208,6 +208,27 @@ impl<'a> Parser<'a> {
             }
             self.bump()?;
             seen_any_kw = true;
+            // Each modifier keyword may appear at most once. cpp's
+            // ANTLR alts (`HogQLParser.g4:127–134`) each reference each
+            // keyword at most once; rust was silently OR-ing duplicates
+            // into the boolean state, so `INNER INNER JOIN` /
+            // `LEFT OUTER LEFT JOIN` slipped through.
+            let already_set = match kw {
+                Kw::All => all,
+                Kw::Any => any,
+                Kw::Asof => asof,
+                Kw::Inner => inner,
+                Kw::Left => left,
+                Kw::Right => right,
+                Kw::Full => full,
+                Kw::Outer => outer,
+                Kw::Semi => semi,
+                Kw::Anti => anti,
+                _ => false,
+            };
+            if already_set {
+                return Err(self.err(format!("duplicate {:?} in JOIN op", kw)));
+            }
             match kw {
                 Kw::All => all = true,
                 Kw::Any => any = true,
@@ -224,6 +245,34 @@ impl<'a> Parser<'a> {
         }
         if !seen_any_kw {
             return Ok(None);
+        }
+
+        // Grammar validation. The three `joinOp` alts (see
+        // `HogQLParser.g4:127–134`) partition the keyword set:
+        //   JoinOpInner   ⇒ INNER + at most one of ALL/ANY/ASOF; or
+        //                   ANTI; or SEMI; or ASOF (ANTI|SEMI). No
+        //                   LEFT/RIGHT/FULL/OUTER.
+        //   JoinOpLeftRight ⇒ exactly one of LEFT/RIGHT; optional
+        //                   OUTER; optional one of SEMI/ALL/ANTI/ANY/ASOF
+        //                   on either side. No INNER/FULL.
+        //   JoinOpFull    ⇒ FULL; optional OUTER; optional one of
+        //                   ALL/ANY/ASOF. No INNER/LEFT/RIGHT/ANTI/SEMI.
+        // Rust's source-order loop happily accepted any subset, then
+        // emitted a canonical-order token list — letting `INNER LEFT
+        // JOIN` through as the synthetic `LEFT INNER`. Validate the
+        // boolean state against the grammar before composing tokens.
+        let lr_count = (left as u8) + (right as u8);
+        if lr_count > 1 {
+            return Err(self.err("LEFT and RIGHT cannot both appear in a JOIN op"));
+        }
+        if full && (inner || left || right || anti || semi) {
+            return Err(self.err("FULL cannot combine with INNER/LEFT/RIGHT/ANTI/SEMI"));
+        }
+        if inner && (left || right || full || anti || semi) {
+            return Err(self.err("INNER cannot combine with LEFT/RIGHT/FULL/ANTI/SEMI"));
+        }
+        if outer && !(left || right || full) {
+            return Err(self.err("OUTER requires LEFT/RIGHT/FULL"));
         }
 
         let mut tokens: Vec<&str> = Vec::new();

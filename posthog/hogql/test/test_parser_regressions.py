@@ -809,6 +809,46 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_join_op_grammar_alts_validation(self):
+        # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
+        # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
+        # at most once per alt, and the three alts don't share INNER /
+        # LEFT / RIGHT / FULL. Rust's source-order loop set booleans
+        # without de-duplicating or cross-validating, so it accepted
+        # `INNER LEFT`, `LEFT OUTER LEFT`, `FULL INNER`, etc.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "SELECT 1 FROM a INNER LEFT JOIN b ON 1",
+            "SELECT 1 FROM a INNER OUTER JOIN b ON 1",
+            "SELECT 1 FROM a INNER INNER JOIN b ON 1",
+            "SELECT 1 FROM a LEFT OUTER LEFT JOIN b ON 1",
+            "SELECT 1 FROM a FULL INNER JOIN b ON 1",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Guard: every grammar-allowed JOIN op still parses.
+        valid = (
+            "SELECT 1 FROM a JOIN b ON 1",
+            "SELECT 1 FROM a INNER JOIN b ON 1",
+            "SELECT 1 FROM a LEFT JOIN b ON 1",
+            "SELECT 1 FROM a RIGHT JOIN b ON 1",
+            "SELECT 1 FROM a LEFT OUTER JOIN b ON 1",
+            "SELECT 1 FROM a FULL JOIN b ON 1",
+            "SELECT 1 FROM a FULL OUTER JOIN b ON 1",
+            "SELECT 1 FROM a INNER ALL JOIN b ON 1",
+            "SELECT 1 FROM a ALL INNER JOIN b ON 1",
+            "SELECT 1 FROM a ASOF JOIN b ON 1",
+            "SELECT 1 FROM a ASOF LEFT JOIN b ON 1",
+        )
+        for src in valid:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_capital_F_template_string_only_in_full_template_context(self):
         # The grammar has two template-string tokens:
         #   `QUOTE_SINGLE_TEMPLATE: 'f\'' -> pushMode(IN_TEMPLATE_STRING);`
