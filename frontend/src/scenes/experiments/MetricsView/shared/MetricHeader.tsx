@@ -199,7 +199,7 @@ export const MetricHeader = ({
         })
     }
 
-    const canAddBreakdown = !isSharedMetric && (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
+    const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
