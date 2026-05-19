@@ -8,7 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -41,7 +41,7 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId } = useValues(sceneLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -171,6 +171,11 @@ export function Navigation({
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                            // The Settings scene has a fixed-position nav column on the left at
+                                            // desktop widths; shift the notice past it so it aligns with the
+                                            // right content column instead of sitting behind the nav.
+                                            'lg:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                activeSceneId === Scene.Settings,
                                         })}
                                     >
                                         <ProjectNotice
