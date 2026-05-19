@@ -2339,11 +2339,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     } catch {
                         actions.setInsightLoading(false)
                         lemonToast.error('Insight not found')
+                        tabAdded = true
+                        router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
                     }
                     actions.setInsightLoading(false)
                     if (!insight) {
                         lemonToast.error('Insight not found')
+                        tabAdded = true
+                        router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
                     }
 

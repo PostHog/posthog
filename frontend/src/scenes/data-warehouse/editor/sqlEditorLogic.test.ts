@@ -741,6 +741,23 @@ describe('sqlEditorLogic', () => {
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
         })
+
+        it('strips open_insight from the URL when the insight is not found, so the toast does not retrigger', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_insight: 'unknown-short-id' as InsightShortId })
+
+            await expectLogic(logic).toDispatchActions(['setInsightLoading'])
+            await expectLogic(router).toDispatchActions(['replace'])
+
+            expect(router.values.searchParams.open_insight).toBeUndefined()
+            expect(router.values.location.pathname).toContain(urls.sqlEditor())
+        })
     })
 
     describe('activeTabMatchesUrlTarget', () => {
