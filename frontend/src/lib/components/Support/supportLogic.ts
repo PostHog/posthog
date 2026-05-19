@@ -471,8 +471,6 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
-                    // Return undefined (not '') for non-errors — LemonField renders an empty
-                    // red error icon for any string value, including the empty string.
                     name: !values.user && !name ? 'Please enter your name' : undefined,
                     email: !values.user && !email ? 'Please enter your email' : undefined,
                     message: !message ? 'Please enter a message' : undefined,
@@ -485,8 +483,6 @@ export const supportLogic = kea<supportLogicType>([
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                // Await so kea-forms' isSendSupportRequestSubmitting stays true for the whole fetch,
-                // which is what disables the Submit button and prevents duplicate tickets.
                 await supportLogic.asyncActions.submitZendeskTicket(formValues)
             },
         },
