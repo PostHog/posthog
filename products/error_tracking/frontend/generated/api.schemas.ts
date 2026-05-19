@@ -579,6 +579,62 @@ export interface PaginatedErrorTrackingIssueFullListApi {
     results: ErrorTrackingIssueFullApi[]
 }
 
+export interface ErrorTrackingIssueAssigneeReadApi {
+    /**
+     * Identifier of the assignee. User IDs are numeric strings; role IDs are UUID strings.
+     * @nullable
+     */
+    id: string | null
+    /** Type of assignee: `user` or `role`. */
+    type: string
+}
+
+export interface ErrorTrackingIssueCohortReadApi {
+    /** Numeric ID of the cohort linked to the issue. */
+    id: number
+    /** Display name of the cohort linked to the issue. */
+    name: string
+}
+
+/**
+ * Read-only serializer for issue contract types returned by the facade.
+ */
+export interface ErrorTrackingIssueReadApi {
+    /** UUID of the error tracking issue. */
+    id: string
+    /** Lifecycle status of the issue: `active`, `resolved`, `suppressed`, or `pending_release`. */
+    status: string
+    /**
+     * Display name of the issue (typically the exception type).
+     * @nullable
+     */
+    name: string | null
+    /**
+     * Short description of the issue (typically the exception message).
+     * @nullable
+     */
+    description: string | null
+    /**
+     * Timestamp the issue was first observed.
+     * @nullable
+     */
+    first_seen: string | null
+    /** Current assignee of the issue, or null if unassigned. */
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
+    /** External issue tracker references linked to this issue (e.g. GitHub, Linear). */
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
+    /** Cohort linked to this issue for affected user tracking, or null if none. */
+    cohort: ErrorTrackingIssueCohortReadApi | null
+}
+
+/**
+ * Returned with HTTP 308 when a fingerprint resolves to a different issue than the URL path id.
+ */
+export interface ErrorTrackingIssueRedirectResponseApi {
+    /** UUID of the canonical issue the fingerprint resolves to. */
+    issue_id: string
+}
+
 /**
  * @nullable
  */
@@ -1631,6 +1687,13 @@ export type ErrorTrackingIssuesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingIssuesRetrieveParams = {
+    /**
+     * Optional fingerprint to resolve. If it resolves to a different issue than the URL path id, the response is a 308 with the canonical issue id.
+     */
+    fingerprint?: string
 }
 
 export type ErrorTrackingRecommendationsListParams = {

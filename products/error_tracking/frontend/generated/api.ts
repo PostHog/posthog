@@ -29,11 +29,13 @@ import type {
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssueQueryRequestApi,
+    ErrorTrackingIssueReadApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
+    ErrorTrackingIssuesRetrieveParams,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
@@ -600,16 +602,37 @@ export const errorTrackingIssuesCreate = async (
     })
 }
 
-export const getErrorTrackingIssuesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/issues/${id}/`
+export const getErrorTrackingIssuesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ErrorTrackingIssuesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/issues/${id}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/issues/${id}/`
 }
 
+/**
+ * Retrieve a single error tracking issue by UUID. When the optional `fingerprint` query parameter is provided and resolves to a different issue than the URL path id (for example, the issue was merged), the response is a 308 with the canonical issue id in the body.
+ * @summary Get an error tracking issue
+ */
 export const errorTrackingIssuesRetrieve = async (
     projectId: string,
     id: string,
+    params?: ErrorTrackingIssuesRetrieveParams,
     options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesRetrieveUrl(projectId, id), {
+): Promise<ErrorTrackingIssueReadApi> => {
+    return apiMutator<ErrorTrackingIssueReadApi>(getErrorTrackingIssuesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
