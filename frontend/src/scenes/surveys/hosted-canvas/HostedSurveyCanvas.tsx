@@ -88,6 +88,7 @@ interface CanvasCSSProperties extends CSSProperties {
     '--ph-survey-page-text-subtle': string
     '--ph-survey-page-progress-bar': string
     '--ph-survey-page-progress-track': string
+    '--ph-survey-pill-background': string
     '--ph-survey-card-shadow': string
     '--ph-survey-input-background': string
     '--ph-survey-background-color': string
@@ -118,6 +119,9 @@ function buildCanvasStyles(appearance: SurveyAppearance, progress: number): Canv
         '--ph-survey-page-text-subtle': appearance.textSubtleColor || '#6b6b6b',
         '--ph-survey-page-progress-bar': submitButtonColor,
         '--ph-survey-page-progress-track': 'rgba(17, 17, 17, 0.08)',
+        // hosted-survey.css uses this for the footer-branding pill background;
+        // without it the pill renders transparent against the survey card.
+        '--ph-survey-pill-background': 'rgba(255, 255, 255, 0.7)',
         '--ph-survey-card-shadow': '0 1px 2px rgba(17, 17, 17, 0.04), 0 2px 8px rgba(17, 17, 17, 0.04)',
         '--ph-survey-input-background': cardBg,
         '--ph-survey-background-color': cardBg,

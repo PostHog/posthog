@@ -151,7 +151,10 @@ export function HostedSurveySettingsPanel({
                                         : q
                                 )
                                 setSurveyValue('questions', next)
-                                setSurveyValue('appearance.ratingButtonColor', value === 'emoji' ? '#939393' : 'white')
+                                setSurveyValue('appearance', {
+                                    ...survey.appearance,
+                                    ratingButtonColor: value === 'emoji' ? '#939393' : 'white',
+                                })
                                 resetBranchingForQuestion(activePageIndex)
                             }}
                             onScaleChange={(value) => {

@@ -5,7 +5,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconExternal, IconGitBranch, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -26,6 +26,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
+import { getSurveyWithTranslatedContent } from 'scenes/surveys/surveyTranslationUtils'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -414,6 +415,16 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
     const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
 
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
+    const activeLanguage = surveyTranslationsEnabled ? editingLanguage : null
+    // Translation-aware view of the survey for the canvas to render. Edits made
+    // on the canvas still flow through surveyLogic against the raw survey, so
+    // text edits while a non-default language is active won't write to the
+    // wrong field — but they also won't update translations. Use the
+    // Translations section below the canvas for that.
+    const previewSurvey = useMemo(
+        () => getSurveyWithTranslatedContent(survey, activeLanguage),
+        [survey, activeLanguage]
+    )
     const maxPageIndex = Math.max(survey.questions.length + (survey.appearance?.displayThankYouMessage ? 1 : 0) - 1, 0)
     const activePageIndex = Math.min(selectedPageIndex ?? 0, maxPageIndex)
     const isConfirmationSelected =
@@ -562,7 +573,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                     />
                     <div className="HostedSurveyCanvasLayout">
                         <HostedSurveyCanvas
-                            survey={survey}
+                            survey={previewSurvey}
                             activePageIndex={activePageIndex}
                             isConfirmation={isConfirmationSelected}
                             viewport={viewport}

@@ -59,9 +59,8 @@ export function InlineEditable({
     }, [editing])
 
     const commit = (): void => {
-        const trimmed = draft
-        if (trimmed !== value) {
-            onChange(trimmed)
+        if (draft !== value) {
+            onChange(draft)
         }
         setEditing(false)
     }
