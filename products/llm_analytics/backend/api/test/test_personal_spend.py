@@ -185,6 +185,26 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         tools = {r["tool"] for r in response.json()["by_tool"]}
         assert tools == {"Bash", None}
 
+    def test_by_tool_splits_comma_separated_tools(self) -> None:
+        # One generation that calls Bash and Read should contribute to both rows.
+        self._create_generation(tool="Bash,Read", cost=2.0, trace_id="multi")
+        # One single-tool generation that also touches Bash, plus a single-tool Read.
+        self._create_generation(tool="Bash", cost=1.0, trace_id="bash-only")
+        self._create_generation(tool="Read", cost=0.5, trace_id="read-only")
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?product=posthog_code")
+        rows = {r["tool"]: r for r in response.json()["by_tool"]}
+        assert set(rows) == {"Bash", "Read"}
+        # Bash row picks up both the Bash-only generation and the Bash,Read generation.
+        assert rows["Bash"]["generation_count"] == 2
+        assert rows["Bash"]["cost_usd"] == 3.0
+        # Read row picks up both the Read-only generation and the Bash,Read generation.
+        assert rows["Read"]["generation_count"] == 2
+        assert rows["Read"]["cost_usd"] == 2.5
+        # Scoped total stays $3.50 — the multi-tool generation is only counted once there.
+        assert response.json()["summary"]["scoped_cost_usd"] == 3.5
+
     def test_top_traces_ordered_by_cost(self) -> None:
         self._create_generation(trace_id="cheap", cost=0.5)
         self._create_generation(trace_id="expensive", cost=5.0)

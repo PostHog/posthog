@@ -96,12 +96,21 @@ class _ProductBreakdownRowSerializer(serializers.Serializer):
 class _ToolBreakdownRowSerializer(serializers.Serializer):
     tool = serializers.CharField(
         allow_null=True,
-        help_text="Last tool the model called on the generation (`$ai_tools_called`). Null = pure text response with no tool call.",
+        help_text=(
+            "Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations "
+            "store a comma-separated list). Null = pure text response with no tool call."
+        ),
     )
     generation_count = serializers.IntegerField(
-        help_text="Number of $ai_generation events that ended with this tool call."
+        help_text="Number of $ai_generation events whose tool list includes this tool."
     )
-    cost_usd = serializers.FloatField(help_text="Total cost in USD for generations ending with this tool.")
+    cost_usd = serializers.FloatField(
+        help_text=(
+            "Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool "
+            "generations contribute their full cost to every tool they invoked, so this sum can exceed "
+            "`summary.scoped_cost_usd` — use this view to see which tools dominate, not for accounting."
+        ),
+    )
     avg_input_tokens = serializers.FloatField(
         help_text="Average `$ai_input_tokens` across these generations — high values signal context bloat per call.",
     )
@@ -287,10 +296,14 @@ def _fetch_by_product(team: Team, email: str, days: int) -> list[dict[str, Any]]
 
 
 def _fetch_by_tool(team: Team, email: str, days: int, product: str | None) -> list[dict[str, Any]]:
+    # `$ai_tools_called` stores a comma-separated list of all tools called within a
+    # generation (e.g. "Bash,Read"). Split it so multi-tool generations contribute to
+    # each individual tool row. nullIf restores the no-tool case (where the property
+    # is NULL and coalesce produces an empty string) to a NULL bucket.
     query = parse_select(
         """
         SELECT
-            properties.$ai_tools_called AS tool,
+            nullIf(arrayJoin(splitByChar(',', coalesce(properties.$ai_tools_called, ''))), '') AS tool,
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
