@@ -587,50 +587,47 @@ class SessionRecordingPlaylistViewSet(
         return super().safely_get_object(queryset)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Override list to include synthetic playlists"""
-        # Get regular DB playlists
+        """Override list to include synthetic playlists."""
         queryset = self.safely_get_queryset(self.get_queryset())
-
-        # Get the total count of DB playlists before pagination
         db_count = queryset.count()
 
-        # Apply pagination to DB playlists
-        page = self.paginate_queryset(queryset)
-
-        # Check if we're on the first page by looking at offset parameter
-        # Synthetic playlists should only appear on the first page to avoid duplicates
-        offset = int(request.GET.get("offset", 0))
-        page_number = int(request.GET.get("page", 1))
-        is_first_page = offset == 0 and page_number == 1
-
-        # Create synthetic playlist instances (includes both static and dynamic)
+        # Build and order the filtered synthetic playlists once so we can
+        # deterministically slice them across pages.
         all_synthetic_playlists = get_all_synthetic_playlists(self.team)
         synthetic_instances = [
             create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
             for sp in all_synthetic_playlists
         ]
-
-        # Filter synthetic playlists based on request filters
         filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
+        sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
-        # Only include synthetic playlists on the first page
-        synthetics_to_include = filtered_synthetics if is_first_page else []
+        synth_count = len(sorted_synthetics)
+        total_count = db_count + synth_count
 
-        # Combine DB and synthetic playlists
-        if page is not None:
-            combined = list(page) + synthetics_to_include
-        else:
-            combined = list(queryset) + synthetics_to_include
-
-        # Apply ordering to the combined list
-        combined = self._order_playlists(request, combined)
-
-        # Enforce page size on the combined result so synthetic playlists
-        # don't cause the response to exceed the requested limit. The paginator
-        # already caps DB-backed pages at PLAYLIST_LIST_MAX_LIMIT; clamp here too
-        # so the synthetic slice is bounded identically.
         limit = min(int(request.GET.get("limit", 100)), PLAYLIST_LIST_MAX_LIMIT)
-        combined = combined[:limit]
+        offset = max(0, int(request.GET.get("offset", 0)))
+
+        # Synthetic playlists have last_modified_at=None and are sorted via
+        # datetime.max in _order_playlists. For descending order they sit at
+        # the start of the global list; for ascending they sit at the end.
+        order = request.GET.get("order") or "-last_modified_at"
+        synthetics_first = order.startswith("-")
+
+        if synthetics_first:
+            synth_start = min(offset, synth_count)
+            synth_end = min(offset + limit, synth_count)
+            synth_for_page = sorted_synthetics[synth_start:synth_end]
+            db_offset = max(0, offset - synth_count)
+            db_take = limit - len(synth_for_page)
+        else:
+            db_take = max(0, min(limit, db_count - offset))
+            db_offset = offset
+            synth_start = max(0, offset - db_count)
+            synth_for_page = sorted_synthetics[synth_start : synth_start + (limit - db_take)]
+
+        db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
+        combined = synth_for_page + db_items if synthetics_first else db_items + synth_for_page
+        combined = self._order_playlists(request, combined)
 
         # Batch-fetch recording counts for the page to avoid the per-playlist
         # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
@@ -650,16 +647,23 @@ class SessionRecordingPlaylistViewSet(
 
         serializer = self.get_serializer(combined, many=True)
 
-        # Calculate total count including synthetic playlists (only counted once on first page)
-        total_count = db_count + len(filtered_synthetics)
+        # Use the paginator only for next/previous link construction; we feed
+        # it the total (DB + synthetic) count so the links span the merged list.
+        paginator = self.paginator
+        assert paginator is not None
+        paginator.count = total_count
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.request = request
 
-        if page is not None:
-            # Manually construct paginated response with correct count
-            paginated_response = self.get_paginated_response(serializer.data)
-            # Override the count with the total including synthetic playlists
-            paginated_response.data["count"] = total_count
-            return paginated_response
-        return response.Response({"count": total_count, "next": None, "previous": None, "results": serializer.data})
+        return response.Response(
+            {
+                "count": total_count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": serializer.data,
+            }
+        )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
