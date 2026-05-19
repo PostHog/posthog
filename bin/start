@@ -106,15 +106,16 @@ else
     export OTEL_SDK_DISABLED="true"
 fi
 
-# These default to localhost/127.0.0.1 in Node.js/Rust configs
-export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
-export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redis7}
-export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
-export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+# Vars below need bash variable expansion in their defaults (${PGHOST:-db},
+# $PERSONS_DATABASE_URL, etc.) — must stay in this script because
+# .env.development is sourced via a loader that doesn't re-expand $-refs.
+
 # Persons DB — Node.js and Rust use different env var names for the same connection
 export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
 export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+# nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
 export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
+# nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
 export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
 export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
 export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
