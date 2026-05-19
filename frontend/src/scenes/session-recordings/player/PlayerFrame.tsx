@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
+import { computePlayerScale } from 'scenes/session-recordings/player/computePlayerScale'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
@@ -36,15 +37,11 @@ export const PlayerFrame = (): JSX.Element => {
             replayDimensionRef.current = replayDimensions
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+            const scale = computePlayerScale(replayDimensions, parentDimensions)
 
-            // Cap at 0.999 instead of 1 to avoid a Chrome GPU compositing bug where
-            // an identity transform (scale(1)) causes the iframe layer to paint outside
-            // its clipping bounds, overlapping the rest of the UI.
-            const scale = Math.min(
-                parentDimensions.width / replayDimensions.width,
-                parentDimensions.height / replayDimensions.height,
-                0.999
-            )
+            if (scale === null) {
+                return
+            }
 
             player.replayer.wrapper.style.transform = `scale(${scale})`
 
