@@ -315,7 +315,6 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
 HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY = "hackathons_subscriptions"
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
-SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY = "subscription-hourly-frequency"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
