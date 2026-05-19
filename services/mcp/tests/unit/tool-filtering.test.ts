@@ -643,7 +643,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'visual-review',
                 'mcp-feedback-tool',
                 'user-interviews',
-                'posthog-csp',
+                'customer-analytics-csp',
             ])
         )
         expect(flags).toHaveLength(7)

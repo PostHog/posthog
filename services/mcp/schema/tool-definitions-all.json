@@ -13,7 +13,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "posthog-csp"
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-destroy": {
         "description": "Permanently delete a Customer Analytics account by id.",
@@ -29,7 +29,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "posthog-csp"
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
         "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
@@ -45,7 +45,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "posthog-csp"
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-partial-update": {
         "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged.",
@@ -61,7 +61,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "posthog-csp"
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
         "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments).",
@@ -77,7 +77,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "posthog-csp"
+        "feature_flag": "customer-analytics-csp"
     },
     "action-create": {
         "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",

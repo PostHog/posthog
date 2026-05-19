@@ -28,7 +28,7 @@ tools:
                 description: >
                     Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each
                     takes `{id, email}` of an existing user. All three are optional.
-        feature_flag: posthog-csp
+        feature_flag: customer-analytics-csp
     accounts-destroy:
         operation: accounts_destroy
         enabled: true
@@ -41,7 +41,7 @@ tools:
         title: Delete account
         description: |
             Permanently delete a Customer Analytics account by id.
-        feature_flag: posthog-csp
+        feature_flag: customer-analytics-csp
     accounts-list:
         operation: accounts_list
         enabled: true
@@ -57,7 +57,7 @@ tools:
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
             account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), and
             creation/update metadata. Use `accounts-retrieve` for a single account by id.
-        feature_flag: posthog-csp
+        feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
         enabled: true
@@ -77,7 +77,7 @@ tools:
                     Typed account properties. The server replaces the `properties` object as a whole, so include any
                     existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`,
                     each taking `{id, email}` of an existing user.
-        feature_flag: posthog-csp
+        feature_flag: customer-analytics-csp
     accounts-retrieve:
         operation: accounts_retrieve
         enabled: true
@@ -91,7 +91,7 @@ tools:
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments).
-        feature_flag: posthog-csp
+        feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
         enabled: false
