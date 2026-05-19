@@ -258,7 +258,7 @@ class ExperimentQueryBuilder:
         maturity when there's a long gap between exposure and start. A user exposed
         long ago who only starts the day before analysis runs will pass the maturity
         check even though their retention window has barely opened, and will likely
-        be counted as "not retained" — diluting the metric. Proper fix is to anchor
+        be counted as "not retained", diluting the metric. Proper fix is to anchor
         retention maturity on max(start_event_timestamp) inside the retention query's
         entity_metrics CTE; tracked as a follow-up.
         """
