@@ -1,3 +1,5 @@
+import uuid
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -27,7 +29,7 @@ from ee.tasks.subscriptions.ai_subscription.delivery import (
 )
 from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec, HogQLFix, QueryPlan, QueryPlanStep
 from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError, sanitize_prompt
-from ee.tasks.subscriptions.auto_disable import AI_PROMPT_INVALID_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import AI_PROMPT_INVALID_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -457,8 +459,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
     @patch("posthog.temporal.subscriptions.activities._auto_disable_and_return")
     @patch("posthog.temporal.subscriptions.activities.generate_ai_subscription_markdown")
     def test_prompt_rejected_error_auto_disables(self, mock_generate, mock_auto_disable):
-        import asyncio
-
         mock_generate.side_effect = PromptRejectedError("Prompt is empty.")
         mock_auto_disable.return_value = DeliverSubscriptionResult(recipient_results=[])
         sub = self._ai_email_sub()
@@ -473,10 +473,6 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
     @patch("posthog.temporal.subscriptions.activities.send_slack_ai_subscription_report")
     @patch("posthog.temporal.subscriptions.activities.generate_ai_subscription_markdown")
     def test_missing_slack_integration_auto_disables(self, mock_generate, mock_send_slack, mock_auto_disable):
-        import asyncio
-
-        from ee.tasks.subscriptions.auto_disable import SLACK_DISCONNECTED_DISABLE_REASON
-
         mock_generate.return_value = "# Report"
         mock_send_slack.side_effect = SlackIntegrationMissingError("disconnected")
         mock_auto_disable.return_value = DeliverSubscriptionResult(recipient_results=[])
@@ -492,17 +488,17 @@ class TestDeliverAISubscriptionActivity(APIBaseTest):
     @patch("posthog.temporal.subscriptions.activities.send_email_ai_subscription_report")
     @patch("posthog.temporal.subscriptions.activities.generate_ai_subscription_markdown")
     def test_cached_markdown_skips_llm_on_retry(self, mock_generate, mock_send_email, mock_load_cache, mock_persist):
-        import uuid
-        import asyncio
-
         mock_load_cache.return_value = "# Cached"
         sub = self._ai_email_sub()
         delivery_id = uuid.uuid4()
 
         result = asyncio.run(_deliver_ai_subscription(sub, self._delivery_inputs(sub.id, delivery_id=delivery_id), []))
 
-        mock_generate.assert_not_called(), "Cached markdown must short-circuit the LLM pipeline"
-        mock_persist.assert_not_called(), "Cache-hit path doesn't re-persist"
+        # `assert_not_called()` raises on its own — the trailing string in a comma
+        # tuple was dead code (constructed and discarded). The assertion semantics
+        # are self-documenting from the mock name.
+        mock_generate.assert_not_called()
+        mock_persist.assert_not_called()
         mock_send_email.assert_called_once()
         assert result.recipient_results[0].status == "success"
 

@@ -678,18 +678,11 @@ async def _deliver_ai_subscription(
             subscription_id=subscription.id,
             target_type=subscription.target_type,
         )
-        # Record the per-recipient outcome before auto-disable so the
-        # SubscriptionDelivery row preserves *why* the delivery failed — matching
-        # the PromptRejectedError branch below. Without this, the delivery_record
-        # status is recorded as failed but with an empty `recipient_results` list,
-        # which makes the failure indistinguishable in delivery history.
-        recipient_results.append(
-            RecipientResult(
-                recipient=subscription.target_value,
-                status="failed",
-                error={"message": UNSUPPORTED_TARGET_DISABLE_REASON, "type": "UnsupportedTargetError"},
-            )
-        )
+        # `_auto_disable_and_return` already appends a `RecipientResult` derived from
+        # the `DisableReason` (description + key). The PromptRejectedError branch
+        # below appends a *separate* entry first because the exception message
+        # carries info that wouldn't otherwise reach the delivery record; here the
+        # disable reason already captures the full failure, so one entry suffices.
         return await _auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
 
     cached_markdown = await _load_cached_ai_markdown(inputs.delivery_id)

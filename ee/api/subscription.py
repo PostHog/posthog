@@ -277,8 +277,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "ai_config": {
                 "help_text": (
                     "Optional AI subscription configuration. Currently supports the keys "
-                    "'model' (synthesis model) and 'planner_model'. Values outside the "
-                    "allowed model whitelist are ignored at delivery time."
+                    "'model' (synthesis model) and 'planner_model'. Unknown keys and values "
+                    "outside the allowed model whitelist are rejected with a 400 at the API boundary."
                 ),
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
@@ -439,7 +439,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 try:
                     sanitize_prompt(prompt_after)
                 except PromptRejectedError as exc:
-                    raise ValidationError({"prompt": [f"Prompt is invalid: {exc}"]})
+                    # Surface under "enabled" not "prompt" — the user's PATCH likely
+                    # only flipped `enabled=true` and didn't touch `prompt`. Pointing
+                    # the error at the field they actually changed makes the cause
+                    # diagnosable. The reason still names the prompt.
+                    raise ValidationError(
+                        {"enabled": [f"Cannot re-enable AI subscription: prompt is invalid ({exc})."]}
+                    )
 
         # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
         # with a null next_delivery_date is invisible to the scheduler (the
