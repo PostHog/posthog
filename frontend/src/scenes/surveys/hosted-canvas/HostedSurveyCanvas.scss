@@ -37,7 +37,12 @@
             box-shadow 120ms ease;
     }
 
-    .inline-editable--placeholder {
+    // Placeholder style helps distinguish "no content yet" from a real value
+    // for prose-like elements (title, description). For button-styled elements
+    // (.form-submit), the opacity drop fades the whole pill and the italic
+    // breaks the button typography — exclude them so the button reads as a
+    // real submit button even before the author renames it.
+    .inline-editable--placeholder:not(.form-submit) {
         font-style: italic;
         opacity: 0.55;
     }

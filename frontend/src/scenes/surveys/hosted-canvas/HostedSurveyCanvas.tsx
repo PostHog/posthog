@@ -363,16 +363,40 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                             className="form-submit"
                             data-attr={`canvas-question-${index}-button-text`}
                         />
-                        <span className="survey-keyhint" aria-hidden>
-                            <span className="survey-keyhint-row">
-                                <kbd className="survey-kbd">{'\u21B5'}</kbd>
-                                <span className="survey-keyhint-label">submit</span>
-                            </span>
-                        </span>
+                        <KeyboardHints questionType={question.type} />
                     </div>
                 </div>
             </div>
         </form>
+    )
+}
+
+// Keyboard hint chips next to the submit button. Mirrors the per-question
+// hint set rendered by `posthog/templates/surveys/public_survey.html` so the
+// canvas matches what respondents actually see.
+function KeyboardHints({ questionType }: { questionType: SurveyQuestionType }): JSX.Element {
+    const chips: { kbd: string; label: string }[] = [{ kbd: '\u21B5', label: 'submit' }]
+
+    if (questionType === SurveyQuestionType.Open) {
+        chips.push({ kbd: '\u21E7 \u21B5', label: 'new line' })
+    } else if (questionType === SurveyQuestionType.SingleChoice) {
+        chips.push({ kbd: '\u2191 \u2193', label: 'select' })
+    } else if (questionType === SurveyQuestionType.MultipleChoice) {
+        chips.push({ kbd: '\u2191 \u2193', label: 'select' })
+        chips.push({ kbd: 'Space', label: 'toggle' })
+    } else if (questionType === SurveyQuestionType.Rating) {
+        chips.push({ kbd: '\u2190 \u2192', label: 'select' })
+    }
+
+    return (
+        <span className="survey-keyhint" aria-hidden>
+            {chips.map(({ kbd, label }) => (
+                <span className="survey-keyhint-row" key={label}>
+                    <kbd className="survey-kbd">{kbd}</kbd>
+                    <span className="survey-keyhint-label">{label}</span>
+                </span>
+            ))}
+        </span>
     )
 }
 
