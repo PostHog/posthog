@@ -10,7 +10,9 @@ from urllib import parse
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
+from django.db import IntegrityError, transaction
 from django.forms import ModelForm, ValidationError
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
@@ -110,6 +112,7 @@ class TeamAdmin(admin.ModelAdmin):
         "export_individual_replay",
         "import_individual_replay",
         "delete_recordings",
+        "api_token_display",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -144,7 +147,7 @@ class TeamAdmin(admin.ModelAdmin):
             {
                 "classes": ["collapse"],
                 "fields": [
-                    "api_token",
+                    "api_token_display",
                     "timezone",
                     "week_start_day",
                     "base_currency",
@@ -294,6 +297,17 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="API token")
+    def api_token_display(self, team: Team):
+        if not team.pk:
+            return "-"
+        set_url = reverse("admin:posthog_team_set_api_token", args=[team.pk])
+        return format_html(
+            '<span>{}</span> &nbsp; <a class="button" href="{}">Set API token</a>',
+            team.api_token,
+            set_url,
+        )
+
     @admin.display(description="Delete recordings")
     def delete_recordings(self, team: Team):
         if not team.pk:
@@ -356,6 +370,11 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_download_export",
             ),
             path(
+                "<path:object_id>/set-api-token/",
+                self.admin_site.admin_view(self.set_api_token_view),
+                name="posthog_team_set_api_token",
+            ),
+            path(
                 "<path:object_id>/delete-recordings/",
                 self.admin_site.admin_view(self.delete_recordings_view),
                 name="posthog_team_delete_recordings",
@@ -377,6 +396,46 @@ class TeamAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def set_api_token_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Set API token - {team.name}",
+            }
+            return render(request, "admin/posthog/team/set_api_token_form.html", context)
+
+        new_token = request.POST.get("new_token", "").strip()
+        if not new_token:
+            messages.error(request, "New API token is required")
+            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
+
+        try:
+            with transaction.atomic():
+                team.set_token_and_save(
+                    new_token=new_token,
+                    user=request.user,
+                    is_impersonated_session=False,
+                )
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
+        except IntegrityError:
+            messages.error(request, "Another team already owns this API token. Pick a different value.")
+            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
+
+        logger.info(
+            "admin_set_api_token",
+            team_id=team.id,
+            triggered_by=request.user.email,
+        )
+        messages.success(request, f"API token updated for team '{team.name}'.")
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def export_replay_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
