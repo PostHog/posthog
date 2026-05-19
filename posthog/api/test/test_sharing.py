@@ -202,25 +202,6 @@ class TestSharing(APIBaseTest):
         ]
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_refreshing_dashboard_share_token_is_logged(self, patched_exporter_task: Mock):
-        self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh"
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-        assert (
-            ActivityLog.objects.filter(
-                scope="Dashboard", activity="access token refreshed", user_id=self.user.id
-            ).count()
-            == 1
-        )
-
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
 
@@ -486,6 +467,13 @@ class TestSharing(APIBaseTest):
         # Verify the token persists
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert response.json()["access_token"] == refreshed_data["access_token"]
+
+        # Verify activity log was created
+        activity_logs = ActivityLog.objects.filter(scope="Dashboard", activity="access token refreshed")
+        assert activity_logs.count() == 1
+        first = activity_logs.first()
+        assert first is not None
+        assert first.item_id == str(self.dashboard.id)
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_refresh_sharing_access_token_for_insight(self, patched_exporter_task: Mock):
