@@ -16,7 +16,7 @@ export type BatchRetryStepResult<T, R extends string = never> =
     | { status: 'failed'; retriable: boolean; reason: string }
 
 /**
- * A batch step that returns per-event success/failure instead of throwing.
+ * A batch step that returns per-event success/failure.
  */
 export type BatchRetryStep<TIn, TOut, R extends string = never> = (
     inputs: TIn[]
@@ -63,11 +63,6 @@ const attemptsHistogram = new Histogram({
  *    - Non-retriable → DLQ (event is broken, retrying won't help)
  *    - Retriable → overflow when {@link BatchRetryOptions.overflowEnabled}
  *      is true (main lane), otherwise DLQ (overflow lane terminal).
- *
- * Service-wide degradation detection is intentionally out of scope here —
- * a proper circuit breaker (cross-batch state, half-open recovery) will
- * land separately. This wrapper stays naive about whether the dependency
- * is up.
  */
 export function withBatchRetry<TIn, TOut, R extends string = never>(
     step: BatchRetryStep<TIn, TOut, R>,
@@ -137,10 +132,12 @@ export function withBatchRetry<TIn, TOut, R extends string = never>(
             }
             if (!result.retriable) {
                 terminalCounter.labels(stepName, 'dlq_non_retriable').inc()
+                logger.warn('🪦', `${stepName}_dlq`, { reason: result.reason, outcome: 'non_retriable' })
                 return dlq(result.reason)
             }
             if (!overflowEnabled) {
                 terminalCounter.labels(stepName, 'dlq_exhausted').inc()
+                logger.warn('🪦', `${stepName}_dlq`, { reason: result.reason, outcome: 'retries_exhausted' })
                 return dlq(result.reason)
             }
             terminalCounter.labels(stepName, 'overflow').inc()

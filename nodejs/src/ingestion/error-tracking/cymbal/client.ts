@@ -142,10 +142,6 @@ function recordRequestMetrics(status: string, durationMs: number, batchSize: num
  * - Issue fingerprinting and grouping
  * - Issue suppression based on status
  *
- * Sticky routing (events from the same team to the same Cymbal pod for
- * cache locality) is handled server-side by Cymbal — this client just
- * posts to the configured base URL.
- *
  * Note: This client does not implement retry logic. Retries are handled at
  * the pipeline level using pipeBatchWithRetry(). The client returns per-event
  * failed results with a retriable flag for the wrapper to handle.
