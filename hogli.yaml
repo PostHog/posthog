@@ -946,7 +946,3 @@ environment:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
-    start:custom:
-        bin_script: start-custom
-        description: 'TODO: add description for start-custom'
-        hidden: true
