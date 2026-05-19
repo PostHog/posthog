@@ -11,6 +11,8 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+import base64
+from typing import Any
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -46,6 +48,56 @@ from ..logic import (
     run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
+
+
+def _paginate_trace_results(
+    results: list[dict[str, Any]], requested_limit: int, order_by: str
+) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """
+    Compute hasMore and nextCursor from a span result set ordered by the runner.
+
+    The view passes ``limit = requested_limit + 1`` to the runner so the SQL fetches one
+    extra trace as a peek-ahead. This helper detects that overflow by counting distinct
+    trace_ids in result order: if more than ``requested_limit`` distinct trace_ids
+    appear, the result set contains the +1 trace and we drop its spans.
+
+    The cursor is the boundary span of the last *kept* trace:
+    - latest (DESC) order: the earliest span (min timestamp/uuid) of the last kept trace
+    - earliest (ASC) order: the latest span (max timestamp/uuid) of the last kept trace
+
+    These match the strict-inequality filter in ``TraceSpansQueryRunner.where()``.
+
+    Caveat: ``time_sliced_results`` decrements its internal limit by span count rather
+    than trace count, so for queries spanning multiple time slices the runner may exit
+    before the +1 peek-ahead trace is fetched. In that case this helper returns
+    ``hasMore=False`` even when more data exists in earlier time windows. The single-
+    slice case (short windows, the common path) is handled correctly.
+    """
+    seen_trace_ids: list[str] = []
+    seen_set: set[str] = set()
+    for row in results:
+        tid = row["trace_id"]
+        if tid not in seen_set:
+            seen_set.add(tid)
+            seen_trace_ids.append(tid)
+
+    if len(seen_trace_ids) <= requested_limit:
+        return results, False, None
+
+    kept_trace_ids = set(seen_trace_ids[:requested_limit])
+    kept = [row for row in results if row["trace_id"] in kept_trace_ids]
+
+    last_trace_id = seen_trace_ids[requested_limit - 1]
+    last_trace_spans = [row for row in kept if row["trace_id"] == last_trace_id]
+    if order_by == "earliest":
+        boundary = max(last_trace_spans, key=lambda r: (r["timestamp"], r["uuid"]))
+    else:
+        boundary = min(last_trace_spans, key=lambda r: (r["timestamp"], r["uuid"]))
+
+    cursor_payload = json.dumps({"timestamp": boundary["timestamp"].isoformat(), "uuid": boundary["uuid"]})
+    next_cursor = base64.b64encode(cursor_payload.encode("utf-8")).decode("ascii")
+    return kept, True, next_cursor
+
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -344,11 +396,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
         )
 
+        results, has_more, next_cursor = _paginate_trace_results(results, requested_limit, order_by)
+
         return Response(
             {
                 "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
             },
             status=status.HTTP_200_OK,
         )
