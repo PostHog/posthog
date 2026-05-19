@@ -29,8 +29,6 @@ To run::
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.retrieval.scorers import InfoCalledBeforeTool, WarehouseSchemaBeforeSql
@@ -38,7 +36,6 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 
 
-@pytest.mark.django_db
 async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     # ``seed_insight_noise`` adds ~1000 plausible-looking noise insights plus a
     # handful of deterministic lookup insights (incl. "Monthly Active Users
