@@ -172,10 +172,23 @@ export function SurveyContainerAppearance({
             {/* Position selector — own row since it's visually different */}
             {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Tab ? (
                 <LemonField.Pure label="Position" className="gap-1">
-                    <p className="text-muted text-sm m-0">
-                        The survey popup always appears next to the tab button. Use the button position setting above to
-                        control where the tab sits on the screen.
-                    </p>
+                    <div className="flex items-center gap-2">
+                        <SurveyPositionSelector
+                            currentPosition={appearance.position}
+                            onAppearanceChange={onAppearanceChange}
+                            disabled={true}
+                        />
+                        <LemonSelect
+                            value={appearance.position}
+                            onChange={(position) => onAppearanceChange({ position })}
+                            options={gridPositions.map((position) => ({
+                                label: positionDisplayNames[position],
+                                value: position,
+                            }))}
+                            disabled={true}
+                            disabledReason="The popup position is fixed next to the tab button for tab widget surveys"
+                        />
+                    </div>
                 </LemonField.Pure>
             ) : (
                 <LemonField.Pure
