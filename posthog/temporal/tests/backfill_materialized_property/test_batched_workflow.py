@@ -34,7 +34,6 @@ from posthog.temporal.backfill_materialized_property.workflows import (
 @pytest.mark.asyncio
 class TestBackfillMaterializedPropertiesBatchWorkflow:
     async def test_happy_path_assigns_runs_mutation_and_activates(self):
-        """Happy path: assign returns slots, populate runs, mutation runs, activation runs once."""
         recorded: dict[str, list] = {
             "assign": [],
             "populate": [],
@@ -163,7 +162,6 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
         assert recorded["activate"] == []
 
     async def test_mutation_failure_marks_slots_as_error(self):
-        """When the mutation activity fails, the workflow marks the assigned slots as ERROR."""
         recorded: dict[str, list] = {"populate": [], "activate": [], "fail": []}
 
         sample_assignments = [

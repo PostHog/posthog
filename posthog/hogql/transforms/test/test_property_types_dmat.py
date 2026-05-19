@@ -11,6 +11,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
@@ -148,8 +149,6 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         This ensures _generate_property_extraction_sql() produces the same output
         as HogQL's property type wrappers (toFloat, toBool, toDateTime).
         """
-        from posthog.hogql.query import execute_hogql_query
-
         # Build test data
         event_properties = {tc.name: tc.input_value for tc in TEST_CASES}
         slot_indexes = {tc.name: i for i, tc in enumerate(TEST_CASES)}
