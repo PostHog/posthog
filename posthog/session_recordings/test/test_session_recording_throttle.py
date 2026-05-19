@@ -343,8 +343,7 @@ class TestSharingTokenReplayThrottle(BaseTest):
         assert key_first == key_second
 
     def test_returns_none_cache_key_when_no_sharing_configuration(self) -> None:
-        # Defensive guard — the viewset only routes sharing-token requests here, but if
-        # something else slips through we should not throttle on a NoneType token.
+        # Defensive guard against misrouted requests.
         throttle = SharingTokenReplayThrottle()
         request = type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": None})()
 
@@ -353,8 +352,6 @@ class TestSharingTokenReplayThrottle(BaseTest):
     def test_rate_reads_from_settings_default(self) -> None:
         throttle = SharingTokenReplayThrottle()
 
-        # The default exposed through django settings; this guards against silently
-        # changing the default in a way that drops the cap.
         assert throttle.rate == "600/minute"
 
     @override_settings(REPLAY_SHARING_TOKEN_RATE="42/minute")
@@ -369,7 +366,7 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         viewset = SessionRecordingViewSet()
         viewset.action = action
         request = Request(APIRequestFactory().get("/"))
-        request._authenticator = authenticator  # read-only @property in DRF
+        request._authenticator = authenticator  # type: ignore[attr-defined]  # backs read-only @property
         viewset.request = request  # ty: ignore[invalid-assignment]
         return viewset
 
@@ -384,9 +381,7 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         assert isinstance(throttles[0], SharingTokenReplayThrottle)
 
     def test_sharing_token_on_list_does_not_include_listing_throttles(self) -> None:
-        # `list` is not in sharing_enabled_actions but defence-in-depth: even if a
-        # sharing-token request reaches here, the per-IP listing throttles shouldn't
-        # apply — the sharing-token throttle is the single source of truth.
+        # Defence in depth: `list` isn't sharing-enabled, but if it ever is, the per-token cap must be the only throttle.
         auth = SharingAccessTokenAuthentication()
         auth.sharing_configuration = SharingConfiguration(access_token="tok", enabled=True)
         viewset = self._viewset(action="list", authenticator=auth)

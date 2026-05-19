@@ -37,9 +37,5 @@ LISTING_RATE_PAID_SUSTAINED = get_from_env("LISTING_RATE_PAID_SUSTAINED", "300/h
 LISTING_RATE_ENTERPRISE_BURST = get_from_env("LISTING_RATE_ENTERPRISE_BURST", "100/minute")
 LISTING_RATE_ENTERPRISE_SUSTAINED = get_from_env("LISTING_RATE_ENTERPRISE_SUSTAINED", "400/hour")
 
-# Per-token throttle for replay endpoints accessed via a SharingAccessToken.
-# Sharing tokens are per-resource authorizations, so the cap is keyed by token
-# rather than IP — corporate-NAT viewers and embed users sharing one IP don't
-# collide on the same bucket, but a leaked token still has a defined runaway
-# cap. The owning team can revoke a misused token via rotate_access_token().
+# Per-token cap for replay endpoints reached via a SharingAccessToken.
 REPLAY_SHARING_TOKEN_RATE = get_from_env("REPLAY_SHARING_TOKEN_RATE", "600/minute")

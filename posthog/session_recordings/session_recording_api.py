@@ -687,20 +687,12 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
 
 
 class SharingTokenReplayThrottle(SimpleRateThrottle):
-    """Per-sharing-token throttle for replay endpoints accessed via SharingAccessToken.
-
-    Replaces the per-IP / per-team throttles for sharing-token requests: those punish
-    legitimate corporate-NAT viewers and embed users while doing little to bound a leaked
-    token (which can be replayed from arbitrary IPs anyway). Capping per token instead
-    isolates abuse to the specific shared resource, and the owning team can revoke a
-    misused token via SharingConfiguration.rotate_access_token().
-    """
+    """Per-token cap for replay endpoints reached via SharingAccessToken."""
 
     scope = "replay_sharing_token"
 
     def __init__(self) -> None:
-        # Read at instantiation so override_settings in tests (and runtime env changes
-        # after import) take effect — class-attribute capture would freeze the default.
+        # Read at instantiation so override_settings takes effect.
         self.rate = settings.REPLAY_SHARING_TOKEN_RATE
         super().__init__()
 
@@ -775,11 +767,7 @@ class SessionRecordingViewSet(
 
     def get_throttles(self):
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            # Sharing-token requests are per-resource authorizations. The default
-            # tier-aware / per-IP throttles don't fit: tier rates only apply to
-            # personal API key requests (so a paid/enterprise team's embed gets free
-            # rates), and the per-IP key collides corporate-NAT viewers. Replace with
-            # a per-token cap — see SharingTokenReplayThrottle.
+            # Sharing-token requests get a per-token cap instead of per-IP / per-team.
             return [SharingTokenReplayThrottle()]
         if self.action == "list":
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
