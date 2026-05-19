@@ -48,7 +48,9 @@ export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFla
                                 ) : (
                                     <span className="text-sm font-medium font-mono">{`Variant ${index + 1}`}</span>
                                 )}
-                                <span className="text-xs text-muted">{variant.rollout_percentage || 0}%</span>
+                                <span className="text-xs text-muted tabular-nums">
+                                    {variant.rollout_percentage || 0}%
+                                </span>
                             </div>
                         ),
                         content: hasExpandableContent ? (

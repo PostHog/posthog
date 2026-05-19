@@ -28,6 +28,7 @@ import {
     SurveyQuestion,
     SurveyQuestionType,
     SurveyRates,
+    SurveySchedule,
     SurveyStats,
     SurveyType,
 } from '~/types'
@@ -507,6 +508,12 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
 // list in sync with what the wizard's steps actually expose.
 export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
     if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    // SurveySchedule.Always — the wizard offers Once + recurring frequencies, but not "every time
+    // the display conditions are met". Keep Always surveys in the legacy editor where the option
+    // is actually visible, so the wizard never silently misrepresents the cadence.
+    if (survey.schedule === SurveySchedule.Always) {
         return false
     }
     // Adaptive sampling — WhenStep exposes a simple responses_limit but not
