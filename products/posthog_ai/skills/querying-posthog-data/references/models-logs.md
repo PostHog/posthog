@@ -173,7 +173,7 @@ If you already have the trace_id in base64 form (e.g. selected directly from the
 ```sql
 SELECT timestamp, severity_text, service_name, body
 FROM logs
-WHERE trace_id = 'IepzoCWp7NMq3z5ddUik9A=='
+WHERE trace_id = 'Ie2zoCWp7NMq3z5ddUik9A=='
 ORDER BY timestamp
 ```
 
