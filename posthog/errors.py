@@ -438,7 +438,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     167: ErrorCodeMeta("TOO_DEEP_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     168: ErrorCodeMeta("TOO_BIG_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     169: ErrorCodeMeta("BAD_TYPE_OF_FIELD"),
-    170: ErrorCodeMeta("BAD_GET"),
+    170: ErrorCodeMeta("BAD_GET", user_safe=True, category=QueryErrorCategory.USER_ERROR),
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),
     173: ErrorCodeMeta("CANNOT_ALLOCATE_MEMORY", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     174: ErrorCodeMeta("CYCLIC_ALIASES", category=QueryErrorCategory.USER_ERROR),

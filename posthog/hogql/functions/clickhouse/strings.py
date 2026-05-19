@@ -1,6 +1,8 @@
 from posthog.hogql.ast import IntegerType, StringType
+from posthog.hogql.base import UnknownType
 
 from ..core import HogQLFunctionMeta
+from ..typegen import generate_variadic_signatures
 
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
@@ -17,7 +19,21 @@ STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "upperUTF8": HogQLFunctionMeta("upperUTF8", 1, 1),
     "isValidUTF8": HogQLFunctionMeta("isValidUTF8", 1, 1),
     "toValidUTF8": HogQLFunctionMeta("toValidUTF8", 1, 1),
-    "format": HogQLFunctionMeta("format", 2, None),
+    "format": HogQLFunctionMeta(
+        "format",
+        2,
+        None,
+        signatures=[
+            (sig, StringType())
+            for sig in generate_variadic_signatures(
+                fixed_types=[StringType()],
+                variadic_types=[UnknownType()],
+                min_variadic=1,
+                max_variadic=10,
+            )
+        ],
+        string_pattern_first_arg=True,
+    ),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
     "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False),
     "substring": HogQLFunctionMeta("substring", 3, 3, case_sensitive=False),

@@ -942,6 +942,22 @@ class BasePrinter(Visitor[str]):
                         f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
                     )
 
+            if func_meta.string_pattern_first_arg:
+                if not node.args:
+                    raise QueryError(f"Missing arguments in function '{node.name}'")
+                first_arg = node.args[0]
+                first_arg_type = (
+                    first_arg.type.resolve_constant_type(self.context) if first_arg.type is not None else None
+                )
+                if (
+                    first_arg_type is not None
+                    and not isinstance(first_arg_type, StringType)
+                    and not isinstance(first_arg_type, ast.UnknownType)
+                ):
+                    raise QueryError(
+                        f"Function '{node.name}' expects a String as the first argument, got {first_arg_type.__class__.__name__}"
+                    )
+
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.
             if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():

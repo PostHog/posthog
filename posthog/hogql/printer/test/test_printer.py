@@ -1284,6 +1284,21 @@ class TestPrinter(BaseTest):
         # LazyTable
         self._assert_expr_error("person", "Can't select a table when a column is expected: person")
 
+    def test_format_pattern_must_be_string(self):
+        # ClickHouse format() requires a String pattern as the first arg.
+        # Without HogQL-level validation, a non-String first arg surfaces as the opaque
+        # ClickHouse internal BAD_GET ("has Decimal64, requested String") error.
+        self._assert_expr_error(
+            "format(now(), 'v')",
+            "Function 'format' expects a String as the first argument",
+        )
+        self._assert_expr_error(
+            "format(1, 'v')",
+            "Function 'format' expects a String as the first argument",
+        )
+        # String pattern remains accepted.
+        self.assertIn("format(", self._expr("format('{0}', 'v')"))
+
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "no viable alternative at input '('")
         self._assert_expr_error("())", "mismatched input ')' expecting '->'")

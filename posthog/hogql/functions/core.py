@@ -86,6 +86,9 @@ class HogQLFunctionMeta:
     using_positional_arguments: bool = False
     parametric_first_arg: bool = False
     """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
+    string_pattern_first_arg: bool = False
+    """Some ClickHouse functions (e.g. ``format``) take a string pattern as the first argument. If a non-String is
+    passed, ClickHouse raises an opaque internal error (BAD_GET) — catch that misuse early with a clear HogQL error."""
     requires_within_group: bool = False
     """Whether the aggregation requires WITHIN GROUP syntax."""
 
