@@ -178,11 +178,8 @@ async def validate_schema_and_update_table(
         _schema_name: str = external_data_schema.name
         incremental_or_append = external_data_schema.should_use_incremental_field
 
-        # When the source was migrated from single-schema to multi-schema mode (user cleared
-        # `job_inputs.schema`), the row was renamed from "example_table" to "poblic.example_table"
-        # but its Delta files still live at the legacy unqualified path. `dwh_storage_key` carries
-        # the original name so we keep writing to the same `team_<id>_postgres_<schema_id>/<key>/`
-        # location and HogQL doesn't need to be rebound to a new path.
+        # `dwh_storage_key` pins the Delta path to the original unqualified name for legacy
+        # warehouse rows that got renamed to qualified form during multi-schema migration.
         storage_key = (external_data_schema.sync_type_config or {}).get("dwh_storage_key")
         storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else _schema_name
 

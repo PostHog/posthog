@@ -678,8 +678,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
-        # Postgres-specific: clearing `job_inputs.schema` triggers a one-shot migration of legacy
-        # unqualified rows so the next sync routes to the right physical table.
+        # Postgres: clearing `job_inputs.schema` migrates legacy rows before the config change lands.
         old_schema = detect_postgres_schema_clear_transition(
             source_type=instance.source_type,
             existing_job_inputs=existing_job_inputs,
@@ -1522,10 +1521,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
-            # Postgres-only: match discovered qualified names back to existing rows (by location)
-            # and migrate any legacy unqualified rows in place. Returns substitutions so
-            # `sync_old_schemas_with_new_schemas` treats existing rows as already covering the
-            # discovered names instead of creating duplicates.
+            # Postgres-only: dedupe + migrate legacy rows so sync_old_schemas doesn't create duplicates.
             name_substitutions: dict[str, str] = {}
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 name_substitutions = reconcile_postgres_refresh_name_substitutions(
@@ -1546,10 +1542,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Postgres sources (both warehouse and direct) persist `schema_metadata` on every row
-            # so multi-schema sync resolves the source `(schema, table)` per-row instead of from
-            # `config.schema`. Direct mode additionally reconciles the live-query
-            # `DataWarehouseTable`; the helper internally branches on `source.is_direct_query`.
+            # Persist schema_metadata for per-row routing + (direct mode) rebuild DataWarehouseTable.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,

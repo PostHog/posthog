@@ -239,8 +239,7 @@ def reconcile_postgres_schemas(
             },
             default_schema=default_schema,
         )
-        # Full column list lives in metadata so the column-picker UI can re-add excluded columns
-        # later; the projection used at sync time lives on `enabled_columns` separately.
+        # Metadata holds the full column list (column-picker UI); projection lives on `enabled_columns`.
         schema_metadata = postgres_schema_metadata(
             source_schema.columns,
             source_schema.foreign_keys,
@@ -301,12 +300,8 @@ def reproject_direct_postgres_table(
     source: ExternalDataSource,
     enabled_columns: list[str] | None,
 ) -> Any:
-    """Rebuild the direct-query `DataWarehouseTable` for `schema_row` against the current
-    `schema_metadata` + a fresh `enabled_columns` projection.
-
-    Use this whenever the projection changes (column-picker save) or the row's exposure toggles
-    on (should_sync flipping False → True). HogQL sees the new column subset immediately — no
-    re-sync needed in direct mode.
+    """Rebuild the direct-query `DataWarehouseTable` with a fresh column projection — used on
+    column-picker save and on `should_sync` False → True. No re-sync needed in direct mode.
     """
     source_catalog, source_schema, source_table_name = get_postgres_source_location(
         schema_name=schema_row.name,
@@ -337,13 +332,8 @@ def rename_postgres_schemas_to_match_source_schemas(
     allow_rename: bool = True,
 ) -> dict[str, str]:
     """Match discovered schemas to existing rows by source location.
-
-    `allow_rename=True` (direct mode): rewrite `ExternalDataSchema.name` to the discovered
-    qualified form in place.
-
-    `allow_rename=False` (warehouse mode): pin `schema_metadata` only — renaming the row would
-    change the Delta path on the next sync. Warehouse-mode rename happens in
-    `postgres_warehouse_migration` via `dwh_storage_key`.
+    Direct mode (`allow_rename=True`) rewrites `name` in place; warehouse mode pins
+    `schema_metadata` only — the rename happens in `postgres_warehouse_migration`.
     """
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
@@ -389,8 +379,7 @@ def rename_postgres_schemas_to_match_source_schemas(
             continue
 
         if not allow_rename:
-            # Pin metadata so reconcile treats `candidate` as the canonical match for this
-            # discovered table even though names differ. No rename.
+            # Pin metadata so reconcile matches `candidate` to this discovered table by location.
             sync_type_config = candidate.sync_type_config or {}
             existing_metadata = sync_type_config.get("schema_metadata")
             if not isinstance(existing_metadata, dict) or not existing_metadata.get("source_table_name"):

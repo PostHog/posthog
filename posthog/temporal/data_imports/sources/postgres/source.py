@@ -490,11 +490,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else None
         )
 
-        # Self-heal when a qualified row (e.g. "poblic.example_table") has no schema_metadata yet —
-        # split the dotted name so the source SELECT goes to ("poblic", "example_table") rather than
-        # falling through to (config.schema or "public") + the literal dotted table name (which
-        # blows up with `relation "public.poblic.example_table" does not exist`). Reconcile keeps
-        # this up to date on every refresh, but rows enabled before the next refresh land here.
+        # Self-heal qualified rows that don't have schema_metadata yet by splitting the dotted name,
+        # so we don't fall through to `config.schema or "public"` + the literal dotted table name.
         if (not source_schema or not source_table_name) and "." in inputs.schema_name:
             inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
             source_schema = source_schema or inferred_schema
@@ -531,11 +528,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             is_initial_sync=not schema.initial_sync_complete,
             enabled_columns=schema.enabled_columns,
         )
-        # `DataWarehouseTable.url_pattern` is derived from `dwh_storage_key` when present (legacy
-        # rows migrated by `consolidate_postgres_legacy_rows`) or `normalize(schema.name)` otherwise.
-        # The Delta write path (driven by `SourceResponse.name`) must match the url_pattern — without
-        # this match, HogQL reads from the wrong location and returns no rows. For migrated legacy
-        # rows the storage key locks both sides to the original unqualified path.
+        # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
+        # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
         storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
         storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
         response.name = NamingConvention.normalize_identifier(storage_schema_name)
