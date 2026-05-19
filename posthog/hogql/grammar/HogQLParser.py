@@ -10,7 +10,7 @@ else:
 
 def serializedATN():
     return [
-        4,1,200,2081,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,
+        4,1,201,2081,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,
         7,6,2,7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,
         13,2,14,7,14,2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,
         20,7,20,2,21,7,21,2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,
@@ -740,7 +740,7 @@ def serializedATN():
         0,1728,1735,3,166,83,0,1729,1735,3,164,82,0,1730,1731,5,163,0,0,
         1731,1732,3,154,77,0,1732,1733,5,183,0,0,1733,1735,1,0,0,0,1734,
         1728,1,0,0,0,1734,1729,1,0,0,0,1734,1730,1,0,0,0,1735,163,1,0,0,
-        0,1736,1737,5,199,0,0,1737,165,1,0,0,0,1738,1739,5,167,0,0,1739,
+        0,1736,1737,5,200,0,0,1737,165,1,0,0,0,1738,1739,5,167,0,0,1739,
         1743,3,220,110,0,1740,1742,3,168,84,0,1741,1740,1,0,0,0,1742,1745,
         1,0,0,0,1743,1741,1,0,0,0,1743,1744,1,0,0,0,1744,1746,1,0,0,0,1745,
         1743,1,0,0,0,1746,1747,5,188,0,0,1747,1768,1,0,0,0,1748,1749,5,167,
@@ -850,14 +850,14 @@ def serializedATN():
         0,2046,2044,1,0,0,0,2046,2045,1,0,0,0,2047,227,1,0,0,0,2048,2052,
         5,178,0,0,2049,2051,3,230,115,0,2050,2049,1,0,0,0,2051,2054,1,0,
         0,0,2052,2050,1,0,0,0,2052,2053,1,0,0,0,2053,2055,1,0,0,0,2054,2052,
-        1,0,0,0,2055,2056,5,180,0,0,2056,229,1,0,0,0,2057,2058,5,194,0,0,
+        1,0,0,0,2055,2056,5,180,0,0,2056,229,1,0,0,0,2057,2058,5,195,0,0,
         2058,2059,3,154,77,0,2059,2060,5,183,0,0,2060,2063,1,0,0,0,2061,
-        2063,5,193,0,0,2062,2057,1,0,0,0,2062,2061,1,0,0,0,2063,231,1,0,
+        2063,5,194,0,0,2062,2057,1,0,0,0,2062,2061,1,0,0,0,2063,231,1,0,
         0,0,2064,2068,5,179,0,0,2065,2067,3,234,117,0,2066,2065,1,0,0,0,
         2067,2070,1,0,0,0,2068,2066,1,0,0,0,2068,2069,1,0,0,0,2069,2071,
         1,0,0,0,2070,2068,1,0,0,0,2071,2072,5,0,0,1,2072,233,1,0,0,0,2073,
-        2074,5,196,0,0,2074,2075,3,154,77,0,2075,2076,5,183,0,0,2076,2079,
-        1,0,0,0,2077,2079,5,195,0,0,2078,2073,1,0,0,0,2078,2077,1,0,0,0,
+        2074,5,197,0,0,2074,2075,3,154,77,0,2075,2076,5,183,0,0,2076,2079,
+        1,0,0,0,2077,2079,5,196,0,0,2078,2073,1,0,0,0,2078,2077,1,0,0,0,
         2079,235,1,0,0,0,259,239,246,254,261,265,278,282,285,290,297,301,
         310,315,324,332,339,343,349,354,362,369,375,387,390,398,412,416,
         421,424,439,445,450,456,462,467,473,479,484,486,494,498,501,506,
@@ -970,8 +970,8 @@ class HogQLParser ( Parser ):
                       "QUOTE_SINGLE", "REGEX_SINGLE", "REGEX_DOUBLE", "RBRACE", 
                       "RBRACKET", "RPAREN", "SEMICOLON", "SLASH", "SLASH_GT", 
                       "UNDERSCORE", "MULTI_LINE_COMMENT", "SINGLE_LINE_COMMENT", 
-                      "WHITESPACE", "STRING_TEXT", "STRING_ESCAPE_TRIGGER", 
-                      "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", 
+                      "WHITESPACE", "UNEXPECTED_CHARACTER", "STRING_TEXT", 
+                      "STRING_ESCAPE_TRIGGER", "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", 
                       "TAG_WS", "TAGC_WS", "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_WS" ]
 
     RULE_program = 0
@@ -1320,14 +1320,15 @@ class HogQLParser ( Parser ):
     MULTI_LINE_COMMENT=190
     SINGLE_LINE_COMMENT=191
     WHITESPACE=192
-    STRING_TEXT=193
-    STRING_ESCAPE_TRIGGER=194
-    FULL_STRING_TEXT=195
-    FULL_STRING_ESCAPE_TRIGGER=196
-    TAG_WS=197
-    TAGC_WS=198
-    HOGQLX_TEXT_TEXT=199
-    HOGQLX_TEXT_WS=200
+    UNEXPECTED_CHARACTER=193
+    STRING_TEXT=194
+    STRING_ESCAPE_TRIGGER=195
+    FULL_STRING_TEXT=196
+    FULL_STRING_ESCAPE_TRIGGER=197
+    TAG_WS=198
+    TAGC_WS=199
+    HOGQLX_TEXT_TEXT=200
+    HOGQLX_TEXT_WS=201
 
     def __init__(self, input:TokenStream, output:TextIO = sys.stdout):
         super().__init__(input, output)
@@ -11872,7 +11873,7 @@ class HogQLParser ( Parser ):
                 self.state = 1728
                 self.hogqlxTagElement()
                 pass
-            elif token in [199]:
+            elif token in [200]:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 1729
                 self.hogqlxText()
@@ -12075,7 +12076,7 @@ class HogQLParser ( Parser ):
                 self.state = 1760
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                while ((((_la - 163)) & ~0x3f) == 0 and ((1 << (_la - 163)) & 68719476753) != 0):
+                while ((((_la - 163)) & ~0x3f) == 0 and ((1 << (_la - 163)) & 137438953489) != 0):
                     self.state = 1757
                     self.hogqlxChildElement()
                     self.state = 1762
@@ -14940,7 +14941,7 @@ class HogQLParser ( Parser ):
             self.state = 2052
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            while _la==193 or _la==194:
+            while _la==194 or _la==195:
                 self.state = 2049
                 self.stringContents()
                 self.state = 2054
@@ -14998,7 +14999,7 @@ class HogQLParser ( Parser ):
             self.state = 2062
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [194]:
+            if token in [195]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 2057
                 self.match(HogQLParser.STRING_ESCAPE_TRIGGER)
@@ -15007,7 +15008,7 @@ class HogQLParser ( Parser ):
                 self.state = 2059
                 self.match(HogQLParser.RBRACE)
                 pass
-            elif token in [193]:
+            elif token in [194]:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 2061
                 self.match(HogQLParser.STRING_TEXT)
@@ -15068,7 +15069,7 @@ class HogQLParser ( Parser ):
             self.state = 2068
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            while _la==195 or _la==196:
+            while _la==196 or _la==197:
                 self.state = 2065
                 self.stringContentsFull()
                 self.state = 2070
@@ -15126,7 +15127,7 @@ class HogQLParser ( Parser ):
             self.state = 2078
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [196]:
+            if token in [197]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 2073
                 self.match(HogQLParser.FULL_STRING_ESCAPE_TRIGGER)
@@ -15135,7 +15136,7 @@ class HogQLParser ( Parser ):
                 self.state = 2075
                 self.match(HogQLParser.RBRACE)
                 pass
-            elif token in [195]:
+            elif token in [196]:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 2077
                 self.match(HogQLParser.FULL_STRING_TEXT)
