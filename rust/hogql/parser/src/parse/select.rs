@@ -251,14 +251,12 @@ impl<'a> Parser<'a> {
             // any other case (no `%`, or `%` resolved as modulo) the body
             // may still extend with lower-precedence operators (additive,
             // comparison, AND, OR), so continue the Pratt loop at BP=0.
-            let first_raw = self.parse_expr_bp(BP_MULT + 1)?;
-            let (first, percent) = self.limit_resolve_percent(first_raw)?;
-            let first = if !percent {
-                let cont_start = self.peek0.start;
-                self.pratt_continue_with_lhs(first, 0, cont_start)?
-            } else {
-                first
-            };
+            // See `parse_limit_clauses` for why `limit_body_depth`
+            // wraps the whole body parse.
+            self.limit_body_depth += 1;
+            let body = self.parse_limit_body();
+            self.limit_body_depth -= 1;
+            let (first, percent) = body?;
             let mut with_ties = self.peek_kw2(Kw::With, Kw::Ties);
             if with_ties {
                 self.bump()?;
@@ -693,6 +691,30 @@ impl<'a> Parser<'a> {
         Ok(Value::Object(obj))
     }
 
+    /// Parse a `LIMIT` clause's first operand — a `columnExpr`
+    /// optionally followed by the `%` PERCENT marker — and return
+    /// `(body, percent)`. Callers raise `limit_body_depth` around this
+    /// so the Pratt `%` handler can resolve modulo vs the PERCENT
+    /// marker at any depth.
+    fn parse_limit_body(&mut self) -> Result<(Value, bool), ParseError> {
+        // BP_MULT+1 stops the initial parse before a top-level `%` so
+        // `limit_resolve_percent` sees it undigested; a compound body
+        // (additive / comparison / AND / OR) is then extended at BP=0.
+        let first_raw = self.parse_expr_bp(BP_MULT + 1)?;
+        let (mut first, mut percent) = self.limit_resolve_percent(first_raw)?;
+        if !percent {
+            let cont_start = self.peek0.start;
+            first = self.pratt_continue_with_lhs(first, 0, cont_start)?;
+            // The continuation's `%` handler leaves a `LIMIT … PERCENT`
+            // marker unconsumed (it isn't modulo); pick it up here.
+            if self.peek() == TokenKind::Percent {
+                self.bump()?;
+                percent = true;
+            }
+        }
+        Ok((first, percent))
+    }
+
     /// Parse the optional `limitByClause? (limitAndOffsetClause | offsetOnlyClause)?`
     /// trailer of a SELECT, without using bounded token lookahead.
     ///
@@ -720,14 +742,15 @@ impl<'a> Parser<'a> {
         // succeeds end-to-end). When `%` resolves to PERCENT marker the
         // body is done; otherwise continue Pratt at BP=0 to consume any
         // lower-precedence operators (additive, comparison, AND, OR).
-        let first_raw = self.parse_expr_bp(BP_MULT + 1)?;
-        let (first, percent) = self.limit_resolve_percent(first_raw)?;
-        let first = if !percent {
-            let cont_start = self.peek0.start;
-            self.pratt_continue_with_lhs(first, 0, cont_start)?
-        } else {
-            first
-        };
+        // `limit_body_depth` stays raised across the whole body parse
+        // so the Pratt `%` handler (and `limit_resolve_percent`'s own
+        // speculation) resolve modulo vs the PERCENT marker uniformly,
+        // at any depth — `LIMIT a%b % WITH TIES` keeps `a%b` as modulo
+        // and the second `%` as the marker.
+        self.limit_body_depth += 1;
+        let body = self.parse_limit_body();
+        self.limit_body_depth -= 1;
+        let (first, percent) = body?;
         let mut with_ties = false;
         if self.peek_kw2(Kw::With, Kw::Ties) {
             self.bump()?;
@@ -883,38 +906,52 @@ impl<'a> Parser<'a> {
     /// expression along with whether PERCENT was consumed.
     ///
     /// Mirrors ANTLR ALL(*) on `LIMIT columnExpr PERCENT?`: cpp picks
-    /// modulo whenever the modulo path can succeed end-to-end. The PBT
-    /// witnesses this with `LIMIT a % OFFSET <eof>` — cpp parses
-    /// `(a % offset_field)` because the PERCENT alternative would fail
-    /// (no expression after OFFSET to fill the verbose-OFFSET clause).
-    /// We currently handle only the OFFSET-as-field special case here;
-    /// other modulo extensions remain at the BP_MULT+1 boundary.
+    /// modulo whenever the modulo path can succeed end-to-end (the
+    /// whole `columnExpr` parses and the rest forms a valid limit
+    /// continuation), otherwise `%` is the PERCENT marker.
     fn limit_resolve_percent(&mut self, expr: Value) -> Result<(Value, bool), ParseError> {
         if self.peek0.kind != TokenKind::Percent {
             return Ok((expr, false));
         }
-        // `%` is ambiguous in cpp's grammar: it doubles as the modulo
-        // operator and the PERCENT clause marker. cpp's ANTLR ALL(*)
-        // prefers the alt that consumes more of the input (extending
-        // the columnExpr through `% <rhs>` as modulo) when the
-        // extended parse lands cleanly at a LIMIT-clause boundary —
-        // otherwise `%` is the PERCENT marker and the rest dispatches
-        // to the OFFSET clause / trailing WITH TIES.
-        //
-        // Speculative parse: try `% rhs` as modulo with the RHS parsed
-        // at BP_MULT+1 (so the inner Pratt doesn't re-engage `%`); then
-        // continue Pratt at BP_MULT to chain same-precedence ops (`*`,
-        // `/`) that should bind to the modulo result. If the cursor
-        // lands at a clean boundary, commit; otherwise roll back to
-        // PERCENT marker.
+        match self.try_limit_modulo_extension(expr.clone())? {
+            Some(extended) => Ok((extended, false)),
+            None => {
+                self.bump()?; // % (PERCENT marker)
+                Ok((expr, true))
+            }
+        }
+    }
+
+    /// Caller has confirmed peek is `%`. Speculatively parse it as the
+    /// modulo operator: `% rhs` (RHS bounded at BP_MULT+1 so the inner
+    /// Pratt doesn't re-engage `%`) followed by the rest of the
+    /// `columnExpr` at BP=0. Returns `Some(extended)` — cursor advanced
+    /// past the whole modulo expression — when it lands at a clean
+    /// LIMIT-body boundary;
+    /// cpp's ANTLR ALL(*) takes the modulo alt only then. Returns
+    /// `None` with the cursor restored to the `%` otherwise: there the
+    /// `%` is the `LIMIT … PERCENT` marker, not modulo.
+    ///
+    /// `%` is genuinely ambiguous — `ColumnExprPrecedence1` modulo and
+    /// the `LIMIT columnExpr PERCENT?` marker — and which one applies
+    /// depends on whether the modulo RHS exists and the whole thing
+    /// lands cleanly, so a token-level heuristic is not enough. The
+    /// Pratt `%` handler calls this for every `%` it meets inside a
+    /// LIMIT body (`limit_body_depth > 0`).
+    pub(crate) fn try_limit_modulo_extension(
+        &mut self,
+        lhs: Value,
+    ) -> Result<Option<Value>, ParseError> {
         let cp = self.checkpoint();
         let pct_start = self.peek0.start;
-        let expr_clone = expr.clone();
         let trial = (|p: &mut Self| -> Result<Option<Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
-            let combined = emit::arith(expr_clone, "%", rhs);
-            let extended = p.pratt_continue_with_lhs(combined, BP_MULT, pct_start)?;
+            let combined = emit::arith(lhs.clone(), "%", rhs);
+            // Extend the whole columnExpr (BP=0) — cpp parses the
+            // LIMIT body greedily, so a lower-precedence tail
+            // (`% 2 + 3`, `% 2 AND 3`) stays part of the modulo body.
+            let extended = p.pratt_continue_with_lhs(combined, 0, pct_start)?;
             if p.peek_is_limit_body_done() {
                 return Ok(Some(extended));
             }
@@ -964,11 +1001,12 @@ impl<'a> Parser<'a> {
             Ok(None)
         })(self);
         match trial {
-            Ok(Some(v)) => return Ok((v, false)),
-            _ => self.restore(cp)?,
+            Ok(Some(v)) => Ok(Some(v)),
+            _ => {
+                self.restore(cp)?;
+                Ok(None)
+            }
         }
-        self.bump()?; // % (PERCENT marker)
-        Ok((expr, true))
     }
 
     /// True when peek is a valid LIMIT-clause boundary token: a
@@ -986,6 +1024,9 @@ impl<'a> Parser<'a> {
                 | TokenKind::RBrace
                 | TokenKind::Comma
                 | TokenKind::Semicolon
+                // A `%` directly after a modulo extension is the
+                // `LIMIT … PERCENT` marker — the extension ends here.
+                | TokenKind::Percent
                 | TokenKind::Keyword(Kw::With)
                 | TokenKind::Keyword(Kw::Offset)
                 | TokenKind::Keyword(Kw::Settings)

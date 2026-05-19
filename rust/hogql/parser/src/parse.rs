@@ -176,6 +176,14 @@ pub(crate) struct Parser<'a> {
     /// strand the second `:=`; the probe mirrors the backtrack.
     /// Saved/restored around each statement-RHS parse.
     pub(crate) stop_postfix_call_before_colon_equals: bool,
+    /// Non-zero while the Pratt loop is parsing the compound body of a
+    /// `LIMIT` clause. `%` is overloaded as both the modulo operator
+    /// and the `LIMIT … PERCENT` marker; inside the limit body the
+    /// `%` handler resolves the two via `try_limit_modulo_extension`
+    /// (cpp's ALL(*) takes the modulo alt only when it lands at a
+    /// clean limit boundary). Incremented around the body's Pratt
+    /// continuation in `parse_limit_clauses` / `parse_trailing_set_decorators`.
+    pub(crate) limit_body_depth: u32,
 }
 
 impl<'a> Parser<'a> {
@@ -201,6 +209,7 @@ impl<'a> Parser<'a> {
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
             stop_postfix_call_before_colon_equals: false,
+            limit_body_depth: 0,
         })
     }
 

@@ -18,6 +18,7 @@ from posthog.test.base import BaseTest
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.visitor import clear_locations
 
 _BACKENDS = ("cpp-json", "rust-json", "python")
 
@@ -79,6 +80,27 @@ class TestParserRegressions(BaseTest):
             for src in ("select a, where", "select a, having", "select a, window x"):
                 node = parse_select(src, backend=backend)
                 self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
+
+    def test_limit_percent_marker_with_compound_body(self):
+        # `%` is overloaded: modulo operator and the `LIMIT … PERCENT`
+        # marker. When the LIMIT body is a compound expression the
+        # marker `%` lands after a lower-precedence operator; the Rust
+        # parser used to bind it as modulo and choke on `WITH TIES`.
+        # The cpp-json oracle is the source of truth; assert all three
+        # backends agree on the parsed AST.
+        cases = (
+            "SELECT 1 LIMIT 1+1 % WITH TIES",
+            "SELECT a, b LIMIT c AND d % WITH TIES",
+            "SELECT 1 LIMIT 1+1 % 2 WITH TIES",
+            "SELECT 1 LIMIT a%b % WITH TIES",
+            "SELECT 1 LIMIT 5 % 2 + 3",
+            "SELECT 1 LIMIT 1+1 % OFFSET 3",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
     def test_clause_keyword_as_last_group_by_key(self):
         # `GROUP BY tool, window HAVING …` — `window` is the WINDOW

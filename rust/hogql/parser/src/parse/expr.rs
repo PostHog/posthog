@@ -65,6 +65,23 @@ impl<'a> Parser<'a> {
                 // can't be matched (e.g. `LIMIT lambda x : 1 %`, where
                 // the lambda body is `1` and `%` marks LIMIT PERCENT).
                 if kind == TokenKind::Percent {
+                    // Inside a LIMIT body the modulo-vs-PERCENT call
+                    // can't be made from the next token alone (a `%`
+                    // followed by a keyword may be modulo on a
+                    // keyword-Field or the PERCENT marker). Resolve it
+                    // with the same speculative parse cpp's ALL(*)
+                    // uses: `Some` → modulo extension committed; `None`
+                    // → the `%` is the PERCENT marker, left for the
+                    // enclosing LIMIT clause.
+                    if self.limit_body_depth > 0 {
+                        match self.try_limit_modulo_extension(lhs.clone())? {
+                            Some(extended) => {
+                                lhs = extended;
+                                continue;
+                            }
+                            None => break,
+                        }
+                    }
                     let next = self.peek_next();
                     if !peek_can_start_clause_body(next) || is_pure_infix_op(next) {
                         break;
