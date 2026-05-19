@@ -4210,8 +4210,15 @@ fn peek_can_start_clause_body(tok: TokenKind) -> bool {
                     | Kw::Recursive
             ) || crate::parse::kw_acts_as_ident_in_primary(kw)
         }
+        // A pure infix / postfix operator token (`?.`, `::`, `%`,
+        // `=`, `->`, `.`, …) can never *start* a clause body — it
+        // needs a left operand. (`+` / `-` / `*` are excluded from
+        // `is_pure_infix_op` since they double as prefix / spread, so
+        // they stay valid starters.)
+        _ if is_pure_infix_op(tok) => false,
         // Everything else (Number, String, Ident, LParen, LBracket,
-        // LBrace, +/-, ., * (asterisk-spread), etc.) is a fine starter.
+        // LBrace, +/-, * (asterisk-spread), `#` placeholder, …) is a
+        // fine starter.
         _ => true,
     }
 }

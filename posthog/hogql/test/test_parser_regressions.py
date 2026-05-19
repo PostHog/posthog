@@ -303,6 +303,26 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_clause_keyword_then_postfix_op_is_a_column(self):
+        # A clause keyword after the trailing comma followed by a
+        # postfix operator (`?.`, `::`) is a column — `qualify?.q`,
+        # `prewhere::q` — because a clause body cannot *start* with an
+        # operator token. `peek_can_start_clause_body` wrongly accepted
+        # pure infix/postfix tokens, so the Rust parser treated the
+        # keyword as a clause and rejected the stranded operator.
+        for backend in _BACKENDS:
+            for src in (
+                "select q, qualify ?. q",
+                "select q, prewhere ?. q",
+                "select q, prewhere :: q",
+                "select q, having ?. r",
+            ):
+                node = parse_select(src, backend=backend)
+                self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
+            # guard: a real expression-starter still opens the clause
+            node = parse_select("select q, having y", backend=backend)
+            self.assertEqual(len(node.select), 1, msg=f"{backend}: having y")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`
