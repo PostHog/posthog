@@ -139,6 +139,148 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
         assert out == "final"
         llm.invoke.assert_called_once()
 
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_retries_query_on_hogql_syntax_error_and_succeeds(self, mock_build, mock_executor_cls, mock_llm_cls):
+        """A retryable HogQL error → planner is re-invoked for a fix → next execution succeeds."""
+        from ee.hogai.tool_errors import MaxToolRetryableError
+        from ee.tasks.subscriptions.ai_subscription.schemas import HogQLFix
+
+        sub = self._make_ai_sub()
+        mock_build.return_value = EnrichedPromptSpec(
+            cleaned_prompt="prompt",
+            context_blob="ctx",
+            plan=QueryPlan(
+                overall_intent="x",
+                steps=[QueryPlanStep(description="step a", query_type="hogql", hogql="BROKEN")],
+            ),
+        )
+        executor = MagicMock()
+        # First attempt: parse error. Retry attempt: succeeds with the rewritten query.
+        executor.arun_and_format_query = AsyncMock(
+            side_effect=[MaxToolRetryableError("no viable alternative"), ("|fixed|\n|---|\n|ok|", False)]
+        )
+        mock_executor_cls.return_value = executor
+
+        # Two MaxChatOpenAI instances are constructed: one for the fix call, one for synthesis.
+        fix_llm = MagicMock()
+        fix_llm.with_structured_output.return_value = fix_llm
+        fix_llm.invoke.return_value = HogQLFix(fixed_hogql="SELECT 1")
+        synth_llm = MagicMock()
+        synth_llm.invoke.return_value = MagicMock(content="final report")
+        mock_llm_cls.side_effect = [fix_llm, synth_llm]
+
+        out = generate_ai_subscription_markdown(sub)
+        assert out == "final report"
+        # Original + 1 retry = 2 executor calls.
+        assert executor.arun_and_format_query.await_count == 2
+        # Fix LLM was invoked once; synthesis LLM once.
+        fix_llm.invoke.assert_called_once()
+        synth_llm.invoke.assert_called_once()
+
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_query_fix_retries_capped_at_two(self, mock_build, mock_executor_cls, mock_llm_cls):
+        """After 2 fix retries that still fail, the step falls through to the placeholder."""
+        from ee.hogai.tool_errors import MaxToolRetryableError
+        from ee.tasks.subscriptions.ai_subscription.schemas import HogQLFix
+
+        sub = self._make_ai_sub()
+        mock_build.return_value = EnrichedPromptSpec(
+            cleaned_prompt="prompt",
+            context_blob="ctx",
+            plan=QueryPlan(
+                overall_intent="x",
+                steps=[QueryPlanStep(description="step a", query_type="hogql", hogql="BROKEN")],
+            ),
+        )
+        executor = MagicMock()
+        # All three attempts (original + 2 retries) hit retryable errors.
+        executor.arun_and_format_query = AsyncMock(side_effect=MaxToolRetryableError("no viable alternative"))
+        mock_executor_cls.return_value = executor
+
+        fix_llm = MagicMock()
+        fix_llm.with_structured_output.return_value = fix_llm
+        # Return distinct fixes so the "same-query break" guard does not short-circuit the loop.
+        fix_llm.invoke.side_effect = [HogQLFix(fixed_hogql="FIX_1"), HogQLFix(fixed_hogql="FIX_2")]
+        synth_llm = MagicMock()
+        synth_llm.invoke.return_value = MagicMock(content="degraded report")
+        mock_llm_cls.side_effect = [fix_llm, fix_llm, synth_llm]
+
+        out = generate_ai_subscription_markdown(sub)
+        assert out == "degraded report"
+        # 1 original + 2 retries = 3 executor calls; no 4th.
+        assert executor.arun_and_format_query.await_count == 3
+        # Exactly 2 fix-LLM invocations.
+        assert fix_llm.invoke.call_count == 2
+
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_does_not_retry_on_non_hogql_errors(self, mock_build, mock_executor_cls, mock_llm_cls):
+        """Timeouts and other non-syntax errors fall through immediately — different SQL won't help."""
+        sub = self._make_ai_sub()
+        mock_build.return_value = EnrichedPromptSpec(
+            cleaned_prompt="prompt",
+            context_blob="ctx",
+            plan=QueryPlan(
+                overall_intent="x",
+                steps=[QueryPlanStep(description="step a", query_type="hogql", hogql="SELECT 1")],
+            ),
+        )
+        executor = MagicMock()
+        # asyncio.TimeoutError is not in _RETRYABLE_QUERY_ERRORS — must NOT retry.
+        executor.arun_and_format_query = AsyncMock(side_effect=TimeoutError("clickhouse down"))
+        mock_executor_cls.return_value = executor
+
+        synth_llm = MagicMock()
+        synth_llm.invoke.return_value = MagicMock(content="degraded")
+        mock_llm_cls.return_value = synth_llm
+
+        out = generate_ai_subscription_markdown(sub)
+        assert out == "degraded"
+        # No retries → exactly one executor call.
+        assert executor.arun_and_format_query.await_count == 1
+        # No fix-LLM was ever constructed — only the synthesis call.
+        assert mock_llm_cls.call_count == 1
+
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_retry_loop_stops_when_llm_returns_identical_query(self, mock_build, mock_executor_cls, mock_llm_cls):
+        """If the fix-LLM echoes the same broken query, the loop must not spin — break early."""
+        from ee.hogai.tool_errors import MaxToolRetryableError
+        from ee.tasks.subscriptions.ai_subscription.schemas import HogQLFix
+
+        sub = self._make_ai_sub()
+        mock_build.return_value = EnrichedPromptSpec(
+            cleaned_prompt="prompt",
+            context_blob="ctx",
+            plan=QueryPlan(
+                overall_intent="x",
+                steps=[QueryPlanStep(description="step a", query_type="hogql", hogql="BROKEN")],
+            ),
+        )
+        executor = MagicMock()
+        executor.arun_and_format_query = AsyncMock(side_effect=MaxToolRetryableError("nope"))
+        mock_executor_cls.return_value = executor
+
+        fix_llm = MagicMock()
+        fix_llm.with_structured_output.return_value = fix_llm
+        # Echoes the original query — should not trigger another HogQL execution.
+        fix_llm.invoke.return_value = HogQLFix(fixed_hogql="BROKEN")
+        synth_llm = MagicMock()
+        synth_llm.invoke.return_value = MagicMock(content="degraded")
+        mock_llm_cls.side_effect = [fix_llm, synth_llm]
+
+        out = generate_ai_subscription_markdown(sub)
+        assert out == "degraded"
+        # Original execution + the fix-LLM was called once, but the loop broke before a second execution.
+        assert executor.arun_and_format_query.await_count == 1
+        fix_llm.invoke.assert_called_once()
+
 
 class TestEmailHtmlSanitization(APIBaseTest):
     def test_sanitizes_disallowed_tags(self):
@@ -195,6 +337,35 @@ class TestEmailRendering(APIBaseTest):
         # `inline_css` rewrites bare tags into `<h1 style="...">`, so anchor on the prefix.
         assert "<h1" in html
         assert "<li" in html
+
+    def test_campaign_key_uses_workflow_run_id_when_provided(self):
+        """`delivery_run_id` takes precedence — same key across retries, fresh key per run."""
+        from posthog.models.messaging import MessagingRecord, get_email_hash
+
+        sub = self._ai_sub()
+        # First send for run "RUN_A" — succeeds.
+        send_email_ai_subscription_report(
+            email="user@posthog.com", subscription=sub, markdown="# hi", delivery_run_id="RUN_A"
+        )
+        # Same run, simulated activity retry — MessagingRecord must dedup.
+        send_email_ai_subscription_report(
+            email="user@posthog.com", subscription=sub, markdown="# hi", delivery_run_id="RUN_A"
+        )
+        records_a = MessagingRecord.objects.filter(
+            email_hash=get_email_hash("user@posthog.com"),
+            campaign_key=f"ai_subscription_report_{sub.id}_RUN_A",
+        )
+        assert records_a.count() == 1, "retries within the same workflow run must dedup"
+
+        # New workflow run (fresh "Test delivery" click) — new key → new MessagingRecord row.
+        send_email_ai_subscription_report(
+            email="user@posthog.com", subscription=sub, markdown="# hi", delivery_run_id="RUN_B"
+        )
+        records_b = MessagingRecord.objects.filter(
+            email_hash=get_email_hash("user@posthog.com"),
+            campaign_key=f"ai_subscription_report_{sub.id}_RUN_B",
+        )
+        assert records_b.count() == 1, "a fresh workflow run must produce a fresh dedup key"
 
 
 class TestSlackRendering(APIBaseTest):

@@ -6,6 +6,7 @@ inputs the LLM needs (team, user, prompt, window) and returns the synthesized
 markdown — persistence and delivery are the caller's responsibility.
 """
 
+import re
 import uuid
 import asyncio
 from datetime import UTC, datetime
@@ -15,14 +16,18 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
-from ee.tasks.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT
-from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.tasks.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT, HOGQL_FIX_PROMPT
+from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec, HogQLFix, QueryPlanStep
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
+    DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
     PromptRejectedError,
     build_enriched_prompt,
@@ -36,6 +41,25 @@ logger = structlog.get_logger(__name__)
 # is the ultimate cap; these prevent a single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
+
+# Per-step query-fix budget. The planner LLM occasionally emits HogQL that fails
+# to parse or resolve; rather than dropping the step's data, we feed the error
+# back to the LLM and ask for a rewrite. Worst-case wall-clock per step:
+#   original (60s HogQL) + 2 × (30s LLM + 60s HogQL) = ~3.5 min.
+# With up to 5 steps fanned out via asyncio.gather, this stays well inside the
+# Temporal activity deadline.
+_MAX_QUERY_FIX_RETRIES = 2
+_FIX_LLM_TIMEOUT_SECONDS = 30.0
+
+# Errors signalling "the query itself is wrong" — rewriting may help. Everything
+# else (timeouts, infra failures, generic exceptions) falls through to the
+# "_Query failed_" placeholder without retrying, since a different SELECT won't
+# fix a ClickHouse outage or a heartbeat timeout.
+_RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
+    MaxToolRetryableError,
+    ExposedHogQLError,
+    InternalHogQLError,
+)
 
 
 def generate_ai_report(
@@ -73,7 +97,7 @@ def generate_ai_report(
         ai_config=ai_config,
         trace_correlation_id=trace_correlation_id,
     )
-    rendered_results = asyncio.run(_arun_plan(spec, team, trace_correlation_id))
+    rendered_results = asyncio.run(_arun_plan(spec, team, user, ai_config, trace_correlation_id))
 
     model_name = resolve_ai_model(ai_config, "model", DEFAULT_SYNTHESIS_MODEL)
     posthog_properties: dict[str, Union[str, int]] = {
@@ -119,32 +143,130 @@ def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results:
 async def _arun_plan(
     spec: EnrichedPromptSpec,
     team: Team,
+    user: User,
+    ai_config: Optional[dict],
     trace_correlation_id: Optional[Union[int, str]],
 ) -> list[str]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC))
 
-    async def run_step(step) -> str:
-        try:
-            query = AssistantHogQLQuery(query=step.hogql)
-            formatted, _ = await asyncio.wait_for(
-                executor.arun_and_format_query(query),
-                timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
-            )
-            return f"### {step.description}\n\n{formatted}"
-        except Exception as exc:
-            logger.warning(
-                "ai_report.query_failed",
-                trace_correlation_id=trace_correlation_id,
-                step_description=step.description,
-                exc_info=True,
-            )
-            capture_exception(exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-            # Pass only the type, not the message — ClickHouse errors can echo
-            # team-scoped identifiers (cluster URL, table names) that shouldn't ship
-            # into the synthesis prompt (and thus into the rendered report).
-            return f"### {step.description}\n\n_Query failed: {type(exc).__name__}_"
+    async def run_step(step: QueryPlanStep) -> str:
+        current_hogql = step.hogql
+        last_exc: Optional[BaseException] = None
+
+        # attempt 0 = original query; subsequent attempts = LLM-fixed rewrites.
+        for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
+            try:
+                query = AssistantHogQLQuery(query=current_hogql)
+                formatted, _ = await asyncio.wait_for(
+                    executor.arun_and_format_query(query),
+                    timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
+                )
+                return f"### {step.description}\n\n{formatted}"
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= _MAX_QUERY_FIX_RETRIES or not _is_retryable_query_error(exc):
+                    break
+                logger.info(
+                    "ai_report.query_fix_attempt",
+                    trace_correlation_id=trace_correlation_id,
+                    step_description=step.description,
+                    attempt=attempt + 1,
+                    max_retries=_MAX_QUERY_FIX_RETRIES,
+                    error_type=type(exc).__name__,
+                )
+                fixed = await _arequest_hogql_fix(
+                    original_hogql=current_hogql,
+                    error_message=str(exc),
+                    step_description=step.description,
+                    team=team,
+                    user=user,
+                    ai_config=ai_config,
+                    trace_correlation_id=trace_correlation_id,
+                )
+                if not fixed or fixed.strip() == current_hogql.strip():
+                    # LLM returned nothing useful or the same query — no point looping further.
+                    break
+                current_hogql = fixed
+
+        # Exhausted retries (or non-retryable error). Fall through to the placeholder.
+        logger.warning(
+            "ai_report.query_failed",
+            trace_correlation_id=trace_correlation_id,
+            step_description=step.description,
+            exc_info=last_exc,
+        )
+        if last_exc is not None:
+            capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
+        # Pass only the type, not the message — ClickHouse errors can echo
+        # team-scoped identifiers (cluster URL, table names) that shouldn't ship
+        # into the synthesis prompt (and thus into the rendered report).
+        type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
+        return f"### {step.description}\n\n_Query failed: {type_name}_"
 
     return await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+
+
+def _is_retryable_query_error(exc: BaseException) -> bool:
+    return isinstance(exc, _RETRYABLE_QUERY_ERRORS)
+
+
+async def _arequest_hogql_fix(
+    *,
+    original_hogql: str,
+    error_message: str,
+    step_description: str,
+    team: Team,
+    user: User,
+    ai_config: Optional[dict],
+    trace_correlation_id: Optional[Union[int, str]],
+) -> Optional[str]:
+    """Ask the planner-class LLM to rewrite a failing HogQL query. Returns None on failure."""
+    model_name = resolve_ai_model(ai_config, "planner_model", DEFAULT_PLANNER_MODEL)
+    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
+    if trace_correlation_id is not None:
+        posthog_properties["subscription_id"] = trace_correlation_id
+
+    llm = MaxChatOpenAI(
+        model=model_name,
+        temperature=0,
+        timeout=_FIX_LLM_TIMEOUT_SECONDS,
+        user=user,
+        team=team,
+        # `billable=False` matches the initial planner call — keep beta cost
+        # absorption consistent across the pipeline. See the open question in
+        # the PR description about flipping retries to billable at GA.
+        billable=False,
+        posthog_properties=posthog_properties,
+    ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
+
+    # Single-pass substitution — see spec_generator.generate_query_plan for the
+    # rationale behind not using chained .replace().
+    substitutions = {
+        "description": step_description,
+        "error": error_message,
+        "original_hogql": original_hogql,
+    }
+    rendered = re.sub(
+        r"\{\{\{(\w+)\}\}\}",
+        lambda m: substitutions.get(m.group(1), m.group(0)),
+        HOGQL_FIX_PROMPT,
+    )
+
+    try:
+        result = await asyncio.to_thread(llm.invoke, [("system", rendered)])
+    except Exception as exc:
+        logger.warning(
+            "ai_report.query_fix_llm_failed",
+            trace_correlation_id=trace_correlation_id,
+            step_description=step_description,
+            error_type=type(exc).__name__,
+        )
+        return None
+
+    if not isinstance(result, HogQLFix):
+        return None
+    fixed = result.fixed_hogql.strip()
+    return fixed or None
 
 
 __all__ = ["generate_ai_report"]

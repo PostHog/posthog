@@ -107,6 +107,7 @@ def send_email_ai_subscription_report(
     subscription: Subscription,
     markdown: str,
     rendered_html: str | None = None,
+    delivery_run_id: str | None = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
     html = rendered_html if rendered_html is not None else render_ai_email_html(markdown)
@@ -117,10 +118,15 @@ def send_email_ai_subscription_report(
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
     # Deterministic campaign_key so MessagingRecord dedups across Temporal activity
-    # retries. `next_delivery_date` is the schedule-tick identifier; if it's None
-    # (e.g. test_delivery, manually-triggered run), fall back to the subscription
-    # id plus a per-day bucket so retries within the day still dedup.
-    if subscription.next_delivery_date:
+    # retries. Preferred input is the Temporal workflow_run_id: it's stable across
+    # activity retries within one workflow run but unique per run, so a scheduled
+    # tick dedups its own retries while a fresh "Test delivery" click (new workflow
+    # run) gets a fresh key and actually sends. `next_delivery_date` is used as a
+    # fallback when called outside Temporal (tests, management commands); a per-day
+    # bucket is the last resort for newly created subs that have neither.
+    if delivery_run_id:
+        campaign_key = f"ai_subscription_report_{subscription.id}_{delivery_run_id}"
+    elif subscription.next_delivery_date:
         campaign_key = f"ai_subscription_report_{subscription.id}_{subscription.next_delivery_date.isoformat()}"
     else:
         campaign_key = f"ai_subscription_report_{subscription.id}_{datetime.now(tz=UTC).date().isoformat()}"

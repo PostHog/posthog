@@ -718,6 +718,16 @@ async def _deliver_ai_subscription(
         if inputs.is_new_subscription_target and inputs.previous_value is not None:
             emails = list(set(emails) - set(inputs.previous_value.split(",")))
         rendered_html = render_ai_email_html(markdown)
+        # Use the Temporal workflow_run_id as the MessagingRecord dedup disambiguator:
+        # stable across activity retries within one run (scheduled tick dedups correctly)
+        # but unique per run, so a "Test delivery" click — which spawns a fresh workflow —
+        # always sends. Falls back to next_delivery_date / per-day inside the helper for
+        # callers that don't run under a Temporal activity (tests, management commands).
+        try:
+            workflow_run_id: str | None = temporalio.activity.info().workflow_run_id
+        except RuntimeError:
+            # Not running inside a Temporal activity (e.g. unit test calling directly).
+            workflow_run_id = None
         success_count = 0
         last_error: Exception | None = None
         for email in emails:
@@ -726,7 +736,11 @@ async def _deliver_ai_subscription(
                 continue
             try:
                 await database_sync_to_async(send_email_ai_subscription_report, thread_sensitive=False)(
-                    email=email, subscription=subscription, markdown=markdown, rendered_html=rendered_html
+                    email=email,
+                    subscription=subscription,
+                    markdown=markdown,
+                    rendered_html=rendered_html,
+                    delivery_run_id=workflow_run_id,
                 )
                 recipient_results.append(RecipientResult(recipient=email, status="success", error=None))
                 success_count += 1
