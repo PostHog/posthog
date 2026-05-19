@@ -85,10 +85,7 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
         # expectation is the property filter.
         _events_case(
             name="events_search_filter",
-            prompt=(
-                "Find an event for the PDF preview RenderError where the URL "
-                "contained `/files/preview`."
-            ),
+            prompt="Find an event for the PDF preview RenderError where the URL contained `/files/preview`.",
             target_issue_name="File preview render failure",
             events_args={
                 "filterGroup": [

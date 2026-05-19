@@ -80,10 +80,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
         # ErrorTrackingIssue.name.
         _drilldown_case(
             name="drilldown_checkout_timeout_impact",
-            prompt=(
-                "Tell me the impact (users / sessions / occurrences) of the "
-                "checkout TimeoutError in the last 14 days."
-            ),
+            prompt="Tell me the impact (users / sessions / occurrences) of the checkout TimeoutError in the last 14 days.",
             target_issue_name="Checkout API timeout",
             forbids_events=True,
             forbids_recordings=True,
@@ -93,10 +90,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
         # fanning into session recordings would be wasteful.
         _drilldown_case(
             name="drilldown_pdf_preview_show_examples",
-            prompt=(
-                "Show me an example exception event with stack trace for the "
-                "PDF preview RenderError."
-            ),
+            prompt="Show me an example exception event with stack trace for the PDF preview RenderError.",
             target_issue_name="File preview render failure",
             requires_events=True,
             forbids_recordings=True,
@@ -108,7 +102,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             name="drilldown_typeerror_session_replay",
             prompt=(
                 "Find a session recording where a user hit the team-invite "
-                "TypeError (\"Cannot read properties of undefined (reading "
+                'TypeError ("Cannot read properties of undefined (reading '
                 "'email')\") so I can see what they were doing right before "
                 "it happened."
             ),
