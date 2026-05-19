@@ -11,27 +11,42 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
-    // Force the survey frame to fill the stage so the question content can
-    // breathe inside a real viewport, not a tight 520px card. We exclude the
-    // mobile preview frame from the generous padding — on mobile a respondent
-    // sees the .main-container's 1.25rem padding, so the preview should match.
+    // Desktop preview frame fills the stage so the question content can
+    // breathe inside a real viewport, not a tight 520px card.
     .PostHogHostedSurvey.HostedSurveyPreviewFrame {
-        flex: 1;
-        min-height: 0;
         border: none;
         border-radius: 0;
     }
 
     .PostHogHostedSurvey.HostedSurveyPreviewFrame:not(.HostedSurveyPreviewFrame--mobile) {
+        flex: 1;
+        min-height: 0;
         padding: clamp(2rem, 5dvh, 4rem) clamp(1.5rem, 4vw, 2.5rem);
     }
 
-    // Mimic the real respondent UX on a touch device: the .survey-keyhint
-    // chips only show when the underlying device has hover + fine pointer
-    // (CSS media query). The canvas previews a desktop browser, so without
-    // this override the hints leak into the mobile preview frame.
-    .HostedSurveyPreviewFrame--mobile .survey-keyhint {
-        display: none;
+    // Mobile preview replicates the real `@media (max-width: 640px)` rules
+    // from hosted-survey.css. Because the canvas runs in a desktop browser,
+    // those media-query rules never fire on their own — we have to mimic them
+    // here so the mobile preview accurately reflects what respondents see on
+    // a phone.
+    .HostedSurveyPreviewFrame--mobile {
+        // 1. Submit button stretches to full width on phone-sized screens.
+        .form-submit {
+            width: 100%;
+            min-width: 0;
+        }
+
+        // 2. Keyboard hints are hidden on touch devices (the base CSS only
+        // reveals them under `hover: hover` + `pointer: fine`).
+        .survey-keyhint {
+            display: none;
+        }
+
+        // 3. Titles compress slightly on phones.
+        .survey-question,
+        .thank-you-message-header {
+            font-size: 1.5rem;
+        }
     }
 
     // Display elements (h1.survey-question, p.survey-question-description,
