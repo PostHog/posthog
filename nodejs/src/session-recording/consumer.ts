@@ -49,6 +49,16 @@ import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
 
 /**
+ * Result of processing a batch.
+ *
+ * `backgroundTask` is the post-batch flush promise — present iff `shouldFlush()` was true
+ * at the end of the batch. Structurally compatible with `EachBatchResult` from
+ * `KafkaConsumerV2`, so the value can be returned directly to v2 once the consumer swap
+ * lands. Under the v1 consumer the caller must await it inline.
+ */
+type ProcessBatchResult = { backgroundTask?: Promise<void> } | undefined
+
+/**
  * Configuration for SessionRecordingIngester.
  * All service instances (postgres, kafka producers, redis pools) are passed as explicit constructor params.
  */
@@ -239,16 +249,24 @@ export class SessionRecordingIngester {
             })
         }
 
-        await instrumentFn(
+        const result = await instrumentFn(
             {
                 key: `recordingingesterv2.handleEachBatch`,
                 sendException: false,
             },
             async () => this.processBatchMessages(messages)
         )
+
+        // For the v1 consumer (current path) we must await the post-batch flush inline,
+        // since v1 has no concept of `backgroundTask`. Once we migrate to KafkaConsumerV2
+        // this becomes `return result` and v2's pre-commit contract owns the await + the
+        // offset-store gating.
+        if (result?.backgroundTask) {
+            await result.backgroundTask
+        }
     }
 
-    private async processBatchMessages(messages: Message[]): Promise<void> {
+    private async processBatchMessages(messages: Message[]): Promise<ProcessBatchResult> {
         messages.forEach((message) => {
             SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
         })
@@ -266,10 +284,17 @@ export class SessionRecordingIngester {
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+            // Return the flush promise as the post-batch side effect. Under the v2
+            // consumer this becomes a `backgroundTask`: offsets stored only after the
+            // flush succeeds, and REVOKE drain waits for it before unassigning.
+            // KafkaOffsetManager.commit() (called inside flush()) drives the actual
+            // offsetsStore() call via the existing commitOffsets callback.
+            const backgroundTask = instrumentFn(`recordingingesterv2.handleEachBatch.flush`, () =>
                 this.sessionBatchManager.flush()
             )
+            return { backgroundTask }
         }
+        return undefined
     }
 
     public async start(): Promise<void> {
