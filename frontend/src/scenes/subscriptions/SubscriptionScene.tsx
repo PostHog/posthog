@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -18,7 +18,7 @@ import { AvailableFeature } from '~/types'
 
 import { SubscriptionDeliveryHistory } from './components/SubscriptionDeliveryHistory'
 import { SubscriptionsLoadingSkeleton } from './components/SubscriptionsLoadingSkeleton'
-import { subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
+import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
 import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
@@ -26,8 +26,11 @@ import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId?: string }): JSX.Element {
     const { push } = useActions(router)
     const { activeTabId } = useValues(sceneLogic)
+    const { setEnabled } = useActions(subscriptionSceneLogic)
+    const { subscriptionLoading } = useValues(subscriptionSceneLogic)
     const listTabId = tabId ?? activeTabId ?? undefined
     const editHref = subscriptionEditHref(sub)
+    const enabled = isSubscriptionEnabled(sub)
 
     const deleteSubscription = (): void => {
         const name = subscriptionName(sub)
@@ -48,6 +51,17 @@ function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            <LemonTag type={enabled ? 'success' : 'danger'} data-attr="subscription-status-tag">
+                {enabled ? 'Enabled' : 'Disabled'}
+            </LemonTag>
+            <LemonButton
+                type="secondary"
+                onClick={() => setEnabled({ enabled: !enabled })}
+                loading={subscriptionLoading}
+                data-attr="subscription-toggle-enabled"
+            >
+                {enabled ? 'Disable subscription' : 'Enable subscription'}
+            </LemonButton>
             {editHref ? (
                 <LemonButton type="secondary" onClick={() => push(editHref)}>
                     Edit subscription
@@ -108,7 +122,13 @@ export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
                                 ) : undefined
                             }
                         />
-                        {subscription ? <SubscriptionSummary sub={subscription} /> : null}
+                        {subscription ? (
+                            // Mute the body when the subscription is paused — the LemonTag in the
+                            // header is the explicit signal; this is the at-a-glance reinforcement.
+                            <div className={isSubscriptionEnabled(subscription) ? '' : 'opacity-60'}>
+                                <SubscriptionSummary sub={subscription} />
+                            </div>
+                        ) : null}
                         {deliveriesEnabled ? (
                             <SubscriptionDeliveryHistory
                                 deliveriesPage={deliveriesPage}

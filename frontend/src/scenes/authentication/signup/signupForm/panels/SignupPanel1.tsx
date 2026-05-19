@@ -13,16 +13,22 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice } = useValues(signupLogic)
+    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice, pendingInvite, signupPanel1 } =
+        useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
         // There's no password in the demo environment
         emailInputRef?.current?.focus()
     }, [preflight?.demo])
+
+    if (pendingInvite) {
+        return <PendingInviteBanner invite={pendingInvite} email={signupPanel1.email} />
+    }
 
     return (
         <div className="deprecated-space-y-4 Signup__panel__1">

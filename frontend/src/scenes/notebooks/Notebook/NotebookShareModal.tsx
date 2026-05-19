@@ -5,7 +5,8 @@ import { useState } from 'react'
 import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 
-import { SHARING_MODAL_WIDTH } from 'lib/components/Sharing/SharingModal'
+import { SHARING_MODAL_WIDTH, SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { base64Encode } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
@@ -22,12 +23,12 @@ export type NotebookShareModalProps = {
 export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Element {
     const { content, isLocalOnly, isShareModalOpen } = useValues(notebookLogic({ shortId }))
     const { closeShareModal } = useActions(notebookLogic({ shortId }))
+    const externalSharingEnabled = useFeatureFlag('NOTEBOOK_SHARING')
 
     const notebookUrl = urls.absolute(urls.currentProject(urls.notebook(shortId)))
     const canvasUrl = urls.absolute(urls.canvas()) + `#🦔=${base64Encode(JSON.stringify(content))}`
 
     const [interestTracked, setInterestTracked] = useState(false)
-
     const trackInterest = (): void => {
         posthog.capture('pressed interested in notebook sharing', { url: notebookUrl })
     }
@@ -52,11 +53,11 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                     }}
                 />
                 <LemonDivider />
-                <h3>Internal Link</h3>
+                <h3>Internal link</h3>
                 {!isLocalOnly ? (
                     <>
                         <p>
-                            <b>Click the button below</b> to copy a direct link to this Notebook. Make sure the person
+                            <b>Click the button below</b> to copy a direct link to this notebook. Make sure the person
                             you share it with has access to this PostHog project.
                         </p>
                         <LemonButton
@@ -75,14 +76,14 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                     </>
                 ) : (
                     <LemonBanner type="info">
-                        <p>This Notebook cannot be shared directly with others as it is only visible to you.</p>
+                        <p>This notebook cannot be shared directly with others as it is only visible to you.</p>
                     </LemonBanner>
                 )}
 
-                <h3>Template Link</h3>
+                <h3>Template link</h3>
                 <p>
-                    The link below will open a Canvas with the contents of this Notebook, allowing the receiver to view
-                    it, edit it or create their own Notebook without affecting this one.
+                    The link below will open a Canvas with the contents of this notebook, allowing the receiver to view
+                    it, edit it or create their own notebook without affecting this one.
                 </p>
                 <LemonButton
                     type="secondary"
@@ -96,24 +97,32 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                     {canvasUrl}
                 </LemonButton>
 
-                <LemonDivider className="my-4" />
-
-                <h3>External Sharing</h3>
-
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        children: !interestTracked ? 'I would like this!' : 'Thanks!',
-                        onClick: () => {
-                            if (!interestTracked) {
-                                trackInterest()
-                                setInterestTracked(true)
-                            }
-                        },
-                    }}
-                >
-                    We don’t currently support sharing notebooks externally, but it’s on our roadmap!
-                </LemonBanner>
+                {!isLocalOnly &&
+                    (externalSharingEnabled ? (
+                        <>
+                            <LemonDivider className="my-4" />
+                            <SharingModalContent notebookShortId={shortId} />
+                        </>
+                    ) : (
+                        <>
+                            <LemonDivider className="my-4" />
+                            <h3>External sharing</h3>
+                            <LemonBanner
+                                type="warning"
+                                action={{
+                                    children: !interestTracked ? 'I would like this!' : 'Thanks!',
+                                    onClick: () => {
+                                        if (!interestTracked) {
+                                            trackInterest()
+                                            setInterestTracked(true)
+                                        }
+                                    },
+                                }}
+                            >
+                                We don't currently support sharing notebooks externally, but it's on our roadmap!
+                            </LemonBanner>
+                        </>
+                    ))}
             </div>
         </LemonModal>
     )

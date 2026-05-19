@@ -312,16 +312,18 @@ _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
-    user_agent = request.META.get("HTTP_USER_AGENT", "") or ""
+    user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
+    # Wizard, posthog-code etc. all wrap MCP — their UA tokens must win over the
+    # X-PostHog-Client header so the source reflects the outer caller.
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
-    if "posthog/mcp-server" in user_agent:
+    if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return EventSource.MCP
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie

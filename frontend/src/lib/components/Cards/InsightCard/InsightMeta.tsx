@@ -25,7 +25,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -170,13 +169,15 @@ export function InsightMeta({
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
     const isSqlInsight = isDataVisualizationNode(insight.query)
-    const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
+    const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
         resolvedDateRange: insightData?.resolved_date_range,
+        dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
+        dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
     }
 
     const summary = useSummarizeInsight()(insight.query)
@@ -660,15 +661,10 @@ export function InsightMetaContent({
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
-                <Tooltip
-                    title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
-                    placement="top-end"
-                >
-                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
-                        <Spinner className="mr-1.5 text-base" textColored />
-                        {loading ? 'Loading' : 'Waiting to load'}
-                    </span>
-                </Tooltip>
+                <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
+                    <Spinner className="mr-1.5 text-base" textColored />
+                    {loading ? 'Loading' : 'Waiting to load'}
+                </span>
             )}
         </>
     )

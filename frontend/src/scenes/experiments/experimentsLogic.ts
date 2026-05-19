@@ -5,9 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -72,10 +70,6 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
 }
 
 type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
-type ExperimentStatusDisplayInput =
-    | Pick<Experiment, 'status' | 'start_date' | 'end_date' | 'feature_flag'>
-    | null
-    | undefined
 
 export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
     if (!experiment) {
@@ -86,7 +80,7 @@ export function getExperimentStatus(experiment: ExperimentStatusInput): Experime
         return experiment.status
     }
 
-    // Fallback for stale fixtures and older mocked data during the transition.
+    // Fallback for stale fixtures and older mocked data without API-supplied status.
     if (experiment.end_date) {
         return ExperimentStatus.Stopped
     }
@@ -96,12 +90,8 @@ export function getExperimentStatus(experiment: ExperimentStatusInput): Experime
     return ExperimentStatus.Draft
 }
 
-export function isExperimentPaused(experiment: ExperimentStatusDisplayInput): boolean {
-    return (
-        getExperimentStatus(experiment) === ExperimentStatus.Running &&
-        !!experiment?.feature_flag &&
-        !experiment.feature_flag.active
-    )
+export function isExperimentPaused(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) === ExperimentStatus.Paused
 }
 
 export function isLaunched(experiment: ExperimentStatusInput): boolean {
@@ -136,31 +126,27 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
     )
 }
 
-export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boolean = false): string {
-    if (isPaused) {
-        return 'Paused'
-    }
-
+export function getExperimentStatusLabel(status: ExperimentStatus): string {
     switch (status) {
         case ExperimentStatus.Draft:
             return 'Draft'
         case ExperimentStatus.Running:
             return 'Running'
+        case ExperimentStatus.Paused:
+            return 'Paused'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
 }
 
-export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
-    if (isPaused) {
-        return 'warning'
-    }
-
+export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType {
     switch (status) {
         case ExperimentStatus.Draft:
             return 'default'
         case ExperimentStatus.Running:
             return 'success'
+        case ExperimentStatus.Paused:
+            return 'warning'
         case ExperimentStatus.Stopped:
             return 'completion'
     }
@@ -192,8 +178,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['currentProjectId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
             featureFlagsLogic,
             ['featureFlags'],
             router,
@@ -297,6 +281,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 archiveExperiment: async (id: number) => {
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
                     lemonToast.info('Experiment archived')
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.filter((experiment) => experiment.id !== id),
+                        count: values.experiments.count - 1,
+                    }
+                },
+                unarchiveExperiment: async (id: number) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
+                    lemonToast.info('Experiment unarchived')
                     return {
                         ...values.experiments,
                         results: values.experiments.results.filter((experiment) => experiment.id !== id),
@@ -483,10 +476,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     entryCount: count,
                 }
             },
-        ],
-        webExperimentsAvailable: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
         // TRICKY: we do not load all feature flags here, just the latest ones.
         unavailableFeatureFlagKeys: [

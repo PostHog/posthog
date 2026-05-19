@@ -54,6 +54,18 @@
         <app>
             <profile>default</profile>
         </app>
+
+        <!-- Of course this is only for local dev, but mirrors prod to make tests useful.
+             readonly=2 pinned via <constraints> is the load-bearing safety (no writes, no client-side settings changes).
+             No resource constraints necessary, as autoresearch gets a dedicated cluster.
+             Add max_execution_time to prevent autoresearch run from spinning. -->
+        <autoresearch>
+            <readonly>2</readonly>
+            <max_execution_time>300</max_execution_time>
+            <constraints>
+                <readonly><readonly/></readonly>
+            </constraints>
+        </autoresearch>
     </profiles>
 
     <!-- Users and ACL. -->
@@ -167,6 +179,87 @@
 
             <quota>default</quota>
         </app>
+
+        <!-- Of course this is local dev, but mirrors prod to make tests useful.
+             - no table-function grants (url / s3 / file / executable / jdbc / ...)
+             - no DDL
+             - SELECT only on an explicit whitelist of PostHog tables
+             Grants are duplicated to support integration tests + regular usage -->
+        <autoresearch>
+            <password>autoresearchpass</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>autoresearch</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <query>GRANT SELECT ON default.events</query>
+                <query>GRANT SELECT ON default.sharded_events</query>
+                <query>GRANT SELECT ON default.writable_events</query>
+                <query>GRANT SELECT ON posthog_test.events</query>
+                <query>GRANT SELECT ON posthog_test.sharded_events</query>
+                <query>GRANT SELECT ON posthog_test.writable_events</query>
+
+                <query>GRANT SELECT ON default.person</query>
+                <query>GRANT SELECT ON default.writable_person</query>
+                <query>GRANT SELECT ON posthog_test.person</query>
+                <query>GRANT SELECT ON posthog_test.writable_person</query>
+
+                <query>GRANT SELECT ON default.person_distinct_id_overrides</query>
+                <query>GRANT SELECT ON default.writable_person_distinct_id_overrides</query>
+                <query>GRANT SELECT ON posthog_test.person_distinct_id_overrides</query>
+                <query>GRANT SELECT ON posthog_test.writable_person_distinct_id_overrides</query>
+
+                <query>GRANT SELECT ON default.sessions</query>
+                <query>GRANT SELECT ON default.sharded_sessions</query>
+                <query>GRANT SELECT ON default.writable_sessions</query>
+                <query>GRANT SELECT ON posthog_test.sessions</query>
+                <query>GRANT SELECT ON posthog_test.sharded_sessions</query>
+                <query>GRANT SELECT ON posthog_test.writable_sessions</query>
+
+                <query>GRANT SELECT ON default.raw_sessions</query>
+                <query>GRANT SELECT ON default.sharded_raw_sessions</query>
+                <query>GRANT SELECT ON default.writable_raw_sessions</query>
+                <query>GRANT SELECT ON posthog_test.raw_sessions</query>
+                <query>GRANT SELECT ON posthog_test.sharded_raw_sessions</query>
+                <query>GRANT SELECT ON posthog_test.writable_raw_sessions</query>
+
+                <query>GRANT SELECT ON default.person_distinct_id2</query>
+                <query>GRANT SELECT ON default.writable_person_distinct_id2</query>
+                <query>GRANT SELECT ON posthog_test.person_distinct_id2</query>
+                <query>GRANT SELECT ON posthog_test.writable_person_distinct_id2</query>
+
+                <query>GRANT SELECT ON default.groups</query>
+                <query>GRANT SELECT ON default.writable_groups</query>
+                <query>GRANT SELECT ON posthog_test.groups</query>
+                <query>GRANT SELECT ON posthog_test.writable_groups</query>
+
+                <query>GRANT SELECT ON default.cohortpeople</query>
+                <query>GRANT SELECT ON posthog_test.cohortpeople</query>
+
+                <query>GRANT SELECT ON default.person_overrides</query>
+                <query>GRANT SELECT ON posthog_test.person_overrides</query>
+
+                <query>GRANT SELECT ON default.heatmaps</query>
+                <query>GRANT SELECT ON default.sharded_heatmaps</query>
+                <query>GRANT SELECT ON default.writable_heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.sharded_heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.writable_heatmaps</query>
+
+                <query>GRANT SELECT ON default.session_recording_events</query>
+                <query>GRANT SELECT ON default.sharded_session_recording_events</query>
+                <query>GRANT SELECT ON default.writable_session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.sharded_session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.writable_session_recording_events</query>
+
+                <!-- Paired with the row policy in
+                     docker-entrypoint-initdb.d/autoresearch-row-policies.sql. -->
+                <query>GRANT SELECT ON system.query_log</query>
+            </grants>
+        </autoresearch>
     </users>
 
     <!-- Quotas. -->

@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
+PI_IMAGE_NAME = "posthog-sandbox-pi"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
@@ -107,12 +108,12 @@ class DockerSandbox(SandboxBase):
         return result
 
     @staticmethod
-    def _get_local_posthog_code_packages() -> tuple[str, str, str] | None:
+    def _get_local_posthog_code_packages() -> tuple[str, str, str, str] | None:
         """
         Get paths to local PostHog Code packages for development builds.
 
         Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Code monorepo root.
-        Returns tuple of (agent_path, shared_path, git_path) or None if not configured.
+        Returns tuple of (agent_path, shared_path, git_path, enricher_path) or None if not configured.
         """
         monorepo_root = os.environ.get(
             "LOCAL_POSTHOG_CODE_MONOREPO_ROOT", os.environ.get("LOCAL_TWIG_MONOREPO_ROOT", "")
@@ -124,6 +125,7 @@ class DockerSandbox(SandboxBase):
         agent_path = os.path.join(monorepo_root, "packages", "agent")
         shared_path = os.path.join(monorepo_root, "packages", "shared")
         git_path = os.path.join(monorepo_root, "packages", "git")
+        enricher_path = os.path.join(monorepo_root, "packages", "enricher")
 
         missing = []
         if not os.path.isdir(agent_path):
@@ -132,6 +134,8 @@ class DockerSandbox(SandboxBase):
             missing.append(f"shared: {shared_path}")
         if not os.path.isdir(git_path):
             missing.append(f"git: {git_path}")
+        if not os.path.isdir(enricher_path):
+            missing.append(f"enricher: {enricher_path}")
 
         if missing:
             raise SandboxProvisionError(
@@ -140,10 +144,14 @@ class DockerSandbox(SandboxBase):
                 cause=RuntimeError(f"Missing packages: {', '.join(missing)}"),
             )
 
-        return agent_path, shared_path, git_path
+        return agent_path, shared_path, git_path, enricher_path
 
     @staticmethod
-    def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
+    def _build_image_if_needed(
+        image_name: str,
+        dockerfile_path: str,
+        build_args: dict[str, str] | None = None,
+    ) -> None:
         """Build a sandbox image if it doesn't exist."""
         result = DockerSandbox._run(["docker", "images", "-q", image_name])
         if result.stdout.strip():
@@ -158,21 +166,22 @@ class DockerSandbox(SandboxBase):
         # hogli build:skills.
         LocalSkillsCache().ensure_built()
 
-        DockerSandbox._run(
-            [
-                "docker",
-                "build",
-                "-f",
-                dockerfile_path,
-                "-t",
-                image_name,
-                str(settings.BASE_DIR),
-            ],
-            check=True,
-        )
+        argv = [
+            "docker",
+            "build",
+            "-f",
+            dockerfile_path,
+            "-t",
+            image_name,
+        ]
+        for key, value in (build_args or {}).items():
+            argv.extend(["--build-arg", f"{key}={value}"])
+        argv.append(str(settings.BASE_DIR))
+
+        DockerSandbox._run(argv, check=True)
 
     @staticmethod
-    def _build_local_image(agent_path: str, shared_path: str, git_path: str) -> None:
+    def _build_local_image(agent_path: str, shared_path: str, git_path: str, enricher_path: str) -> None:
         """Build the local sandbox image with local PostHog Code packages."""
         logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
         dockerfile_path = os.path.join(
@@ -193,6 +202,11 @@ class DockerSandbox(SandboxBase):
             shutil.copytree(
                 git_path,
                 os.path.join(tmpdir, "local-git"),
+                ignore=shutil.ignore_patterns("node_modules"),
+            )
+            shutil.copytree(
+                enricher_path,
+                os.path.join(tmpdir, "local-enricher"),
                 ignore=shutil.ignore_patterns("node_modules"),
             )
 
@@ -224,10 +238,21 @@ class DockerSandbox(SandboxBase):
         )
         DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
 
+        if template == SandboxTemplate.PI_BASE:
+            pi_dockerfile = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi"
+            )
+            DockerSandbox._build_image_if_needed(
+                PI_IMAGE_NAME,
+                pi_dockerfile,
+                build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
+            )
+            return PI_IMAGE_NAME
+
         local_packages = DockerSandbox._get_local_posthog_code_packages()
         if local_packages:
-            agent_path, shared_path, git_path = local_packages
-            DockerSandbox._build_local_image(agent_path, shared_path, git_path)
+            agent_path, shared_path, git_path, enricher_path = local_packages
+            DockerSandbox._build_local_image(agent_path, shared_path, git_path, enricher_path)
             return "posthog-sandbox-base-local"
 
         return DEFAULT_IMAGE_NAME
@@ -306,6 +331,10 @@ class DockerSandbox(SandboxBase):
                     container_skill = f"/scripts/plugins/posthog/skills/{entry}"
                     volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
+            cap_args = ["--cap-add", "SYS_PTRACE"]
+            if config.template == SandboxTemplate.PI_BASE:
+                cap_args.extend(["--cap-add", "NET_ADMIN"])
+
             docker_args = [
                 "docker",
                 "run",
@@ -314,8 +343,7 @@ class DockerSandbox(SandboxBase):
                 container_name,
                 "--add-host",
                 "host.docker.internal:host-gateway",
-                "--cap-add",
-                "SYS_PTRACE",
+                *cap_args,
                 "-w",
                 WORKING_DIR,
                 f"--memory={config.memory_gb}g",
@@ -629,7 +657,7 @@ class DockerSandbox(SandboxBase):
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             return (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
@@ -680,11 +708,8 @@ class DockerSandbox(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        # TODO: Re-enable agentsh egress enforcement in the Docker sandbox once
-        # agentsh works reliably inside local Docker containers.
-        # For now we skip setup and ignore allowed_domains so that callers
-        # (signals, tasks, etc.) don't need to hotfix around Docker failures.
-        allowed_domains = None
+        if allowed_domains is not None:
+            self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -752,14 +777,14 @@ class DockerSandbox(SandboxBase):
         )
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
-        if allowed_domains:
+        if allowed_domains is not None:
             logger.info(
                 "Configuring agentsh in Docker sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains)
             )
         else:
             logger.info("Configuring agentsh in Docker sandbox %s (allow-all mode)", self.id)
 
-        config_yaml = generate_config_yaml()
+        config_yaml = generate_config_yaml(enable_ptrace=False)
         policy_yaml = generate_policy_yaml(allowed_domains)
 
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)

@@ -66,6 +66,30 @@ where
             config.kafka_producer_queue_messages.to_string(),
         );
 
+    // WarpStream producer tuning — only set when explicitly configured, so existing services
+    // that don't opt in keep their previous librdkafka defaults.
+    if let Some(v) = config.kafka_producer_batch_size {
+        client_config.set("batch.size", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_batch_num_messages {
+        client_config.set("batch.num.messages", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_enable_idempotence {
+        client_config.set("enable.idempotence", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_max_in_flight_requests_per_connection {
+        client_config.set("max.in.flight.requests.per.connection", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_topic_metadata_refresh_interval_ms {
+        client_config.set("topic.metadata.refresh.interval.ms", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_message_max_bytes {
+        client_config.set("message.max.bytes", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_sticky_partitioning_linger_ms {
+        client_config.set("sticky.partitioning.linger.ms", v.to_string());
+    }
+
     if config.kafka_tls {
         client_config
             .set("security.protocol", "ssl")

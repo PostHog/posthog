@@ -339,12 +339,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             actions.saveExperimentStarted()
 
             try {
-                // Make experiment eligible for timeseries
-                const schedulingConfig = {
-                    ...values.experiment?.scheduling_config,
-                    timeseries: true,
-                }
-
                 const savedMetrics = [
                     ...values.sharedMetrics.primary.map((metric) => ({
                         id: metric.sharedMetricId!,
@@ -362,7 +356,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                 const experimentPayload: Experiment = {
                     ...values.experiment,
-                    scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
                 }
 

@@ -36,7 +36,7 @@ class Command(BaseCommand):
             "--scopes",
             nargs="*",
             default=None,
-            help='Scopes to grant (e.g. --scopes llm_gateway:read project:read). Use --scopes "*" for all-access. Omit for no scopes.',
+            help='Scopes to grant (e.g. --scopes llm_gateway:read project:read). Use --scopes "*" for all-access. Defaults to all-access when omitted.',
         )
         parser.add_argument(
             "--add-scopes",
@@ -57,6 +57,9 @@ class Command(BaseCommand):
 
         if scopes is not None and add_scopes is not None:
             raise CommandError("Cannot use --scopes and --add-scopes together")
+
+        if scopes is None and add_scopes is None:
+            scopes = ["*"]
 
         try:
             user = User.objects.get(email=email)
@@ -88,7 +91,7 @@ class Command(BaseCommand):
 
         PersonalAPIKey.objects.filter(user=user, label=DEV_KEY_LABEL).delete()
 
-        create_scopes = scopes or add_scopes or []
+        create_scopes = scopes if scopes is not None else add_scopes
 
         PersonalAPIKey.objects.create(
             user=user,

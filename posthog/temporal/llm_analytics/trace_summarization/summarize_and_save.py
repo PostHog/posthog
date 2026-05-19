@@ -121,7 +121,7 @@ def _embed_trace_summary(
     document_type_with_mode = f"{LLM_TRACES_SUMMARIES_DOCUMENT_TYPE}-{mode}"
 
     embedder = LLMTracesSummarizerEmbedder(team=team)
-    embedder._embed_document(
+    embedder.embed_document(
         content=summary_text,
         document_id=trace_id,
         document_type=document_type_with_mode,
@@ -139,7 +139,7 @@ def _embed_generation_summary(
     summary_text = _format_summary_for_embedding(summary_result)
 
     embedder = LLMTracesSummarizerEmbedder(team=team)
-    embedder._embed_document(
+    embedder.embed_document(
         content=summary_text,
         document_id=generation_id,
         document_type=constants.GENERATION_DOCUMENT_TYPE,

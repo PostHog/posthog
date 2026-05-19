@@ -44,7 +44,7 @@ class ErrorTrackingIssue(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -355,11 +355,9 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         WEB = "web"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+    library = models.CharField(max_length=24, choices=Library, null=False, blank=False, default=Library.WEB)
 
-    match_type = models.CharField(
-        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
-    )
+    match_type = models.CharField(max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL)
 
     sample_rate = models.DecimalField(
         max_digits=3,
@@ -425,7 +423,7 @@ class ErrorTrackingGroup(UUIDTModel):
         blank=False,
         default=list,
     )
-    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.CharField(max_length=40, choices=Status, default=Status.ACTIVE, null=False)
     assignee = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -490,7 +488,6 @@ def override_error_tracking_issue_fingerprint(
     issue_id: UUID,
     version=0,
     is_deleted: bool = False,
-    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -503,7 +500,6 @@ def override_error_tracking_issue_fingerprint(
             "version": version,
             "is_deleted": int(is_deleted),
         },
-        sync=sync,
     )
 
 
@@ -582,6 +578,22 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
         db_table = "posthog_errortrackingspikedetectionconfig"
 
 
+class ErrorTrackingSettings(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_settings",
+    )
+    project_rate_limit_value = models.IntegerField(null=True, blank=True)
+    project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingsettings"
+
+
 class ErrorTrackingSpikeEvent(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
@@ -599,7 +611,11 @@ class ErrorTrackingSpikeEvent(UUIDModel):
 
 
 class ErrorTrackingRecommendation(UUIDTModel):
-    """Materialized recommendation for a team, computed live on API request."""
+    """Materialized recommendation for a team, computed asynchronously via Celery."""
+
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        COMPUTING = "computing", "Computing"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
     # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
@@ -608,6 +624,8 @@ class ErrorTrackingRecommendation(UUIDTModel):
     meta = models.JSONField(default=dict, blank=True)
     computed_at = models.DateTimeField(null=True, blank=True)
     dismissed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.READY)
+    status_changed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

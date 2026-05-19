@@ -46,4 +46,5 @@ export const getDefaultSessionsSceneQuery = (properties?: AnyPropertyFilter[]): 
     propertiesViaUrl: true,
     showSavedQueries: true,
     showPersistentColumnConfigurator: true,
+    contextKey: 'activity-sessions',
 })

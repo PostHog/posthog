@@ -779,6 +779,7 @@ FROM (
         raw_sessions_v3
     WHERE
         team_id = %(team_id)s AND
+        session_timestamp >= now() - INTERVAL 30 DAY AND
         {property_expr} IS NOT NULL AND
         {property_expr} != ''
     ORDER BY session_id_v7 DESC
@@ -800,6 +801,7 @@ FROM (
         raw_sessions_v3
     WHERE
         team_id = %(team_id)s AND
+        session_timestamp >= now() - INTERVAL 30 DAY AND
         {property_expr} ILIKE %(value)s
     ORDER BY session_id_v7 DESC
     LIMIT 100000

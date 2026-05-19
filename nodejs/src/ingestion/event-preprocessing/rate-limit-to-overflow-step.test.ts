@@ -1,3 +1,4 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
 import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { PipelineResultType } from '../pipelines/results'
@@ -5,13 +6,7 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
 
 const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
-    headers: {
-        token,
-        distinct_id: distinctId,
-        now: now ?? new Date(),
-        force_disable_person_processing: false,
-        historical_migration: false,
-    },
+    headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
     event: createTestPipelineEvent({ distinct_id: distinctId }),
 })
 

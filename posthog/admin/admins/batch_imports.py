@@ -54,6 +54,7 @@ class BatchImportAdminForm(forms.ModelForm):
         return instance
 
 
+@admin.register(BatchImport)
 class BatchImportAdmin(admin.ModelAdmin):
     form = BatchImportAdminForm
     list_display = ("id", "team", "status", "created_by_id", "created_at", "get_sink_type", "get_send_rate")

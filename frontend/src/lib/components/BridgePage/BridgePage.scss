@@ -92,7 +92,11 @@
             background-color: var(--text-3000);
             border-radius: 0.75rem;
             opacity: 0;
+            transition:
+                200ms opacity,
+                200ms transform;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
+            transform: translateY(50px) rotate(0deg) scale(0.5);
 
             &::after {
                 position: absolute;
@@ -104,17 +108,8 @@
                 border-left-color: var(--text-3000);
             }
 
-            &.BridgePage__left__message--enter {
-                opacity: 0;
-                transform: translateY(50px) rotate(0deg) scale(0.5);
-            }
-
-            &.BridgePage__left__message--enter-active,
-            &.BridgePage__left__message--enter-done {
+            &--visible {
                 opacity: 1;
-                transition:
-                    200ms opacity,
-                    200ms transform;
                 transform: translateY(0) rotate(5deg) scale(1);
             }
 

@@ -8,7 +8,7 @@ This module provides functions to interact with Cloudflare's API for:
 """
 
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from django.conf import settings
@@ -21,7 +21,7 @@ CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 class CloudflareAPIError(Exception):
     """Exception raised when Cloudflare API returns an error."""
 
-    def __init__(self, message: str, errors: t.Optional[list[dict]] = None):
+    def __init__(self, message: str, errors: t.Optional[list[dict]] = None) -> None:
         super().__init__(message)
         self.errors = errors or []
 
@@ -57,6 +57,12 @@ class CustomHostnameSSL:
 
     status: CustomHostnameSSLStatus
     validation_errors: list[dict]
+    # Optional fields populated by Cloudflare's response and used by diagnostics.
+    # Not all SSL configurations expose these (e.g. ACTIVE certs lack a challenge URL).
+    http_url: t.Optional[str] = None
+    http_body: t.Optional[str] = None
+    certificate_authority: t.Optional[str] = None
+    validation_records: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -77,6 +83,24 @@ def _get_headers() -> dict[str, str]:
         "Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}",
         "Content-Type": "application/json",
     }
+
+
+def _parse_hostname(result: dict) -> "CustomHostnameInfo":
+    """Build a CustomHostnameInfo from a Cloudflare API custom_hostname result object."""
+    ssl_payload = result.get("ssl", {})
+    return CustomHostnameInfo(
+        id=result["id"],
+        hostname=result["hostname"],
+        status=CustomHostnameStatus(result["status"]),
+        ssl=CustomHostnameSSL(
+            status=CustomHostnameSSLStatus(ssl_payload["status"]),
+            validation_errors=ssl_payload.get("validation_errors", []),
+            http_url=ssl_payload.get("http_url"),
+            http_body=ssl_payload.get("http_body"),
+            certificate_authority=ssl_payload.get("certificate_authority"),
+            validation_records=ssl_payload.get("validation_records", []),
+        ),
+    )
 
 
 def _handle_response(response: requests.Response) -> dict:
@@ -127,17 +151,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
 
     response = requests.post(url, headers=_get_headers(), json=payload, timeout=30)
     data = _handle_response(response)
-
-    result = data["result"]
-    return CustomHostnameInfo(
-        id=result["id"],
-        hostname=result["hostname"],
-        status=CustomHostnameStatus(result["status"]),
-        ssl=CustomHostnameSSL(
-            status=CustomHostnameSSLStatus(result["ssl"]["status"]),
-            validation_errors=result["ssl"].get("validation_errors", []),
-        ),
-    )
+    return _parse_hostname(data["result"])
 
 
 def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
@@ -161,17 +175,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
         return None
 
     data = _handle_response(response)
-    result = data["result"]
-
-    return CustomHostnameInfo(
-        id=result["id"],
-        hostname=result["hostname"],
-        status=CustomHostnameStatus(result["status"]),
-        ssl=CustomHostnameSSL(
-            status=CustomHostnameSSLStatus(result["ssl"]["status"]),
-            validation_errors=result["ssl"].get("validation_errors", []),
-        ),
-    )
+    return _parse_hostname(data["result"])
 
 
 def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]:
@@ -197,16 +201,7 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]
     if not results:
         return None
 
-    result = results[0]
-    return CustomHostnameInfo(
-        id=result["id"],
-        hostname=result["hostname"],
-        status=CustomHostnameStatus(result["status"]),
-        ssl=CustomHostnameSSL(
-            status=CustomHostnameSSLStatus(result["ssl"]["status"]),
-            validation_errors=result["ssl"].get("validation_errors", []),
-        ),
-    )
+    return _parse_hostname(results[0])
 
 
 def delete_custom_hostname(hostname_id: str) -> bool:

@@ -229,6 +229,41 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(403)
     })
 
+    it('propagates parentRunId from the tracking code so batch runs get correct attribution', async () => {
+        const mailWithParentRun = {
+            ...baseMail,
+            tags: {
+                ph_id: [
+                    generateEmailTrackingCode({
+                        functionId: 'workflow-id',
+                        id: 'child-invocation-id',
+                        teamId: 1,
+                        parentRunId: 'batch-run-id',
+                        state: { actionId: 'email-action' },
+                    }),
+                ],
+            },
+        }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: mailWithParentRun,
+                open: { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics).toEqual([
+            {
+                functionId: 'workflow-id',
+                invocationId: 'child-invocation-id',
+                actionId: 'email-action',
+                parentRunId: 'batch-run-id',
+                metricName: 'email_opened',
+            },
+        ])
+    })
+
     it('parses an SNS envelope Notification event', async () => {
         const snsEnvelope = {
             Type: 'Notification',

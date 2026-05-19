@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
@@ -22,7 +23,7 @@ from posthog.rbac.user_access_control import (
     minimum_access_level,
     ordered_access_levels,
 )
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
@@ -88,8 +89,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return field_class, field_kwargs
 
     def validate_resource(self, resource):
-        if resource not in API_SCOPE_OBJECTS:
-            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(API_SCOPE_OBJECTS))
+        if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
+            allowed = tuple(s for s in API_SCOPE_OBJECTS if s not in INTERNAL_API_SCOPE_OBJECTS)
+            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(allowed))
 
         return resource
 
@@ -131,6 +133,11 @@ class AccessControlSerializer(serializers.ModelSerializer):
         required_level = highest_access_level(resource)
         team = context["view"].team
         the_object = context["view"].get_object()
+
+        # Role-backed access controls require the ROLE_BASED_ACCESS feature — same gate
+        # as the UI's "Roles" blocks and the runtime enforcement in UserTeamPermissions.
+        if data.get("role") and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            raise exceptions.PermissionDenied("Role-based access controls require the Role-based access feature.")
 
         if resource_id:
             if str(the_object.pk) != str(resource_id):
@@ -491,6 +498,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 else:
                     role_resource_overrides[(str(role_id), resource_type)] = level
 
+        # Role overrides (project- and resource-level) only take effect if the
+        # organization has the ROLE_BASED_ACCESS feature; otherwise role rows in the
+        # DB are inert and we must not surface them as the effective access level.
+        role_based_access_supported = team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
         # Build results for each role
         roles = Role.objects.filter(organization=team.organization)
         results = []
@@ -498,7 +510,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         for role in roles:
             rid = str(role.id)
 
-            project_role_level = role_project_overrides.get(rid)
+            project_role_level = role_project_overrides.get(rid) if role_based_access_supported else None
             project_result = get_effective_access_level_for_role(
                 resource="project",
                 default_level=project_default_level,
@@ -507,7 +519,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:
-                resource_role_level = role_resource_overrides.get((rid, resource))
+                resource_role_level = (
+                    role_resource_overrides.get((rid, resource)) if role_based_access_supported else None
+                )
                 resource_default = resource_default_levels.get(resource)
                 resource_result = get_effective_access_level_for_role(
                     resource=resource,
@@ -589,6 +603,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 else:
                     member_resource_overrides[(str(member_id), resource_type)] = level
 
+        # Role overrides (project- and resource-level) only take effect if the
+        # organization has the ROLE_BASED_ACCESS feature; otherwise role rows in the
+        # DB are inert and we must not let them influence members' effective access.
+        role_based_access_supported = team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
         # Build results for each member
         memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
@@ -600,7 +619,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
         for membership in memberships:
             mid = str(membership.id)
             is_org_admin = membership.level >= OrganizationMembership.Level.ADMIN
-            member_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
+            # Role memberships only contribute when ROLE_BASED_ACCESS is enabled.
+            member_role_ids = (
+                [str(rm.role_id) for rm in membership.role_memberships.all()] if role_based_access_supported else []
+            )
 
             project_member_level = member_project_overrides.get(mid)
             project_role_levels: list[AccessControlLevel] = [

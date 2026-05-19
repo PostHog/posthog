@@ -9,7 +9,7 @@ import { SlackChannelType } from '~/types'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
-export const SLACK_CHANNELS_MIN_REFRESH_INTERVAL_MINUTES = 5
+export const SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS = 30
 
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
@@ -94,11 +94,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 const now = dayjs()
                 if (allSlackChannels) {
                     const earliestRefresh = dayjs(allSlackChannels.lastRefreshedAt).add(
-                        SLACK_CHANNELS_MIN_REFRESH_INTERVAL_MINUTES,
-                        'minutes'
+                        SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS,
+                        'seconds'
                     )
                     if (now.isBefore(earliestRefresh)) {
-                        return `You can refresh the channels again ${earliestRefresh.from(now)}`
+                        const secondsLeft = Math.ceil(earliestRefresh.diff(now) / 1000)
+                        return `You can refresh the channels again in ${secondsLeft} second${
+                            secondsLeft === 1 ? '' : 's'
+                        }`
                     }
                 }
                 return ''

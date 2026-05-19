@@ -4,6 +4,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -47,6 +48,9 @@ export function Navigation({
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+    // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
+    // context above scene content, so we hide the notice for users on the new menu bar.
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const inlinePanelRef = useRef<HTMLDivElement | null>(null)
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => {
@@ -64,6 +68,16 @@ export function Navigation({
             registerScenePanelElement(inlinePanelRef.current)
         }
     }, [sidePanelOpen, registerScenePanelElement])
+
+    // Null the registration on Navigation unmount so the detached inline
+    // panel div is not pinned by sceneLayoutLogic's reducer. Kept in its own
+    // empty-deps effect so it fires only on final unmount, not on every
+    // sidePanelOpen toggle (which would briefly blank SceneLayout's portal).
+    useEffect(() => {
+        return () => {
+            registerScenePanelElement(null)
+        }
+    }, [registerScenePanelElement])
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -153,7 +167,7 @@ export function Navigation({
                             }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {!sceneConfig?.hideProjectNotice && (
+                                {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',

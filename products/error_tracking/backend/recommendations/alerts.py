@@ -1,4 +1,3 @@
-from datetime import timedelta
 from functools import reduce
 from operator import or_
 from typing import Any
@@ -19,7 +18,11 @@ ALERT_TRIGGERS: list[dict[str, str]] = [
 
 class AlertsRecommendation(Recommendation):
     type = "alerts"
-    refresh_interval = timedelta(seconds=5)
+    refresh_interval = None
+
+    def is_completed(self, meta: dict[str, Any]) -> bool:
+        alerts = meta.get("alerts") or []
+        return bool(alerts) and all(a.get("enabled") for a in alerts)
 
     def compute(self, team: Team) -> dict[str, Any]:
         event_filter = reduce(

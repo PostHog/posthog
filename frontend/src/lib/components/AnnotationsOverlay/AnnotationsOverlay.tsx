@@ -26,6 +26,9 @@ import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotat
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 const MIN_BADGE_SPACING_PX = 24
+/** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
+ *  can't keep absorbing each other into one oversized cluster spanning a wide date range. */
+const MAX_CLUSTER_WIDTH_PX = 17
 const EMPTY_ANNOTATIONS: DatedAnnotationType[] = []
 
 const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -65,6 +68,10 @@ export interface AnnotationsOverlayProps {
     chart: Chart
     chartWidth: number
     chartHeight: number
+    datasetIndex?: number
+    /** Forwarded to the kea logic key so multiple overlays on the same insight don't
+     *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
+    kind?: string
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
@@ -79,9 +86,16 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     chartHeight,
     dates,
     insightNumericId,
+    datasetIndex = 0,
+    kind,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
+    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(
+        chart,
+        chartWidth,
+        chartHeight,
+        datasetIndex
+    )
 
     // Memoize ticks by value to prevent unnecessary kea selector cascades.
     // chart.scales.x.ticks is a Chart.js internal array that is the same object between renders
@@ -103,6 +117,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         insightNumericId,
         dates,
         ticks: prevTicksRef.current,
+        kind,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations } = useValues(logic)
@@ -141,7 +156,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         const out: AnnotationBadgeCluster[] = []
         for (const badge of positioned) {
             const last = out[out.length - 1]
-            if (last && badge.leftPx - last.rightPx < MIN_BADGE_SPACING_PX) {
+            if (last && badge.leftPx - last.leftPx < MAX_CLUSTER_WIDTH_PX) {
                 last.annotations = [...last.annotations, ...badge.annotations]
                 last.dateRange = [last.dateRange[0], badge.date]
                 last.rightPx = badge.leftPx

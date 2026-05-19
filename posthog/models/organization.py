@@ -74,11 +74,10 @@ class ProductFeature(TypedDict):
 def _enterprise_only_feature_keys() -> frozenset[str]:
     """Enterprise-plan-only feature keys, computed once per process.
 
-    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`, plus `ACCESS_CONTROL`
-    (the successor to `ADVANCED_PERMISSIONS` per the `AvailableFeature` enum) which
-    isn't reflected in `License.ENTERPRISE_FEATURES` yet but should classify the same way.
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`. Returns an empty
+    set when the ee package isn't importable.
     """
-    keys: set[str] = {str(AvailableFeature.ACCESS_CONTROL)}
+    keys: set[str] = set()
     try:
         from ee.models.license import License
 
@@ -165,6 +164,7 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
+        through_fields=("organization", "user"),
         related_name="organizations",
         related_query_name="organization",
     )
@@ -219,12 +219,12 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
+        choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=DefaultExperimentStatsMethod.choices,
+        choices=DefaultExperimentStatsMethod,
         default=DefaultExperimentStatsMethod.BAYESIAN,
         help_text="Default statistical method for new experiments in this organization.",
         null=True,
@@ -345,12 +345,10 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """Best-effort plan tier derived from `available_product_features`.
 
         "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
-        minus `SCALE_FEATURES`, plus `access_control` — the successor to `advanced_permissions`
-        per `AvailableFeature` in constants.py — which is not yet reflected in `License`).
-        "paid" if any feature is present, otherwise "free". Paid uses "any feature present"
-        rather than an allow-list because the billing service grants features (alerts,
-        surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an allow-list
-        silently downgrades those orgs to free.
+        minus `SCALE_FEATURES`). "paid" if any feature is present, otherwise "free". Paid uses
+        "any feature present" rather than an allow-list because the billing service grants
+        features (alerts, surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an
+        allow-list silently downgrades those orgs to free.
         """
         available_keys = {
             feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
@@ -547,9 +545,18 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
+    # the OrganizationInvite row itself is deleted during use() and can't be looked up afterwards.
+    invited_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     # Transient flag set by the pre_save signal to communicate level changes to post_save.
     _level_changed: bool = False
@@ -679,7 +686,7 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
-        alert_configuration__team__organization=instance.organization,
+        alert_configuration__team__organization_id=instance.organization_id,
     ).delete()
 
     if deleted_count > 0:

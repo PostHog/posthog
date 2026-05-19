@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonButton,
     LemonCalendarSelectInput,
     LemonDialog,
     LemonInput,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
@@ -15,7 +15,12 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { buildDeliveryTargets, evaluationReportLogic, TRIGGER_THRESHOLD_DEFAULT } from '../evaluationReportLogic'
+import {
+    COOLDOWN_HOURS_MAX,
+    COOLDOWN_HOURS_MIN,
+    evaluationReportLogic,
+    TRIGGER_THRESHOLD_DEFAULT,
+} from '../evaluationReportLogic'
 
 const GUIDANCE_PLACEHOLDER =
     "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
@@ -95,8 +100,28 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
             />
             <p className="text-xs text-muted mt-1">
                 A report will be generated after this many new evaluation results arrive. Checked every 5 minutes. Min{' '}
-                {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}. Cooldown: at most one report per
-                hour, up to 10 per day.
+                {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}.
+            </p>
+        </div>
+    )
+}
+
+/** Cooldown config shown when frequency is 'every_n' */
+function CooldownConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+    return (
+        <div>
+            <label className="font-semibold text-sm">Minimum hours between reports</label>
+            <LemonInput
+                type="number"
+                min={COOLDOWN_HOURS_MIN}
+                max={COOLDOWN_HOURS_MAX}
+                value={value}
+                onChange={(val) => onChange(Number(val))}
+                fullWidth
+            />
+            <p className="text-xs text-muted mt-1">
+                After a report is generated, wait this many hours before generating another — even if the threshold is
+                crossed again. Min {COOLDOWN_HOURS_MIN}, max {COOLDOWN_HOURS_MAX}.
             </p>
         </div>
     )
@@ -178,6 +203,7 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
         setDraftSlackChannelValue,
         setDraftReportPromptGuidance,
         setDraftTriggerThreshold,
+        setDraftCooldownHours,
     } = useActions(evaluationReportLogic({ evaluationId }))
 
     return (
@@ -192,7 +218,10 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
                 />
             </div>
             {configDraft.frequency === 'every_n' && (
-                <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
+                <>
+                    <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
+                    <CooldownConfig value={configDraft.cooldownHours} onChange={setDraftCooldownHours} />
+                </>
             )}
             {configDraft.frequency === 'scheduled' && (
                 <ScheduleConfig
@@ -228,35 +257,6 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
     )
 }
 
-/** Save button for the edit path. Disabled based on draft dirtiness and target presence. */
-function SaveReportButton({ evaluationId }: { evaluationId: string }): JSX.Element {
-    const logic = evaluationReportLogic({ evaluationId })
-    const { configDraft, isConfigDirty, reportsLoading } = useValues(logic)
-    const { saveDraft } = useActions(logic)
-
-    const hasAnyTarget = buildDeliveryTargets(configDraft).length > 0
-
-    return (
-        <div className="flex justify-end">
-            <LemonButton
-                type="primary"
-                size="small"
-                loading={reportsLoading}
-                onClick={() => saveDraft()}
-                disabledReason={
-                    !isConfigDirty
-                        ? 'No changes to save'
-                        : !hasAnyTarget
-                          ? 'Add at least one delivery target'
-                          : undefined
-                }
-            >
-                Save changes
-            </LemonButton>
-        </div>
-    )
-}
-
 /** Inline config shown during new evaluation creation */
 function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
@@ -284,14 +284,18 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
     )
 }
 
-/** Toggle-based report management for existing evaluations */
+/** Toggle-based report management for existing evaluations.
+ * The "Save changes" button at the top of the evaluation page persists any
+ * draft updates — see llmEvaluationLogic.saveEvaluation, which forwards
+ * the draft to persistReportDraft. Disabling the toggle with a saved report
+ * is still an immediate destructive action (handled via the dialog) rather
+ * than a staged save. */
 function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
-    const { activeReport, reportsLoading, configDraft } = useValues(logic)
-    const { deleteReport, saveDraft, setDraftEnabled } = useActions(logic)
+    const { activeReport, reportsLoading, configDraft, isConfigDirty } = useValues(logic)
+    const { deleteReport, setDraftEnabled } = useActions(logic)
 
     const isEnabled = !!activeReport || configDraft.enabled
-    const hasAnyTarget = buildDeliveryTargets(configDraft).length > 0
 
     const handleToggle = (checked: boolean): void => {
         if (checked) {
@@ -315,9 +319,12 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
     return (
         <div className="bg-bg-light border rounded p-6">
             <div className="flex items-center justify-between mb-4">
-                <div>
-                    <h3 className="text-lg font-semibold mb-1">Scheduled reports</h3>
-                    <p className="text-muted text-sm">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-semibold m-0">Scheduled reports</h3>
+                        {isConfigDirty && <LemonTag type="warning">Unsaved changes</LemonTag>}
+                    </div>
+                    <p className="text-muted text-sm m-0">
                         AI-generated analysis of evaluation results. Reports are always available in the Reports tab.
                         Optionally add email or Slack to get notified.
                     </p>
@@ -334,39 +341,27 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
             {activeReport ? (
                 <>
                     <ReportFormFields evaluationId={evaluationId} />
-                    <SaveReportButton evaluationId={evaluationId} />
-                    {configDraft.frequency === 'every_n' ? (
-                        <div className="text-sm text-muted mt-4">
-                            A report will be generated when{' '}
-                            {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation results arrive.
-                            Checked every 5 minutes.
-                        </div>
-                    ) : (
-                        activeReport.next_delivery_date && (
-                            <div className="text-sm text-muted mt-4">
-                                Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
-                            </div>
-                        )
-                    )}
+                    {configDraft.frequency === 'every_n'
+                        ? (() => {
+                              const cooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+                              return (
+                                  <div className="text-sm text-muted mt-4">
+                                      A report will be generated when{' '}
+                                      {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation
+                                      results arrive, at most once every {cooldownHours}{' '}
+                                      {cooldownHours === 1 ? 'hour' : 'hours'}. Checked every 5 minutes.
+                                  </div>
+                              )
+                          })()
+                        : activeReport.next_delivery_date && (
+                              <div className="text-sm text-muted mt-4">
+                                  Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
+                              </div>
+                          )}
                     <p className="text-xs text-muted m-0 mt-2">Generated reports appear in the Reports tab.</p>
                 </>
             ) : (
-                configDraft.enabled && (
-                    <>
-                        <ReportFormFields evaluationId={evaluationId} />
-                        <div className="flex justify-end mt-4">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => saveDraft()}
-                                loading={reportsLoading}
-                                disabledReason={!hasAnyTarget ? 'Add at least one delivery target' : undefined}
-                            >
-                                Save report schedule
-                            </LemonButton>
-                        </div>
-                    </>
-                )
+                configDraft.enabled && <ReportFormFields evaluationId={evaluationId} />
             )}
         </div>
     )

@@ -87,6 +87,12 @@
             "default": "StickinessQuery",
             "type": "string"
         },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
+            "type": "string"
+        },
         "properties": {
             "default": [],
             "description": "Property filters for all series",
@@ -365,14 +371,14 @@
                                 "type": "string"
                             },
                             "operator": {
-                                "const": "in",
                                 "default": "in",
+                                "enum": ["in", "not_in"],
                                 "type": "string"
                             },
                             "type": {
                                 "const": "cohort",
                                 "default": "cohort",
-                                "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                                "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
                                 "type": "string"
                             },
                             "value": {
@@ -993,14 +999,14 @@
                                                     "type": "string"
                                                 },
                                                 "operator": {
-                                                    "const": "in",
                                                     "default": "in",
+                                                    "enum": ["in", "not_in"],
                                                     "type": "string"
                                                 },
                                                 "type": {
                                                     "const": "cohort",
                                                     "default": "cohort",
-                                                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                                                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
                                                     "type": "string"
                                                 },
                                                 "value": {
@@ -1626,14 +1632,14 @@
                                                     "type": "string"
                                                 },
                                                 "operator": {
-                                                    "const": "in",
                                                     "default": "in",
+                                                    "enum": ["in", "not_in"],
                                                     "type": "string"
                                                 },
                                                 "type": {
                                                     "const": "cohort",
                                                     "default": "cohort",
-                                                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                                                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
                                                     "type": "string"
                                                 },
                                                 "value": {

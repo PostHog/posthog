@@ -234,14 +234,14 @@ impl Client for RedisClient {
         Ok(results)
     }
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
+    async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
-        let count = count.unwrap_or(1);
+        conn.zadd::<_, _, _, ()>(k, member, score).await?;
+        Ok(())
+    }
+
+    async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
         conn.hincr::<_, _, _, ()>(k, v, count).await?;
         Ok(())
     }
@@ -519,6 +519,13 @@ impl Client for RedisClient {
         commands: Vec<PipelineCommand>,
     ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
         let mut pipe = redis::pipe();
+        // Wrap the batch in MULTI/EXEC so partial commits are impossible.
+        // Without this, a connection drop after some commands have been
+        // acknowledged returns `Err` here while leaving those commands
+        // committed in Redis — which breaks any caller that retries on `Err`
+        // with non-idempotent commands (e.g. HINCRBY in the billing
+        // aggregator: a retry would double-increment the surviving writes).
+        pipe.atomic();
 
         // Track commands for result processing
         let mut metas: Vec<PipelineCommand> = Vec::with_capacity(commands.len());

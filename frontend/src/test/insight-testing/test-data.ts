@@ -1,4 +1,4 @@
-import { EventDefinition, PropertyDefinition, PropertyType } from '~/types'
+import { AnnotationScope, EventDefinition, PropertyDefinition, PropertyType, RawAnnotationType } from '~/types'
 
 const friday = '2024-06-14T16:00:00.000Z'
 const setupWeek = '2024-06-03T10:00:00.000Z'
@@ -35,6 +35,14 @@ export const eventDefinitions: EventDefinition[] = [
         id: 'evt-004',
         name: 'Minimal',
         description: 'Event with no action metadata',
+        tags: [],
+        last_seen_at: friday,
+        created_at: setupWeek,
+    },
+    {
+        id: 'evt-005',
+        name: 'NoActivity',
+        description: 'Event whose series is all zeros (drives empty-state branch)',
         tags: [],
         last_seen_at: friday,
         created_at: setupWeek,
@@ -115,6 +123,12 @@ export const trendsSeries = {
         days,
         labels,
     } satisfies CannedSeries,
+    noActivity: {
+        label: 'NoActivity',
+        data: [0, 0, 0, 0, 0],
+        days,
+        labels,
+    } satisfies CannedSeries,
     pageviewsCompare: [
         { label: '$pageview', data: [45, 82, 134, 210, 95], days, labels, compare: true, compare_label: 'current' },
         {
@@ -148,6 +162,7 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
     },
     ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
     Minimal: { default: trendsSeries.minimal },
+    NoActivity: { default: trendsSeries.noActivity },
 }
 
 /** Resolver for compare queries — returns current + previous period series. */
@@ -216,6 +231,20 @@ export interface ActorsLookupQuery {
     event?: string
     breakdown?: string | number | null
     day?: string | number | null
+}
+
+/** Build a RawAnnotationType for use in setupInsightMocks({ annotations }).
+ *  Generates a random id so identifiers don't carry deterministic state across tests. */
+export function buildAnnotation(overrides: Partial<RawAnnotationType> = {}): RawAnnotationType {
+    return {
+        id: Math.floor(Math.random() * 1_000_000),
+        scope: AnnotationScope.Project,
+        content: 'Hedgehog spotted',
+        date_marker: '2024-06-12T12:00:00Z',
+        created_at: '2024-06-10T00:00:00Z',
+        updated_at: '2024-06-10T00:00:00Z',
+        ...overrides,
+    }
 }
 
 export function lookupActors({ event, breakdown, day }: ActorsLookupQuery): ActorFixture[] {

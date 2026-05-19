@@ -109,12 +109,7 @@ pub fn compute_flag_dependencies(flags: &[FeatureFlag]) -> Result<EvaluationMeta
     let mut edges: HashMap<FeatureFlagId, HashSet<FeatureFlagId>> =
         HashMap::with_capacity(nodes.len());
     for node in &nodes {
-        // FlagNode::extract_dependencies always returns Ok,
-        // so unwrap_or_default is safe here.
-        edges.insert(
-            node.get_id(),
-            node.extract_dependencies().unwrap_or_default(),
-        );
+        edges.insert(node.get_id(), node.extract_dependencies()?);
     }
 
     // Build graph — tolerant of missing deps and cycles.

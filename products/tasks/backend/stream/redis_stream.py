@@ -19,6 +19,10 @@ TASK_RUN_STREAM_MAX_LENGTH = 20_000
 TASK_RUN_STREAM_TIMEOUT = 60 * 60  # 60 minutes
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
+TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
+TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS = 0.15
+TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS = 2.0
+TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS = 120.0  # sandbox provisioning can be slow
 
 DATA_KEY = b"data"
 TaskRunStreamEntry = tuple[str, dict]
@@ -60,20 +64,21 @@ class TaskRunRedisStream:
         """Set expiry on the stream key to prevent unbounded growth."""
         await self._redis_client.expire(self._stream_key, self._timeout)
 
+    async def exists(self) -> bool:
+        """Return whether the Redis stream key already exists."""
+        return bool(await self._redis_client.exists(self._stream_key))
+
     async def wait_for_stream(self) -> bool:
         """Wait for the stream to be created using linear backoff.
 
         Returns True if the stream exists, False on timeout.
         """
-        delay = 0.05
-        delay_increment = 0.15
-        max_delay = 2.0
-        timeout = 120.0  # 2 min — sandbox provisioning can be slow
+        delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
         start_time = asyncio.get_running_loop().time()
 
         while True:
             elapsed = asyncio.get_running_loop().time() - start_time
-            if elapsed >= timeout:
+            if elapsed >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
                 logger.debug(
                     "task_run_stream_wait_timeout",
                     stream_key=self._stream_key,
@@ -81,11 +86,14 @@ class TaskRunRedisStream:
                 )
                 return False
 
-            if await self._redis_client.exists(self._stream_key):
+            if await self.exists():
                 return True
 
             await asyncio.sleep(delay)
-            delay = min(delay + delay_increment, max_delay)
+            delay = min(
+                delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+                TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+            )
 
     async def get_latest_stream_id(self) -> str | None:
         """Return the latest stream ID if the stream has any events."""

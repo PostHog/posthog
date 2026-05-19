@@ -57,14 +57,14 @@ function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void
     if (!groupType) {
         return
     }
-    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+    recentTaxonomicFiltersLogic.actions.recordRecentFilter({
         groupType,
-        groupType,
-        key,
-        { name: key },
-        teamLogic.values.currentTeamId ?? undefined,
-        propertyFilter
-    )
+        groupName: groupType,
+        value: key,
+        item: { name: key },
+        teamId: teamLogic.values.currentTeamId ?? undefined,
+        propertyFilter,
+    })
 }
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
@@ -110,7 +110,13 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
+            item: {
+                propertyFilterType?: PropertyFilterType
+                name?: string
+                key?: string
+                matchedOn?: string
+                matchedValue?: string
+            }
         ) => ({
             taxonomicGroup,
             propertyKey,
@@ -327,8 +333,10 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         propertyKey,
                         propertyType,
                         taxonomicGroup,
-                        values.describeProperty
+                        values.describeProperty,
+                        item
                     )
+
                     newValues.push(newPropertyFilter)
                 } else {
                     const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)

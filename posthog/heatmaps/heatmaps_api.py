@@ -274,6 +274,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+        # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
+        # HogQLFilters instead emits a strict `timestamp < date_to`, so when date_from and date_to land on the same
+        # day this events subquery collapses to an impossible range and returns no sessions. Add a day so the
+        # events subquery covers the same date window as the main heatmap query.
+        events_date_to = (date_to or date.today()) + timedelta(days=1)
         events_select = replace_filters(
             parse_select(
                 "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
@@ -282,7 +287,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filterTestAccounts=True,
                 dateRange=DateRange(
                     date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
+                    date_to=events_date_to.strftime("%Y-%m-%d"),
                 ),
             ),
             self.team,
@@ -560,12 +565,17 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
+_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
+
+
 class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     widths = serializers.ListField(
         child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
     )
 
     def validate_url(self, value: str) -> str:
+        if any(c in _URL_PATTERN_CHARS for c in value):
+            raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
         ok, err = is_url_allowed(value)
         if not ok:
             raise serializers.ValidationError(err or "URL not allowed")
@@ -713,9 +723,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
+        old_url = obj.url
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
+
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+            self._regenerate(updated)
 
         log_activity(
             organization_id=cast(User, request.user).current_organization_id
