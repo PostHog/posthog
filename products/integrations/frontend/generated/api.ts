@@ -27,6 +27,7 @@ import type {
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
     SlackChannelsResponseApi,
+    SlackUsersResponseApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UsersIntegrationsGithubBranchesRetrieveParams,
@@ -561,6 +562,24 @@ export const integrationsTwilioPhoneNumbersRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsUsersRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/users/`
+}
+
+/**
+ * Workspace members the PostHog Slack app can see — drives the DM picker.
+ */
+export const integrationsUsersRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<SlackUsersResponseApi> => {
+    return apiMutator<SlackUsersResponseApi>(getIntegrationsUsersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

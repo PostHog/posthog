@@ -35,10 +35,10 @@ from posthog.temporal.subscriptions.types import (
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
+from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
-    SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    SLACK_USER_CONFIG_DISABLE_REASONS,
     UNSUPPORTED_TARGET_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
@@ -553,22 +553,22 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
             raise
         except Exception as e:
             slack_error_code = e.response.get("error") if isinstance(e, SlackApiError) else None
-            is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS
+            disable_reason = SLACK_USER_CONFIG_DISABLE_REASONS.get(slack_error_code) if slack_error_code else None
             _capture_delivery_failed_event(subscription, e)
             LOGGER.error(
                 "deliver_subscription.slack_failed",
                 subscription_id=subscription.id,
                 next_delivery_date=subscription.next_delivery_date,
                 destination=subscription.target_type,
+                slack_error_code=slack_error_code,
+                disable_reason_key=disable_reason.key if disable_reason else None,
                 exc_info=True,
             )
             capture_exception(e)
-            if is_user_config_error:
+            if disable_reason is not None:
                 # Won't self-heal without user action — auto-disable so the subscription
                 # stops re-firing every cycle.
-                return await _auto_disable_and_return(
-                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
-                )
+                return await _auto_disable_and_return(subscription, disable_reason, recipient_results)
             raise  # Transient Slack errors — let Temporal retry
 
     await LOGGER.ainfo(

@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { SlackChannelType } from '~/types'
+import { SlackChannelType, SlackUserType } from '~/types'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
@@ -21,6 +21,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     actions({
         loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
+        loadAllSlackUsers: (forceRefresh: boolean = false) => ({ forceRefresh }),
     }),
 
     loaders(({ props }) => ({
@@ -42,6 +43,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 },
             },
         ],
+        allSlackUsers: [
+            null as { users: SlackUserType[]; lastRefreshedAt: string } | null,
+            {
+                loadAllSlackUsers: async ({ forceRefresh }) => {
+                    return await api.integrations.slackUsers(props.id, forceRefresh)
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -55,6 +64,12 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as SlackChannelType | null,
             {
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
+            },
+        ],
+        slackUsers: [
+            [] as SlackUserType[],
+            {
+                loadAllSlackUsersSuccess: (_, { allSlackUsers }) => allSlackUsers.users ?? [],
             },
         ],
     }),

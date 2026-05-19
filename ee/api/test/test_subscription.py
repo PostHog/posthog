@@ -422,6 +422,62 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    _DM_REQUIRED_SCOPES = "im:write,users:read,chat:write"
+    _CHANNEL_ONLY_SCOPES = "chat:write,channels:read,groups:read"
+
+    @parameterized.expand(
+        [
+            # User-DM targets succeed only when the integration has the DM scopes granted.
+            ("user_id_with_im_write_scope", "U0AC72QNTJ9|alice", _DM_REQUIRED_SCOPES, status.HTTP_201_CREATED, None),
+            ("user_id_bare_with_im_write_scope", "U0AC72QNTJ9", _DM_REQUIRED_SCOPES, status.HTTP_201_CREATED, None),
+            (
+                "user_id_without_im_write_scope",
+                "U0AC72QNTJ9|alice",
+                _CHANNEL_ONLY_SCOPES,
+                status.HTTP_400_BAD_REQUEST,
+                "slack_dm_needs_reauth",
+            ),
+            (
+                "workspace_user_id_without_scope",
+                "W0123ABC|alice",
+                _CHANNEL_ONLY_SCOPES,
+                status.HTTP_400_BAD_REQUEST,
+                "slack_dm_needs_reauth",
+            ),
+            # Channel targets must keep working regardless — don't break creates for the
+            # long tail of older installs whose scope grant pre-dates `im:write`.
+            ("public_channel_with_dm_scopes", "C0123ABC|#general", _DM_REQUIRED_SCOPES, status.HTTP_201_CREATED, None),
+            (
+                "public_channel_without_dm_scopes",
+                "C0123ABC|#general",
+                _CHANNEL_ONLY_SCOPES,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "private_channel_without_dm_scopes",
+                "G0123ABC|#secret",
+                _CHANNEL_ONLY_SCOPES,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+        ]
+    )
+    def test_slack_subscription_dm_target_capability_gating(
+        self, _name, target_value, granted_scopes, expected_status, expected_code
+    ):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": granted_scopes})
+        response = self._create_subscription(
+            target_type="slack",
+            target_value=target_value,
+            integration_id=integration.id,
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_code is not None:
+            assert response.json()["code"] == expected_code
+            assert response.json()["attr"] == "target_value"
+            assert "re-authorized" in response.json()["detail"]
+
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
         rejected up front — otherwise the next delivery would auto-disable it again

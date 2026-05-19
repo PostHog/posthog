@@ -34,6 +34,30 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
 )
+# Surfaced when Slack returns `messages_tab_disabled` on a DM-target subscription.
+# Most often the workspace's Slack install pre-dates the `im:write` scope and needs
+# to re-authorize via the standard "Add to Slack" flow. The serializer gates new
+# DM-target creates on this scope, so this disable reason mainly catches installs
+# that lose the scope between create and delivery, or workspace-side restrictions.
+SLACK_DM_NEEDS_REAUTH_DISABLE_REASON = DisableReason(
+    key="slack_dm_needs_reauth",
+    description="PostHog needs to be re-authorized in Slack to send direct messages",
+    user_message="Cannot re-enable {target_type} subscription: PostHog needs to be re-authorized in your Slack workspace to send direct messages. Reconnect Slack and try again.",
+)
+
+# Slack `chat.postMessage` error codes that won't self-heal without user action.
+# Membership IS the auto-disable classification — Temporal short-circuits retries
+# for any code in this map. The value is the remediation message routed to the
+# customer; codes that share a remediation path share a DisableReason.
+SLACK_USER_CONFIG_DISABLE_REASONS: dict[str, DisableReason] = {
+    "not_in_channel": SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    "account_inactive": SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    "is_archived": SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    "channel_not_found": SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    "invalid_auth": SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    "token_revoked": SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+    "messages_tab_disabled": SLACK_DM_NEEDS_REAUTH_DISABLE_REASON,
+}
 
 logger = structlog.get_logger(__name__)
 

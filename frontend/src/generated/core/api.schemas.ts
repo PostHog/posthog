@@ -2612,7 +2612,7 @@ export interface SubscriptionApi {
   * `slack` - Slack
   * `webhook` - Webhook */
     target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+    /** Recipient(s) for the subscription. Email: comma-separated email addresses. Slack: either a channel ID (e.g. `C0123ABC`) / name (`#alerts`), or a user ID (e.g. `U0123ABC`) to deliver as a direct message. DM delivery requires the workspace's Slack integration to have been authorized with the `im:write` scope; if it hasn't, the create returns 400 with `code=slack_dm_needs_reauth`. Webhook: a full URL. */
     target_value: string
     /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
@@ -2743,7 +2743,7 @@ export interface PatchedSubscriptionApi {
   * `slack` - Slack
   * `webhook` - Webhook */
     target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+    /** Recipient(s) for the subscription. Email: comma-separated email addresses. Slack: either a channel ID (e.g. `C0123ABC`) / name (`#alerts`), or a user ID (e.g. `U0123ABC`) to deliver as a direct message. DM delivery requires the workspace's Slack integration to have been authorized with the `im:write` scope; if it hasn't, the create returns 400 with `code=slack_dm_needs_reauth`. Webhook: a full URL. */
     target_value?: string
     /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 

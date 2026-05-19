@@ -4,6 +4,7 @@ import time
 import base64
 import socket
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
@@ -214,6 +215,25 @@ class Integration(models.Model):
         ]
 
     @property
+    def granted_scopes(self) -> frozenset[str]:
+        """OAuth scopes Slack actually granted on this install.
+
+        The OAuth callback persists the response payload's `scope` field into
+        `config["scope"]` as a comma-separated string (see
+        `OauthIntegration.integration_from_oauth_response`). PostHog's requested
+        scope list (`POSTHOG_SLACK_SCOPE`) has grown over time, so older installs
+        carry a strict subset and need to re-authorize to pick up the new scopes.
+        Empty set when the config has no scope field (non-OAuth integrations
+        or pre-OAuth rows).
+        """
+        scope_str = self.config.get("scope") or ""
+        return frozenset(s.strip() for s in scope_str.split(",") if s.strip())
+
+    def has_scopes(self, required: Iterable[str]) -> bool:
+        """True iff every scope in `required` was granted on this integration."""
+        return set(required).issubset(self.granted_scopes)
+
+    @property
     def display_name(self) -> str:
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
@@ -275,6 +295,11 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "app_mentions:read",
         "channels:history",
         "groups:history",
+        # Open and write to direct-message conversations — required for subscriptions
+        # whose target_value is a Slack user ID (rather than a channel). Workspaces
+        # that installed before this scope was added need to re-authorize before
+        # DM-target deliveries work; the subscription API gates on this.
+        "im:write",
         "links:read",
         "links:write",
         "reactions:read",
@@ -284,6 +309,10 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "users:read.email",
     ]
 )
+# Scopes required for delivering a subscription to a Slack user DM. Subscription
+# create / update returns 400 with `error_code=slack_dm_needs_reauth` if the
+# integration's granted scopes don't include all of these.
+SLACK_DM_SCOPES: frozenset[str] = frozenset({"im:write", "users:read"})
 
 
 class OauthIntegration:
@@ -1217,6 +1246,44 @@ class SlackIntegration:
                 break
 
         return channels
+
+    def list_users(self) -> list[dict]:
+        """Workspace members the bot can see, paged through `users.list`.
+
+        Filters out bots, deactivated accounts, and the `USLACKBOT` system user —
+        those are never valid DM-subscription targets. Names follow Slack's
+        precedence: real_name → name → id.
+        """
+        max_page = SLACK_CHANNELS_MAX_PAGES
+        users: list[dict] = []
+        cursor: str | None = None
+
+        while max_page > 0:
+            max_page -= 1
+            res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            for member in res["members"]:
+                if member.get("is_bot") or member.get("deleted") or member.get("id") == "USLACKBOT":
+                    continue
+                profile = member.get("profile") or {}
+                display_name = (
+                    profile.get("display_name_normalized")
+                    or member.get("real_name")
+                    or member.get("name")
+                    or member["id"]
+                )
+                users.append(
+                    {
+                        "id": member["id"],
+                        "name": display_name,
+                        "real_name": member.get("real_name") or "",
+                        "is_admin": bool(member.get("is_admin")),
+                    }
+                )
+            cursor = res.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
+        return sorted(users, key=lambda u: u["name"].lower())
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):

@@ -251,6 +251,29 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class SlackUserSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text="Slack user ID (e.g. `U0123ABC`). Use as the channel arg to chat.postMessage to deliver a DM."
+    )
+    name = serializers.CharField(
+        help_text="Display name (`profile.display_name_normalized` if set, else `real_name`, else `name`, else id)."
+    )
+    real_name = serializers.CharField(allow_blank=True, help_text="Slack `real_name` field, may be empty.")
+    is_admin = serializers.BooleanField(help_text="True if the user is a workspace admin or owner.")
+
+
+class SlackUsersResponseSerializer(serializers.Serializer):
+    users = SlackUserSerializer(
+        many=True,
+        help_text="Workspace members the PostHog Slack app can see (excludes bots and deactivated accounts).",
+    )
+    lastRefreshedAt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp of the last full Slack API refresh.",
+    )
+
+
 @extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
@@ -750,6 +773,38 @@ class IntegrationViewSet(
             "lastRefreshedAt": timezone.now().isoformat(),
         }
 
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
+
+    @extend_schema(responses={200: SlackUsersResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="users")
+    def users(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Workspace members the PostHog Slack app can see — drives the DM picker."""
+        instance = self.get_object()
+        if instance.kind not in SLACK_INTEGRATION_KINDS:
+            raise ValidationError("users endpoint is only supported for Slack integrations")
+        # Listing users requires the `users:read` scope. Older installs grant it
+        # implicitly because POSTHOG_SLACK_SCOPE has carried it for years; if a
+        # caller hits this with a stripped-down install we'd rather return a
+        # clean 400 than an opaque Slack 403.
+        if not instance.has_scopes({"users:read"}):
+            raise ValidationError(
+                "This Slack integration is missing the `users:read` scope. Reconnect Slack to refresh.",
+                code="slack_users_read_missing",
+            )
+        slack = SlackIntegration(instance)
+        is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+        force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
+
+        key = f"slack/{instance.id}/users"
+        data = cache.get(key)
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "users": slack.list_users(),
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
         cache.set(key, response, 60 * 60)  # one hour
         return Response(response)
 

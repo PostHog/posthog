@@ -35,7 +35,7 @@ from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
-from posthog.models.integration import Integration
+from posthog.models.integration import SLACK_DM_SCOPES, Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
@@ -81,6 +81,15 @@ def _count_active_summaries(organization) -> int:
 
 def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
+
+
+def _is_slack_user_target(target_value: str) -> bool:
+    """Slack target_value is `<id>|<display>`; user IDs start with `U` (regular)
+    or `W` (enterprise / shared) — channels are `C` (public), `G` (private).
+    Empty or whitespace-only first segment falls through as non-user so the rest
+    of the validation chain catches it."""
+    first = target_value.split("|", 1)[0].strip()
+    return first[:1] in ("U", "W")
 
 
 @extend_schema_field({"type": "array", "items": {"type": "integer"}})
@@ -166,7 +175,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
             "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
+                "help_text": (
+                    "Recipient(s) for the subscription. "
+                    "Email: comma-separated email addresses. "
+                    "Slack: either a channel ID (e.g. `C0123ABC`) / name (`#alerts`), or a user ID "
+                    "(e.g. `U0123ABC`) to deliver as a direct message. DM delivery requires the "
+                    "workspace's Slack integration to have been authorized with the `im:write` "
+                    "scope; if it hasn't, the create returns 400 with `code=slack_dm_needs_reauth`. "
+                    "Webhook: a full URL."
+                )
             },
             "frequency": {
                 "help_text": (
@@ -264,6 +281,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+
+            # Gate user-DM targets on the Slack install actually having the scopes
+            # required to deliver direct messages. Channels stay unconditional —
+            # the original install pre-dates `im:write` and we don't want to break
+            # channel-target creates for the long tail of older workspaces.
+            slack_target = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
+            if slack_target and _is_slack_user_target(slack_target) and not integration.has_scopes(SLACK_DM_SCOPES):
+                raise ValidationError(
+                    {
+                        "target_value": [
+                            "PostHog needs to be re-authorized in your Slack workspace to deliver direct "
+                            "messages. Reconnect Slack from your integration settings and try again."
+                        ]
+                    },
+                    code="slack_dm_needs_reauth",
+                )
 
         # SSRF protection for webhook subscriptions
         target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)

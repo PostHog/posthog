@@ -7,12 +7,6 @@ from posthog.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
 
-# Slack errors that won't self-heal without user action — skip Temporal retries
-# and auto-disable the subscription so it stops re-firing every cycle.
-SLACK_USER_CONFIG_ERRORS = frozenset(
-    {"not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth", "token_revoked"}
-)
-
 
 # Temporal metrics for temporal workers
 def get_metric_meter() -> MetricMeter:

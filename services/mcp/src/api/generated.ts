@@ -23580,7 +23580,7 @@ export namespace Schemas {
       * `slack` - Slack
       * `webhook` - Webhook */
       target_type: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+      /** Recipient(s) for the subscription. Email: comma-separated email addresses. Slack: either a channel ID (e.g. `C0123ABC`) / name (`#alerts`), or a user ID (e.g. `U0123ABC`) to deliver as a direct message. DM delivery requires the workspace's Slack integration to have been authorized with the `im:write` scope; if it hasn't, the create returns 400 with `code=slack_dm_needs_reauth`. Webhook: a full URL. */
       target_value: string;
       /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
@@ -29181,7 +29181,7 @@ export namespace Schemas {
       * `slack` - Slack
       * `webhook` - Webhook */
       target_type?: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+      /** Recipient(s) for the subscription. Email: comma-separated email addresses. Slack: either a channel ID (e.g. `C0123ABC`) / name (`#alerts`), or a user ID (e.g. `U0123ABC`) to deliver as a direct message. DM delivery requires the workspace's Slack integration to have been authorized with the `im:write` scope; if it hasn't, the create returns 400 with `code=slack_dm_needs_reauth`. Webhook: a full URL. */
       target_value?: string;
       /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
@@ -34069,6 +34069,27 @@ export namespace Schemas {
       channels: SlackChannel[];
       /**
          * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+         * @nullable
+         */
+      lastRefreshedAt?: string | null;
+    }
+
+    export interface SlackUser {
+      /** Slack user ID (e.g. `U0123ABC`). Use as the channel arg to chat.postMessage to deliver a DM. */
+      id: string;
+      /** Display name (`profile.display_name_normalized` if set, else `real_name`, else `name`, else id). */
+      name: string;
+      /** Slack `real_name` field, may be empty. */
+      real_name: string;
+      /** True if the user is a workspace admin or owner. */
+      is_admin: boolean;
+    }
+
+    export interface SlackUsersResponse {
+      /** Workspace members the PostHog Slack app can see (excludes bots and deactivated accounts). */
+      users: SlackUser[];
+      /**
+         * ISO 8601 timestamp of the last full Slack API refresh.
          * @nullable
          */
       lastRefreshedAt?: string | null;

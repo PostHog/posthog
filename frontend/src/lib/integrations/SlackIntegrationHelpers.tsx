@@ -14,7 +14,7 @@ import api from 'lib/api'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 
-import { IntegrationType, SlackChannelType } from '~/types'
+import { IntegrationType, SlackChannelType, SlackUserType } from '~/types'
 
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
@@ -64,6 +64,20 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
         : null
 }
 
+const getSlackUserOptions = (slackUsers?: SlackUserType[] | null): LemonInputSelectOption[] => {
+    // Match the channel key format so consumers (subscriptions, alerts) see a uniform
+    // `<id>|<display>` shape regardless of whether the target is a channel or a DM.
+    return slackUsers
+        ? slackUsers.map((u) => {
+              const displayLabel = `@${u.name} (${u.id})`
+              return {
+                  key: `${u.id}|@${u.name}`,
+                  label: displayLabel,
+              }
+          })
+        : []
+}
+
 export type SlackChannelPickerProps = {
     integration: IntegrationType
     value?: string
@@ -76,11 +90,21 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
+        slackUsers,
+        allSlackUsersLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, loadAllSlackUsers } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
+
+    // Only load (and offer) people if the install has been authorized with the DM scopes.
+    // Older installs grant only channel scopes; surfacing people in the picker would
+    // create a "looks pickable, fails on save" trap. The serializer's create-time 400
+    // (code=slack_dm_needs_reauth) is the backstop for any caller that tries anyway.
+    const supportsDms = (integration.config?.scope ?? '').split(',').includes('im:write')
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
@@ -89,15 +113,19 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
+    const rawSlackUserOptions = useMemo(() => getSlackUserOptions(slackUsers), [slackUsers])
 
     const slackChannelOptions = (): LemonInputSelectOption[] | null => {
-        return rawSlackChannelOptions
+        const channels = rawSlackChannelOptions
             ? rawSlackChannelOptions.filter((x) => {
                   const [id] = x.key.split('|#')
                   // Only show a private channel if searching for the exact channelId or it's currently selected
                   return !isPrivateChannelWithoutAccess(id) || id === value || id === localValue
               })
             : []
+        // Append users below channels when the install supports DMs. Sorting per-section
+        // keeps channel grouping intact while letting the People list stay alphabetical.
+        return supportsDms ? [...channels, ...rawSlackUserOptions] : channels
     }
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
 
@@ -117,8 +145,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     useEffect(() => {
         if (!disabled) {
             loadAllSlackChannels()
+            if (supportsDms) {
+                loadAllSlackUsers()
+            }
         }
-    }, [loadAllSlackChannels, disabled])
+    }, [loadAllSlackChannels, loadAllSlackUsers, disabled, supportsDms])
 
     return (
         <>
@@ -160,7 +191,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                           ]
                         : [])
                 }
-                loading={allSlackChannelsLoading || slackChannelByIdLoading}
+                loading={allSlackChannelsLoading || slackChannelByIdLoading || allSlackUsersLoading}
             />
 
             {showSlackMembershipWarning ? (

@@ -314,6 +314,27 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+export interface SlackUserApi {
+    /** Slack user ID (e.g. `U0123ABC`). Use as the channel arg to chat.postMessage to deliver a DM. */
+    id: string
+    /** Display name (`profile.display_name_normalized` if set, else `real_name`, else `name`, else id). */
+    name: string
+    /** Slack `real_name` field, may be empty. */
+    real_name: string
+    /** True if the user is a workspace admin or owner. */
+    is_admin: boolean
+}
+
+export interface SlackUsersResponseApi {
+    /** Workspace members the PostHog Slack app can see (excludes bots and deactivated accounts). */
+    users: SlackUserApi[]
+    /**
+     * ISO 8601 timestamp of the last full Slack API refresh.
+     * @nullable
+     */
+    lastRefreshedAt?: string | null
+}
+
 export interface UserGitHubAccountApi {
     /**
      * GitHub account type for the installation (e.g. User or Organization).
