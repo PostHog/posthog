@@ -88,7 +88,11 @@ export function LiveUserCount({
         }
     }, [isVisible, resumeStream, pauseStream])
 
-    const isOnline = (liveUserCount ?? 0) > 0
+    if (liveUserCount === null) {
+        return null
+    }
+
+    const isOnline = liveUserCount > 0
 
     const badgeClassName = cn(
         'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
@@ -108,7 +112,7 @@ export function LiveUserCount({
         </>
     )
 
-    return liveUserCount === null ? null : (
+    return (
         <Tooltip
             title={
                 <LiveUserCountTooltipContent
