@@ -381,7 +381,11 @@ def is_enable_analyzer_team(team_id: int | None) -> bool:
 def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+    try:
+        value = get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+        return value if isinstance(value, list) else []
+    except Exception:
+        return []
 
 
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
@@ -395,7 +399,8 @@ def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
-        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        return value if isinstance(value, list) else []
     except Exception:
         return []
 
@@ -461,6 +466,14 @@ if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
     SESSION_RECORDING_REDIS_URL = "redis://{}:{}/".format(
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""),
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
+    )
+
+REPLAY_VISION_REDIS_URL = REDIS_URL
+
+if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
+    REPLAY_VISION_REDIS_URL = "redis://{}:{}/".format(
+        os.getenv("POSTHOG_REPLAY_VISION_REDIS_HOST", ""),
+        os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
 
 if not REDIS_URL:

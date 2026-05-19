@@ -234,6 +234,16 @@ CONSTANCE_CONFIG = {
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
         str,
     ),
+    "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated team IDs always subject to the 'light' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster. The global level wins if higher.",
+        list[int],
+    ),
+    "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated team IDs always subject to the 'full' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster.",
+        list[int],
+    ),
     "CLICKHOUSE_HEDGED_APP_QUERIES": (
         get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
         "Enable hedged requests for online APP queries to ClickHouse.",
@@ -319,6 +329,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "CLICKHOUSE_KILL_SWITCH",
+    "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
+    "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
     "CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",

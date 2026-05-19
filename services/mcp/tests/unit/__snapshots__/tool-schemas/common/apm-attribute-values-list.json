@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "attribute_type": {
-            "description": "Type of attribute: \"span\" or \"resource\".\n\n* `span` - span\n* `resource` - resource",
-            "enum": ["span", "resource"],
+            "description": "Type of attribute: \"span\" for built-in span fields (e.g. name), \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
         "key": {

@@ -60,6 +60,7 @@ You typically run phrocs via `hogli start` rather than directly.
 | `home` | Jump to top of output                                   |
 | `end`  | Jump to bottom of output                                |
 | `r`    | Restart selected process                                |
+| `R`    | Restart all failed processes                            |
 | `s`    | Stop selected process                                   |
 | `c`    | Enter copy mode                                         |
 | `i`    | Show process info in pager                              |

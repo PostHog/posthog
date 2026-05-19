@@ -41,7 +41,7 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
 
 /** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
 function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
-    return ctx.setLineDash.mock.calls.map(([p]: [number[]]) => p)
+    return ctx.setLineDash.mock.calls.map(([p]) => p as number[])
 }
 
 describe('hog-charts canvas-renderer', () => {

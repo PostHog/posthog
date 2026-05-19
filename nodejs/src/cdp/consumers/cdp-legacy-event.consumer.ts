@@ -20,7 +20,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import {
+import type {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,

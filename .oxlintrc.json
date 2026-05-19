@@ -41,7 +41,9 @@
             "error",
             {
                 "ignoreRestSiblings": true,
-                "destructuredArrayIgnorePattern": "^_$"
+                "argsIgnorePattern": "^_",
+                "varsIgnorePattern": "^_",
+                "destructuredArrayIgnorePattern": "^_"
             }
         ],
         "no-useless-spread": "error",
@@ -190,11 +192,7 @@
             }
         },
         {
-            "files": [
-                "common/mosaic/**/*.{ts,tsx}",
-                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
-                "products/**/mcp/apps/**/*.{ts,tsx}"
-            ],
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
             "rules": {
                 "react/forbid-elements": "off"
             }
