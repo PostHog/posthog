@@ -9,7 +9,7 @@ const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
 export interface MetricValue {
     key: SystemStatusRow['key']
-    value?: SystemStatusRow['value']
+    value?: SystemStatusRow['value'] | number[]
     value_type?: InstanceSetting['value_type']
     emptyNullLabel?: string
     isSecret?: boolean
@@ -51,6 +51,10 @@ export function RenderMetricValue(
 
     if (value_type === 'int' || typeof value === 'number') {
         return value.toLocaleString('en-US')
+    }
+
+    if (Array.isArray(value)) {
+        return value.length > 0 ? value.join(', ') : <LemonTag className="uppercase text-secondary">Empty</LemonTag>
     }
 
     return value.toString()

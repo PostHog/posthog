@@ -3128,6 +3128,12 @@ export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryRespons
      * matched traces — at high name cardinality the query becomes unsafe to run.
      */
     spanName: string
+    /**
+     * Service name that scopes the returned tree. Applied to the spans CTE so the
+     * call-tree only contains spans from this service, even when matched traces
+     * span multiple services.
+     */
+    serviceName: string
     /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
@@ -3191,6 +3197,7 @@ export type FileSystemIconType =
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
+    | 'replay_vision'
     | 'session_profile'
     | 'survey'
     | 'product_tour'
@@ -5891,6 +5898,13 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'waze',
         ] as const,
         primarySource: 'google',
+        // Optional ad-group / ad warehouse schemas — present when the platform's API
+        // exposes per-level entity + stats tables. A source that omits them stays
+        // CAMPAIGN-only; the factory then reports `supports_level` False at AD_GROUP/AD.
+        adsetTableName: 'ad_group' as const,
+        adsetStatsTableName: 'ad_group_stats' as const,
+        adTableName: 'ad' as const,
+        adStatsTableName: 'ad_stats' as const,
     },
     LinkedinAds: {
         sourceType: 'LinkedinAds' as const,
@@ -5902,6 +5916,14 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
+        // LinkedIn API hierarchy: Account → CampaignGroup → Campaign → Creative.
+        // We map CampaignGroups to "campaign" (matching the marketer's mental model),
+        // so LinkedIn's `campaigns` resource is what the rest of the platform calls
+        // "ad group", and `creatives` is what they call "ad".
+        adsetTableName: 'campaigns' as const,
+        adsetStatsTableName: 'campaign_stats' as const,
+        adTableName: 'creatives' as const,
+        adStatsTableName: 'creative_stats' as const,
     },
     MetaAds: {
         sourceType: 'MetaAds' as const,
@@ -5923,6 +5945,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'threads',
         ] as const,
         primarySource: 'meta',
+        adsetTableName: 'adsets' as const,
+        adsetStatsTableName: 'adset_stats' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_stats' as const,
         conversionActionTypes: {
             omni: [
                 'omni_purchase',
@@ -5955,6 +5981,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['report'] as const,
         defaultSources: ['tiktok'] as const,
         primarySource: 'tiktok',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_report' as const,
     },
     RedditAds: {
         sourceType: 'RedditAds' as const,
@@ -5966,6 +5996,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['report'] as const,
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_report' as const,
     },
     BingAds: {
         sourceType: 'BingAds' as const,
@@ -5977,6 +6011,16 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft'] as const,
         primarySource: 'bing',
+        // At ad-group / ad level Bing's data import only ships performance *reports* —
+        // no separate entity tables. The report embeds the entity columns, so it
+        // doubles as both entity and stats: `adset*`/`ad*` `Table` and `StatsTable`
+        // point at the same name, and the factory detects the duplication to wire the
+        // matched DataWarehouseTable into both adapter slots. (Campaign level still has
+        // a distinct `campaigns` entity table separate from `campaign_performance_report`.)
+        adsetTableName: 'ad_group_performance_report' as const,
+        adsetStatsTableName: 'ad_group_performance_report' as const,
+        adTableName: 'ad_performance_report' as const,
+        adStatsTableName: 'ad_performance_report' as const,
     },
     SnapchatAds: {
         sourceType: 'SnapchatAds' as const,
@@ -5988,6 +6032,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['stats_daily'] as const,
         defaultSources: ['snapchat'] as const,
         primarySource: 'snapchat',
+        adsetTableName: 'ad_squads' as const,
+        adsetStatsTableName: 'ad_squad_stats_daily' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_stats_daily' as const,
         conversionFields: ['conversion_purchases', 'conversion_sign_ups', 'conversion_subscribe'] as const,
         conversionValueFields: [
             'conversion_purchases_value',
@@ -6005,6 +6053,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['analytics'] as const,
         defaultSources: ['pinterest'] as const,
         primarySource: 'pinterest',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_analytics' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_analytics' as const,
     },
 } as const
 
@@ -6236,6 +6288,7 @@ export interface CustomerAnalyticsConfig {
     signup_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
+    account_group_type_index?: integer | null
 }
 
 /**
@@ -6338,6 +6391,7 @@ export enum ProductKey {
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
+    REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',

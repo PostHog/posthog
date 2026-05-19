@@ -33,6 +33,7 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
+    CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
@@ -54,6 +55,7 @@ class Product(StrEnum):
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
+    USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -101,6 +103,7 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+    SEMANTIC_SEARCH = "semantic_search"
 
 
 class FallbackTags(TypedDict):

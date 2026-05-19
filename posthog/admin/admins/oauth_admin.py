@@ -56,7 +56,11 @@ class OAuthApplicationForm(forms.ModelForm):
                 self.fields["client_type"].initial = AbstractApplication.CLIENT_CONFIDENTIAL
 
 
-class OAuthApplicationAdmin(admin.ModelAdmin):
+# Registered manually in `posthog/admin/__init__.py::register_all_admin()`
+# after `admin.site.unregister(OAuthApplication)` clears the default that
+# `oauth2_provider`'s autodiscover sets up. `@admin.register` would race
+# with that unregister and break the override.
+class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-needs-register-decorator
     form = OAuthApplicationForm
     list_display = (
         "id",

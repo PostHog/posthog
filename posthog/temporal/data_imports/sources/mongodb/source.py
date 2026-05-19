@@ -37,7 +37,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
 
     def get_schemas(
-        self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 

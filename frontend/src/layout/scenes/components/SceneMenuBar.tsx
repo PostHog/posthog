@@ -24,7 +24,7 @@ import {
 } from '@posthog/quill'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -70,7 +70,7 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
               CompositeRoot — that's what coordinates ArrowLeft/Right navigation and
               hover-to-switch between menus.
             */}
-            <Menubar className="gap-0 border-0 text-tertiary hover:text-primary">{children}</Menubar>
+            <Menubar className="gap-0 border-0">{children}</Menubar>
 
             <Badge>OS-like menu (alpha)</Badge>
             <SceneMenuBarRightLinks />
@@ -78,29 +78,20 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
     )
 }
 
-const RIGHT_TRIGGER_CLASSES = 'px-2 h-7 rounded-sm text-xs font-medium inline-flex items-center gap-1'
+const RIGHT_TRIGGER_CLASSES = 'px-2 h-7 rounded-sm text-xs font-medium inline-flex items-center gap-1 text-foreground'
 
 function SceneMenuBarRightLinks(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     return (
         <div className="flex items-center gap-px pr-1">
             <Button
-                variant="link"
-                render={
-                    <Link
-                        to="https://posthog.com/docs"
-                        target="_blank"
-                        targetBlankIcon={false}
-                        disableDocsPanel
-                        tooltip="Open docs in a new tab"
-                        data-attr="scene-menu-bar-docs"
-                        className={RIGHT_TRIGGER_CLASSES}
-                    >
-                        Docs
-                        <IconExternal />
-                    </Link>
-                }
-            />
+                data-attr="scene-menu-bar-docs"
+                className={RIGHT_TRIGGER_CLASSES}
+                render={<LinkPrimitive to="https://posthog.com/docs" target="_blank" />}
+            >
+                Docs
+                <IconExternal />
+            </Button>
             <Button
                 type="button"
                 onClick={() => openSidePanel(SidePanelTab.Support)}
