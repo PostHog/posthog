@@ -62,14 +62,28 @@ export const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
 
 export const getCustomApiBaseUrl = (): string | undefined => env.POSTHOG_API_BASE_URL
 
+const CLOUD_HOSTS = new Set(['us.posthog.com', 'eu.posthog.com'])
+
+export const isCloudApi = (): boolean => {
+    const url = getCustomApiBaseUrl()
+    if (!url) {
+        return true
+    }
+    try {
+        const hostname = new URL(url).hostname
+        return CLOUD_HOSTS.has(hostname) || hostname.endsWith('.svc.cluster.local')
+    } catch {
+        return false
+    }
+}
+
 export const isLocalApi = (): boolean => !!getCustomApiBaseUrl()?.includes('localhost')
 
 export const resolveAuthorizationServerUrl = (): string => {
-    const apiBaseUrl = getCustomApiBaseUrl()
-    if (isLocalApi()) {
-        return apiBaseUrl!
+    if (isCloudApi()) {
+        return OAUTH_PROXY_URL
     }
-    return OAUTH_PROXY_URL
+    return getCustomApiBaseUrl()!
 }
 
 // Generated from `posthog/scopes.py` — keep in sync with `hogli build:openapi`.

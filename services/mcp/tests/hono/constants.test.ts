@@ -73,6 +73,11 @@ describe('Hono Constants', () => {
             expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
         })
 
+        it('should return self-hosted URL when POSTHOG_API_BASE_URL is a custom domain', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://posthog.example.com'
+            expect(getAuthorizationServerUrl()).toBe('https://posthog.example.com')
+        })
+
         it('should return oauth proxy URL when no custom URL', () => {
             delete process.env.POSTHOG_API_BASE_URL
             expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
