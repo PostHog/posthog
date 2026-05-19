@@ -220,9 +220,7 @@ class TestPosthogDenialCapturer:
             assert recorded["groups"] == expected_groups
 
     @pytest.mark.asyncio
-    async def test_call_dispatches_to_executor_inside_event_loop(
-        self, capturer: PosthogDenialCapturer
-    ) -> None:
+    async def test_call_dispatches_to_executor_inside_event_loop(self, capturer: PosthogDenialCapturer) -> None:
         loop = asyncio.get_running_loop()
         recorded: dict[str, Any] = {}
 
