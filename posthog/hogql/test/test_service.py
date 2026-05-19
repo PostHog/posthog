@@ -476,7 +476,7 @@ class TestHogQLServiceParameters(BaseTest):
             )
 
 
-class FakeAuthenticator:
+class FakeAuthenticator(HogQLServiceAuthenticator):
     def authenticate(self, database_user: str, database: str, password: str) -> HogQLServiceSessionContext:
         return HogQLServiceSessionContext(
             database_user=database_user,
@@ -487,7 +487,7 @@ class FakeAuthenticator:
         )
 
 
-class FakeQueryExecutor:
+class FakeQueryExecutor(HogQLServiceQueryExecutor):
     def execute(self, sql: str, context: HogQLServiceSessionContext) -> QueryResult:
         return QueryResult(
             columns=[ResultColumn(name="answer", type_oid=POSTGRES_INT8_OID)],

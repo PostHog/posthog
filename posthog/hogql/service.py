@@ -2286,9 +2286,13 @@ def rewrite_catalog_table_references(sql: str, context: HogQLServiceSessionConte
                 rf"(?:{quoted_or_unquoted_identifier_pattern(table_name)})"
                 rf"(?=\s|$)"
             )
+
+            def replace_table_reference(match: re.Match[str], replacement: str = hogql_name) -> str:
+                return f"{match.group(1)}{replacement}"
+
             rewritten_sql = re.sub(
                 pattern,
-                lambda match, replacement=hogql_name: f"{match.group(1)}{replacement}",
+                replace_table_reference,
                 rewritten_sql,
             )
     return rewritten_sql
