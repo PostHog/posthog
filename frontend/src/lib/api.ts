@@ -219,10 +219,6 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
-import type {
-    FeatureFlagTestEvaluationRequestApi,
-    FeatureFlagTestEvaluationResponseApi,
-} from 'products/feature_flags/frontend/generated/api.schemas'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
@@ -1124,13 +1120,6 @@ export class ApiRequest {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
         return this.featureFlag(id, teamId).addPathComponent('create_static_cohort_for_flag')
-    }
-
-    public featureFlagTestEvaluation(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
-        if (!id) {
-            throw new Error('Must provide an ID for the feature flag to construct the URL')
-        }
-        return this.featureFlag(id, teamId).addPathComponent('test_evaluation')
     }
 
     public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
@@ -2386,12 +2375,6 @@ const api = {
             featureFlagId: FeatureFlagType['id']
         ): Promise<FeatureFlagStatusResponse> {
             return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
-        },
-        async testEvaluation(
-            id: FeatureFlagType['id'],
-            data: FeatureFlagTestEvaluationRequestApi
-        ): Promise<FeatureFlagTestEvaluationResponseApi> {
-            return await new ApiRequest().featureFlagTestEvaluation(id).create({ data })
         },
     },
 

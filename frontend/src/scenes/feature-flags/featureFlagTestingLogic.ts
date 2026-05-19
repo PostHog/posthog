@@ -79,8 +79,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     if (formData.timestamp?.trim()) {
                         data.timestamp = formData.timestamp.trim()
 
-                        // Accept ISO string format from date picker and validate it's a valid date
-                        const parsedTimestamp = dayjs(data.timestamp)
+                        // Validate ISO string format with strict parsing
+                        const parsedTimestamp = dayjs(data.timestamp, 'YYYY-MM-DDTHH:mm:ss.SSS[Z]', true)
                         if (!parsedTimestamp.isValid()) {
                             throw new Error('Invalid timestamp format')
                         }
@@ -151,7 +151,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         datePickerValue: [
             null as Dayjs | null,
             {
-                setDatePickerValue: (_, { value }) => (value === undefined ? null : value),
+                setDatePickerValue: (_, { value }) => value,
                 clearTestForm: () => null,
             },
         ],
@@ -189,14 +189,36 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
 
                 return result.conditions.map((condition: ConditionAnalysis) => {
                     // Check if this condition is the actual winner
-                    const isWinningCondition = result.condition_index === condition.index
+                    // A condition is only a winner if it's the condition_index AND the result is truthy or the condition matched
+                    const isWinningCondition =
+                        result.condition_index === condition.index && (result.result || condition.matched)
                     // Determine if this condition matched but wasn't the winner
-                    const matchedButNotWinner = condition.matched && !condition.rollout_excluded && !isWinningCondition
+                    const matchedButNotWinner =
+                        condition.properties_matched && !isWinningCondition && !condition.rollout_excluded
+
+                    // Determine display properties
+                    let tone: 'success' | 'info' | 'warning' | 'muted' = 'muted'
+                    let label: string | null = null
+
+                    if (isWinningCondition) {
+                        tone = 'success'
+                        label = 'MATCHED'
+                    } else if (matchedButNotWinner) {
+                        tone = 'info'
+                        label = 'PROPERTIES MATCHED'
+                    } else if (condition.rollout_excluded) {
+                        tone = 'warning'
+                        label = 'EXCLUDED FROM ROLLOUT'
+                    }
 
                     return {
                         ...condition,
                         isWinningCondition,
                         matchedButNotWinner,
+                        display: {
+                            tone,
+                            label,
+                        },
                     }
                 })
             },
@@ -205,6 +227,32 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         hasValidPerson: [
             (s) => [s.testFormData],
             (formData: TestFormData): boolean => Boolean(formData.person_id?.trim()),
+        ],
+        // Get formatted error display information
+        errorDisplay: [
+            (s) => [s.testError],
+            (error: string | null) => {
+                if (!error) {
+                    return null
+                }
+
+                let helpText: string | null = null
+
+                if (error.toLowerCase().includes('build person properties')) {
+                    helpText =
+                        'Try a more recent timestamp when this person was active, remove the timestamp to test with current person properties, or select a different person who was active at that time.'
+                } else if (error.toLowerCase().includes('timestamp')) {
+                    helpText =
+                        'When using historical timestamps, the person must have existed at that time and had the necessary properties for evaluation.'
+                } else if (error.toLowerCase().includes('person') && error.toLowerCase().includes('not found')) {
+                    helpText = 'Try selecting a different person or removing the timestamp to test with current data.'
+                }
+
+                return {
+                    message: error,
+                    helpText,
+                }
+            },
         ],
     }),
 ])

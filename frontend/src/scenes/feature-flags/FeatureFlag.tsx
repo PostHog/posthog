@@ -277,7 +277,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         },
     ] as LemonTab<FeatureFlagsTab>[]
 
-    if (featureFlag.key && id) {
+    if (id) {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
@@ -332,7 +332,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <ExperimentsTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlag.key && id) {
+    if (id) {
         tabs.push({
             label: (
                 <div className="flex flex-row">

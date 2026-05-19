@@ -98,7 +98,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         return () => {
             observer.disconnect()
         }
-    }, [marginsRef.current])
+    }, [])
 
     // When margins change without a resize, recompute dimensions from the cached rect.
     useEffect(() => {

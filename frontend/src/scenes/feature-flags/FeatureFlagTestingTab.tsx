@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 
@@ -14,12 +15,31 @@ import { PropertyDefinitionType } from '~/types'
 import type { ConditionAnalysis } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
+const CONDITION_DISPLAY_STYLES = {
+    success: {
+        card: 'border-success bg-success-highlight',
+        badge: 'bg-success text-success-content',
+    },
+    info: {
+        card: 'border-info bg-info-highlight',
+        badge: 'bg-info text-info-content',
+    },
+    warning: {
+        card: 'border-warning bg-warning-highlight',
+        badge: 'bg-warning text-warning-content',
+    },
+    muted: {
+        card: 'border-muted bg-bg-light',
+        badge: 'bg-muted text-muted-alt',
+    },
+} as const
+
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
+    const [includeTime, setIncludeTime] = useState(true)
 
     const {
         testFormData: formData,
-        testError: error,
         testResult: result,
         datePickerOpen,
         datePickerValue,
@@ -28,11 +48,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         usedProperties,
         enrichedConditions,
         hasValidPerson,
+        errorDisplay,
     } = useValues(logic)
 
     const {
         setTestFormData,
-        setTestError,
         setDatePickerOpen,
         setDatePickerValue,
         setSelectedPerson,
@@ -41,10 +61,6 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     } = useActions(logic)
 
     const handleSubmit = (): void => {
-        if (!hasValidPerson) {
-            setTestError('Please select a person')
-            return
-        }
         testFlagEvaluation({ flagId: featureFlag.id!, formData })
     }
 
@@ -121,8 +137,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                         <LemonLabel>Historical timestamp (optional)</LemonLabel>
                         <LemonCalendarSelectInput
                             value={datePickerValue}
-                            format="YYYY-MM-DD HH:mm:ss"
+                            format={includeTime ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD'}
                             visible={datePickerOpen}
+                            showTimeToggle
                             onClickOutside={() => setDatePickerOpen(false)}
                             onChange={(selectedDate: Dayjs | null) => {
                                 setDatePickerValue(selectedDate)
@@ -133,7 +150,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 setDatePickerOpen(false)
                             }}
                             onClose={() => setDatePickerOpen(false)}
-                            granularity="minute"
+                            granularity={includeTime ? 'minute' : 'day'}
+                            onToggleTime={(includeTimeValue) => {
+                                setIncludeTime(includeTimeValue)
+                            }}
                             clearable={true}
                             buttonProps={{
                                 fullWidth: true,
@@ -142,7 +162,6 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     ? datePickerValue.format('YYYY-MM-DD HH:mm:ss')
                                     : 'Select date and time',
                             }}
-                            showTimeToggle
                             placeholder="Select date and time"
                         />
                         <p className="text-xs text-muted">
@@ -193,35 +212,16 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                     </div>
 
                     {/* Error Display */}
-                    {error && (
+                    {errorDisplay && (
                         <LemonBanner type="error">
                             <div>
                                 <div className="font-medium">Test evaluation failed</div>
-                                <div className="text-sm mt-1">{error}</div>
-                                {error.toLowerCase().includes('build person properties') && (
+                                <div className="text-sm mt-1">{errorDisplay.message}</div>
+                                {errorDisplay.helpText && (
                                     <div className="text-xs mt-2 text-muted">
-                                        <strong>Solutions:</strong>
-                                        <ul className="list-disc list-inside mt-1 space-y-1">
-                                            <li>Try a more recent timestamp when this person was active</li>
-                                            <li>Remove the timestamp to test with current person properties</li>
-                                            <li>Select a different person who was active at that time</li>
-                                        </ul>
+                                        <strong>Tip:</strong> {errorDisplay.helpText}
                                     </div>
                                 )}
-                                {error.toLowerCase().includes('timestamp') &&
-                                    !error.toLowerCase().includes('build person properties') && (
-                                        <div className="text-xs mt-2 text-muted">
-                                            <strong>Tip:</strong> When using historical timestamps, the person must have
-                                            existed at that time and had the necessary properties for evaluation.
-                                        </div>
-                                    )}
-                                {error.toLowerCase().includes('person') &&
-                                    error.toLowerCase().includes('not found') && (
-                                        <div className="text-xs mt-2 text-muted">
-                                            <strong>Tip:</strong> Try selecting a different person or removing the
-                                            timestamp to test with current data.
-                                        </div>
-                                    )}
                             </div>
                         </LemonBanner>
                     )}
@@ -239,7 +239,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <LemonLabel>Flag result</LemonLabel>
                                     <div
                                         className={`px-3 py-2 rounded text-sm font-mono ${
-                                            result.condition_index !== null
+                                            result.result
                                                 ? 'bg-success-highlight text-success'
                                                 : 'bg-danger-highlight text-danger'
                                         }`}
@@ -279,48 +279,24 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                                         <div className="space-y-3 max-h-96 overflow-auto">
                                             {enrichedConditions.map((condition) => {
-                                                const { isWinningCondition, matchedButNotWinner } = condition
+                                                const styles = CONDITION_DISPLAY_STYLES[condition.display.tone]
 
                                                 return (
                                                     <div
                                                         key={condition.index}
-                                                        className={`border rounded-lg p-3 ${
-                                                            condition.matched &&
-                                                            !condition.rollout_excluded &&
-                                                            isWinningCondition
-                                                                ? 'border-success bg-success-highlight'
-                                                                : matchedButNotWinner
-                                                                  ? 'border-info bg-info-highlight'
-                                                                  : condition.rollout_excluded
-                                                                    ? 'border-warning bg-warning-highlight'
-                                                                    : 'border-muted bg-bg-light'
-                                                        }`}
+                                                        className={`border rounded-lg p-3 ${styles.card}`}
                                                     >
                                                         <div className="flex items-center gap-2 mb-2">
                                                             <h6 className="font-medium text-sm">
                                                                 Condition #{condition.index}
                                                             </h6>
-                                                            <span
-                                                                className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                    condition.matched &&
-                                                                    !condition.rollout_excluded &&
-                                                                    isWinningCondition
-                                                                        ? 'bg-success text-success-content'
-                                                                        : matchedButNotWinner
-                                                                          ? 'bg-info text-info-content'
-                                                                          : condition.rollout_excluded
-                                                                            ? 'bg-warning text-warning-content'
-                                                                            : 'bg-muted text-muted-alt'
-                                                                }`}
-                                                            >
-                                                                {condition.rollout_excluded
-                                                                    ? 'ROLLOUT EXCLUDED'
-                                                                    : matchedButNotWinner
-                                                                      ? 'PROPERTIES MATCHED'
-                                                                      : condition.matched
-                                                                        ? 'MATCHED'
-                                                                        : 'NOT MATCHED'}
-                                                            </span>
+                                                            {condition.display.label && (
+                                                                <span
+                                                                    className={`px-2 py-1 rounded text-xs font-mono ${styles.badge}`}
+                                                                >
+                                                                    {condition.display.label}
+                                                                </span>
+                                                            )}
                                                             {condition.rollout_percentage < 100 && (
                                                                 <span className="px-2 py-1 rounded text-xs bg-bg-light text-muted font-mono">
                                                                     {condition.rollout_percentage}%
@@ -364,7 +340,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         </LemonLabel>
                                     </div>
 
-                                    <div className="max-h-96 overflow-auto">
+                                    <div className="max-h-96 overflow-auto [&_tr[style*='var(--mark)']]:!bg-bg-3000">
                                         <PropertiesTable
                                             properties={result.person_properties}
                                             type={PropertyDefinitionType.Person}
