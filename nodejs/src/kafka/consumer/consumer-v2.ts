@@ -47,6 +47,8 @@ export type KafkaConsumerV2Config = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     enablePartitionEof?: boolean
+    onPartitionsAssigned?: PartitionLifecycleCallback
+    onPartitionsRevoked?: PartitionLifecycleCallback
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -54,8 +56,42 @@ export type RdKafkaConsumerOverrides = Omit<
     'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
 >
 
+/**
+ * Result returned by `eachBatch`.
+ *
+ * `backgroundTask` lets a consumer signal post-batch work (e.g. flushing buffered state to
+ * external storage). The consumer treats it as a pre-commit contract:
+ * - The promise is awaited (with `backgroundTaskTimeoutMs`) before offsets are stored.
+ * - If the promise rejects or times out, offsets for that batch are NOT stored.
+ * - The promise participates in REVOKE drain — `incrementalUnassign` will not be called
+ *   until in-flight `backgroundTask` promises settle (or `drainTimeoutMs` expires).
+ * - It also participates in backpressure — the consumer will not dispatch a new batch
+ *   while `inFlight` is at `maxBackgroundTasks`.
+ */
 export type EachBatchResult = { backgroundTask?: Promise<unknown> } | void
 export type EachBatch = (messages: Message[]) => Promise<EachBatchResult>
+
+/**
+ * Async callback invoked on partition lifecycle transitions. Called sequentially from the
+ * consumer loop — nothing else in the consumer runs concurrently with it.
+ *
+ * Latency contract: these callbacks block partition assign/unassign while they run. Keep
+ * them fast.
+ * - They are NOT covered by `drainTimeoutMs` — that timeout applies to `backgroundTask`
+ *   drain only. A hung callback hangs the rebalance.
+ * - A slow ASSIGN callback delays the consumer's ability to start fetching from the new
+ *   partitions.
+ * - A slow REVOKE callback delays the consumer's response to the broker. If it exceeds
+ *   `session.timeout.ms` (default 30s) or `max.poll.interval.ms` (default 5m), the
+ *   consumer will be kicked from the group.
+ * - Recommended: do in-memory work only (e.g. dropping buffered state from a map). For
+ *   I/O, return a `backgroundTask` from `eachBatch` instead — that path IS covered by
+ *   `drainTimeoutMs`.
+ *
+ * If the callback throws, the consumer logs + captures the exception but proceeds with
+ * assign/unassign anyway. Application bugs must not block partition release.
+ */
+export type PartitionLifecycleCallback = (partitions: Assignment[]) => Promise<void>
 
 type RebalanceEvent =
     | { type: 'ASSIGN'; partitions: Assignment[] }
@@ -386,6 +422,7 @@ export class KafkaConsumerV2 {
             logger.info('🔁', 'kafka_consumer_v2_assigned', {
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
+            await this.invokeLifecycleCallback('assigned', this.config.onPartitionsAssigned, event.partitions)
             return
         }
 
@@ -397,6 +434,12 @@ export class KafkaConsumerV2 {
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
             await this.drainAll('revoke')
+
+            // Run the application callback after drain (so in-flight flushes for these
+            // partitions have settled and stored offsets while we still owned them) and
+            // before unassign (so any final state cleanup happens before librdkafka
+            // releases the partitions).
+            await this.invokeLifecycleCallback('revoked', this.config.onPartitionsRevoked, event.partitions)
 
             try {
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
@@ -458,6 +501,24 @@ export class KafkaConsumerV2 {
                 drainTimeoutMs: this.drainTimeoutMs,
                 inFlight: this.inFlight.length,
             })
+        }
+    }
+
+    private async invokeLifecycleCallback(
+        kind: 'assigned' | 'revoked',
+        callback: PartitionLifecycleCallback | undefined,
+        partitions: Assignment[]
+    ): Promise<void> {
+        if (!callback) {
+            return
+        }
+        try {
+            await callback(partitions)
+        } catch (error) {
+            // Application bugs must not block partition assign/unassign — log + capture
+            // and continue. The rebalance proceeds regardless.
+            logger.error('🔁', `kafka_consumer_v2_on_partitions_${kind}_failed`, { error: String(error) })
+            captureException(error)
         }
     }
 

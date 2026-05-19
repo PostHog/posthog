@@ -615,6 +615,204 @@ describe('KafkaConsumerV2', () => {
         await startConsuming(eachBatch)
         expect(consumer.isHealthy().isError()).toBe(false)
     })
+
+    // === Partition lifecycle callbacks (Stage 1a) ===
+
+    it('onPartitionsAssigned: called with the assigned partitions after incrementalAssign', async () => {
+        const onPartitionsAssigned = jest.fn().mockResolvedValue(undefined)
+        consumer = new KafkaConsumerV2({
+            groupId: 'test-group-assigned',
+            topic: 'test-topic',
+            onPartitionsAssigned,
+        })
+        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await consumer.connect(eachBatch)
+
+        registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, [
+            { topic: 'test-topic', partition: 0 },
+        ])
+        releaseConsume()
+        await delay(5)
+
+        expect(mockRdKafka.incrementalAssign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+        expect(onPartitionsAssigned).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+    })
+
+    it('onPartitionsAssigned: slow callback blocks the next consume()', async () => {
+        const callbackGate = triggerablePromise()
+        const onPartitionsAssigned = jest.fn().mockImplementation(async () => {
+            await callbackGate.promise
+        })
+        consumer = new KafkaConsumerV2({
+            groupId: 'test-group-assigned-slow',
+            topic: 'test-topic',
+            onPartitionsAssigned,
+        })
+        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await consumer.connect(eachBatch)
+
+        registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, [
+            { topic: 'test-topic', partition: 0 },
+        ])
+        releaseConsume()
+        await delay(10)
+
+        expect(onPartitionsAssigned).toHaveBeenCalled()
+        // The loop is awaiting the callback inside handleRebalanceEvent — no new consume()
+        // call has been made since the IDLE keepalive one.
+        const consumeCallsBefore = mockRdKafka.consume.mock.calls.length
+
+        callbackGate.resolve()
+        await delay(10)
+
+        expect(mockRdKafka.consume.mock.calls.length).toBeGreaterThan(consumeCallsBefore)
+    })
+
+    it('onPartitionsAssigned: throwing callback does not block subsequent consume()', async () => {
+        const onPartitionsAssigned = jest.fn().mockRejectedValue(new Error('assign boom'))
+        consumer = new KafkaConsumerV2({
+            groupId: 'test-group-assigned-throw',
+            topic: 'test-topic',
+            onPartitionsAssigned,
+        })
+        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await consumer.connect(eachBatch)
+
+        registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, [
+            { topic: 'test-topic', partition: 0 },
+        ])
+        releaseConsume()
+        await delay(10)
+
+        expect(onPartitionsAssigned).toHaveBeenCalled()
+        expect(captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'assign boom' }))
+        // Loop survives and keeps polling.
+        releaseConsume()
+        await delay(5)
+        expect((consumer as any).running).toBe(true)
+    })
+
+    it('onPartitionsRevoked: called after drain and before incrementalUnassign', async () => {
+        const callbackUnassignSnapshot: { wasCalled: boolean }[] = []
+        const onPartitionsRevoked = jest.fn().mockImplementation(() => {
+            callbackUnassignSnapshot.push({
+                wasCalled: (mockRdKafka.incrementalUnassign as jest.Mock).mock.calls.length > 0,
+            })
+            return Promise.resolve()
+        })
+        consumer = new KafkaConsumerV2({
+            groupId: 'test-group-revoked-ordering',
+            topic: 'test-topic',
+            onPartitionsRevoked,
+        })
+        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+        ;(consumer as any).maxBackgroundTasks = 5
+
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const flushPromise = triggerablePromise()
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], flushPromise.promise)
+
+        fireRevoke()
+        await delay(5)
+        // Drain blocked on flushPromise — callback must NOT have fired yet.
+        expect(onPartitionsRevoked).not.toHaveBeenCalled()
+
+        flushPromise.resolve()
+        await delay(20)
+
+        // When the callback ran, incrementalUnassign had NOT been called yet.
+        expect(callbackUnassignSnapshot).toEqual([{ wasCalled: false }])
+        // After the callback returned, unassign DID fire.
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+    })
+
+    it('onPartitionsRevoked: slow callback delays unassign', async () => {
+        const callbackGate = triggerablePromise()
+        const onPartitionsRevoked = jest.fn().mockImplementation(async () => {
+            await callbackGate.promise
+        })
+        consumer = new KafkaConsumerV2({
+            groupId: 'test-group-revoked-slow',
+            topic: 'test-topic',
+            onPartitionsRevoked,
+        })
+        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        fireRevoke()
+        await delay(20)
+
+        expect(onPartitionsRevoked).toHaveBeenCalled()
+        expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
+
+        callbackGate.resolve()
+        await delay(10)
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+    })
+
+    it('onPartitionsRevoked: throwing callback does not block unassign', async () => {
+        const onPartitionsRevoked = jest.fn().mockRejectedValue(new Error('revoke boom'))
+        consumer = new KafkaConsumerV2({
+            groupId: 'test-group-revoked-throw',
+            topic: 'test-topic',
+            onPartitionsRevoked,
+        })
+        mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        fireRevoke()
+        await delay(20)
+
+        expect(onPartitionsRevoked).toHaveBeenCalled()
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+        expect(captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'revoke boom' }))
+    })
+
+    // === backgroundTask pre-commit contract (Stage 1b) ===
+
+    it('backgroundTask contract: offsetsStore is not called until backgroundTask resolves', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const task = triggerablePromise()
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], task.promise)
+        await delay(10)
+
+        // backgroundTask still pending — store must not have been called.
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+
+        task.resolve()
+        await delay(10)
+
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 2 }])
+    })
+
+    it('backgroundTask contract: rejecting backgroundTask skips offsetsStore', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const task = triggerablePromise()
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], task.promise)
+        await delay(2)
+
+        task.reject(new Error('flush failed'))
+        await delay(10)
+
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+        expect(captureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'flush failed' }))
+    })
 })
 
 afterAll(() => {
