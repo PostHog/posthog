@@ -6,7 +6,7 @@ from django.http import JsonResponse
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -47,26 +47,45 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
-    id = serializers.CharField(allow_null=True)
-    type = serializers.CharField()
+    id = serializers.CharField(
+        allow_null=True,
+        help_text="Identifier of the assignee. User IDs are numeric strings; role IDs are UUID strings.",
+    )
+    type = serializers.CharField(help_text="Type of assignee: `user` or `role`.")
 
 
 class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
+    id = serializers.IntegerField(help_text="Numeric ID of the cohort linked to the issue.")
+    name = serializers.CharField(help_text="Display name of the cohort linked to the issue.")
 
 
 class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     """Read-only serializer for issue contract types returned by the facade."""
 
-    id = serializers.UUIDField()
-    status = serializers.CharField()
-    name = serializers.CharField(allow_null=True)
-    description = serializers.CharField(allow_null=True)
-    first_seen = serializers.DateTimeField(allow_null=True)
-    assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
-    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
-    cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
+    id = serializers.UUIDField(help_text="UUID of the error tracking issue.")
+    status = serializers.CharField(
+        help_text="Lifecycle status of the issue: `active`, `resolved`, `suppressed`, or `pending_release`."
+    )
+    name = serializers.CharField(allow_null=True, help_text="Display name of the issue (typically the exception type).")
+    description = serializers.CharField(
+        allow_null=True, help_text="Short description of the issue (typically the exception message)."
+    )
+    first_seen = serializers.DateTimeField(allow_null=True, help_text="Timestamp the issue was first observed.")
+    assignee = ErrorTrackingIssueAssigneeReadSerializer(
+        allow_null=True, help_text="Current assignee of the issue, or null if unassigned."
+    )
+    external_issues = ErrorTrackingExternalReferenceSerializer(
+        many=True, help_text="External issue tracker references linked to this issue (e.g. GitHub, Linear)."
+    )
+    cohort = ErrorTrackingIssueCohortReadSerializer(
+        allow_null=True, help_text="Cohort linked to this issue for affected user tracking, or null if none."
+    )
+
+
+class ErrorTrackingIssueRedirectResponseSerializer(serializers.Serializer):
+    """Returned with HTTP 308 when a fingerprint resolves to a different issue than the URL path id."""
+
+    issue_id = serializers.UUIDField(help_text="UUID of the canonical issue the fingerprint resolves to.")
 
 
 class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
@@ -225,6 +244,35 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
         return Response({"exists": has_issues})
 
+    @extend_schema(
+        summary="Get an error tracking issue",
+        description=(
+            "Retrieve a single error tracking issue by UUID. "
+            "When the optional `fingerprint` query parameter is provided and resolves to a different "
+            "issue than the URL path id (for example, the issue was merged), the response is a 308 "
+            "with the canonical issue id in the body."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="fingerprint",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional fingerprint to resolve. If it resolves to a different issue than the "
+                    "URL path id, the response is a 308 with the canonical issue id."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(response=ErrorTrackingIssueReadSerializer, description="The error tracking issue."),
+            308: OpenApiResponse(
+                response=ErrorTrackingIssueRedirectResponseSerializer,
+                description="The fingerprint resolves to a different issue than the URL path id.",
+            ),
+            404: OpenApiResponse(description="Issue not found for the current project."),
+        },
+    )
     def retrieve(self, request, *args, **kwargs):
         issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")

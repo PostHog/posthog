@@ -204,6 +204,9 @@ tools:
             Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
             update description.
         ui_app: error-issue
+    # Intentionally disabled for MCP. AI agents should reach for `query-error-tracking-issue` (Query API)
+    # below — it returns richer issue context (impact, aggregations, occurrence summary) than the bare REST
+    # retrieve. The REST endpoint still exists and is documented in the OpenAPI spec for direct REST clients.
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
         enabled: false
