@@ -228,7 +228,6 @@ export function SurveyTranslations(): JSX.Element {
                     placeholder="Add a language (e.g., 'fr', 'French', 'fr-CA')"
                     className="grow"
                     allowCustomValues
-                    autoFocus={addedLanguages.length === 0}
                     value={[]}
                 />
                 <LemonButton

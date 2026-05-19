@@ -226,11 +226,14 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Ship a variant to 100% of users and (optionally) end the experiment.
+ * Ship a variant and (optionally) end the experiment.
 
-Rewrites the feature flag so that the selected variant is served to everyone.
-Existing release conditions (flag groups) are preserved so the change can be
-rolled back by deleting the auto-added release condition in the feature flag UI.
+Updates the feature flag so the selected variant gets 100% of the variant
+distribution. By default, existing release conditions on the flag are preserved
+untouched — the variant is served only to users who already match them. Pass
+``release_to_everyone: true`` to also prepend a catch-all release condition
+that rolls the variant out to 100% of users (overrides any existing release
+conditions on the flag).
 
 Can be called on both running and stopped experiments. If the experiment is
 still running, it will also be ended (end_date set and status marked as stopped).
@@ -244,6 +247,8 @@ the change request is approved and the user retries.
 Returns 400 if the experiment is in draft state, the variant_key is not found
 on the flag, or the experiment has no linked feature flag.
  */
+export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
+
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -259,5 +264,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
     conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
-    variant_key: zod.string().describe('The key of the variant to ship to 100% of users.'),
+    variant_key: zod.string().describe('The key of the variant to ship.'),
+    release_to_everyone: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodyReleaseToEveryoneDefault)
+        .describe(
+            'If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them.'
+        ),
 })
