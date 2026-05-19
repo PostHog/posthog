@@ -911,9 +911,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
-    [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
+    // Static + edit routes MUST come before `/subscriptions/:subscriptionId`,
+    // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
+    // scene → 404 "Subscription not found" with a removeChild reconciliation
+    // error from the racing mounts.
     [urls.subscriptionNew()]: [Scene.SubscriptionForm, 'subscriptionNew'],
     [urls.subscriptionEdit(':subscriptionId')]: [Scene.SubscriptionForm, 'subscriptionEdit'],
+    [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
