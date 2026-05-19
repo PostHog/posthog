@@ -1,9 +1,11 @@
 import { trace } from '@opentelemetry/api'
+import { Counter } from 'prom-client'
 
 import { type RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import type { LogsSettings } from '~/types'
+import { logger } from '~/utils/logger'
 
 import { type PiiScrubStats } from '../log-pii-scrub'
 import {
@@ -12,13 +14,49 @@ import {
     encodeLogRecords,
     transformDecodedLogRecordsInPlace,
 } from '../log-record-avro'
-import type { CompiledRuleSet, RateLimitPendingByRule } from './evaluate'
+import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {
     SAMPLING_DECISION_DROP,
+    SAMPLING_DECISION_KEEP,
     SAMPLING_DECISION_SAMPLE_DROPPED,
     classifySamplingRecord,
     evaluateLogRecord,
 } from './evaluate'
+
+/**
+ * Incremented when a per-record sampling evaluation throws. The record is kept
+ * (fail-open) so an adversarial or malformed rule cannot drop traffic via an
+ * uncaught exception, but the counter makes the silent failure observable.
+ */
+export const logsSamplingEvalErrorCounter = new Counter({
+    name: 'logs_ingestion_sampling_eval_error_total',
+    help: 'Per-record sampling evaluation threw an exception; record was kept (fail-open).',
+    labelNames: ['team_id', 'phase'],
+})
+
+function safeClassifySamplingRecord(
+    ruleSet: CompiledRuleSet,
+    record: LogRecord,
+    teamId: number
+): SamplingClassifyResult {
+    try {
+        return classifySamplingRecord(ruleSet, record)
+    } catch (err) {
+        logsSamplingEvalErrorCounter.inc({ team_id: String(teamId), phase: 'classify' })
+        logger.warn('[logs-sampling] classifySamplingRecord threw — keeping record', { teamId, err })
+        return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: null }
+    }
+}
+
+function safeEvaluateLogRecord(ruleSet: CompiledRuleSet, record: LogRecord, teamId: number): EvaluateResult {
+    try {
+        return evaluateLogRecord(ruleSet, record)
+    } catch (err) {
+        logsSamplingEvalErrorCounter.inc({ team_id: String(teamId), phase: 'evaluate' })
+        logger.warn('[logs-sampling] evaluateLogRecord threw — keeping record', { teamId, err })
+        return { decision: SAMPLING_DECISION_KEEP, ruleId: null }
+    }
+}
 
 export type ProcessBufferWithSamplingResult = {
     value: Buffer
@@ -60,7 +98,7 @@ export class LogsSamplingService {
         const useRate = Boolean(ruleSet.hasRateLimitRules && teamId != null)
 
         if (useRate && teamId != null) {
-            const classifications = records.map((r) => classifySamplingRecord(ruleSet, r))
+            const classifications = records.map((r) => safeClassifySamplingRecord(ruleSet, r, teamId))
             const pendingByRule: RateLimitPendingByRule = new Map()
             for (let i = 0; i < records.length; i++) {
                 const c = classifications[i]!
@@ -95,7 +133,7 @@ export class LogsSamplingService {
             }
         } else {
             for (const record of records) {
-                const { decision, ruleId } = evaluateLogRecord(ruleSet, record)
+                const { decision, ruleId } = safeEvaluateLogRecord(ruleSet, record, teamId ?? 0)
                 if (decision === SAMPLING_DECISION_DROP || decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
                     recordsDropped++
                     if (ruleId != null) {
