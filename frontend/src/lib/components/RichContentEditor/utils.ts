@@ -91,6 +91,9 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         },
         scrollToPosition(position) {
             queueMicrotask(() => {
+                if (editor.isDestroyed) {
+                    return
+                }
                 const { node } = editor.view.domAtPos(position)
                 const element =
                     node.nodeType === Node.TEXT_NODE
