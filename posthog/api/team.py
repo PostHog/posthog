@@ -1704,6 +1704,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "default_experiment_stats_method",
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
+                    "default_cuped_enabled",
                 ]
 
         team = self.get_object()

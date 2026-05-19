@@ -21,9 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-
-# Constant for representing NULL breakdown values
-BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
 
 class BreakdownInjector:

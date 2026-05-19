@@ -1265,7 +1265,11 @@ class ImpersonationBlockedPathsMiddleware:
         )
 
     def _is_path_blocked(self, path: str) -> bool:
-        return any(path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
+        # DefaultRouterPlusPlus accepts an optional trailing slash, so /api/personal_api_keys
+        # and /api/personal_api_keys/ both reach the same viewset. Normalize before matching
+        # so the slashless form cannot bypass the block list.
+        normalized_path = path if path.endswith("/") else f"{path}/"
+        return any(normalized_path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
 
     def _is_allowed_users_request(self, request: HttpRequest) -> bool:
         """
