@@ -182,10 +182,11 @@ QAREPORT.md
 data/seaweedfs
 data/seaweedfs/
 
-# No env files except for the example, development defaults, and secrets list
+# No env files except for the example, development defaults, services, and secrets list
 .env*
 !.env.example
 !.env.development
+!.env.services
 !.env.secrets
 
 # Ignore Agent OS (Claude Code) files

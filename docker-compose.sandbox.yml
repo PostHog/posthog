@@ -166,9 +166,10 @@ services:
             - python-env:/cache/python
             # JetBrains IDE backend for Gateway (populated by bin/sandbox)
             - jetbrains:/opt/idea
-        # Shared service defaults (Postgres, ClickHouse, Redis, etc.) come from
-        # the same env file used by docker-compose.base.yml.
-        env_file: dev-services.env
+        # Sandbox is a dev tool — gets both shared service connections and dev runtime knobs.
+        env_file:
+            - .env.services
+            - .env.development
         environment:
             # --- Sandbox identity ---
             SANDBOX_UID: '${SANDBOX_UID:-1000}'

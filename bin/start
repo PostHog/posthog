@@ -34,15 +34,13 @@ if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.en
 fi
 
 # Environment variables are defined in:
-#   .env.development  - dev-mode runtime defaults (committed)
+#   .env.services     - service connection defaults (shared with containers
+#                       and hobby via docker-compose env_file)
+#   .env.development  - dev-mode runtime knobs (DEBUG, OTEL, etc.)
 #   .env.local        - your overrides + 1Password secrets (gitignored)
 #
-# Service connection defaults (DATABASE_URL, REDIS_URL, KAFKA_HOSTS,
-# CLICKHOUSE_HOST, OBJECT_STORAGE_ENDPOINT, etc.) live in dev-services.env
-# — loaded into containers via docker-compose env_file, picked up host-side
-# via Django settings' DEBUG-gated defaults (see posthog/settings).
-#
-# Source env files respecting precedence: shell env > .env.local > .env.development
+# Source env files respecting precedence:
+#   shell env > .env.local > .env.development > .env.services
 # Only set vars that aren't already in the environment
 source_env_defaults() {
     while IFS='=' read -r name value; do
@@ -55,6 +53,7 @@ if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; t
     source_env_defaults "$REPOSITORY_ROOT/.env.local"
 fi
 source_env_defaults "$REPOSITORY_ROOT/.env.development"
+source_env_defaults "$REPOSITORY_ROOT/.env.services"
 
 # Enforce 1Password for sensitive vars
 # Check: if a secret var is set, it must have an op:// ref in .env.local
