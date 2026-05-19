@@ -13,22 +13,22 @@ import * as zod from 'zod'
  * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
  * @summary Write or refresh an agent memory
  */
-export const signalsScoutScratchpadCreateBodyKeyMax = 300
+export const signalsAgentMemoryCreateBodyKeyMax = 300
 
-export const signalsScoutScratchpadCreateBodyTtlDaysMax = 90
+export const signalsAgentMemoryCreateBodyTtlDaysMax = 90
 
-export const SignalsScoutMemoryCreateBody = /* @__PURE__ */ zod
+export const SignalsAgentMemoryCreateBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
-            .max(signalsScoutScratchpadCreateBodyKeyMax)
+            .max(signalsAgentMemoryCreateBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
         content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
-        tags: zod.array(zod.string()).optional().describe('Tags for later search. Empty/whitespace tags are dropped.'),
+        tags: zod.array(zod.string()).optional().describe('Tags for later search. Empty\/whitespace tags are dropped.'),
         ttl_days: zod
             .number()
             .min(1)
-            .max(signalsScoutScratchpadCreateBodyTtlDaysMax)
+            .max(signalsAgentMemoryCreateBodyTtlDaysMax)
             .optional()
             .describe('Days until expiry (default 7, hard cap 90).'),
         run_id: zod
@@ -46,7 +46,7 @@ export const SignalsScoutMemoryCreateBody = /* @__PURE__ */ zod
  */
 export const signalsScoutScratchpadDeleteBodyKeyMax = 300
 
-export const SignalsScoutMemoryDeleteBody = /* @__PURE__ */ zod
+export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
     .object({
         key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
     })
@@ -56,26 +56,26 @@ export const SignalsScoutMemoryDeleteBody = /* @__PURE__ */ zod
  * Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
  * @summary Emit a finding for a run
  */
-export const signalsScoutRunsFindingsCreateBodyWeightMin = 0
-export const signalsScoutRunsFindingsCreateBodyWeightMax = 1
+export const signalsAgentRunsFindingsCreateBodyWeightMin = 0
+export const signalsAgentRunsFindingsCreateBodyWeightMax = 1
 
-export const signalsScoutRunsFindingsCreateBodyConfidenceMin = 0
-export const signalsScoutRunsFindingsCreateBodyConfidenceMax = 1
+export const signalsAgentRunsFindingsCreateBodyConfidenceMin = 0
+export const signalsAgentRunsFindingsCreateBodyConfidenceMax = 1
 
-export const signalsScoutRunsFindingsCreateBodyEvidenceMax = 20
+export const signalsAgentRunsFindingsCreateBodyEvidenceMax = 20
 
-export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
+export const SignalsAgentRunsFindingsCreateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
         weight: zod
             .number()
-            .min(signalsScoutRunsFindingsCreateBodyWeightMin)
-            .max(signalsScoutRunsFindingsCreateBodyWeightMax)
+            .min(signalsAgentRunsFindingsCreateBodyWeightMin)
+            .max(signalsAgentRunsFindingsCreateBodyWeightMax)
             .describe("Agent's weight for the signal in [0, 1]. Drives ranking in the inbox."),
         confidence: zod
             .number()
-            .min(signalsScoutRunsFindingsCreateBodyConfidenceMin)
-            .max(signalsScoutRunsFindingsCreateBodyConfidenceMax)
+            .min(signalsAgentRunsFindingsCreateBodyConfidenceMin)
+            .max(signalsAgentRunsFindingsCreateBodyConfidenceMax)
             .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
         evidence: zod
             .array(
@@ -96,7 +96,7 @@ export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
                     })
                     .describe('One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.')
             )
-            .max(signalsScoutRunsFindingsCreateBodyEvidenceMax)
+            .max(signalsAgentRunsFindingsCreateBodyEvidenceMax)
             .describe('Citations supporting the finding. Capped at 20 entries.'),
         hypothesis: zod.string().nullish().describe('Optional one-line hypothesis the finding tests.'),
         severity: zod.string().nullish().describe('Optional severity tag (`P0`-`P4`) — informational only.'),
@@ -105,11 +105,14 @@ export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
         time_range: zod
-            .object({
-                date_from: zod.string().describe("ISO-8601 inclusive lower bound for the finding's window."),
-                date_to: zod.string().describe("ISO-8601 inclusive upper bound for the finding's window."),
-            })
-            .nullish()
+            .union([
+                zod.object({
+                    date_from: zod.string().describe("ISO-8601 inclusive lower bound for the finding's window."),
+                    date_to: zod.string().describe("ISO-8601 inclusive upper bound for the finding's window."),
+                }),
+                zod.null(),
+            ])
+            .optional()
             .describe('Optional time window the finding refers to.'),
         mcp_trace_id: zod.string().nullish().describe('Optional MCP trace id for cross-system debugging.'),
         finding_id: zod
