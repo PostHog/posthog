@@ -1518,7 +1518,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_with_complex_request() -> Result<()> {
+async fn test_feature_enrollment_with_complex_request() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -2916,14 +2916,14 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
-    // This test specifically addresses the bug where super condition property overrides
+async fn test_feature_enrollment_property_overrides_bug_fix() -> Result<()> {
+    // This test specifically addresses the bug where feature enrollment property overrides
     // were ignored when evaluating flags. The bug was that if you sent:
     // "$feature_enrollment/discussions-flag": false
     // as an override, it would be ignored if the flag's feature_enrollment gate checked for that property.
 
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "super_condition_user".to_string();
+    let distinct_id = "feature_enrollment_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -3230,9 +3230,9 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_with_cohort_filters() -> Result<()> {
+async fn test_feature_enrollment_with_cohort_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "super_condition_cohort_user".to_string();
+    let distinct_id = "feature_enrollment_cohort_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -3341,8 +3341,8 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let json_override = res_override.json::<Value>().await?;
 
     // This is the key test: the flag should now be enabled because:
-    // 1. Super condition can be evaluated from override (discussions = true)
-    // 2. Super condition matches, so we return early with super_condition_value
+    // 1. Feature enrollment can be evaluated from override (discussions = true)
+    // 2. Enrollment matches, so we return early with super_condition_value
     // 3. We don't even need to evaluate the cohort filter in the regular condition
     assert_json_include!(
         actual: json_override,
