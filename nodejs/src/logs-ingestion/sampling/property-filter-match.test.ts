@@ -1,4 +1,4 @@
-import { type PropertyFilterLeaf, matchPropertyFilter } from './property-filter-match'
+import { type PropertyFilterLeaf, compileLeafRegex, matchPropertyFilter } from './property-filter-match'
 
 const filter = (overrides: Partial<PropertyFilterLeaf>): PropertyFilterLeaf => ({
     key: 'k',
@@ -134,7 +134,7 @@ describe('matchPropertyFilter', () => {
 
     describe('pre-compiled regex', () => {
         it('uses the leaf _compiledRegex when present and skips ad-hoc compile', () => {
-            const compiled = /precompiled/is
+            const compiled = compileLeafRegex('precompiled')
             // Set `value` to a different pattern so it's clear the compiled regex won.
             expect(
                 matchPropertyFilter(
