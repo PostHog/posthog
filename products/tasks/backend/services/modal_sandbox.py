@@ -113,8 +113,10 @@ class _ImageDigestResolutionError(Exception):
 def _resolve_image_digest_once(image: str) -> str:
     """Resolve ``image:master`` to an immutable ``image@sha256:...`` reference.
 
-    Raises ``_ImageDigestResolutionError`` on any failure so the caller can
-    retry or fail closed — we never fall back to the mutable ``:master`` tag.
+    Raises ``_ImageDigestResolutionError`` for non-200 responses or missing
+    fields; network-level exceptions (``ConnectionError``, ``Timeout``, etc.)
+    propagate as-is. The caller catches ``Exception`` in all cases, so we never
+    fall back to the mutable ``:master`` tag.
     """
     image_repo = image.replace("ghcr.io/", "")
 
