@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -217,6 +218,52 @@ class TestPosthogDenialCapturer:
             assert "groups" not in recorded
         else:
             assert recorded["groups"] == expected_groups
+
+    @pytest.mark.asyncio
+    async def test_call_dispatches_to_executor_inside_event_loop(
+        self, capturer: PosthogDenialCapturer
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        recorded: dict[str, Any] = {}
+
+        def fake_sync(**kwargs: Any) -> None:
+            recorded.update(kwargs)
+
+        original_run_in_executor = loop.run_in_executor
+        executor_calls: list[tuple[Any, Any, tuple[Any, ...], Any]] = []
+
+        def tracking_run_in_executor(executor: Any, func: Any, *args: Any) -> Any:
+            fut = original_run_in_executor(executor, func, *args)
+            executor_calls.append((executor, func, args, fut))
+            return fut
+
+        user = _user(user_id=42, team_id=7, auth_method="personal_api_key")
+        result = ThrottleResult.deny(
+            scope="user_cost_burst",
+            retry_after=60,
+            used_usd=15.25,
+            limit_usd=10.0,
+        )
+
+        with (
+            patch.object(capturer, "_capture_sync", side_effect=fake_sync),
+            patch.object(loop, "run_in_executor", side_effect=tracking_run_in_executor),
+        ):
+            capturer(
+                _context(user=user, end_user_id="end-user-123"),
+                result,
+                "user_cost_burst",
+            )
+            assert len(executor_calls) == 1
+            await executor_calls[0][3]
+
+        executor, _, _, _ = executor_calls[0]
+        assert executor is None
+        assert recorded["event"] == DENIAL_EVENT_NAME
+        assert recorded["distinct_id"] == "end-user-123"
+        assert recorded["properties"]["used_usd"] == 15.25
+        assert recorded["properties"]["limit_usd"] == 10.0
+        assert recorded["groups"] == {"project": 7}
 
     def test_capture_sync_swallows_posthog_failures(self, capturer: PosthogDenialCapturer) -> None:
         broken_client = MagicMock()
