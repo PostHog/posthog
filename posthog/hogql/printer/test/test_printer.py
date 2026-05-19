@@ -1251,9 +1251,16 @@ class TestPrinter(BaseTest):
             "properties.id.0",
             "SQL indexes start from one, not from zero. E.g: array.1",
         )
-        self._assert_expr_error(
-            "event as `as%d`",
-            'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
+        # ``%`` in a backquoted identifier no longer raises — it's escaped at the
+        # print boundary so the downstream ``query % params`` substitution leaves
+        # the original ``%`` intact. See escape_sql.escape_clickhouse_identifier.
+        self.assertEqual(
+            self._expr("event as `as%d`", dialect="clickhouse"),
+            "events.event AS `as%%d`",
+        )
+        self.assertEqual(
+            self._expr("event as `as%d`", dialect="hogql"),
+            "event AS `as%d`",
         )
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])

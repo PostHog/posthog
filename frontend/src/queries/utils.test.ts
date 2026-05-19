@@ -12,6 +12,7 @@ import {
     convertDataTableNodeToDataVisualizationNode,
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
     hogql,
 } from './utils'
 
@@ -106,6 +107,35 @@ describe('escapeDottedHogQLIdentifier', () => {
 
     it('quotes each dotted segment independently when needed', () => {
         expect(escapeDottedHogQLIdentifier('demo.order items')).toEqual('demo."order items"')
+    })
+
+    it('quotes a segment containing a percent sign so the HogQL parser accepts it literally', () => {
+        // Regression: users adding a Custom SQL column referencing a property name
+        // with ``%`` previously hit a blocking backend QueryError. The frontend's
+        // escaping was already correct (wraps the segment in quotes); the backend
+        // fix is what makes the round-trip succeed end-to-end.
+        expect(escapeDottedHogQLIdentifier('properties.col%name')).toEqual('properties."col%name"')
+    })
+})
+
+describe('escapePropertyAsHogQLIdentifier', () => {
+    it('leaves simple identifiers unquoted', () => {
+        expect(escapePropertyAsHogQLIdentifier('event')).toEqual('event')
+        expect(escapePropertyAsHogQLIdentifier('$browser')).toEqual('$browser')
+    })
+
+    it('quotes identifiers containing a percent sign', () => {
+        expect(escapePropertyAsHogQLIdentifier('col%name')).toEqual('"col%name"')
+        expect(escapePropertyAsHogQLIdentifier('100%')).toEqual('"100%"')
+    })
+
+    it('falls back to backticks if the identifier contains a double quote', () => {
+        expect(escapePropertyAsHogQLIdentifier('col"with"quotes')).toEqual('`col"with"quotes`')
+    })
+
+    it('preserves already-quoted identifiers verbatim', () => {
+        expect(escapePropertyAsHogQLIdentifier('"col%name"')).toEqual('"col%name"')
+        expect(escapePropertyAsHogQLIdentifier('`col%name`')).toEqual('`col%name`')
     })
 })
 

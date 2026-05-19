@@ -2,6 +2,7 @@ from datetime import datetime
 
 from posthog.test.base import BaseTest
 
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -155,21 +156,28 @@ class TestPrintString(BaseTest):
             "2.3473248237492837e+20",
         )
 
-    def test_escape_hogql_identifier_errors(self):
-        with self.assertRaises(QueryError) as context:
-            escape_hogql_identifier("with % percent")
-        self.assertTrue(
-            'The HogQL identifier "with % percent" is not permitted as it contains the "%" character'
-            in str(context.exception)
-        )
+    def test_escape_hogql_identifier_with_percent(self):
+        # HogQL output is not run through printf-style parameter substitution, so the
+        # ``%`` is emitted as-is inside backquotes — the HogQL parser accepts it literally.
+        self.assertEqual(escape_hogql_identifier("with % percent"), "`with % percent`")
+        self.assertEqual(escape_hogql_identifier("col%name"), "`col%name`")
+        self.assertEqual(escape_hogql_identifier("100%"), "`100%`")
 
-    def test_escape_clickhouse_identifier_errors(self):
-        with self.assertRaises(QueryError) as context:
-            escape_clickhouse_identifier("with % percent")
-        self.assertTrue(
-            'The HogQL identifier "with % percent" is not permitted as it contains the "%" character'
-            in str(context.exception)
-        )
+    def test_escape_clickhouse_identifier_with_percent(self):
+        # ClickHouse SQL is rendered via ``query % params``, so any literal ``%`` inside a
+        # backquoted identifier must be doubled to ``%%`` at the print boundary so it survives
+        # the substitution and lands as a single ``%`` in the final SQL sent to ClickHouse.
+        self.assertEqual(escape_clickhouse_identifier("with % percent"), "`with %% percent`")
+        self.assertEqual(escape_clickhouse_identifier("col%name"), "`col%%name`")
+        self.assertEqual(escape_clickhouse_identifier("100%"), "`100%%`")
+
+    def test_escape_clickhouse_identifier_percent_survives_substitution(self):
+        # End-to-end check: the doubled ``%%`` must collapse back to ``%`` after the
+        # clickhouse-driver substitution stage that real queries flow through.
+        escaped = escape_clickhouse_identifier("col%name")
+        # Embed in a SELECT alongside a parameter so substitute_params actually runs.
+        rendered = substitute_params(f"SELECT {escaped} FROM events WHERE team_id = %(team)s", {"team": 1})
+        self.assertEqual(rendered, "SELECT `col%name` FROM events WHERE team_id = 1")
 
     def test_escape_clickhouse_string_errors(self):
         # This test is a stopgap. Think long and hard before adding support for printing dicts or objects.

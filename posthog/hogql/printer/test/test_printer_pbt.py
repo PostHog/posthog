@@ -40,20 +40,23 @@ _roundtrip_safe_text = st.text(
     alphabet=st.characters(blacklist_characters="\0"),
 )
 
-# Like _roundtrip_safe_text but also excludes '%' (rejected by
-# escape_hogql_identifier / escape_clickhouse_identifier).
+# Like _roundtrip_safe_text but excludes characters that don't survive the
+# parse_string_literal_text round-trip cleanly (only NUL — ``%`` now round-trips
+# through HogQL identifier escape since the printf-substitution hazard is handled
+# at the ClickHouse print boundary rather than by outright rejection).
 _roundtrip_safe_identifier_text = st.text(
     min_size=1,
-    alphabet=st.characters(blacklist_characters="\0%"),
+    alphabet=st.characters(blacklist_characters="\0"),
 )
 
 # Strings guaranteed to contain at least one '%' — built by
 # concatenating a random prefix, a '%', and a random suffix so
-# Hypothesis doesn't waste time filtering.
+# Hypothesis doesn't waste time filtering. NUL is excluded so the
+# round-trip through parse_string_literal_text is lossless.
 _text_with_percent = st.builds(
     lambda prefix, suffix: prefix + "%" + suffix,
-    prefix=st.text(),
-    suffix=st.text(),
+    prefix=st.text(alphabet=st.characters(blacklist_characters="\0")),
+    suffix=st.text(alphabet=st.characters(blacklist_characters="\0")),
 )
 
 
@@ -133,37 +136,26 @@ class TestHogQLIdentifier:
         assert escape_hogql_identifier(n) == str(n)
 
     @given(s=_text_with_percent)
-    def test_percent_always_rejected(self, s: str) -> None:
-        with pytest.raises(QueryError, match='is not permitted as it contains the "%" character'):
-            escape_hogql_identifier(s)
+    def test_percent_round_trips_through_parse(self, s: str) -> None:
+        # HogQL print output is not subject to printf substitution, so ``%`` is
+        # emitted as-is inside backquotes and round-trips cleanly through the
+        # HogQL parser.
+        escaped = escape_hogql_identifier(s)
+        assert parse_string_literal_text(escaped) == s
 
 
-_BACKTICK_IDENTIFIER_FUNCTIONS: list[tuple[str, Callable[[str], str]]] = [
-    ("hogql", escape_hogql_identifier),
-    ("clickhouse", escape_clickhouse_identifier),
-]
+class TestHogQLIdentifierRoundTrip:
+    """Round-trip tests for HogQL backtick-escaped identifiers."""
 
-
-class TestBacktickIdentifierRoundTrip:
-    """Round-trip tests shared by HogQL and ClickHouse backtick-escaped identifiers."""
-
-    @pytest.mark.parametrize("label,escape_fn", _BACKTICK_IDENTIFIER_FUNCTIONS)
     @given(data=st.data())
     @settings(max_examples=1000)
-    def test_roundtrip_through_parse_string_literal(self, label: str, escape_fn: Callable, data: st.DataObject) -> None:
+    def test_roundtrip_through_parse_string_literal(self, data: st.DataObject) -> None:
         s = data.draw(_roundtrip_safe_identifier_text)
-        escaped = escape_fn(s)
+        escaped = escape_hogql_identifier(s)
         if escaped.startswith("`"):
             assert parse_string_literal_text(escaped) == s
         else:
             assert escaped == s
-
-    @pytest.mark.parametrize("label,escape_fn", _BACKTICK_IDENTIFIER_FUNCTIONS)
-    @given(data=st.data())
-    def test_percent_always_rejected(self, label: str, escape_fn: Callable, data: st.DataObject) -> None:
-        s = data.draw(_text_with_percent)
-        with pytest.raises(QueryError, match='is not permitted as it contains the "%" character'):
-            escape_fn(s)
 
 
 class TestClickHouseIdentifier:
@@ -172,6 +164,30 @@ class TestClickHouseIdentifier:
     @given(s=st.from_regex(r"[A-Za-z_][A-Za-z0-9_]*", fullmatch=True))
     def test_simple_identifiers_returned_bare(self, s: str) -> None:
         assert escape_clickhouse_identifier(s) == s
+
+    @given(data=st.data())
+    @settings(max_examples=1000)
+    def test_roundtrip_through_parse_string_literal(self, data: st.DataObject) -> None:
+        # ClickHouse identifiers double ``%`` to ``%%`` so they survive the downstream
+        # printf-style ``query % params`` substitution. Re-collapse ``%%`` → ``%`` to
+        # mirror that substitution before checking parser round-trip.
+        s = data.draw(_roundtrip_safe_identifier_text)
+        escaped = escape_clickhouse_identifier(s)
+        if escaped.startswith("`"):
+            collapsed = escaped.replace("%%", "%")
+            assert parse_string_literal_text(collapsed) == s
+        else:
+            assert escaped == s
+
+    @given(s=_text_with_percent)
+    def test_percent_doubled_in_clickhouse_output(self, s: str) -> None:
+        # Inside the backquoted body, every ``%`` must appear as ``%%`` so it
+        # survives clickhouse-driver's printf-style parameter substitution.
+        escaped = escape_clickhouse_identifier(s)
+        assert escaped.startswith("`") and escaped.endswith("`")
+        body = escaped[1:-1]
+        # Replace ``%%`` then assert no stray ``%`` remains (every ``%`` was doubled).
+        assert "%" not in body.replace("%%", "")
 
 
 class TestPostgresIdentifier:

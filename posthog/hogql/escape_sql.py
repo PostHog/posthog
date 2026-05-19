@@ -23,6 +23,12 @@ escape_chars_map = {
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
 backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+# ClickHouse rendering goes through ``query % params`` (clickhouse-driver's
+# printf-style parameter substitution). A literal ``%`` slipping through inside
+# a backquoted identifier would either confuse the substitution (``%n`` looks
+# like a format specifier) or get consumed silently. Double it to ``%%`` at the
+# print boundary so the eventual substitution collapses it back to a single ``%``.
+clickhouse_backquote_escape_chars_map = {**backquote_escape_chars_map, "%": "%%"}
 
 
 def safe_identifier(identifier: str) -> str:
@@ -41,13 +47,14 @@ def escape_param_clickhouse(value: str) -> str:
 def escape_hogql_identifier(identifier: str | int) -> str:
     if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
         return str(identifier)
-    if "%" in identifier:
-        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
     ):  # Same regex as the frontend escapePropertyAsHogQlIdentifier
         return identifier
+    # ``%`` is emitted as-is for HogQL output: the HogQL parser handles ``%``
+    # inside backquotes literally, and HogQL print output is not subject to
+    # printf-style parameter substitution (only the ClickHouse print output is).
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
@@ -219,11 +226,11 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
-    if "%" in identifier:
-        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
-    return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
+    # Inside backquotes, escape ``%`` to ``%%`` so it survives clickhouse-driver's
+    # printf-style parameter substitution (``query % params``) downstream.
+    return "`{}`".format("".join(clickhouse_backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
 def escape_hogql_string(

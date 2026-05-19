@@ -1182,7 +1182,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     dialect="clickhouse",
                 )
                 # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
-                # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
+                # %(hogql_val_0)s). Use the raw constant value as the alias instead — it's both more
+                # meaningful and avoids embedding a parameter placeholder in the schema field name.
                 if isinstance(field, ast.Constant) and isinstance(field.value, str):
                     alias = escape_clickhouse_identifier(field.value)
                 else:
