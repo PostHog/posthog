@@ -23,6 +23,15 @@ const ALLOWED_VIOLATIONS = {
         count: 5,
         source: 'pixi.js via @posthog/hedgehog-mode (4) + toolbarLogic CSP probe (1)',
     },
+    // `require(...)` calls inside the IIFE bundle throw `ReferenceError: require is not defined`
+    // on customer sites unless the IIFE banner shims `require`. We shim it to `undefined` in
+    // toolbar-config.mjs as a backstop, but the real fix is to keep CJS/UMD wrappers out of the
+    // bundle entirely — so the expected count here is 0. If a new violation appears, prefer
+    // aliasing the offending dependency to its ESM entry over bumping this count.
+    'require()': {
+        count: 0,
+        source: 'no CJS/UMD wrappers should remain in the IIFE bundle',
+    },
 }
 
 function main() {
@@ -45,6 +54,18 @@ function main() {
                 if (p.node.loc) {
                     evals.push({
                         type: 'eval()',
+                        start: p.node.loc.start,
+                    })
+                }
+            }
+
+            // require(...) — bare identifier. UMD/CJS wrappers leave these in the bundle
+            // when their factory body isn't fully resolved by esbuild. They throw
+            // ReferenceError on customer sites unless the IIFE banner shadows `require`.
+            else if (callee.isIdentifier({ name: 'require' })) {
+                if (p.node.loc) {
+                    evals.push({
+                        type: 'require()',
                         start: p.node.loc.start,
                     })
                 }
