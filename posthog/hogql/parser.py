@@ -408,6 +408,31 @@ def get_parser(query: str) -> HogQLParser:
     return parser
 
 
+def _first_unexpected_character(query: str) -> tuple[str, int] | None:
+    """The first character outside the HogQL token set, with its offset.
+    Such a character lexes as an `UNEXPECTED_CHARACTER` token and makes the
+    program unparseable, so naming it pinpoints the real failure."""
+    try:
+        lexer = HogQLLexer(InputStream(data=query))
+        lexer.removeErrorListeners()
+        for token in lexer.getAllTokens():
+            if token.type == HogQLLexer.UNEXPECTED_CHARACTER:
+                return token.text, token.start
+    except Exception:
+        pass
+    return None
+
+
+def _describe_unexpected_character(char: str) -> str:
+    """Name an unexpected character by Unicode code point — essential when
+    it is invisible (a zero-width space, a control character, …). The
+    glyph is shown too for printable ASCII."""
+    code_point = f"U+{ord(char):04X}"
+    if 0x21 <= ord(char) <= 0x7E:
+        return f"Unexpected character {char!r} ({code_point})"
+    return f"Unexpected character {code_point}"
+
+
 class HogQLErrorListener(ErrorListener):
     query: str
 
@@ -427,6 +452,14 @@ class HogQLErrorListener(ErrorListener):
 
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
         start = max(self.get_position(line, column), 0)
+        # A character outside the HogQL token set dooms the parse. The
+        # default message quotes the raw character, which is unactionable
+        # when it is invisible — report the code point and point at the
+        # character itself.
+        unexpected = _first_unexpected_character(self.query)
+        if unexpected is not None:
+            char, offset = unexpected
+            raise SyntaxError(_describe_unexpected_character(char), start=offset, end=len(self.query))
         raise SyntaxError(msg, start=start, end=len(self.query))
 
 
@@ -480,7 +513,24 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
-        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+        if ctx.COLONEQUALS():
+            return ast.VariableAssignment(
+                left=self.visit(ctx.expression(0)),
+                right=self.visit(ctx.expression(1)),
+            )
+        column_expr = ctx.expression(0).columnExpr()
+        # `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+        # statement is a variable assignment. Checked on the parse tree, not the visited node,
+        # so parens are not unwrapped: `(x := 1)` stays an expression statement, matching C++.
+        if isinstance(column_expr, HogQLParser.ColumnExprNamedArgContext):
+            named_arg = self.visit(column_expr)
+            left = ast.Field(chain=[named_arg.name])
+            identifier = column_expr.identifier()
+            if self.start is not None and identifier.start and identifier.stop:
+                left.start = identifier.start.start
+                left.end = identifier.stop.stop + 1
+            return ast.VariableAssignment(left=left, right=named_arg.value)
+        return ast.ExprStatement(expr=self.visit(ctx.expression(0)))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)

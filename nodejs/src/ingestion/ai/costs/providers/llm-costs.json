@@ -2487,6 +2487,10 @@
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-7
             },
+            "siliconflow-fp8": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 4e-7
+            },
             "together": {
                 "prompt_token": 2e-7,
                 "completion_token": 5e-7
@@ -3255,6 +3259,11 @@
                 "completion_token": 9e-7,
                 "cache_read_token": 3e-8
             },
+            "io-net-fp8": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.0000012,
+                "cache_read_token": 1e-7
+            },
             "mara": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
@@ -3283,14 +3292,15 @@
                 "prompt_token": 2e-7,
                 "completion_token": 0.00000138
             },
-            "sambanova": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
-            },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 3e-8
+            },
+            "streamlake": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012,
+                "cache_read_token": 3.75e-7
             },
             "venice": {
                 "prompt_token": 3.4e-7,
@@ -3935,6 +3945,10 @@
                 "prompt_token": 9.5e-7,
                 "completion_token": 0.000004,
                 "cache_read_token": 1.6e-7
+            },
+            "nebius-int4": {
+                "prompt_token": 9.5e-7,
+                "completion_token": 0.000004
             },
             "novita": {
                 "prompt_token": 8e-7,
@@ -5206,11 +5220,6 @@
                 "prompt_token": 3.9e-8,
                 "completion_token": 1.8e-7
             },
-            "fireworks": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7,
-                "cache_read_token": 1.4e-8
-            },
             "google-vertex-global": {
                 "prompt_token": 9e-8,
                 "completion_token": 3.6e-7
@@ -5238,6 +5247,10 @@
                 "completion_token": 4.9e-7
             },
             "sambanova": {
+                "prompt_token": 1.4e-7,
+                "completion_token": 9.5e-7
+            },
+            "sambanova-dedicated": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 9.5e-7
             },
@@ -6746,6 +6759,11 @@
             "venice-fp8": {
                 "prompt_token": 3.25e-7,
                 "completion_token": 0.00000325
+            },
+            "wandb-bf16": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000036,
+                "cache_read_token": 1.2e-7
             }
         }
     },
@@ -6770,6 +6788,11 @@
                 "prompt_token": 1.5e-7,
                 "completion_token": 0.000001,
                 "cache_read_token": 5e-8
+            },
+            "wandb-bf16": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 2.5e-7
             }
         }
     },
@@ -7458,6 +7481,10 @@
                 "prompt_token": 6e-8,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8
+            },
+            "cloudflare": {
+                "prompt_token": 6.05e-8,
+                "completion_token": 4e-7
             },
             "deepinfra-bf16": {
                 "prompt_token": 6e-8,
