@@ -34,6 +34,28 @@ def has_any_property_filters_in_group(group: PropertyGroupFilterValue) -> bool:
     return False
 
 
+def has_cohort_property(properties: object) -> bool:
+    """Recursively check if properties contain cohort filters."""
+    if isinstance(properties, list):
+        for prop in properties:
+            if has_cohort_property(prop):
+                return True
+    elif isinstance(properties, dict):
+        if properties.get("type") == "cohort":
+            return True
+        # Check nested property groups
+        if "values" in properties:
+            return has_cohort_property(properties["values"])
+    elif getattr(properties, "type", None) == "cohort":
+        return True
+    else:
+        property_values = getattr(properties, "values", None)
+        if property_values is not None:
+            return has_cohort_property(property_values)
+
+    return False
+
+
 class Properties:
     context: QueryContext
 
