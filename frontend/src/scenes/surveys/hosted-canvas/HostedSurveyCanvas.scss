@@ -28,10 +28,10 @@
 
     // Display elements (h1.survey-question, p.survey-question-description,
     // span.form-submit, etc.) keep their natural styling — we ONLY add an edit
-    // affordance. No font/padding/background reset on these.
+    // affordance. No font/padding/background/border-radius reset on these so
+    // the rendered look (e.g. .form-submit's rounded pill) stays intact.
     .inline-editable {
         cursor: text;
-        border-radius: 3px;
         transition:
             background-color 120ms ease,
             box-shadow 120ms ease;
@@ -53,12 +53,14 @@
         text-underline-offset: 4px;
     }
 
+    // Focus indicator — outline ring instead of background tint, so it doesn't
+    // mask the rendered element's own background (e.g. the submit button's
+    // black pill). Sits 2px outside the rendered shape and respects the
+    // element's border-radius via inherit.
     .inline-editable:focus,
     .inline-editable:focus-visible {
-        background-color: rgb(17 17 17 / 4%);
-        border-radius: 3px;
-        outline: none;
-        box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
+        outline: 2px solid var(--accent, rgb(17 17 17 / 28%));
+        outline-offset: 2px;
     }
 
     // Input/textarea editing chrome — strip browser defaults AND the base
@@ -97,20 +99,32 @@
     // label) need width: auto so the editable hugs its text and siblings sit
     // flush. Block contexts (title, description, full submit button) still
     // want width: 100%.
-    span.inline-editable,
-    span.inline-editable:focus,
-    span.inline-editable:focus-visible {
+    span.inline-editable {
         display: inline-block;
     }
 
-    .response-choice .inline-editable,
-    .form-submit .inline-editable {
+    .response-choice .inline-editable {
         width: auto;
     }
 
+    // The submit button uses a <span class="form-submit inline-editable"> in
+    // display mode. Spans default to inline layout with text aligned at the
+    // baseline — make it center its text the way <button> does so the pill
+    // looks like a real button and not a left-aligned padded label.
+    span.form-submit.inline-editable {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    // Hover affordance for prose elements only — never alter the rendered
+    // background of pill-styled elements (the submit button has its own
+    // background; tinting it changes the apparent color).
     @media (hover: hover) {
-        .inline-editable:hover:not(:focus) {
+        .inline-editable:not(.form-submit):hover:not(:focus) {
             background-color: rgb(17 17 17 / 4%);
+            border-radius: 3px;
             box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
         }
     }
@@ -195,24 +209,38 @@
         }
     }
 
-    // Delete button — make it visible against the white survey card by giving
-    // it a real background and a darker icon. Without this, LemonButton
-    // tertiary renders nearly invisible inside the survey context.
+    // Delete button — plain styled button so we have full control over the
+    // chrome. LemonButton's internal cascade kept overriding our colors and
+    // the result was invisible against the white survey card.
     &__delete {
+        display: inline-flex;
         flex-shrink: 0;
+        align-items: center;
         align-self: center;
-        color: var(--text-primary);
-        background: var(--surface-tertiary, rgb(17 17 17 / 6%));
-        border: 1px solid var(--border, rgb(17 17 17 / 10%));
-        opacity: 1;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        font-size: 1rem;
+        color: var(--text-secondary, #6b6b6b);
+        cursor: pointer;
+        background: transparent;
+        border: 1px solid var(--border-bold, rgb(17 17 17 / 18%));
+        border-radius: 6px;
         transition:
             background-color 120ms ease,
-            border-color 120ms ease;
+            border-color 120ms ease,
+            color 120ms ease;
 
-        &:hover {
-            color: var(--danger, #c0392b);
-            background: var(--danger-highlight, rgb(192 57 43 / 10%));
-            border-color: var(--danger, #c0392b);
+        &:hover:not(:disabled) {
+            color: #b62a1d;
+            background: rgb(192 57 43 / 10%);
+            border-color: rgb(192 57 43 / 60%);
+        }
+
+        &:disabled {
+            cursor: not-allowed;
+            opacity: 0.4;
         }
     }
 }

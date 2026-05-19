@@ -7,7 +7,6 @@ import { useActions, useValues } from 'kea'
 import { type CSSProperties } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
@@ -549,15 +548,16 @@ function ChoiceRow({
                     />
                 ) : null}
             </label>
-            <LemonButton
-                type="tertiary"
-                size="xsmall"
-                icon={<IconTrash />}
-                aria-label={`Delete choice ${choiceIndex + 1}`}
+            <button
+                type="button"
                 className="HostedSurveyCanvasChoice__delete"
+                aria-label={`Delete choice ${choiceIndex + 1}`}
+                title={canDelete ? 'Delete choice' : 'A choice question needs at least one option'}
+                disabled={!canDelete}
                 onClick={() => onChoiceDelete(choiceIndex)}
-                disabledReason={canDelete ? undefined : 'A choice question needs at least one option'}
-            />
+            >
+                <IconTrash />
+            </button>
         </div>
     )
 }
