@@ -210,6 +210,76 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 
+        @parameterized.expand(
+            [
+                ("logical_not", "let x := !y", "U+0021"),
+                ("logical_not_in_condition", "if (!country) { return 1 }", "U+0021"),
+                ("logical_and", "let x := a && b", "U+0026"),
+                ("bitwise_and", "let x := a & b", "U+0026"),
+                ("stray_at_sign", "let x := a @ b", "U+0040"),
+                ("zero_width_space", "let x :=​y", "U+200B"),
+                ("zero_width_joiner", "let x := a‍b", "U+200D"),
+            ]
+        )
+        def test_unexpected_character_rejected(self, _name: str, program: str, code_point: str):
+            # A character no lexer rule matches — a JavaScript `!`, `&&`, a
+            # zero-width space, any stray byte — lexes as the catch-all
+            # UNEXPECTED_CHARACTER token. No parser rule references it, so
+            # the program fails loudly instead of the lexer silently
+            # dropping the character via error recovery and the rest
+            # parsing as a different, valid-looking program. The error
+            # names the offending character by Unicode code point — the
+            # only actionable signal when the character is invisible.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._program(program)
+            self.assertIn(code_point, str(caught.exception))
+
+        def test_zero_width_character_allowed_inside_string(self):
+            # The catch-all only fires outside string literals — a
+            # zero-width character is ordinary content within a string.
+            self._program("let x := 'a​b'")
+
+        @parameterized.expand(
+            [
+                ("not_equals", "a != b"),
+                ("not_regex", "a !~ b"),
+                ("concat", "a || b"),
+                ("nullish_coalesce", "a ?? b"),
+            ]
+        )
+        def test_multi_character_operators_still_parse(self, _name: str, expr: str):
+            # The catch-all is a last-resort fallback: maximal munch keeps
+            # genuine multi-character operators whose first byte would
+            # otherwise be unrecognized (`!=`, `!~`) intact.
+            self._expr(expr)
+
+        @parameterized.expand(
+            [
+                ("no_break_space", " "),
+                ("next_line", ""),
+                ("ogham_space_mark", " "),
+                ("en_space", " "),
+                ("line_separator", " "),
+                ("paragraph_separator", " "),
+                ("narrow_no_break_space", " "),
+                ("medium_mathematical_space", " "),
+                ("ideographic_space", "　"),
+            ]
+        )
+        def test_unicode_whitespace_separates_tokens(self, _name: str, space: str):
+            # A Unicode whitespace character — routinely pasted in from
+            # rich editors or documents — is genuine whitespace. It must
+            # keep separating tokens and produce the same AST as an
+            # ordinary space, NOT fall through to UNEXPECTED_CHARACTER and
+            # fail the parse. Checked both between statements and inside
+            # an expression.
+            self.assertEqual(self._program(f"let x :={space}1"), self._program("let x := 1"))
+            self.assertEqual(self._expr(f"1{space}+{space}2"), self._expr("1 + 2"))
+
+        def test_byte_order_mark_does_not_break_parse(self):
+            # A file saved with a leading UTF-8 byte-order mark still parses.
+            self.assertEqual(self._program("﻿let x := 1"), self._program("let x := 1"))
+
         def test_booleans(self):
             self.assertEqual(self._expr("true"), ast.Constant(value=True))
             self.assertEqual(self._expr("TRUE"), ast.Constant(value=True))

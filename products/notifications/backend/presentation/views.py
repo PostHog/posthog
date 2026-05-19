@@ -1,14 +1,19 @@
+from datetime import datetime
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import serializers as drf_serializers
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
@@ -18,6 +23,19 @@ from products.notifications.backend.cache import get_unread_count, invalidate_un
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
+
+_BULK_NOTIFICATION_IDS_MAX = 500
+
+
+class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
+    notification_ids = drf_serializers.ListField(
+        child=drf_serializers.UUIDField(),
+        max_length=_BULK_NOTIFICATION_IDS_MAX,
+        help_text=(
+            f"UUIDs of notification events to mark in bulk (max {_BULK_NOTIFICATION_IDS_MAX}). "
+            "Events the user is not a recipient of are silently skipped."
+        ),
+    )
 
 
 class NotificationPagination(LimitOffsetPagination):
@@ -101,11 +119,93 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return queryset
 
+    def _apply_filters(self, queryset: QuerySet, request: Request) -> QuerySet:
+        # Explicit per-field filters (no dict-unpack) so semgrep's no-request-param-orm-filter
+        # taint analysis is satisfied — every field name is hard-coded at the call site.
+        params = request.query_params
+        if value := params.get("notification_type"):
+            queryset = queryset.filter(notification_type=value)
+        if value := params.get("target_type"):
+            queryset = queryset.filter(target_type=value)
+        if value := params.get("target_id"):
+            queryset = queryset.filter(target_id=value)
+        if value := params.get("resource_type"):
+            queryset = queryset.filter(resource_type=value)
+        if value := params.get("resource_id"):
+            queryset = queryset.filter(resource_id=value)
+
+        def _parse_iso(raw: str, field: str) -> datetime:
+            # Django decodes "+" timezone offsets in query strings as " "; restore before parsing.
+            parsed = parse_datetime(raw.replace(" ", "+"))
+            if parsed is None:
+                raise ValidationError({field: f"Invalid ISO 8601 timestamp: {raw}"})
+            return parsed
+
+        if raw := params.get("created_after"):
+            queryset = queryset.filter(created_at__gte=_parse_iso(raw, "created_after"))
+        if raw := params.get("created_before"):
+            queryset = queryset.filter(created_at__lt=_parse_iso(raw, "created_before"))
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="notification_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by notification type",
+            ),
+            OpenApiParameter(
+                name="target_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by recipient target type (e.g. `user`, `team`)",
+            ),
+            OpenApiParameter(
+                name="target_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by recipient target ID (e.g. a user ID)",
+            ),
+            OpenApiParameter(
+                name="resource_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)",
+            ),
+            OpenApiParameter(
+                name="resource_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the ID of the resource the notification refers to",
+            ),
+            OpenApiParameter(
+                name="created_after",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO 8601 timestamp; only events at or after this time",
+            ),
+            OpenApiParameter(
+                name="created_before",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO 8601 timestamp; only events strictly before this time",
+            ),
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         if not self._is_feature_enabled():
             return Response({"results": [], "next": None, "previous": None, "count": 0})
 
         queryset = self._get_base_queryset()
+        queryset = self._apply_filters(queryset, request)
         queryset = self._filter_by_access_control(queryset)
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -169,3 +269,61 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
+
+    @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
+    @action(methods=["POST"], detail=False, url_path="mark_read_bulk")
+    def mark_read_bulk(self, request: ValidatedRequest, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        ids = request.validated_data["notification_ids"]
+        if not ids:
+            return Response({"updated": 0})
+
+        # NotificationEvent is org-scoped + user-targeted (notifications can span teams within an org),
+        # not team-scoped. The (organization_id, resolved_user_ids__contains=[user.id]) pair already
+        # ensures the caller can only touch notifications they were a recipient of — adding team_id
+        # would silently drop notifications addressed to this user but with a different team_id.
+        eligible_ids = list(
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+            ).values_list("id", flat=True)
+        )
+        if eligible_ids:
+            read_states = [NotificationReadState(notification_event_id=eid, user=user) for eid in eligible_ids]
+            NotificationReadState.objects.bulk_create(read_states, ignore_conflicts=True)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(eligible_ids)})
+
+    @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
+    @action(methods=["POST"], detail=False, url_path="mark_unread_bulk")
+    def mark_unread_bulk(self, request: ValidatedRequest, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        ids = request.validated_data["notification_ids"]
+        if not ids:
+            return Response({"updated": 0})
+
+        # NotificationEvent is org-scoped + user-targeted (notifications can span teams within an org),
+        # not team-scoped. The (organization_id, resolved_user_ids__contains=[user.id]) pair already
+        # ensures the caller can only touch notifications they were a recipient of — adding team_id
+        # would silently drop notifications addressed to this user but with a different team_id.
+        eligible_ids = list(
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+            ).values_list("id", flat=True)
+        )
+        if eligible_ids:
+            NotificationReadState.objects.filter(
+                notification_event_id__in=eligible_ids,
+                user=user,
+            ).delete()
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(eligible_ids)})

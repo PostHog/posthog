@@ -855,10 +855,38 @@ class Team(UUIDTClassicModel):
         return filters
 
     def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-
         old_token = self.api_token
         self.api_token = generate_random_token_project()
+        self._persist_api_token_change(old_token=old_token, user=user, is_impersonated_session=is_impersonated_session)
+
+    def _notify_vercel_of_token_rotation(self) -> None:
+        """Push updated API token to Vercel integrations in the background."""
+        from posthog.tasks.integrations import push_vercel_secrets
+
+        push_vercel_secrets.delay(self.id)
+
+    def set_token_and_save(self, *, new_token: str, user: "User", is_impersonated_session: bool):
+        new_token = new_token.strip()
+        if not new_token:
+            raise ValueError("New API token must be non-empty.")
+        api_token_field = self._meta.get_field("api_token")
+        if not isinstance(api_token_field, models.CharField) or api_token_field.max_length is None:
+            raise RuntimeError("Team.api_token field must declare a max_length")
+        api_token_max_length = api_token_field.max_length
+        if len(new_token) > api_token_max_length:
+            raise ValueError(f"New API token exceeds {api_token_max_length} characters.")
+        if new_token == self.api_token:
+            raise ValueError("New API token is identical to the current token.")
+        if Team.objects.filter(api_token=new_token).exclude(pk=self.pk).exists():
+            raise ValueError("New API token is already in use by another team.")
+
+        old_token = self.api_token
+        self.api_token = new_token
+        self._persist_api_token_change(old_token=old_token, user=user, is_impersonated_session=is_impersonated_session)
+
+    def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
         self.save()
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
@@ -885,12 +913,6 @@ class Team(UUIDTClassicModel):
         )
 
         self._notify_vercel_of_token_rotation()
-
-    def _notify_vercel_of_token_rotation(self) -> None:
-        """Push updated API token to Vercel integrations in the background."""
-        from posthog.tasks.integrations import push_vercel_secrets
-
-        push_vercel_secrets.delay(self.id)
 
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity

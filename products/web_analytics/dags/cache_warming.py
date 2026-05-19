@@ -49,7 +49,8 @@ def increment_counter(team_id: int, normalized_query_hash: str, is_cached: bool)
 
 
 def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
-    return get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
+    value = get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
+    return value if isinstance(value, list) else []
 
 
 def queries_to_keep_fresh(
@@ -82,7 +83,8 @@ def queries_to_keep_fresh(
                     'web_goals_query',
                     'web_overview_preaggregated_query',
                     'web_overview_query',
-                    'web_vitals_path_breakdown_query'
+                    'web_vitals_path_breakdown_query',
+                    'external_clicks_query'
                 )
                 )
                 AND query_json_raw != ''
