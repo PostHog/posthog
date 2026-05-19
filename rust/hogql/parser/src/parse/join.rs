@@ -820,7 +820,36 @@ impl<'a> Parser<'a> {
     /// would leave the `.` stranded. Detect Number-then-bare-Dot and
     /// upgrade to a float Constant in-place.
     fn consume_ratio_value(&mut self) -> Result<Value, ParseError> {
+        // cpp grammar: `ratioExpr: placeholder | numberLiteral
+        // (SLASH numberLiteral)?`. The numerator/denominator side is
+        // strictly a `numberLiteral` — not a generic columnExpr. The
+        // prior implementation called `parse_prefix()`, which let
+        // Fields (`SAMPLE a`), TupleAccess (`SAMPLE x.y`), and
+        // placeholder-as-RHS (`1 / {p}`) into the ratio slot.
+        //
+        // `numberLiteral` is `(PLUS | DASH)? (NULL | NAN | INF |
+        // FLOATING_LITERAL | DECIMAL_LITERAL | HEXADECIMAL_LITERAL
+        // | OCTAL_PREFIX_LITERAL)`. The parser already collapses signs
+        // and special literals into single Number / Constant tokens via
+        // `parse_number_literal` (called when the prefix is Number, or
+        // an explicit sign + Number combo). Accept those shapes only.
+        match self.peek() {
+            TokenKind::Number | TokenKind::Plus | TokenKind::Dash | TokenKind::Keyword(Kw::Null) => {
+                // Parse as a prefix — but the recovered Value must be a
+                // bare numeric/null Constant. Anything else (Field,
+                // placeholder, Call, …) is a grammar violation.
+            }
+            _ => return Err(self.err("SAMPLE ratio value must be a number literal")),
+        }
         let mut val = self.parse_prefix()?;
+        // Reject non-numeric prefixes (a placeholder masquerading as
+        // a `{x}` ratio side, a sign followed by a non-number, etc.).
+        let is_numeric_constant = val.as_object().is_some_and(|o| {
+            o.get("node").and_then(Value::as_str) == Some("Constant")
+        });
+        if !is_numeric_constant {
+            return Err(self.err("SAMPLE ratio value must be a number literal"));
+        }
         // Trailing dot with no field-chain extender after — turn the
         // integer Constant into a float and consume the dot.
         if self.peek() == TokenKind::Dot

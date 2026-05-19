@@ -809,6 +809,38 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_sample_clause_only_accepts_number_literals(self):
+        # `ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?`
+        # — each side of the ratio is a `numberLiteral`, not a generic
+        # `columnExpr`. Rust's `consume_ratio_value` called the prefix
+        # parser so Fields, TupleAccess, and placeholder-as-RHS all
+        # landed in the ratio slot.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "SELECT * FROM t SAMPLE a",
+            "SELECT * FROM t SAMPLE x.y",
+            "SELECT * FROM t SAMPLE 1/{p}",
+            "SELECT * FROM t SAMPLE 1+1",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Guard: every grammar-allowed SAMPLE form still parses.
+        valid = (
+            "SELECT * FROM t SAMPLE 1",
+            "SELECT * FROM t SAMPLE 1/2",
+            "SELECT * FROM t SAMPLE {p}",
+            "SELECT * FROM t SAMPLE 0.5",
+            "SELECT * FROM t SAMPLE 1 OFFSET 2",
+        )
+        for src in valid:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_join_op_grammar_alts_validation(self):
         # `joinOp` has three disjoint alts (`HogQLParser.g4:127-134`):
         # JoinOpInner, JoinOpLeftRight, JoinOpFull. Each keyword appears
