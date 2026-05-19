@@ -56,43 +56,49 @@ PostHog ingests OpenTelemetry signals into three ClickHouse-backed tables that a
 - `posthog.trace_spans` — OpenTelemetry spans. Common fields: `trace_id`, `span_id`, `parent_span_id`, `is_root_span`, `name`, `service_name`, `kind` (0-5), `status_code` (0 Unset, 1 OK, 2 Error), `duration_nano`, `timestamp`, `end_time`, `attributes`, `resource_attributes`. Prefer `posthog:query-apm-spans` / `posthog:apm-trace-get` for span listing and full-trace fetches; reach for SQL for joins with `logs` / `posthog.metrics` by `trace_id`, exemplar lookups, or aggregations the typed tools don't expose.
 - `posthog.metrics` — OpenTelemetry metric points. Common fields: `metric_name`, `metric_type` (counter/gauge/histogram), `value`, `count`, `histogram_bounds`, `histogram_counts`, `unit`, `service_name`, `trace_id`, `span_id`, `attributes`, `resource_attributes`, `timestamp`. No typed `query-metrics` tool — use SQL. A projection pre-aggregates by `(team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint)` with `count/sum/min/max(value)`, so per-minute aggregations grouped by those keys are very cheap.
 
-All three share `team_id`, `time_bucket`, `service_name`, `resource_fingerprint`, and where applicable `trace_id` — cross-signal joins are efficient by design. `trace_id` on `posthog.metrics` is the OpenTelemetry exemplar pattern: a metric anomaly can be drilled into via a sample `trace_id` to pull the full trace and correlated logs.
+All three share `team_id`, `time_bucket`, `service_name`, `resource_fingerprint`, and where applicable `trace_id`. `trace_id` on `posthog.metrics` is the OpenTelemetry exemplar pattern — a metric anomaly can be drilled into via a sample `trace_id` to pull the full trace and correlated logs. **Note:** exemplar extraction is not yet wired up in the ingestion pipeline (the `_exemplars` argument is unused in `rust/capture-logs/src/metric_record.rs`), so `posthog.metrics.trace_id` is always empty today. The pattern below describes the intended capability; the "works today" alternative anchors on `posthog.trace_spans` instead.
+
+**`trace_id` format:** Both `logs` and `posthog.trace_spans` store `trace_id` as a 24-character base64-encoded 16-byte value (e.g. `IepzoCWp7NMq3z5ddUik9A==`). The MCP API layer converts to hex via `hex(tryBase64Decode(trace_id))` for display. Raw HogQL queries see the base64 form. Unset = `'AAAAAAAAAAAAAAAAAAAAAA=='`. `posthog.metrics.trace_id` is a plain string, empty when unset (once exemplars land it will match the base64 format of the other two tables). Joins are direct equality on `trace_id`.
 
 User HogQL queries against `logs`, `posthog.trace_spans`, and `posthog.metrics` are capped at 50 GB read per query to prevent unbounded scans.
 
 Always pass a tight `timestamp` window. Default to the last hour and widen only when justified.
 
-### Example: three-signal correlation via exemplars
+### Example: three-signal correlation (works today, span-anchored)
 
 <example>
-User: `http.server.duration` p95 for checkout spiked between 14:00 and 14:10 — show me a sample slow trace and the logs in that request.
-Assistant: I'll locate the spike, pick an exemplar trace_id, then pull the spans and logs in one stitched query.
+User: An error spike on `checkout` over the last hour — show me a sample slow error trace and the logs in that request.
+Assistant: I'll pick the slowest error root span as the anchor, then pull the spans and logs in one stitched query.
 
 ```sql
-WITH exemplar AS (
-    SELECT argMax(trace_id, value) AS trace_id
-    FROM posthog.metrics
+WITH anchor AS (
+    SELECT trace_id
+    FROM posthog.trace_spans
     WHERE service_name = 'checkout'
-      AND metric_name = 'http.server.duration'
-      AND timestamp >= toDateTime('2026-05-19 14:00:00')
-      AND timestamp <  toDateTime('2026-05-19 14:10:00')
-      AND trace_id != ''
+      AND is_root_span
+      AND status_code = 2
+      AND timestamp >= now() - INTERVAL 1 HOUR
+    ORDER BY duration_nano DESC
+    LIMIT 1
 )
-SELECT 'span' AS source, name AS detail, service_name, duration_nano, status_code, timestamp
+SELECT 'span' AS source, name AS detail, service_name, duration_nano, status_code, NULL AS severity_number, timestamp
 FROM posthog.trace_spans
-WHERE trace_id = (SELECT trace_id FROM exemplar)
+WHERE trace_id = (SELECT trace_id FROM anchor)
+  AND timestamp >= now() - INTERVAL 1 HOUR
 UNION ALL
-SELECT 'log', body, service_name, NULL, severity_number, timestamp
+SELECT 'log', body, service_name, NULL, NULL, severity_number, timestamp
 FROM logs
-WHERE trace_id = (SELECT trace_id FROM exemplar)
+WHERE trace_id = (SELECT trace_id FROM anchor)
+  AND timestamp >= now() - INTERVAL 1 HOUR
 ORDER BY timestamp
 ```
 
 <reasoning>
-1. `argMax(trace_id, value)` on `posthog.metrics` picks the slowest exemplar for the window — cheap thanks to the per-minute projection.
-2. Joining `posthog.trace_spans` and `logs` by the same `trace_id` returns the full request context in one round trip.
-3. UNION ALL with a `source` discriminator avoids three separate calls and keeps the timeline interleaved.
+1. Anchoring on `posthog.trace_spans` works today because spans always carry a populated `trace_id`. Once `posthog.metrics` exemplars land, the CTE can be swapped for `argMax(trace_id, value) FROM posthog.metrics WHERE … AND trace_id != ''` to drill from a metric spike instead.
+2. `trace_id` is stored as base64 in both `logs` and `posthog.trace_spans`, so direct equality works — no decoding needed.
+3. `UNION ALL` with a `source` discriminator avoids three separate calls and keeps the timeline interleaved.
 4. Note `logs` is root-level while `posthog.trace_spans` and `posthog.metrics` require the namespace prefix.
+5. The inner `WHERE` clauses repeat the time window so the optimizer keeps both legs of the UNION efficient.
 </reasoning>
 </example>
 
