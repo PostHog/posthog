@@ -266,6 +266,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             workflow_name = "data-modeling-execute-dag"
             workflow_id = f"execute-dag-{uuid4()}"
         else:
+            # v1 workflow is frozen — do not extend this branch.
+            # v2 lives at posthog/temporal/data_modeling/workflows/. Teams are
+            # being migrated off v1 via the `_is_v2_backend_enabled` flag.
             saved_query_ids = list(
                 # nosemgrep: idor-lookup-without-team (node_ids from prior team-scoped graph traversal)
                 Node.objects.filter(

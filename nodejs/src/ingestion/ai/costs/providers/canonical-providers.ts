@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-18 11:17:26 UTC
+// Generated at: 2026-05-18 20:28:30 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -114,6 +114,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sambanova'
     | 'sambanova-bf16'
+    | 'sambanova-dedicated'
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'seed-fp8'

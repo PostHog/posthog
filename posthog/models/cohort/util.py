@@ -1449,9 +1449,7 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
         return 0
 
     def orm_fn() -> int:
-        qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort_id, person__team_id=team_id
-        )
+        qs = CohortPeople.objects.filter(cohort_id=cohort_id)  # nosemgrep: no-direct-persons-db-orm
         if consistency == "strong":
             from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 

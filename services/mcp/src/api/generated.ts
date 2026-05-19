@@ -15960,7 +15960,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -19959,6 +19959,7 @@ export namespace Schemas {
     * `snooze` - Snooze
     * `unsnooze` - Unsnooze
     * `threshold_change` - Threshold change
+    * `broken_config` - Broken config
      */
     export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
 
@@ -19971,6 +19972,7 @@ export namespace Schemas {
       Snooze: 'snooze',
       Unsnooze: 'unsnooze',
       ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
     } as const;
 
     export interface LogsAlertEvent {
@@ -26730,7 +26732,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -30120,11 +30122,21 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
       signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
       signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
       subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
       payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
     }
 
     export interface PatchedTeam {
@@ -43998,6 +44010,10 @@ export namespace Schemas {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean;
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean;
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1
