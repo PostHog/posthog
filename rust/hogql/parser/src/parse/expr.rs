@@ -2705,10 +2705,22 @@ impl<'a> Parser<'a> {
         // Parametric / nested / complex form: `IDENT ( … )`.
         if self.peek() == TokenKind::LParen {
             self.bump()?;
+            // Pre-classify the whole paren group. cpp's ANTLR ALL(*) commits the
+            // entire `IDENT(...)` to a single alt (Nested/Complex/Param/Enum). If
+            // ANY depth-0 token forces Param (e.g. `#1`, `{}`, a bare literal,
+            // or a top-level operator like `a+b`), then every sibling item also
+            // takes the Param path — visited via `ctx->getText()` which keeps
+            // case + quoting and concatenates spacelessly. Otherwise Complex/
+            // Nested kicks in per-item (recursive visit, lowercased + `, `).
+            let raw_mode = self.group_is_param_mode();
             let mut parts: Vec<String> = Vec::new();
             if self.peek() != TokenKind::RParen {
                 loop {
-                    parts.push(self.parse_type_param_item()?);
+                    if raw_mode {
+                        parts.push(self.consume_raw_type_param_text()?);
+                    } else {
+                        parts.push(self.parse_type_param_item()?);
+                    }
                     if !self.eat(TokenKind::Comma)? {
                         break;
                     }
@@ -3294,41 +3306,21 @@ impl<'a> Parser<'a> {
                 _ => self.restore(cp)?,
             }
         }
-        // Bare numeric parameter — preserve as a raw token.
-        if matches!(self.peek(), TokenKind::Number) {
-            let n = self.bump()?;
-            return Ok(self.text(n).to_string());
-        }
         // The grammar declares the parametric-type alternatives in this
         // order: Nested, Complex, Param. ANTLR tries each alt in turn.
-        // Nested and Complex both recurse into nested `columnTypeExpr`,
-        // which can only contain identifiers/keywords/nested types.
-        // Param is the fallback — it admits arbitrary `columnExpr`, and
-        // its visitor uses verbatim `ctx.getText()` rather than
-        // recursing. We approximate that resolution by peeking into the
-        // current param's content (up to the next top-level comma or
-        // closing paren): if we see *only* type-shaped tokens it goes
-        // through `parse_type_expr`; otherwise it's a Param parameter
-        // and we collect raw token-concatenated text.
-        if self.param_looks_like_expression() {
-            return self.consume_raw_type_param_text();
-        }
-        // The heuristic catches the obvious expression markers (`{`,
-        // operators, strings, numbers in mid-position), but cpp's
-        // `ColumnTypeExprParam` admits arbitrary `columnExpr` and the
-        // visitor takes verbatim text. Anything that fits the type
-        // grammar (`Array(Int)`, `Tuple(a, b)`) is parsed as a type
-        // and yields the same text via `parse_type_expr`. Anything
-        // else (a parenthesised `(b)`, a `case…end`, an `if(c, d, e)`
-        // whose head is a keyword) falls back to raw concatenation,
-        // matching cpp's `getText()`.
+        // The group-level `group_is_param_mode` pre-classifier has already
+        // routed obvious Param shapes (any depth-0 `#1` / `{}` / literal /
+        // operator across the whole paren group) to the raw-text path;
+        // by the time we reach here we know the group "looks like Complex/
+        // Nested", so we try `parse_type_expr` first.
         //
         // A type-expr success only counts when it consumes the whole
         // param — i.e. lands on a `,` / `)` terminator. `case when (c)
         // then d end` happens to start `case when (c)` in a way that
         // `parse_type_expr`'s compound + param-list loops accept as a
         // pseudo-type `case when(c)`, then chokes on `then` instead of
-        // a terminator. Restore and treat as expression in that case.
+        // a terminator. Restore and treat as expression in that case,
+        // matching cpp's ANTLR fallback to the Param alt.
         let cp = self.checkpoint();
         match self.parse_type_expr() {
             Ok(name) if matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) => Ok(name),
@@ -3337,6 +3329,63 @@ impl<'a> Parser<'a> {
                 self.consume_raw_type_param_text()
             }
         }
+    }
+
+    /// Scan the whole `IDENT(...)` group and decide whether ANTLR would
+    /// commit to `ColumnTypeExprParam` (items are `columnExpr`, visited
+    /// via `ctx->getText()`) vs Complex/Nested (items are recursive
+    /// `columnTypeExpr`, visited with `, ` joining). Looks for **depth-0
+    /// only** expression markers — markers at deeper levels belong to a
+    /// nested sub-type's own classification (e.g. `Foo(FixedString(8))`
+    /// keeps Foo in Complex even though `8` appears at depth 1).
+    fn group_is_param_mode(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.start);
+        let mut depth: i32 = 0;
+        for _ in 0..4096 {
+            let Ok(t) = probe.next_token() else {
+                return false;
+            };
+            match t.kind {
+                TokenKind::Eof => return false,
+                // End of this group — no Param markers found, stay in
+                // Complex/Nested mode. Commas at depth 0 are item
+                // separators; we keep scanning for the next item.
+                TokenKind::RParen if depth == 0 => return false,
+                TokenKind::LBrace if depth == 0 => return true,
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
+                // Depth-0 expression-only tokens force Param mode for the
+                // whole group: literals, positional refs, and any binary
+                // / unary operator surrounded by item tokens.
+                TokenKind::String
+                | TokenKind::TemplateString
+                | TokenKind::Number
+                | TokenKind::Hash
+                | TokenKind::Plus
+                | TokenKind::Dash
+                | TokenKind::Slash
+                | TokenKind::Percent
+                | TokenKind::Asterisk
+                | TokenKind::Dot
+                | TokenKind::EqDouble
+                | TokenKind::EqSingle
+                | TokenKind::NotEq
+                | TokenKind::Lt
+                | TokenKind::LtEq
+                | TokenKind::Gt
+                | TokenKind::GtEq
+                | TokenKind::Arrow
+                | TokenKind::ColonEquals
+                | TokenKind::Concat
+                | TokenKind::Nullish
+                    if depth == 0 =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Peek the current type-param's content and decide whether it
@@ -3416,7 +3465,10 @@ impl<'a> Parser<'a> {
         // `if((c), d, e)` → `if((c),d,e)`. Stops at the param's own
         // depth-0 `,` or `)` terminator. Trailing commas at any depth
         // (i.e. immediately before a matching close) are dropped,
-        // since the cpp recursive visit skips them.
+        // since the cpp recursive visit skips them. Every token's
+        // original input text is used verbatim — case is preserved
+        // (`ABC` stays `ABC`) and QuotedIdents keep their quotes
+        // (`"a"` stays `"a"`).
         let mut out = String::new();
         let mut depth: i32 = 0;
         loop {
@@ -3445,14 +3497,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let t = self.bump()?;
-                    // Unquote QuotedIdents — cpp's recursive visit
-                    // resolves through `visitIdentifier` to the
-                    // unquoted form. Other tokens pass through.
-                    if t.kind == TokenKind::QuotedIdent {
-                        out.push_str(&identifier_text(self.text(t), t.kind));
-                    } else {
-                        out.push_str(self.text(t));
-                    }
+                    out.push_str(self.text(t));
                 }
             }
         }

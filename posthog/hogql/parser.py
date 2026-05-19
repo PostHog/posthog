@@ -1279,9 +1279,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return " ".join(self.visit(ident) for ident in ctx.identifier()).lower()
 
     def visitColumnTypeExprParam(self, ctx: HogQLParser.ColumnTypeExprParamContext):
-        name = self.visit(ctx.identifier())
+        # cpp's `ColumnTypeExprParam` visitor lowercases the head identifier
+        # but emits each top-level `columnExpr` via raw `ctx->getText()` —
+        # case-preserved, quotes preserved, spaceless. The outer cast
+        # visitor must NOT lowercase the result again, or `DateTime64(3,
+        # 'UTC')` collapses to `datetime64(3, 'utc')`.
+        name = self.visit(ctx.identifier()).lower()
         params = ", ".join(c.getText() for c in ctx.columnExprList().columnExpr()) if ctx.columnExprList() else ""
-        return f"{name}({params})".lower()
+        return f"{name}({params})"
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
         return [self.visit(c) for c in ctx.columnExpr()]
@@ -1363,8 +1368,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprSubstring")
 
     def visitColumnExprCast(self, ctx: HogQLParser.ColumnExprCastContext):
+        # Each `columnTypeExpr` visitor handles its own case rules (Simple/
+        # Complex/Nested/Compound lowercase; Param keeps the inner getText
+        # case-preserved). A blanket `.lower()` here would erase the
+        # Param-mode case preservation, e.g. `DateTime64(3, 'UTC')` →
+        # `datetime64(3, 'utc')`.
         type_name = self.visit(ctx.columnTypeExpr())
-        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=type_name.lower())
+        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=type_name)
 
     def visitColumnExprTryCast(self, ctx: HogQLParser.ColumnExprTryCastContext):
         type_name = self.visit(ctx.columnTypeExpr())

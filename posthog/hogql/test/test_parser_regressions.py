@@ -808,3 +808,43 @@ class TestParserRegressions(BaseTest):
             for backend in ("rust-json", "python"):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_cast_type_param_group_mode_classification(self):
+        # cpp's ANTLR commits an `IDENT(...)` type expression to a single
+        # alternative — Nested / Complex / Param / Enum — based on what's
+        # inside. Param (visited via `ctx->getText()`) preserves case,
+        # keeps quoted identifiers' quotes, and concatenates spacelessly.
+        # Complex / Nested (recursive visit) lowercases idents and joins
+        # with `, `. The Rust parser was deciding mode per-item, so a mix
+        # of `#1` + a type-shaped sibling rendered the type-shaped sibling
+        # with `, ` joining instead of the Param-mode spaceless form.
+        cases = (
+            # All items expr-shaped — Param mode end-to-end.
+            "cast(x as DateTime64(3, 'UTC'))",
+            'cast(x as DateTime64(3, "UTC"))',
+            "cast(x as Foo(#1, ABC))",
+            # Mixed: `#1` forces Param mode for the whole group, so the
+            # sibling `Bar(a, b)` is rendered via getText (spaceless +
+            # case-preserved).
+            "cast(x as Foo(#1, Bar(a, b)))",
+            "cast(x as Foo(Bar(a, b), #1))",
+            "cast(x as Foo(#1, f(g(a, b), h(c, d))))",
+            # Depth-1 `8` inside `FixedString(8)` doesn't escalate the
+            # outer Foo to Param — Foo stays Complex.
+            "cast(x as Foo(FixedString(8)))",
+            "cast(x as Foo(g(#1)))",
+            # All items type-shaped — Complex mode (lowercased + `, `).
+            "cast(x as Foo(a(b, c), d))",
+            "cast(x as Tuple(a Int, b Int))",
+            # Top-level operator forces Param mode.
+            "cast(x as Foo(a, b*c))",
+            # Per-item raw fallback: `case when (c) then d end` has no
+            # depth-0 expression markers (the `(c)` lives at depth 1),
+            # but it's not a valid type — cpp resolves to Param.
+            "cast(x as Foo(case when (c) then d end))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
