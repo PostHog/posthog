@@ -122,8 +122,8 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
 
     Only scans ``groups`` — the other filter sections cannot contain cohort
     properties:
-    - ``super_groups`` are early-access enrollment gates that only use person
-      properties (``$feature_enrollment/*``).
+    - ``feature_enrollment`` is a boolean gate for early-access features,
+      evaluated against person properties (``$feature_enrollment/*``).
     - ``holdout`` uses a different schema for configuring experiment holdouts
       with no property filters at all.
     """

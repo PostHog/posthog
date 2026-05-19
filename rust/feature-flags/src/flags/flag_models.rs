@@ -172,24 +172,8 @@ pub struct FlagFilters {
     pub aggregation_group_type_index: Option<i32>,
     #[serde(default)]
     pub payloads: Option<serde_json::Value>,
-    /// Super groups are a special group of feature flag conditions that act as a gate that must be
-    /// satisfied before any other conditions are evaluated. Currently, we only ever evaluate the first
-    /// super group. This is used for early access features which is a key and a boolean like so:
-    /// {
-    ///   "key": "$feature_enrollment/feature-flags-flag-dependency",
-    ///   "type": "person",
-    ///   "value": [
-    ///     "true"
-    ///   ],
-    ///   "operator": "exact"
-    /// }
-    /// If they match, the flag is enabled and no other conditions are evaluated. If they don't match,
-    /// fallback to regular conditions.
-    #[serde(default)]
-    pub super_groups: Option<Vec<FlagPropertyGroup>>,
-    /// New format for early access feature enrollment. When `true`, the flag is evaluated
-    /// against the person property `$feature_enrollment/{flag_key}`. Takes precedence over
-    /// `super_groups` when both are present.
+    /// Early access feature enrollment. When `true`, the flag is evaluated against the
+    /// person property `$feature_enrollment/{flag_key}`.
     #[serde(default)]
     pub feature_enrollment: Option<bool>,
     /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
@@ -326,11 +310,6 @@ impl PreparedFlagDefinitions {
                     .as_ref()
                     .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
                 let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
-                // Each PropertyFilter with a compiled regex costs ~2KB for the
-                // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
-                // payload can dominate for cohort/group filters, so walk it.
-                // Include `super_groups` alongside `groups` — `prepare_regexes_in_place`
-                // compiles regexes in both, so the weigher must account for both.
                 let group_size = |groups: &[FlagPropertyGroup]| -> usize {
                     groups
                         .iter()
@@ -352,8 +331,7 @@ impl PreparedFlagDefinitions {
                         })
                         .sum()
                 };
-                let filters_size: usize = group_size(&f.filters.groups)
-                    + f.filters.super_groups.as_deref().map_or(0, group_size);
+                let filters_size: usize = group_size(&f.filters.groups);
 
                 let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
