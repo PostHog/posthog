@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use common_cookieless::CookielessManagerError;
+use common_cookieless::{CookielessManagerError, SaltCacheError};
 use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
@@ -206,7 +206,10 @@ impl FlagError {
             FlagError::CookielessError(err) => match err {
                 CookielessManagerError::MissingProperty(_)
                 | CookielessManagerError::UrlParseError(_)
-                | CookielessManagerError::InvalidTimestamp(_) => ("cookieless_error", 400),
+                | CookielessManagerError::InvalidTimestamp(_)
+                | CookielessManagerError::SaltCacheError(SaltCacheError::DateOutOfRange) => {
+                    ("cookieless_error", 400)
+                }
                 _ => ("cookieless_error", 500),
             },
         }
@@ -346,7 +349,9 @@ impl FlagError {
                 CookielessManagerError::HashError(_)
                 | CookielessManagerError::ChronoError(_)
                 | CookielessManagerError::RedisError(_, _)
-                | CookielessManagerError::SaltCacheError(_)
+                | CookielessManagerError::SaltCacheError(
+                    SaltCacheError::RedisError(_) | SaltCacheError::SaltRetrievalFailed,
+                )
                 | CookielessManagerError::InvalidIdentifyCount(_),
             ) => StatusCode::INTERNAL_SERVER_ERROR,
             FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
@@ -579,6 +584,15 @@ impl IntoResponse for FlagError {
                         tracing::warn!("Cookieless invalid timestamp: {}", msg);
                         (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}"))
                     },
+                    // sent_at resolved to a date outside the salt-cache validity window
+                    // (e.g. crawlers with frozen Date.now()) — bad input, not a server fault.
+                    CookielessManagerError::SaltCacheError(SaltCacheError::DateOutOfRange) => {
+                        tracing::warn!("Cookieless date out of range - sent_at outside salt-cache validity window");
+                        (
+                            StatusCode::BAD_REQUEST,
+                            "Invalid sent_at: timestamp resolves to a date outside the accepted ingestion window".to_string(),
+                        )
+                    },
 
                     // 500 Internal Server Error - server-side issues
                     err @ (CookielessManagerError::HashError(_) |
@@ -707,6 +721,56 @@ mod tests {
         assert!(!FlagError::MissingDistinctId.is_5xx());
         assert!(!FlagError::NoTokenError.is_5xx());
         assert!(!FlagError::TokenValidationError.is_5xx());
+
+        // Cookieless: DateOutOfRange is client-data (4xx); other SaltCache errors are server faults (5xx).
+        assert!(
+            !FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+                SaltCacheError::DateOutOfRange
+            ))
+            .is_5xx()
+        );
+        assert!(
+            FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+                SaltCacheError::SaltRetrievalFailed
+            ))
+            .is_5xx()
+        );
+        assert!(
+            FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+                SaltCacheError::RedisError("boom".to_string())
+            ))
+            .is_5xx()
+        );
+    }
+
+    #[test]
+    fn test_date_out_of_range_is_400() {
+        let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+            SaltCacheError::DateOutOfRange,
+        ));
+        assert_eq!(err.status_code(), 400);
+        assert_eq!(err.error_code(), "cookieless_error");
+        assert!(!err.is_5xx());
+    }
+
+    #[test]
+    fn test_date_out_of_range_response_body() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+            SaltCacheError::DateOutOfRange,
+        ));
+
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body_bytes = rt
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(
+            body.contains("Invalid sent_at"),
+            "body should describe the bad sent_at, got: {body}"
+        );
     }
 
     #[test]
