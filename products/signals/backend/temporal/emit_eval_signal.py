@@ -54,15 +54,28 @@ You will be given:
 - The judge's reasoning for its verdict
 - Context about the target event (event type, trace ID if available)
 
+IMPORTANT — what the target event actually is:
+The target event is a single LLM API call (an `$ai_generation`), not a user-facing UI interaction.
+There is no clicking, scrolling, typing, or other browser/app behavior happening *during* the
+generation — only a model producing tokens in response to a prompt. User-behavior language
+that appears in the evaluation prompt, the LLM's input/output, or the judge's reasoning
+(e.g. "rage click", "frustration", "form abandonment", "scroll", "tap") refers to subject
+matter being *discussed* in the prompt or output, NOT to events that occurred during the
+generation itself. Describe the finding in terms of the LLM call (its prompt, content, or
+behavior) — do not narrate it as if a user was interacting with a UI while the model ran.
+
 Produce:
 1. A short title (max 100 chars) that captures what the evaluation detected. This should read as a finding, not a question.
    Good: "Hallucination detected in product recommendation flow"
    Bad: "Evaluation 'hallucination_check' passed"
+   Bad: "User experienced rage clicks during AI generation"  ← target is an LLM call, not a UI session
 
 2. A 4-8 sentence description that explains:
    - What the evaluation was checking for (derived from the prompt)
    - Why the judge determined the result was true
    - Any relevant context about the trace or event
+   Frame the description as a property of the LLM call (its inputs, outputs, or model behavior).
+   Do not attribute user-facing actions to the generation itself.
 
 3. A significance score between 0 and 1:
    - 0.0 = totally insignificant, noise, expected behavior

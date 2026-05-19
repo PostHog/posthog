@@ -27,6 +27,7 @@ from .run_evaluation import (
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
     SendTrialUsageEmailInputs,
+    _is_internal_posthog_pipeline_event,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -1425,3 +1426,26 @@ class TestJudgePromptAssembly:
         assert "Tools available:" not in user_prompt
         assert "Input:" in user_prompt
         assert "Output:" in user_prompt
+
+
+class TestIsInternalPosthogPipelineEvent:
+    @parameterized.expand(
+        [
+            ("temporal-worker-video-export", True),
+            ("temporal-worker-llm-analytics-evals", True),
+            ("temporal-worker-signals", True),
+            ("temporal-worker-general-purpose", True),
+            ("posthog-web", False),
+            ("customer-service", False),
+            ("", False),
+        ]
+    )
+    def test_service_prefix_detection(self, service: str, expected: bool) -> None:
+        assert _is_internal_posthog_pipeline_event({"service": service}) is expected
+
+    def test_missing_service_property(self) -> None:
+        assert _is_internal_posthog_pipeline_event({}) is False
+
+    def test_non_string_service_property(self) -> None:
+        assert _is_internal_posthog_pipeline_event({"service": 123}) is False
+        assert _is_internal_posthog_pipeline_event({"service": None}) is False
