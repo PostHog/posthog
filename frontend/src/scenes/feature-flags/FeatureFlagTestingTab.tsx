@@ -340,13 +340,14 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         </LemonLabel>
                                     </div>
 
-                                    <div className="max-h-96 overflow-auto [&_tr[style*='var(--mark)']]:!bg-bg-3000">
+                                    <div className="max-h-96 overflow-auto">
                                         <PropertiesTable
                                             properties={result.person_properties}
                                             type={PropertyDefinitionType.Person}
                                             searchable={true}
                                             sortProperties={true}
                                             highlightedKeys={Array.from(usedProperties)}
+                                            highlightVariant="subtle"
                                             embedded={true}
                                         />
                                     </div>

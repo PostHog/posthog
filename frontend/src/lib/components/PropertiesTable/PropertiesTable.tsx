@@ -217,6 +217,8 @@ export interface PropertiesTableProps extends BasePropertyType {
     useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
+    /** Controls the highlight style for highlighted rows. Default: 'default' uses var(--mark), 'subtle' uses a more subtle background. */
+    highlightVariant?: 'default' | 'subtle'
     type: PropertyDefinitionType
     /**
      * The container for these properties e.g. the event name of the event the properties are on
@@ -239,6 +241,7 @@ export function PropertiesTable({
     useDetectedPropertyType,
     tableProps,
     highlightedKeys,
+    highlightVariant = 'default',
     type,
     parent,
 }: PropertiesTableProps): JSX.Element {
@@ -587,7 +590,9 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark)' },
+                                  style: {
+                                      background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)',
+                                  },
                               }
                             : {}
                     }
