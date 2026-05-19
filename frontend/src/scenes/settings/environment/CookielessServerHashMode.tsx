@@ -62,7 +62,7 @@ export function CookielessServerHashModeSetting(): JSX.Element {
     return (
         <>
             <LemonBanner type="info" className="mb-4">
-                While Cookieless server hash mode is enabled, IP-based transformations like GeoIP enrichment and bot
+                When Cookieless server hash mode is enabled, IP-based transformations like GeoIP enrichment and bot
                 detection will not enrich events. The IP is hashed into the distinct ID and stripped before
                 transformations run.
             </LemonBanner>
