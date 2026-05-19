@@ -643,6 +643,40 @@ class SandboxedDemoData:
         )
 
 
+# Event-level properties the error-tracking ``searchQuery`` matches on
+# (see ``products/error_tracking/backend/hogql_queries/error_tracking_query_runner_utils.py``).
+# These are stored as JSON arrays (``["TypeError"]``); without materialized
+# columns the bare ``properties.$exception_types`` lookup goes through
+# ``JSONExtractString`` which returns ``""`` for non-string JSON values, so
+# ``searchQuery`` filtering on these properties silently never matches anything.
+# Materializing once per session — with a generous backfill so master demo
+# events get populated values too — makes the sandbox behave like prod for
+# error-tracking searchQuery.
+_EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
+    "$exception_types",
+    "$exception_values",
+    "$exception_sources",
+    "$exception_functions",
+)
+
+
+def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
+    from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+
+    suggestions = [("events", "properties", prop) for prop in _EVAL_MATERIALIZED_EVENT_PROPERTIES]
+    with django_db_blocker.unblock():
+        materialize_properties_task(
+            properties_to_materialize=suggestions,
+            maximum=len(suggestions),
+            # Existing master-team events were inserted before the columns
+            # existed, so their materialized values are empty unless we
+            # backfill. 180d covers Hedgebox's seeded error-tracking events
+            # (the oldest sit at days_ago=18) with plenty of headroom for
+            # the wider matrix.
+            backfill_period_days=180,
+        )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def sandboxed_demo_data(
     set_up_evals,  # noqa: F811
@@ -652,6 +686,7 @@ def sandboxed_demo_data(
     """Seed the master Hedgebox team (once) and expose a per-case context factory."""
     from posthog.clickhouse.client import sync_execute
 
+    _ensure_event_search_columns_materialized(django_db_blocker)
     master_team_id = ensure_master_demo_team(django_db_blocker)
     with django_db_blocker.unblock():
         rows = sync_execute(
