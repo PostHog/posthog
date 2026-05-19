@@ -417,11 +417,11 @@ procs:
 
     hogql-service:
         shell: |-
-            uv sync --active && \
             bin/wait-for-docker && \
-            HOGQL_SERVICE_HOST="${HOGQL_SERVICE_HOST:-127.0.0.1}" \
-            HOGQL_SERVICE_SHARED_SECRET="${HOGQL_SERVICE_SHARED_SECRET-posthog}" \
             python manage.py run_hogql_service
+        env:
+            HOGQL_SERVICE_HOST: '127.0.0.1'
+            HOGQL_SERVICE_SHARED_SECRET: 'posthog'
         capability: hogql_service
         ready_pattern: 'HogQL Postgres wire service listening'
         groups:

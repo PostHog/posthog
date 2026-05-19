@@ -9,6 +9,7 @@ import struct
 import asyncio
 import logging
 import secrets
+import ipaddress
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -44,6 +45,8 @@ PROTOCOL_VERSION_3 = 196608
 SSL_REQUEST_CODE = 80877103
 GSSENC_REQUEST_CODE = 80877104
 CANCEL_REQUEST_CODE = 80877102
+MAX_STARTUP_PACKET_BYTES = 64 * 1024
+MAX_UNAUTHENTICATED_MESSAGE_BYTES = 64 * 1024
 
 AUTHENTICATION_OK = 0
 AUTHENTICATION_CLEARTEXT_PASSWORD = 3
@@ -96,7 +99,7 @@ class HogQLServiceProtocolError(HogQLServiceError):
 
 @dataclass(frozen=True)
 class HogQLServiceConfig:
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 6543
     shared_secret: str | None = None
     max_query_bytes: int = 1024 * 1024
@@ -104,7 +107,7 @@ class HogQLServiceConfig:
     @classmethod
     def from_env(cls) -> HogQLServiceConfig:
         return cls(
-            host=os.environ.get("HOGQL_SERVICE_HOST", "0.0.0.0"),
+            host=os.environ.get("HOGQL_SERVICE_HOST", "127.0.0.1"),
             port=int(os.environ.get("HOGQL_SERVICE_PORT", "6543")),
             shared_secret=os.environ.get("HOGQL_SERVICE_SHARED_SECRET") or None,
             max_query_bytes=int(os.environ.get("HOGQL_SERVICE_MAX_QUERY_BYTES", str(1024 * 1024))),
@@ -350,6 +353,26 @@ class HogQLServiceAuthenticator:
         return username.casefold() == user.email.casefold()
 
 
+def _setting_values(context: HogQLServiceSessionContext) -> dict[str, str]:
+    return {
+        "server_version": "16.0 (PostHog HogQL service)",
+        "server_version_num": "160000",
+        "server_encoding": "UTF8",
+        "client_encoding": "UTF8",
+        "datestyle": "ISO, MDY",
+        "standard_conforming_strings": "on",
+        "integer_datetimes": "on",
+        "timezone": context.team.timezone,
+        "transaction_isolation": "read committed",
+        "default_transaction_read_only": "on",
+        "search_path": "public",
+        "statement_timeout": "0",
+        "lock_timeout": "0",
+        "idle_in_transaction_session_timeout": "0",
+        "extra_float_digits": "1",
+    }
+
+
 class HogQLServiceQueryExecutor:
     def execute(self, sql: str, context: HogQLServiceSessionContext) -> QueryResult:
         stripped_sql = sql.strip()
@@ -410,7 +433,7 @@ class HogQLServiceQueryExecutor:
         if normalized.startswith("set ") or normalized.startswith("reset ") or normalized.startswith("discard "):
             return QueryResult(columns=[], rows=[], command_tag="SET")
         if normalized == "show all":
-            rows = [(name, value, "") for name, value in self._setting_values(context).items()]
+            rows = [(name, value, "") for name, value in _setting_values(context).items()]
             return QueryResult(
                 columns=[ResultColumn(name="name"), ResultColumn(name="setting"), ResultColumn(name="description")],
                 rows=rows,
@@ -457,7 +480,7 @@ class HogQLServiceQueryExecutor:
         return None
 
     def _show_value(self, normalized: str, context: HogQLServiceSessionContext) -> tuple[str, str] | None:
-        values = self._setting_values(context)
+        values = _setting_values(context)
         match = re.fullmatch(r"show\s+([a-zA-Z_][a-zA-Z0-9_]*|transaction\s+isolation\s+level)", normalized)
         if not match:
             return None
@@ -468,25 +491,6 @@ class HogQLServiceQueryExecutor:
         if value is None:
             return None
         return parameter_name, value
-
-    def _setting_values(self, context: HogQLServiceSessionContext) -> dict[str, str]:
-        return {
-            "server_version": "16.0 (PostHog HogQL service)",
-            "server_version_num": "160000",
-            "server_encoding": "UTF8",
-            "client_encoding": "UTF8",
-            "datestyle": "ISO, MDY",
-            "standard_conforming_strings": "on",
-            "integer_datetimes": "on",
-            "timezone": context.team.timezone,
-            "transaction_isolation": "read committed",
-            "default_transaction_read_only": "on",
-            "search_path": "public",
-            "statement_timeout": "0",
-            "lock_timeout": "0",
-            "idle_in_transaction_session_timeout": "0",
-            "extra_float_digits": "1",
-        }
 
     def _builtin_select(
         self, normalized: str, context: HogQLServiceSessionContext
@@ -518,7 +522,7 @@ class HogQLServiceQueryExecutor:
         )
         if current_setting_match:
             setting_name = current_setting_match.group(1).replace(" ", "_")
-            return ["current_setting"], [(self._setting_values(context).get(setting_name),)]
+            return ["current_setting"], [(_setting_values(context).get(setting_name),)]
         return None
 
     def _builtin_no_from_select(
@@ -707,7 +711,7 @@ class HogQLPostgresWireSession:
         except (asyncio.IncompleteReadError, ConnectionResetError):
             return
         except HogQLServiceError as error:
-            self._log_service_error(error, message_type=None)
+            await self._log_service_error(error, message_type=None)
             self.writer.write(PostgresWireCodec.error_response(str(error), error.sqlstate))
             await self.writer.drain()
         except Exception:
@@ -724,7 +728,7 @@ class HogQLPostgresWireSession:
         while True:
             length_bytes = await self.reader.readexactly(4)
             length = struct.unpack("!I", length_bytes)[0]
-            if length < 8:
+            if length < 8 or length > MAX_STARTUP_PACKET_BYTES:
                 raise HogQLServiceProtocolError("Invalid startup packet.")
 
             payload = await self.reader.readexactly(length - 4)
@@ -789,7 +793,7 @@ class HogQLPostgresWireSession:
             try:
                 await self._handle_message(message_type, payload)
             except HogQLServiceError as error:
-                self._log_service_error(error, message_type=message_type)
+                await self._log_service_error(error, message_type=message_type)
                 self.writer.write(PostgresWireCodec.error_response(str(error), error.sqlstate))
                 if message_type != b"Q":
                     self.skip_until_sync = True
@@ -797,9 +801,9 @@ class HogQLPostgresWireSession:
                     self.writer.write(PostgresWireCodec.ready_for_query())
                 await self.writer.drain()
 
-    def _log_service_error(self, error: HogQLServiceError, message_type: bytes | None) -> None:
+    async def _log_service_error(self, error: HogQLServiceError, message_type: bytes | None) -> None:
         context = self.context
-        append_service_log(
+        await append_service_log_async(
             f"ERROR sqlstate={error.sqlstate} message_type={message_type!r} "
             f"database={context.database if context else None} team_id={context.team.id if context else None} "
             f"connection_id={context.connection_id if context else None} user={context.database_user if context else None} "
@@ -829,7 +833,11 @@ class HogQLPostgresWireSession:
         length = struct.unpack("!I", length_bytes)[0]
         if length < 4:
             raise HogQLServiceProtocolError("Invalid message length.")
-        payload = await self.reader.readexactly(length - 4)
+        payload_length = length - 4
+        max_payload_bytes = self.max_query_bytes if self.context is not None else MAX_UNAUTHENTICATED_MESSAGE_BYTES
+        if payload_length > max_payload_bytes:
+            raise HogQLServiceProtocolError("Message is too large.")
+        payload = await self.reader.readexactly(payload_length)
         return message_type, payload
 
     async def _handle_message(self, message_type: bytes, payload: bytes) -> None:
@@ -998,7 +1006,7 @@ class HogQLPostgresWireSession:
         assert self.context is not None
         if len(sql.encode("utf-8")) > self.max_query_bytes:
             raise HogQLServiceProtocolError("Query is too large.")
-        append_service_log(
+        await append_service_log_async(
             f"QUERY database={self.context.database} team_id={self.context.team.id} "
             f"connection_id={self.context.connection_id} user={self.context.database_user} query={sql!r}"
         )
@@ -1015,7 +1023,7 @@ class HogQLPostgresWireSession:
         )
         try:
             result = await asyncio.to_thread(self.query_executor.execute, sql, self.context)
-            self._log_query_result(result)
+            await self._log_query_result(result)
             return result
         except HogQLServiceError as error:
             if error.query is None:
@@ -1035,7 +1043,7 @@ class HogQLPostgresWireSession:
             )
             raise
 
-    def _log_query_result(self, result: QueryResult) -> None:
+    async def _log_query_result(self, result: QueryResult) -> None:
         assert self.context is not None
         column_names = [column.name for column in result.columns[:20]]
         null_columns = [
@@ -1043,7 +1051,7 @@ class HogQLPostgresWireSession:
             for column_index, column in enumerate(result.columns[:20])
             if any(column_index >= len(row) or row[column_index] is None for row in result.rows[:50])
         ]
-        append_service_log(
+        await append_service_log_async(
             f"RESULT database={self.context.database} team_id={self.context.team.id} "
             f"connection_id={self.context.connection_id} user={self.context.database_user} "
             f"command={result.command_tag!r} row_count={len(result.rows)} columns={column_names!r} "
@@ -1070,14 +1078,28 @@ class HogQLPostgresServer:
         server = await asyncio.start_server(self._handle_client, self.config.host, self.config.port)
         addresses = ", ".join(str(socket.getsockname()) for socket in server.sockets or [])
         message = f"HogQL Postgres wire service listening on {addresses}"
-        append_service_log(message)
+        await append_service_log_async(message)
         logger.info(message)
+        if not is_loopback_host(self.config.host):
+            warning = (
+                "HogQL service is running without TLS on a non-loopback bind address; "
+                "non-loopback client connections will be rejected."
+            )
+            await append_service_log_async(warning)
+            logger.warning(warning)
         if self.on_listening is not None:
             self.on_listening(message)
         async with server:
             await server.serve_forever()
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        peername = writer.get_extra_info("peername")
+        if not is_loopback_peer(peername):
+            logger.warning("Rejected non-loopback HogQL service connection: peername=%r", peername)
+            writer.close()
+            await writer.wait_closed()
+            return
+
         session = HogQLPostgresWireSession(
             reader=reader,
             writer=writer,
@@ -1107,6 +1129,36 @@ def parse_database_name(database: str) -> tuple[str, str | None]:
     return team_id, connection_id
 
 
+def is_loopback_host(host: str) -> bool:
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback
+
+
+def is_loopback_peer(peername: object) -> bool:
+    if not isinstance(peername, tuple) or not peername:
+        return False
+
+    host = peername[0]
+    if not isinstance(host, str):
+        return False
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost"
+
+    if address.is_loopback:
+        return True
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped.is_loopback
+    return False
+
+
 def append_service_log(message: str) -> None:
     log_file = os.environ.get("HOGQL_SERVICE_LOG_FILE", "/tmp/posthog-hogql-service.log")
     try:
@@ -1114,6 +1166,10 @@ def append_service_log(message: str) -> None:
             file.write(f"{timezone.now().isoformat()} {message}\n")
     except OSError:
         logger.debug("Failed to write HogQL service log file", exc_info=True)
+
+
+async def append_service_log_async(message: str) -> None:
+    await asyncio.to_thread(append_service_log, message)
 
 
 INFORMATION_SCHEMA_SCHEMATA_COLUMNS = [
@@ -1436,7 +1492,7 @@ def evaluate_builtin_expression(expression: str, context: HogQLServiceSessionCon
     if normalized.startswith("current_setting(") or normalized.startswith("pg_catalog.current_setting("):
         setting_match = re.match(r"(?:pg_catalog\.)?current_setting\('([^']+)'(?:,\s*true)?\)", normalized)
         if setting_match:
-            return HogQLServiceQueryExecutor()._setting_values(context).get(setting_match.group(1).replace(" ", "_"))
+            return _setting_values(context).get(setting_match.group(1).replace(" ", "_"))
     if normalized == "null":
         return None
     if normalized in {"true", "'yes'"}:

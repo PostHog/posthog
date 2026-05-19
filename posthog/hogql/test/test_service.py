@@ -1,3 +1,5 @@
+import os
+import struct
 import asyncio
 from types import SimpleNamespace
 from typing import Any, cast
@@ -7,16 +9,21 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 import psycopg
+from parameterized import parameterized
 
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.service import (
+    MAX_STARTUP_PACKET_BYTES,
+    MAX_UNAUTHENTICATED_MESSAGE_BYTES,
     POSTGRES_INT8_OID,
     CatalogTable,
     HogQLPostgresWireSession,
     HogQLServiceAuthenticationError,
     HogQLServiceAuthenticator,
+    HogQLServiceConfig,
     HogQLServicePermissionError,
+    HogQLServiceProtocolError,
     HogQLServiceQueryExecutor,
     HogQLServiceSessionContext,
     PgParameter,
@@ -24,6 +31,8 @@ from posthog.hogql.service import (
     ResultColumn,
     bind_parameters_to_query,
     catalog_table_name,
+    is_loopback_host,
+    is_loopback_peer,
     parse_database_name,
     rewrite_catalog_table_references,
     rewrite_postgres_pseudo_columns,
@@ -375,6 +384,11 @@ class TestHogQLServiceQueryExecutor(BaseTest):
 
 
 class TestHogQLServiceParameters(BaseTest):
+    def test_config_defaults_to_loopback_host(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            assert HogQLServiceConfig().host == "127.0.0.1"
+            assert HogQLServiceConfig.from_env().host == "127.0.0.1"
+
     def test_parse_database_name_accepts_team_id(self) -> None:
         assert parse_database_name("123") == ("123", None)
 
@@ -409,6 +423,30 @@ class TestHogQLServiceParameters(BaseTest):
 
     def test_catalog_table_name_flattens_hogql_multipart_names(self) -> None:
         assert catalog_table_name("bigquery.bqds.sometable") == ("bigquery_bqds", "sometable")
+
+    @parameterized.expand(
+        [
+            ("localhost", True),
+            ("127.0.0.1", True),
+            ("::1", True),
+            ("0.0.0.0", False),
+            ("192.168.1.10", False),
+        ]
+    )
+    def test_is_loopback_host(self, host: str, expected: bool) -> None:
+        assert is_loopback_host(host) is expected
+
+    @parameterized.expand(
+        [
+            (("127.0.0.1", 5432), True),
+            (("::1", 5432, 0, 0), True),
+            (("::ffff:127.0.0.1", 5432, 0, 0), True),
+            (("192.168.1.10", 5432), False),
+            (None, False),
+        ]
+    )
+    def test_is_loopback_peer(self, peername: object, expected: bool) -> None:
+        assert is_loopback_peer(peername) is expected
 
     def test_rewrite_catalog_table_references_accepts_safe_and_cached_multipart_names(self) -> None:
         table = CatalogTable(
@@ -456,6 +494,73 @@ class FakeQueryExecutor:
             rows=[(42,)],
             command_tag="SELECT 1",
         )
+
+
+class FakeWriter:
+    def __init__(self) -> None:
+        self.writes: list[bytes] = []
+
+    def write(self, data: bytes) -> None:
+        self.writes.append(data)
+
+    async def drain(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    async def wait_closed(self) -> None:
+        return None
+
+    def get_extra_info(self, name: str) -> object:
+        if name == "peername":
+            return ("127.0.0.1", 5432)
+        return None
+
+
+def _session_with_wire_data(data: bytes, *, max_query_bytes: int = 1024) -> HogQLPostgresWireSession:
+    reader = asyncio.StreamReader()
+    reader.feed_data(data)
+    reader.feed_eof()
+    return HogQLPostgresWireSession(
+        reader=reader,
+        writer=cast(asyncio.StreamWriter, FakeWriter()),
+        authenticator=FakeAuthenticator(),
+        query_executor=FakeQueryExecutor(),
+        max_query_bytes=max_query_bytes,
+    )
+
+
+@pytest.mark.asyncio
+async def test_postgres_wire_session_rejects_oversized_startup_packet_before_payload_read() -> None:
+    session = _session_with_wire_data(struct.pack("!I", MAX_STARTUP_PACKET_BYTES + 1))
+
+    with pytest.raises(HogQLServiceProtocolError, match="Invalid startup packet"):
+        await session._read_startup_parameters()
+
+
+@pytest.mark.asyncio
+async def test_postgres_wire_session_rejects_oversized_unauthenticated_message_before_payload_read() -> None:
+    length = MAX_UNAUTHENTICATED_MESSAGE_BYTES + 5
+    session = _session_with_wire_data(b"p" + struct.pack("!I", length))
+
+    with pytest.raises(HogQLServiceProtocolError, match="Message is too large"):
+        await session._read_message()
+
+
+@pytest.mark.asyncio
+async def test_postgres_wire_session_rejects_authenticated_message_above_query_limit_before_payload_read() -> None:
+    session = _session_with_wire_data(b"Q" + struct.pack("!I", 15), max_query_bytes=10)
+    session.context = HogQLServiceSessionContext(
+        database_user="user@example.com",
+        database="1",
+        user=cast(User, SimpleNamespace(email="user@example.com")),
+        team=cast(Team, SimpleNamespace(id=1, timezone="UTC")),
+        authenticated_by="shared_secret",
+    )
+
+    with pytest.raises(HogQLServiceProtocolError, match="Message is too large"):
+        await session._read_message()
 
 
 @pytest.mark.asyncio

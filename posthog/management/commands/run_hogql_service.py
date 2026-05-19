@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import dataclasses
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
@@ -14,7 +15,7 @@ class Command(BaseCommand):
     help = "Run the HogQL Postgres wire-compatible service"
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--host", default=None, help="Host to bind. Defaults to HOGQL_SERVICE_HOST or 0.0.0.0.")
+        parser.add_argument("--host", default=None, help="Host to bind. Defaults to HOGQL_SERVICE_HOST or 127.0.0.1.")
         parser.add_argument(
             "--port", type=int, default=None, help="Port to bind. Defaults to HOGQL_SERVICE_PORT or 6543."
         )
@@ -30,26 +31,11 @@ class Command(BaseCommand):
 
         config = HogQLServiceConfig.from_env()
         if options["host"] is not None:
-            config = HogQLServiceConfig(
-                host=options["host"],
-                port=config.port,
-                shared_secret=config.shared_secret,
-                max_query_bytes=config.max_query_bytes,
-            )
+            config = dataclasses.replace(config, host=options["host"])
         if options["port"] is not None:
-            config = HogQLServiceConfig(
-                host=config.host,
-                port=options["port"],
-                shared_secret=config.shared_secret,
-                max_query_bytes=config.max_query_bytes,
-            )
+            config = dataclasses.replace(config, port=options["port"])
         if options["shared_secret"] is not None:
-            config = HogQLServiceConfig(
-                host=config.host,
-                port=config.port,
-                shared_secret=options["shared_secret"],
-                max_query_bytes=config.max_query_bytes,
-            )
+            config = dataclasses.replace(config, shared_secret=options["shared_secret"])
 
         self.stdout.write(f"Starting HogQL service on {config.host}:{config.port}")
         self.stdout.write(f"HogQL service logs: {log_file}")
