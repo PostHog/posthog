@@ -74,6 +74,11 @@
         width: 100%;
         min-width: 0;
         max-width: 100%;
+
+        // Critical: the base `.PostHogHostedSurvey textarea` rule forces a
+        // min-height of 8rem for the respondent UI. We need to undo that or
+        // every click on the title or description blows up into a giant box.
+        min-height: 0;
         padding: 0;
         margin: 0;
         font: inherit;
@@ -89,10 +94,17 @@
         outline: none;
         box-shadow: none;
 
-        // Auto-size single-line inputs to their content so the editor never
+        // Auto-size inputs/textareas to their content so the editor never
         // shows a giant empty rectangle (supported in modern browsers).
         /* stylelint-disable-next-line property-no-unknown */
         field-sizing: content;
+    }
+
+    textarea.inline-editable {
+        // Browsers without field-sizing support still need a sane fallback —
+        // size in line-units, never the 8rem default.
+        height: auto;
+        overflow: hidden;
     }
 
     // Inline display contexts (e.g. choice text + ":" suffix, submit button

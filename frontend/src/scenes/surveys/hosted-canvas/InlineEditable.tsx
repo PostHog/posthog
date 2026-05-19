@@ -58,6 +58,18 @@ export function InlineEditable({
         }
     }, [editing])
 
+    // Auto-grow textareas to fit their content in browsers that don't yet
+    // support `field-sizing: content` (notably Safari < 17). Cheap noop on
+    // browsers that do — they'll recompute height the same way on next layout.
+    useEffect(() => {
+        if (!editing || !multiline || !inputRef.current) {
+            return
+        }
+        const el = inputRef.current as HTMLTextAreaElement
+        el.style.height = 'auto'
+        el.style.height = `${el.scrollHeight}px`
+    }, [editing, multiline, draft])
+
     const commit = (): void => {
         const trimmed = draft
         if (trimmed !== value) {
@@ -100,7 +112,11 @@ export function InlineEditable({
                 onKeyDown={handleKey}
                 className={sharedClass}
                 data-attr={dataAttr}
-                rows={Math.max(1, Math.min(8, draft.split('\n').length))}
+                // 1 row is the floor — `field-sizing: content` + scrollHeight
+                // auto-grow take over from there. Without this the browser
+                // defaults to 2 visible rows, which already feels too tall
+                // for a one-line question title.
+                rows={1}
             />
         ) : (
             <input
