@@ -11,6 +11,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, LensSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -55,7 +56,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
     distinct_id = (
         str(observation.triggered_by_user_id)
         if observation.triggered_by_user_id is not None and observation.triggered_by == ObservationTrigger.ON_DEMAND
-        else f"replay-vision:{observation.team_id}"
+        else replay_vision_distinct_id(observation.team_id)
     )
 
     response = capture_internal(

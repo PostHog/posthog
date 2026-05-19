@@ -16,6 +16,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.models import Team
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.lenses import lens_from_snapshot
 from products.replay_vision.backend.temporal.lenses.base import BaseLens
 from products.replay_vision.backend.temporal.state import (
@@ -101,7 +102,7 @@ async def _call_with_retry(*, lens: BaseLens, model: str, prompt_parts: list[typ
                 response_mime_type="application/json",
                 response_json_schema=schema_class.model_json_schema(),
             ),
-            posthog_distinct_id=f"replay-vision:{team_id}",
+            posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_groups={"project": str(team_id)},
         )
         response_text = (response.text or "").strip()

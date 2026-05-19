@@ -46,9 +46,11 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
     metadata = events_obj.get_metadata(session_id=session_id, team=team)
     if metadata is None:
         raise ApplicationError(f"No replay metadata found for session {session_id}", non_retryable=True)
-    if metadata["active_seconds"] > MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S:
+    # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0 to stay below the cap.
+    active_seconds = metadata.get("active_seconds") or 0
+    if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S:
         raise ApplicationError(
-            f"Session {session_id} has {metadata['active_seconds']}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S}s",
+            f"Session {session_id} has {active_seconds}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S}s",
             non_retryable=True,
         )
 
