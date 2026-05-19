@@ -283,7 +283,7 @@ describe('Cyclotron V2', () => {
             expect(rows[1].person_id).toBeNull()
         })
 
-        describe('overwriteExisting (replay re-enqueue)', () => {
+        describe('overwriteExisting (rerun re-enqueue)', () => {
             it('createJob with overwriteExisting=true refuses to clobber an in-flight (running) row', async () => {
                 const id = uuidv7()
                 await manager.createJob({ id, teamId: 1, queueName: QUEUE })
@@ -328,7 +328,7 @@ describe('Cyclotron V2', () => {
                 expect((await queryJob(id)).status).toBe('completed')
 
                 // Re-create with the same id and overwriteExisting=true — this
-                // is the replay path. The row should flip back to 'available'
+                // is the rerun path. The row should flip back to 'available'
                 // with the new state.
                 await manager.createJob({
                     id,
@@ -343,7 +343,7 @@ describe('Cyclotron V2', () => {
                 expect(row.lock_id).toBeNull()
                 expect(row.last_heartbeat).toBeNull()
                 // transition_count bumps so the janitor's poison-pill guard
-                // still has signal across replays.
+                // still has signal across reruns.
                 expect(row.transition_count).toBeGreaterThan(0)
             })
 
@@ -418,7 +418,7 @@ describe('Cyclotron V2', () => {
                         id,
                         teamId: 1,
                         queueName: QUEUE,
-                        state: Buffer.from('replayed'),
+                        state: Buffer.from('rerun'),
                         overwriteExisting: true,
                     }))
                 )
@@ -426,7 +426,7 @@ describe('Cyclotron V2', () => {
                 for (const id of ids) {
                     const row = await queryJob(id)
                     expect(row.status).toBe('available')
-                    expect(row.state).toEqual(Buffer.from('replayed'))
+                    expect(row.state).toEqual(Buffer.from('rerun'))
                 }
             })
 

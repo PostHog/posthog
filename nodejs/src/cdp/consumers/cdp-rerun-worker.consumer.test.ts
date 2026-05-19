@@ -5,10 +5,10 @@ import { resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
-import { REPLAY_QUEUE_NAME, ReplayJobState } from '../replay/replay-job.types'
+import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { CdpReplayWorkerConsumer } from './cdp-replay-worker.consumer'
+import { CdpRerunWorkerConsumer } from './cdp-rerun-worker.consumer'
 
 jest.setTimeout(20000)
 
@@ -17,7 +17,7 @@ const buildDequeuedJob = (overrides: Partial<CyclotronV2DequeuedJob> = {}): jest
         id: overrides.id ?? 'wrapper-job-1',
         teamId: overrides.teamId ?? 7,
         functionId: overrides.functionId ?? 'fn-1',
-        queueName: REPLAY_QUEUE_NAME,
+        queueName: RERUN_QUEUE_NAME,
         priority: 0,
         scheduled: DateTime.now(),
         created: DateTime.now(),
@@ -35,7 +35,7 @@ const buildDequeuedJob = (overrides: Partial<CyclotronV2DequeuedJob> = {}): jest
     } as unknown as jest.Mocked<CyclotronV2DequeuedJob>
 }
 
-const buildState = (overrides: Partial<ReplayJobState> = {}): ReplayJobState => ({
+const buildState = (overrides: Partial<RerunJobState> = {}): RerunJobState => ({
     function_kind: 'hog_function',
     function_id: 'fn-1',
     request: {
@@ -49,11 +49,11 @@ const buildState = (overrides: Partial<ReplayJobState> = {}): ReplayJobState => 
     ...overrides,
 })
 
-const jobWithState = (state: ReplayJobState): jest.Mocked<CyclotronV2DequeuedJob> =>
+const jobWithState = (state: RerunJobState): jest.Mocked<CyclotronV2DequeuedJob> =>
     buildDequeuedJob({ state: Buffer.from(JSON.stringify(state)) })
 
-describe('CdpReplayWorkerConsumer', () => {
-    let consumer: CdpReplayWorkerConsumer
+describe('CdpRerunWorkerConsumer', () => {
+    let consumer: CdpRerunWorkerConsumer
     let hub: Hub
     let mockProcessPage: jest.Mock
 
@@ -64,7 +64,7 @@ describe('CdpReplayWorkerConsumer', () => {
         // consumer constructs cleanly. Real queue interactions are mocked below.
         hub.CYCLOTRON_NODE_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
-        consumer = new CdpReplayWorkerConsumer(hub, createCdpConsumerDeps(hub))
+        consumer = new CdpRerunWorkerConsumer(hub, createCdpConsumerDeps(hub))
 
         // Replace the paginator with a stub so we exercise the consumer's
         // ack/reschedule/fail decisions without hitting ClickHouse. The catch
@@ -108,7 +108,7 @@ describe('CdpReplayWorkerConsumer', () => {
         it('reschedules the wrapper job with updated state when the paginator returns done=false', async () => {
             const state = buildState()
             const job = jobWithState(state)
-            const nextState: ReplayJobState = {
+            const nextState: RerunJobState = {
                 ...state,
                 progress: {
                     ...state.progress,
@@ -127,7 +127,7 @@ describe('CdpReplayWorkerConsumer', () => {
             const rescheduleArg = job.reschedule.mock.calls[0][0]!
             expect(rescheduleArg.scheduledAt).toBeInstanceOf(Date)
             // Persisted state matches the new state returned by the paginator.
-            const persisted = parseJSON(rescheduleArg.state!.toString('utf8')) as ReplayJobState
+            const persisted = parseJSON(rescheduleArg.state!.toString('utf8')) as RerunJobState
             expect(persisted.progress.queued).toBe(200)
             expect(persisted.progress.cursor).toEqual(nextState.progress.cursor)
         })

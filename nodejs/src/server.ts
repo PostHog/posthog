@@ -16,7 +16,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
-import { CdpReplayWorkerConsumer } from './cdp/consumers/cdp-replay-worker.consumer'
+import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
@@ -45,7 +45,7 @@ import { PostgresPersonRepository } from './worker/ingestion/persons/repositorie
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
- * Ingestion is handled by IngestionGeneralServer, recordings by IngestionSessionReplayServer — see index.ts.
+ * Ingestion is handled by IngestionGeneralServer, recordings by IngestionSessionRerunServer — see index.ts.
  */
 export class PluginServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -91,7 +91,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
-            capabilities.cdpReplayWorker
+            capabilities.cdpRerunWorker
         )
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
@@ -193,7 +193,7 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorker) {
             // Prod deploys one worker per consumer mode (separate pods). Dev runs
             // all three in-process so a single launcher matches prod's fan-out —
-            // in particular, replay re-enqueues land on postgres-v2 because
+            // in particular, rerun re-enqueues land on postgres-v2 because
             // `overwriteExisting: true` always routes there.
             const consumerModes = isDevEnv()
                 ? (['kafka', 'postgres', 'postgres-v2'] as const)
@@ -249,9 +249,9 @@ export class PluginServer implements NodeServer {
             }
         }
 
-        if (capabilities.cdpReplayWorker) {
+        if (capabilities.cdpRerunWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpReplayWorkerConsumer(this.config, cdpDeps!)
+                const worker = new CdpRerunWorkerConsumer(this.config, cdpDeps!)
                 await worker.start()
                 return worker.service
             })

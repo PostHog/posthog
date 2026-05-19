@@ -372,7 +372,7 @@ describe('CyclotronJobQueue', () => {
         )
     })
 
-    describe('replay routing (overwriteExisting)', () => {
+    describe('rerun routing (overwriteExisting)', () => {
         const buildQueueWithMocks = (mapping: string): CyclotronJobQueue => {
             config.CYCLOTRON_NODE_DATABASE_URL = 'postgres://localhost:5432'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
@@ -403,23 +403,23 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([], { overwriteExisting: true })
         })
 
-        it('preserves the invocation_id through the kafka replay path', async () => {
+        it('preserves the invocation_id through the kafka rerun path', async () => {
             const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
             const inv = hogInvocation()
             const originalId = inv.id
 
             await queue.queueInvocations([inv], { overwriteExisting: true })
 
-            // The replay paginator sets `id: row.invocation_id` on the rehydrated
+            // The rerun paginator sets `id: row.invocation_id` on the rehydrated
             // invocation; this asserts the routing path doesn't generate a new
-            // UUID before producing to kafka, so lifecycle rows for the replayed
+            // UUID before producing to kafka, so lifecycle rows for the rerun
             // run collapse onto the same key in CH.
             const enqueued = (queue['jobQueueKafka'].queueInvocations as jest.Mock).mock.calls[0][0]
             expect(enqueued).toHaveLength(1)
             expect(enqueued[0].id).toBe(originalId)
         })
 
-        it('preserves the invocation_id through the postgres-v2 replay path', async () => {
+        it('preserves the invocation_id through the postgres-v2 rerun path', async () => {
             const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
             const inv = hogflowInvocation()
             const originalId = inv.id
@@ -467,7 +467,7 @@ describe('CyclotronJobQueue', () => {
             const inv = hogInvocation()
 
             await expect(queue.queueInvocations([inv], { overwriteExisting: true })).rejects.toThrow(
-                /Replay routing to postgres-v1 is unsupported \(queue=hog\)/
+                /Rerun routing to postgres-v1 is unsupported \(queue=hog\)/
             )
         })
 
