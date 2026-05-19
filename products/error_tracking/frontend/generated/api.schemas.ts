@@ -1541,6 +1541,8 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
     /** Whether to overwrite uploaded symbol sets whose content hash changed. */
     force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

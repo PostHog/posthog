@@ -7,7 +7,6 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
-    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, raise_for_err},
 };
@@ -18,6 +17,8 @@ const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 pub enum UploadError {
     #[error("Release ID mismatch: symbol sets already exist with different release IDs")]
     ReleaseIdMismatch,
+    #[error("Content mismatch: use --skip-on-conflict or --force")]
+    ContentHashMismatch,
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
@@ -46,9 +47,11 @@ pub struct PresignedUrl {
 struct BulkUploadStartRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
     /// When true, allow overwriting symbol sets whose content has changed.
-    /// When false (default), changed-content re-uploads are skipped server-side.
     #[serde(default)]
     force: bool,
+    /// When true, skip symbol sets whose content changed instead of failing.
+    #[serde(default)]
+    skip_on_conflict: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,13 +68,15 @@ struct BulkUploadFinishRequest {
 /// If `skip_release_on_fail` is true and the server returns a release_id_mismatch error,
 /// the upload will be retried without release IDs.
 /// If `force` is true, symbol sets whose content has changed are overwritten rather than skipped.
+/// If `skip_on_conflict` is true, symbol sets whose content has changed are skipped rather than failing.
 pub fn upload_with_retry(
     input_sets: Vec<SymbolSetUpload>,
     batch_size: usize,
     skip_release_on_fail: bool,
     force: bool,
+    skip_on_conflict: bool,
 ) -> Result<()> {
-    let res = upload_inner(&input_sets, batch_size, force);
+    let res = upload_inner(&input_sets, batch_size, force, skip_on_conflict);
     match res {
         Ok(()) => Ok(()),
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
@@ -84,7 +89,8 @@ pub fn upload_with_retry(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(&sets_without_release, batch_size, force).map_err(|e| e.into())
+            upload_inner(&sets_without_release, batch_size, force, skip_on_conflict)
+                .map_err(|e| e.into())
         }
         Err(e) => Err(e.into()),
     }
@@ -94,6 +100,7 @@ fn upload_inner(
     input_sets: &[SymbolSetUpload],
     batch_size: usize,
     force: bool,
+    skip_on_conflict: bool,
 ) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
@@ -110,7 +117,7 @@ fn upload_inner(
 
     for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch, force)?;
+        let start_response = start_upload(batch, force, skip_on_conflict)?;
 
         let id_map: HashMap<_, _> = batch.iter().map(|u| (u.chunk_id.as_str(), u)).collect();
 
@@ -146,6 +153,7 @@ fn upload_inner(
 fn start_upload(
     symbol_sets: &[&SymbolSetUpload],
     force: bool,
+    skip_on_conflict: bool,
 ) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
 
@@ -155,6 +163,7 @@ fn start_upload(
             .map(|s| CreateSymbolSetRequest::new(s))
             .collect(),
         force,
+        skip_on_conflict,
     };
 
     let res = retry(retry_policy(500, 2, 3), |_| {
@@ -168,8 +177,11 @@ fn start_upload(
         Ok(response) => Ok(response
             .json()
             .context("Failed to parse start upload response")?),
-        Err(ClientError::ApiError(_, _, body)) if body.contains("release_id_mismatch") => {
+        Err(e) if e.has_api_error_code("release_id_mismatch") => {
             Err(UploadError::ReleaseIdMismatch)
+        }
+        Err(e) if e.has_api_error_code("content_hash_mismatch") => {
+            Err(UploadError::ContentHashMismatch)
         }
         Err(e) => Err(UploadError::Other(
             anyhow::anyhow!(e).context("Failed to start upload"),

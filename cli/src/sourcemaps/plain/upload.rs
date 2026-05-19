@@ -11,7 +11,7 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs},
+        args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
@@ -40,6 +40,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
 
     /// DEPRECATED - use top-level `--skip-ssl-verification` instead
     #[arg(long, default_value = "false")]
@@ -120,7 +123,8 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
-        false,
+        args.conflict.force,
+        args.conflict.skip_on_conflict,
     );
     let duration_ms = started_at.elapsed().as_millis();
 
