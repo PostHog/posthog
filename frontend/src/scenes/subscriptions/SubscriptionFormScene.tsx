@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
@@ -17,12 +18,19 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 export function SubscriptionFormScene(props: SceneProps): JSX.Element {
     const subscriptionId = props.params?.subscriptionId
     const id = subscriptionId ? Number(subscriptionId) : 'new'
+    // Local open-state so the modal animates out before the scene unmounts.
+    // Without this, the portal tears down at the same React tick as the route
+    // change → `removeChild` reconciliation error during commit cleanup.
+    const [isOpen, setIsOpen] = useState(true)
     const goBack = (): void => {
-        router.actions.push(urls.subscriptions())
+        setIsOpen(false)
+        // Match LemonModal's CSS transition duration (200ms) — the cleanup runs
+        // after the leave animation finishes.
+        window.setTimeout(() => router.actions.push(urls.subscriptions()), 200)
     }
     return (
         <SceneContent>
-            <LemonModal isOpen onClose={goBack} simple={false} width={650}>
+            <LemonModal isOpen={isOpen} onClose={goBack} simple={false} width={650}>
                 <EditSubscription id={id} onCancel={goBack} onDelete={goBack} />
             </LemonModal>
         </SceneContent>
