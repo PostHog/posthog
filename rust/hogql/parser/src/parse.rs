@@ -184,6 +184,14 @@ pub(crate) struct Parser<'a> {
     /// clean limit boundary). Incremented around the body's Pratt
     /// continuation in `parse_limit_clauses` / `parse_trailing_set_decorators`.
     pub(crate) limit_body_depth: u32,
+    /// When set, the Pratt `IN` infix handler stops (yields the
+    /// operator back) at this byte offset. A PIVOT/UNPIVOT
+    /// `columnExprTupleOrSingle` operand is a full `columnExpr` that
+    /// may itself contain `in`, but the *last* depth-0 `in (` is the
+    /// structural separator before the `( columnExprList )` values.
+    /// `parse_expr_tuple_or_single` sets this to that `in` so the
+    /// operand parse stops there.
+    pub(crate) pivot_in_stop: Option<usize>,
 }
 
 impl<'a> Parser<'a> {
@@ -210,6 +218,7 @@ impl<'a> Parser<'a> {
             suppress_array_join_checks: false,
             stop_postfix_call_before_colon_equals: false,
             limit_body_depth: 0,
+            pivot_in_stop: None,
         })
     }
 

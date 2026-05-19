@@ -399,6 +399,26 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_pivot_operand_containing_in(self):
+        # A PIVOT/UNPIVOT `columnExprTupleOrSingle` operand is a full
+        # `columnExpr` and may contain the `in` comparison operator
+        # (`for n in p in (r)` → operand `n in p`, then the structural
+        # `IN (r)`). The Rust parser bounded the operand above `IN`'s
+        # binding power, dropping any operand-internal `in` (and the
+        # `for`-operand's too).
+        cases = (
+            "select 1 from a unpivot (m for n in p in (r))",
+            "select 1 from a pivot (m for n in p in (r))",
+            "select 1 from a unpivot (m in n for p in (r))",
+            # guard: the simple form still parses
+            "select 1 from a pivot (m for n in (r))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

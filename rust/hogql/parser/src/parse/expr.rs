@@ -3804,6 +3804,12 @@ impl<'a> Parser<'a> {
                 if BP_COMPARE < min_bp {
                     return Ok(None);
                 }
+                // The structural `IN` separating a PIVOT/UNPIVOT
+                // operand from its `( columnExprList )` values — yield
+                // it back so the caller consumes it.
+                if Some(self.peek0.start) == self.pivot_in_stop {
+                    return Ok(None);
+                }
                 self.bump()?;
                 let cohort = self.eat_kw(Kw::Cohort)?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;

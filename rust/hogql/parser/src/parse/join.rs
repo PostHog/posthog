@@ -8,7 +8,7 @@
 
 use serde_json::{json, Value};
 
-use super::{chain_join, identifier_text, kw_valid_as_identifier, Parser, BP_COMPARE};
+use super::{chain_join, identifier_text, kw_valid_as_identifier, Parser};
 use crate::emit;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
@@ -822,7 +822,7 @@ impl<'a> Parser<'a> {
                 self.expect_kw(Kw::For, "FOR")?;
                 let mut columns: Vec<Value> = Vec::new();
                 loop {
-                    let col_expr = self.parse_expr_tuple_or_single()?;
+                    let col_expr = self.parse_expr_tuple_or_single(true)?;
                     self.expect_kw(Kw::In, "IN")?;
                     self.expect(TokenKind::LParen, "(")?;
                     let values = self.parse_expr_list_until_paren()?;
@@ -886,9 +886,11 @@ impl<'a> Parser<'a> {
                 // dropped — cpp's visitor keeps only the first IN list.
                 let mut columns: Vec<Value> = Vec::new();
                 loop {
-                    let value_columns = self.parse_expr_tuple_or_single()?;
+                    // value-columns slot is bounded by `FOR`, not a
+                    // structural `IN` — no `pivot_in_stop` needed.
+                    let value_columns = self.parse_expr_tuple_or_single(false)?;
                     self.expect_kw(Kw::For, "FOR")?;
-                    let name_columns = self.parse_expr_tuple_or_single()?;
+                    let name_columns = self.parse_expr_tuple_or_single(true)?;
                     self.expect_kw(Kw::In, "IN")?;
                     self.expect(TokenKind::LParen, "(")?;
                     let unpivot_values = self.parse_expr_list_until_paren()?;
@@ -903,7 +905,7 @@ impl<'a> Parser<'a> {
                     // comma) extend the SAME unpivotColumn; they are
                     // discarded to match cpp.
                     while !matches!(self.peek(), TokenKind::RParen | TokenKind::Comma) {
-                        self.parse_expr_tuple_or_single()?;
+                        self.parse_expr_tuple_or_single(true)?;
                         self.expect_kw(Kw::In, "IN")?;
                         self.expect(TokenKind::LParen, "(")?;
                         self.parse_expr_list_until_paren()?;
@@ -931,27 +933,90 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `( exprList ) | columnExpr` — used in PIVOT/UNPIVOT column slots.
-    /// Parsed at a binding power above `IN` so the mandatory PIVOT `IN
-    /// (values)` keyword isn't consumed as a comparison operator on the
-    /// expression that precedes it.
-    fn parse_expr_tuple_or_single(&mut self) -> Result<Value, ParseError> {
-        // `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
-        // columnExpr`. The parenthesised alternative is always a
-        // `Tuple` (even a single element — `(x)` → Tuple([x])), but
-        // only when the matching `)` is the end of the operand, i.e.
-        // it is followed by the `FOR` / `IN` that bounds it. When a
-        // postfix instead follows (`(n)()`), cpp's ALL(*) takes the
-        // `columnExpr` alternative — a parenthesised expression
-        // extended by the postfix — so we defer to the expression
-        // parser there.
+    /// `( exprList ) | columnExpr` — the `columnExprTupleOrSingle`
+    /// operand used in PIVOT/UNPIVOT column slots.
+    ///
+    /// `columnExprTupleOrSingle: LPAREN columnExprList RPAREN |
+    /// columnExpr`. The parenthesised alternative is always a `Tuple`
+    /// (even a single element — `(x)` → Tuple([x])), but only when the
+    /// matching `)` is the end of the operand, i.e. it is followed by
+    /// the `FOR` / `IN` that bounds it. When a postfix instead follows
+    /// (`(n)()`), cpp's ALL(*) takes the `columnExpr` alternative — a
+    /// parenthesised expression extended by the postfix — so we defer
+    /// to the expression parser there.
+    ///
+    /// The `columnExpr` alternative is parsed at full binding power so
+    /// an operand that itself contains infix operators (`x in y`,
+    /// `a = b`, `m as x`, …) is captured whole. For a slot bounded by a
+    /// structural `IN ( values )` (`in_separated`),
+    /// `find_pivot_in_separator` locates that `IN` and `pivot_in_stop`
+    /// makes the Pratt `in` handler yield it back instead of consuming
+    /// it as an operator. The value-columns slot of an `unpivotColumn`
+    /// is bounded by `FOR` instead — never an infix operator — so it
+    /// needs no stop.
+    fn parse_expr_tuple_or_single(&mut self, in_separated: bool) -> Result<Value, ParseError> {
         if self.peek() == TokenKind::LParen && self.paren_group_followed_by_for_or_in() {
             self.bump()?;
             let exprs = self.parse_expr_list_until_paren()?;
             self.expect(TokenKind::RParen, ")")?;
             return Ok(emit::tuple_(exprs));
         }
-        self.parse_expr_bp(BP_COMPARE + 1)
+        let stop = if in_separated {
+            self.find_pivot_in_separator()
+        } else {
+            None
+        };
+        let prev = std::mem::replace(&mut self.pivot_in_stop, stop);
+        let result = self.parse_expr_bp(0);
+        self.pivot_in_stop = prev;
+        result
+    }
+
+    /// Scan the upcoming `columnExprTupleOrSingle` operand and return
+    /// the byte offset of the structural `IN` that separates it from
+    /// its `( values )` list: the *first* depth-0 `IN` immediately
+    /// followed by `(`, before the operand's `FOR` / `)` / `,`
+    /// terminator. `None` when no such `IN` exists (a malformed slot;
+    /// the caller's `expect_kw(In)` then reports it).
+    ///
+    /// "First `IN (`" is the structural one because the `pivotColumn`
+    /// rule (`columnExprTupleOrSingle IN LPAREN … RPAREN`) ends right
+    /// after that list — a following `colN IN ( … )` is the *next*
+    /// `pivotColumn`. An operand-internal `x IN y` (with `y` not a
+    /// `(`) is skipped, so `n IN p IN (r)` still splits as operand
+    /// `n IN p` + separator `IN (r)`. The one shape this mis-splits is
+    /// an operand whose own value is an `IN ( list )` *operator*
+    /// expression (`x IN (1,2) IN (r)`) — vanishingly rare, and
+    /// already rejected before this fix.
+    fn find_pivot_in_separator(&self) -> Option<usize> {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.start);
+        let mut depth: i32 = 0;
+        let mut pending_in: Option<usize> = None;
+        loop {
+            let tok = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return None,
+            };
+            if let Some(in_pos) = pending_in.take() {
+                if tok.kind == TokenKind::LParen {
+                    return Some(in_pos);
+                }
+            }
+            match tok.kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    if depth == 0 {
+                        return None;
+                    }
+                    depth -= 1;
+                }
+                TokenKind::Comma if depth == 0 => return None,
+                TokenKind::Keyword(Kw::For) if depth == 0 => return None,
+                TokenKind::Keyword(Kw::In) if depth == 0 => pending_in = Some(tok.start),
+                TokenKind::Eof => return None,
+                _ => {}
+            }
+        }
     }
 
     /// `self.peek()` is `(` — scan to its matching `)` and report
