@@ -226,6 +226,7 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
+    | 'mcp-hints'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

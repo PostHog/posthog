@@ -13,6 +13,7 @@ import {
     isDisplayLabelsEnabledInInsightQuery,
 } from 'lib/components/Cards/InsightCard/displayLabelsToggle'
 import { canToggleLegendInInsightQuery, getLegendToggleText } from 'lib/components/Cards/InsightCard/legendToggle'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -608,6 +609,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
+            tryShowMCPHint('insights.create')
 
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 
