@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
@@ -32,7 +32,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
     }, 500)
 
     // Reset local value when saved value changes from server
-    useMemo(() => {
+    useEffect(() => {
         setLocalValue(null)
     }, [savedValue])
 
