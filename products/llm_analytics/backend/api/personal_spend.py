@@ -26,8 +26,8 @@ from rest_framework.response import Response
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models import Team, User
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
 
@@ -179,11 +179,11 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     )
 
 
-def _email_filter(email: str) -> ast.Expr:
+def _distinct_id_filter(distinct_id: str) -> ast.Expr:
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["person", "properties", "email"]),
-        right=ast.Constant(value=email),
+        left=ast.Field(chain=["distinct_id"]),
+        right=ast.Constant(value=distinct_id),
     )
 
 
@@ -226,7 +226,7 @@ def _product_filter(product: str | None) -> ast.Expr:
     return _ai_product_eq(product) if product else _true()
 
 
-def _fetch_summary(team: Team, email: str, days: int, product: str | None) -> dict[str, Any]:
+def _fetch_summary(team: Team, distinct_id: str, days: int, product: str | None) -> dict[str, Any]:
     query = parse_select(
         """
         SELECT
@@ -234,16 +234,16 @@ def _fetch_summary(team: Team, email: str, days: int, product: str | None) -> di
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
-        FROM events
-        WHERE {event_in} AND {email_filter} AND {timestamp_filter}
+        FROM ai_events
+        WHERE {event_in} AND {distinct_id_filter} AND {timestamp_filter}
         """
     )
-    result = execute_hogql_query(
+    result = execute_with_ai_events_fallback(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
-            "email_filter": _email_filter(email),
+            "distinct_id_filter": _distinct_id_filter(distinct_id),
             "timestamp_filter": _timestamp_filter(days),
         },
         team=team,
@@ -260,25 +260,25 @@ def _fetch_summary(team: Team, email: str, days: int, product: str | None) -> di
     }
 
 
-def _fetch_by_product(team: Team, email: str, days: int) -> list[dict[str, Any]]:
+def _fetch_by_product(team: Team, distinct_id: str, days: int) -> list[dict[str, Any]]:
     query = parse_select(
         """
         SELECT
             properties.ai_product AS product,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
-        FROM events
-        WHERE {event_in} AND {email_filter} AND {timestamp_filter}
+        FROM ai_events
+        WHERE {event_in} AND {distinct_id_filter} AND {timestamp_filter}
         GROUP BY product
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_hogql_query(
+    result = execute_with_ai_events_fallback(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
-            "email_filter": _email_filter(email),
+            "distinct_id_filter": _distinct_id_filter(distinct_id),
             "timestamp_filter": _timestamp_filter(days),
             "limit": ast.Constant(value=TOP_PRODUCTS_LIMIT),
         },
@@ -295,7 +295,7 @@ def _fetch_by_product(team: Team, email: str, days: int) -> list[dict[str, Any]]
     ]
 
 
-def _fetch_by_tool(team: Team, email: str, days: int, product: str | None) -> list[dict[str, Any]]:
+def _fetch_by_tool(team: Team, distinct_id: str, days: int, product: str | None) -> list[dict[str, Any]]:
     # `$ai_tools_called` stores a comma-separated list of all tools called within a
     # generation (e.g. "Bash,Read"). Split it so multi-tool generations contribute to
     # each individual tool row. nullIf restores the no-tool case (where the property
@@ -307,21 +307,21 @@ def _fetch_by_tool(team: Team, email: str, days: int, product: str | None) -> li
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
-        FROM events
+        FROM ai_events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
-            AND {email_filter}
+            AND {distinct_id_filter}
             AND {timestamp_filter}
         GROUP BY tool
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_hogql_query(
+    result = execute_with_ai_events_fallback(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
-            "email_filter": _email_filter(email),
+            "distinct_id_filter": _distinct_id_filter(distinct_id),
             "timestamp_filter": _timestamp_filter(days),
             "limit": ast.Constant(value=TOP_TOOLS_LIMIT),
         },
@@ -339,7 +339,7 @@ def _fetch_by_tool(team: Team, email: str, days: int, product: str | None) -> li
     ]
 
 
-def _fetch_by_model(team: Team, email: str, days: int, product: str | None) -> list[dict[str, Any]]:
+def _fetch_by_model(team: Team, distinct_id: str, days: int, product: str | None) -> list[dict[str, Any]]:
     query = parse_select(
         """
         SELECT
@@ -348,22 +348,22 @@ def _fetch_by_model(team: Team, email: str, days: int, product: str | None) -> l
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
             sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
-        FROM events
+        FROM ai_events
         WHERE {event_in}
             AND {product_filter}
-            AND {email_filter}
+            AND {distinct_id_filter}
             AND {timestamp_filter}
         GROUP BY model
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_hogql_query(
+    result = execute_with_ai_events_fallback(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
             "product_filter": _product_filter(product),
-            "email_filter": _email_filter(email),
+            "distinct_id_filter": _distinct_id_filter(distinct_id),
             "timestamp_filter": _timestamp_filter(days),
             "limit": ast.Constant(value=TOP_MODELS_LIMIT),
         },
@@ -382,7 +382,7 @@ def _fetch_by_model(team: Team, email: str, days: int, product: str | None) -> l
     ]
 
 
-def _fetch_top_traces(team: Team, email: str, days: int, product: str | None) -> list[dict[str, Any]]:
+def _fetch_top_traces(team: Team, distinct_id: str, days: int, product: str | None) -> list[dict[str, Any]]:
     query = parse_select(
         """
         SELECT
@@ -390,21 +390,21 @@ def _fetch_top_traces(team: Team, email: str, days: int, product: str | None) ->
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             min(timestamp) AS started_at
-        FROM events
+        FROM ai_events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
-            AND {email_filter}
+            AND {distinct_id_filter}
             AND {timestamp_filter}
         GROUP BY trace_id
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_hogql_query(
+    result = execute_with_ai_events_fallback(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
-            "email_filter": _email_filter(email),
+            "distinct_id_filter": _distinct_id_filter(distinct_id),
             "timestamp_filter": _timestamp_filter(days),
             "limit": ast.Constant(value=TOP_TRACES_LIMIT),
         },
@@ -428,11 +428,13 @@ class PersonalSpendViewSet(viewsets.ViewSet):
 
     Queries are run server-side against PostHog's internal analytics team
     (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
-    authenticated user's email — callers cannot pivot to other users' data.
-    Optionally filter tool / model / trace breakdowns to a single `ai_product`
-    via the `product` query param; `by_product` always returns the full
-    cross-product breakdown. The endpoint is only registered on US Cloud +
-    dev/test envs; hobby/self-hosted deploys never see this URL.
+    authenticated user's PostHog distinct_id — callers cannot pivot to other
+    users' data. Routes through `execute_with_ai_events_fallback` so reads hit
+    the dedicated `ai_events` table when enabled, with the shared `events`
+    table as a fallback. Optionally filter tool / model / trace breakdowns to
+    a single `ai_product` via the `product` query param; `by_product` always
+    returns the full cross-product breakdown. The endpoint is only registered
+    on US Cloud + dev/test envs; hobby/self-hosted deploys never see this URL.
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -461,9 +463,9 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     )
     def list(self, request: Request) -> Response:
         user = cast(User, request.user)
-        email = getattr(user, "email", None)
-        if not email:
-            raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
+        distinct_id = user.distinct_id
+        if not distinct_id:
+            raise exceptions.PermissionDenied("User has no distinct_id on record; cannot scope spend analysis.")
 
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -471,7 +473,6 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         product = params.validated_data["product"]
         refresh = params.validated_data["refresh"]
 
-        distinct_id = user.distinct_id or str(user.uuid)
         cache_key = _cache_key(distinct_id, days, product)
 
         if not refresh:
@@ -487,11 +488,11 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
         payload = {
-            "summary": _fetch_summary(team, email, days, product),
-            "by_product": _fetch_by_product(team, email, days),
-            "by_tool": _fetch_by_tool(team, email, days, product),
-            "by_model": _fetch_by_model(team, email, days, product),
-            "top_traces": _fetch_top_traces(team, email, days, product),
+            "summary": _fetch_summary(team, distinct_id, days, product),
+            "by_product": _fetch_by_product(team, distinct_id, days),
+            "by_tool": _fetch_by_tool(team, distinct_id, days, product),
+            "by_model": _fetch_by_model(team, distinct_id, days, product),
+            "top_traces": _fetch_top_traces(team, distinct_id, days, product),
         }
 
         response_data = PersonalSpendAnalysisResponseSerializer(payload).data
