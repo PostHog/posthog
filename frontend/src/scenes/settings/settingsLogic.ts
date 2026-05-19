@@ -522,6 +522,11 @@ export const settingsLogic = kea<settingsLogicType>([
                         if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
                             continue
                         }
+                        // Decorative content (e.g. inline banners) has `title: null` and is not
+                        // a navigable setting — skip it so it doesn't surface as a search result.
+                        if (setting.title === null) {
+                            continue
+                        }
 
                         const settingTitle =
                             typeof setting.title === 'string' ? setting.title : setting.id.replace(/[-]/g, ' ')
