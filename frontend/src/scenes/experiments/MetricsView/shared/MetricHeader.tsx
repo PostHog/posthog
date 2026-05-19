@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconStack, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -208,77 +208,75 @@ export const MetricHeader = ({
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
                         {displayOrder !== undefined && <span className="mr-1 flex-shrink-0">{displayOrder + 1}.</span>}
                         <div className="min-w-0 flex-1">
-                            {readOnly ? (
-                                <MetricTitle metric={metric} metricType={metricType} />
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={openEditModal}
-                                    className="text-left w-full min-w-0 hover:underline cursor-pointer bg-transparent border-0 p-0 font-semibold text-xs"
-                                    title="Edit metric"
-                                >
-                                    <MetricTitle metric={metric} metricType={metricType} />
-                                </button>
-                            )}
+                            <MetricTitle metric={metric} metricType={metricType} />
                         </div>
                     </div>
                     {!readOnly && (
-                        <LemonMenu
-                            placement="bottom-end"
-                            visible={menuVisible}
-                            onVisibilityChange={setMenuVisible}
-                            closeOnClickInside={false}
-                            items={
-                                [
-                                    {
-                                        items: [
-                                            canAddBreakdown && {
-                                                label: () => (
-                                                    <AddBreakdownMenuItem
-                                                        experiment={experiment}
-                                                        onChange={(breakdown) => {
-                                                            onBreakdownChange(breakdown)
-                                                            closeMenu()
-                                                        }}
-                                                    />
-                                                ),
-                                                custom: true,
-                                            },
-                                            {
-                                                label: 'Duplicate',
-                                                icon: <IconCopy />,
-                                                onClick: () => {
-                                                    closeMenu()
-                                                    handleDuplicate()
-                                                },
-                                            },
-                                        ].filter(Boolean) as any,
-                                    },
-                                    onDeleteMetricClick && {
-                                        items: [
-                                            {
-                                                label: isSharedMetric ? 'Remove from experiment' : 'Delete',
-                                                icon: <IconTrash />,
-                                                status: 'danger',
-                                                onClick: () => {
-                                                    closeMenu()
-                                                    handleDelete()
-                                                },
-                                            },
-                                        ],
-                                    },
-                                ].filter(Boolean) as any
-                            }
-                        >
+                        <div className="flex flex-shrink-0 gap-1">
                             <LemonButton
-                                className="flex-shrink-0"
                                 type="tertiary"
                                 size="xsmall"
-                                icon={<IconEllipsis />}
-                                tooltip="More actions"
-                                aria-label="More actions"
+                                icon={<IconPencil />}
+                                tooltip="Edit"
+                                aria-label="Edit metric"
+                                onClick={openEditModal}
                             />
-                        </LemonMenu>
+                            <LemonMenu
+                                placement="bottom-end"
+                                visible={menuVisible}
+                                onVisibilityChange={setMenuVisible}
+                                closeOnClickInside={false}
+                                items={
+                                    [
+                                        {
+                                            items: [
+                                                canAddBreakdown && {
+                                                    label: () => (
+                                                        <AddBreakdownMenuItem
+                                                            experiment={experiment}
+                                                            onChange={(breakdown) => {
+                                                                onBreakdownChange(breakdown)
+                                                                closeMenu()
+                                                            }}
+                                                        />
+                                                    ),
+                                                    custom: true,
+                                                },
+                                                {
+                                                    label: 'Duplicate',
+                                                    icon: <IconCopy />,
+                                                    onClick: () => {
+                                                        closeMenu()
+                                                        handleDuplicate()
+                                                    },
+                                                },
+                                            ].filter(Boolean) as any,
+                                        },
+                                        onDeleteMetricClick && {
+                                            items: [
+                                                {
+                                                    label: isSharedMetric ? 'Remove from experiment' : 'Delete',
+                                                    icon: <IconTrash />,
+                                                    status: 'danger',
+                                                    onClick: () => {
+                                                        closeMenu()
+                                                        handleDelete()
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    ].filter(Boolean) as any
+                                }
+                            >
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconEllipsis />}
+                                    tooltip="More actions"
+                                    aria-label="More actions"
+                                />
+                            </LemonMenu>
+                        </div>
                     )}
                 </div>
                 <div className="deprecated-space-x-1">
