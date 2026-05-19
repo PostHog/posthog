@@ -292,6 +292,30 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         assert series["days"] == ["2026-05-04", "2026-05-05", "2026-05-06"]
         assert series["labels"] == ["4-May-2026", "5-May-2026", "6-May-2026"]
 
+    def test_transform_trends_parses_date_column_strings_so_strftime_succeeds(self):
+        """Date columns (no tz conversion) must still have ISO strings parsed to datetime
+        objects — otherwise downstream strftime() raises AttributeError on the string."""
+        original_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange={"date_from": "2026-05-04", "date_to": "2026-05-06"},
+        ).model_dump()
+
+        result: dict[str, Any] = {
+            "results": [(0, ["2026-05-04", "2026-05-05", "2026-05-06"], [1, 0, 2])],
+            "columns": ["__series_index", "date", "total"],
+            "types": [
+                ["__series_index", "Int64"],
+                ["date", "Array(Nullable(Date32))"],
+                ["total", "Array(Nullable(UInt64))"],
+            ],
+        }
+
+        _transform_trends(result, original_query, self.team)
+
+        series = result["results"][0]
+        assert series["days"] == ["2026-05-04", "2026-05-05", "2026-05-06"]
+        assert series["labels"] == ["4-May-2026", "5-May-2026", "6-May-2026"]
+
     # =========================================================================
     # LIFECYCLE
     # =========================================================================

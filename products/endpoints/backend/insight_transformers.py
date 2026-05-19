@@ -115,34 +115,36 @@ def _extract_type_str(entry: Any) -> str | None:
 
 
 def _to_team_tz(value: Any, team_tz: "ZoneInfo | None") -> Any:
-    """Re-anchor a temporal value to team_tz so downstream strftime renders the local day.
+    """Coerce a temporal value into something downstream ``strftime`` can render.
 
-    Parquet-backed reads return DateTime columns as tz-aware UTC datetimes (or, in some
-    code paths, as ISO strings). In both cases the wall-clock is UTC, not team-tz, which
-    shifts the rendered day by the team's UTC offset. Naive values are treated as UTC;
-    aware values are converted directly. Non-temporal values pass through.
+    ISO strings are always parsed to ``datetime`` so ``.strftime()`` calls don't blow up.
+    When ``team_tz`` is given (DateTime columns), naive values are treated as UTC and
+    converted to team_tz; aware values are converted directly. When ``team_tz`` is None
+    (Date columns), the parsed value passes through unchanged. Non-temporal values pass
+    through untouched.
     """
-    if team_tz is None:
-        return value
     if isinstance(value, str):
         parsed = datetime.fromisoformat(value)
     elif isinstance(value, datetime):
         parsed = value
     else:
         return value
+    if team_tz is None:
+        return parsed
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(team_tz)
 
 
 def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None = None) -> None:
-    """Parse ISO strings into ``datetime`` objects for every Date/DateTime column.
+    """Parse/coerce temporal values for every Date/DateTime column.
 
-    HogQL's response pipeline stringifies all Date/DateTime values regardless of name,
-    but the insight runners call .strftime() on them. We use the ``types`` metadata to
-    find temporal columns so this works for any column name (``date``, ``timestamp``,
-    custom aliases), not just ``date``. Rows can be tuples, so we replace the row in
-    the outer list.
+    For DateTime columns, ISO strings and tz-aware UTC datetimes are re-anchored to the
+    team timezone so downstream strftime renders the correct local day. For Date columns
+    (no tz conversion needed), string values are parsed to naive ``datetime`` objects so
+    that downstream ``.strftime()`` calls succeed. We use the ``types`` metadata to find
+    temporal columns so this works for any column name (``date``, ``timestamp``, custom
+    aliases). Rows can be tuples, so we replace the row in the outer list.
     """
     if not types:
         return
