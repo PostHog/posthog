@@ -758,7 +758,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     # avoiding the O(cohort_size) memory cost of loading all
                     # existing member IDs into Python. Both tables live on the
                     # persons DB so the join works on the db_write cursor.
-                    sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                    sql, params = persons_query.only("pk").query.sql_with_params()
                     query = f"""
                         INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
                         SELECT p."id", {self.pk}, {self.version or "NULL"}

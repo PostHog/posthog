@@ -57,7 +57,7 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
-// Builds the resolver mcp.ts hands to initPostHogMcpAnalytics in single-exec
+// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
 // mode: given a request, return the inner tool's { name, description } when
 // the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
 // here (alongside parseExecCallInnerToolName) so tests can import the exact

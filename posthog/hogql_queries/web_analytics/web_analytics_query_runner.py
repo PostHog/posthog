@@ -35,7 +35,7 @@ from posthog.hogql.property import action_to_expr, apply_path_cleaning, property
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -92,6 +92,9 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             team_id=self.team.pk,
             query_kind=query_kind,
         )
+
+        if breakdown_value is not None:
+            tag_queries(breakdown_by=[breakdown_value.value])
 
         start = perf_counter()
         response: Optional[WAR] = None

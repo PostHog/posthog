@@ -23222,6 +23222,28 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsAlertFilters": {
+            "additionalProperties": false,
+            "description": "Filter criteria for a logs alert configuration. Subset of LogsViewerFilters (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or `filterGroup` must be set on a live (enabled=true) alert.",
+            "properties": {
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "LogsOrderBy": {
             "enum": ["latest", "earliest"],
             "title": "LogsOrderBy",

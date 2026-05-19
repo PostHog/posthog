@@ -184,14 +184,17 @@ export function MenuFilterDwhConfig({
     }, [activeFieldKey, columns])
 
     const activeFieldValue = values[activeFieldKey] ?? ''
-    // HogQL mode — true whenever the active value isn't a real column on the
-    // table (including `''`, the sentinel for "user picked SQL expression
-    // but hasn't typed anything yet"). Keeping the truthy guard off this
-    // check is what surfaces the Monaco editor as soon as the user selects
-    // `SQL expression` from the dropdown.
+    // HogQL mode — true whenever the active value isn't one of the field's
+    // *selectable* options (including `''`, the sentinel for "user picked
+    // SQL expression but hasn't typed anything yet"). Checked against
+    // `activeFieldOptions` — the same type-filtered set `ColumnSelect` uses
+    // — so the editor and the dropdown agree: when the dropdown shows "SQL
+    // expression", the editor renders. A value that's a real column but of
+    // a disallowed type for this field counts as HogQL, matching the
+    // dropdown.
     const activeFieldIsHogQL = useMemo(
-        () => !!activeField?.allowHogQL && !columns.some((c) => c.name === activeFieldValue),
-        [activeField, activeFieldValue, columns]
+        () => !!activeField?.allowHogQL && !activeFieldOptions.some((c) => c.name === activeFieldValue),
+        [activeField, activeFieldValue, activeFieldOptions]
     )
 
     // ---- preview -------------------------------------------------------
@@ -304,9 +307,9 @@ export function MenuFilterDwhConfig({
                     so we get scroll shadows and edge-overflow data
                     attrs for free. The viewport already gets
                     `padding-block: 1rem` from Quill's body styling, so
-                    the inner stack just needs row gap + min-width
-                    bound for the LemonTable. */}
-                <DialogBody className="w-full max-w-[700px] overflow-auto">
+                    the inner stack just needs a row gap. Fills the full
+                    `size="wide"` dialog width — no max-width clamp. */}
+                <DialogBody className="w-full overflow-auto">
                     <div className="flex flex-col gap-4 min-w-0">
                         <FieldDescription className="!mt-0">
                             Table: <Badge variant="info">{tableName}</Badge>

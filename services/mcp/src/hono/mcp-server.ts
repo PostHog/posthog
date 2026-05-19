@@ -3,22 +3,21 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import {
-    AnalyticsEvent,
-    buildMCPAnalyticsGroups,
-    buildMCPContextProperties,
-    evaluateFeatureFlags,
-    getPostHogClient,
-    isFeatureFlagEnabled,
-    type MCPAnalyticsContext,
-} from '@/lib/analytics'
 import { hasScope } from '@/lib/api'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { handleToolError, wrapError } from '@/lib/errors'
 import { type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
-import { initMcpCatObservability } from '@/lib/mcpcat'
+import { getPostHogClient } from '@/lib/posthog'
+import {
+    AnalyticsEvent,
+    buildMCPAnalyticsGroups,
+    buildMCPContextProperties,
+    initMcpAnalytics,
+    type MCPAnalyticsContext,
+} from '@/lib/posthog/analytics'
+import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { type RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -27,42 +26,23 @@ import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-import { type CloudRegion, type Context, type Env, type State, type Tool } from '@/tools/types'
+import { type Context, type Env, type State, type Tool } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import {
-    getCustomApiBaseUrl,
-    POSTHOG_EU_BASE_URL,
-    POSTHOG_US_BASE_URL,
-    getBaseUrlForRegion,
-    getEnv,
-    toCloudRegion,
-} from './constants'
+import { getCustomApiBaseUrl, getEnv } from './constants'
 import { initDurationSeconds, toolCallDurationSeconds, toolCallsTotal } from './metrics'
 
 export type { RequestProperties }
 
 const instructionsFormatter = new InstructionsFormatter()
-const POSTHOG_MCP_ANALYTICS_FLAG = 'mcp-posthog-analytics-sdk'
-type McpAnalyticsProvider = 'posthog_mcp_analytics' | 'mcpcat'
-type PostHogMcpAnalyticsFlagResult = {
-    enabled: boolean
-    errorName?: string
-    errorMessage?: string
-}
 
 type HonoRequestProperties = RequestProperties & {
-    mcpAnalyticsProvider?: McpAnalyticsProvider | undefined
-    mcpAnalyticsFlagKey?: string | undefined
-    mcpAnalyticsFlagEnabled?: boolean | undefined
-    mcpAnalyticsFlagErrorName?: string | undefined
-    mcpAnalyticsFlagErrorMessage?: string | undefined
-    posthogMcpAnalyticsInitAction?: 'initialized' | 'skipped' | 'failed' | undefined
-    posthogMcpAnalyticsInitReason?: string | undefined
-    posthogMcpAnalyticsInitErrorName?: string | undefined
-    posthogMcpAnalyticsInitErrorMessage?: string | undefined
+    mcpAnalyticsInitAction?: 'initialized' | 'skipped' | 'failed' | undefined
+    mcpAnalyticsInitReason?: string | undefined
+    mcpAnalyticsInitErrorName?: string | undefined
+    mcpAnalyticsInitErrorMessage?: string | undefined
 }
 
 // Guidelines are generated at build time; optional import so tests and
@@ -146,49 +126,17 @@ export class HonoMcpServer {
         }
     }
 
-    async detectRegion(): Promise<CloudRegion | undefined> {
-        const usClient = new ApiClient({
-            apiToken: this.props.apiToken,
-            baseUrl: POSTHOG_US_BASE_URL,
-        })
-
-        const euClient = new ApiClient({
-            apiToken: this.props.apiToken,
-            baseUrl: POSTHOG_EU_BASE_URL,
-        })
-
-        const [usResult, euResult] = await Promise.all([usClient.users().me(), euClient.users().me()])
-
-        if (usResult.success) {
-            await this.cache.set('region', 'us')
-            return 'us'
-        }
-
-        if (euResult.success) {
-            await this.cache.set('region', 'eu')
-            return 'eu'
-        }
-
-        return undefined
-    }
-
     async getBaseUrl(): Promise<string> {
         const customApiBaseUrl = getCustomApiBaseUrl()
         if (customApiBaseUrl) {
             return customApiBaseUrl
         }
-
-        const propsRegion = this.props.region
-        if (propsRegion) {
-            const region = toCloudRegion(propsRegion)
-            await this.cache.set('region', region)
-            return getBaseUrlForRegion(region)
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error(
+                'POSTHOG_API_BASE_URL must be set in production — Hono deployments are regional and do not auto-detect.'
+            )
         }
-
-        const cachedRegion = await this.cache.get('region')
-        const region = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
-
-        return getBaseUrlForRegion(region || 'us')
+        return 'http://localhost:8010'
     }
 
     async api(): Promise<ApiClient> {
@@ -232,8 +180,6 @@ export class HonoMcpServer {
         try {
             const distinctId = await this.getDistinctId()
 
-            const client = getPostHogClient()
-
             await this.resolveClientInfo()
 
             const clientName = await this.cache.get('clientName')
@@ -244,6 +190,7 @@ export class HonoMcpServer {
                 : {}
             const groups = options?.context ? buildMCPAnalyticsGroups(options.context) : {}
 
+            const client = getPostHogClient()
             client.capture({
                 distinctId,
                 event,
@@ -426,7 +373,6 @@ export class HonoMcpServer {
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
-        const posthogMcpAnalyticsFlagPromise = this.resolvePostHogMcpAnalyticsFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -439,13 +385,6 @@ export class HonoMcpServer {
         }
 
         const context = await this.getContext()
-        // Sticky session: skip default resolution if a previous init for this
-        // userHash already picked a project (cache survives across requests).
-        // Without this guard, switching the active org in the user's browser
-        // would silently reshuffle an established session — `users/@me`
-        // returns whatever team the browser currently has selected, and
-        // setDefaultOrganizationAndProject would overwrite the cache with it.
-        // Headers always win because they were applied to the cache above.
         if (!cachedProjectId) {
             cachedProjectId = await this.cache.get('projectId')
         }
@@ -455,11 +394,10 @@ export class HonoMcpServer {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn, posthogMcpAnalyticsFlag] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
-            posthogMcpAnalyticsFlagPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
@@ -639,22 +577,42 @@ export class HonoMcpServer {
             getMcpConversationId: async () => this.props.mcpConversationId,
         }
 
-        Object.assign(this.props, {
-            mcpAnalyticsProvider: 'mcpcat' satisfies McpAnalyticsProvider,
-            mcpAnalyticsFlagKey: POSTHOG_MCP_ANALYTICS_FLAG,
-            mcpAnalyticsFlagEnabled: posthogMcpAnalyticsFlag.enabled,
-            ...(posthogMcpAnalyticsFlag.errorName
-                ? { mcpAnalyticsFlagErrorName: posthogMcpAnalyticsFlag.errorName }
-                : {}),
-            ...(posthogMcpAnalyticsFlag.errorMessage
-                ? { mcpAnalyticsFlagErrorMessage: posthogMcpAnalyticsFlag.errorMessage }
-                : {}),
+        // In single-exec mode every event's `$mcp_tool_name` is `exec`, so the
+        // SDK's `$mcp_tool_description` would be the dispatcher's static text on
+        // every call. Resolve the inner tool the agent was actually invoking
+        // from the command and surface its name + description as
+        // `$mcp_exec_tool_call_name` / `$mcp_exec_tool_call_description`.
+        const resolveExecInnerToolCall = useSingleExec ? createExecInnerToolCallResolver(allTools) : undefined
+
+        // In single-exec mode the SDK's $mcp_listed_tool_names collapses to
+        // just `exec`, so we can't compute "advertised but never called"
+        // (zombie tools) from SDK data alone. Pass the inner-tool catalog
+        // here so analytics can attach it as $mcp_exec_inner_tool_names on
+        // mcp_tools_list events. Dashboards can then diff it against
+        // $mcp_exec_tool_call_name from mcp_tool_call.
+        const execInnerToolNames = useSingleExec ? allTools.map((t) => t.name) : undefined
+
+        const initResult = await initMcpAnalytics(this.server, mcpAnalyticsIdentity, {
+            contextEnabled: true,
+            resolveExecInnerToolCall,
+            execInnerToolNames,
+            // `get_more_tools` only earns its keep outside single-exec mode — there
+            // it lets the model report a gap in our discrete tool catalog. In
+            // single-exec mode the wrapper handles every call, so the missing-tool
+            // signal has nothing to map to and the extra slot is pure noise.
+            reportMissingEnabled: !useSingleExec,
         })
 
-        // The Hono runtime always uses mcpcat for observability. The
-        // @posthog/mcp-analytics SDK depends on cloudflare:workers env and is
-        // skipped here — its flag is still resolved above for analytics parity.
-        await initMcpCatObservability(this.server, mcpAnalyticsIdentity)
+        Object.assign(this.props, {
+            mcpAnalyticsInitAction: initResult.action,
+            ...(initResult.action === 'skipped' ? { mcpAnalyticsInitReason: initResult.reason } : {}),
+            ...(initResult.action === 'failed'
+                ? {
+                      mcpAnalyticsInitErrorName: initResult.errorName,
+                      mcpAnalyticsInitErrorMessage: initResult.errorMessage,
+                  }
+                : {}),
+        } as HonoRequestProperties)
 
         const initDurationMs = this.props.requestStartTime ? Date.now() - this.props.requestStartTime : undefined
 
@@ -721,19 +679,6 @@ export class HonoMcpServer {
             return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
         } catch {
             return false
-        }
-    }
-
-    private async resolvePostHogMcpAnalyticsFlag(): Promise<PostHogMcpAnalyticsFlagResult> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return { enabled: !!(await isFeatureFlagEnabled(POSTHOG_MCP_ANALYTICS_FLAG, distinctId)) }
-        } catch (error) {
-            return {
-                enabled: false,
-                errorName: error instanceof Error ? error.name : 'UnknownError',
-                errorMessage: error instanceof Error ? error.message : String(error),
-            }
         }
     }
 
