@@ -538,9 +538,9 @@ const ConditionContent = ({
                                                 size="small"
                                                 data-attr={`condition-set-${index}-aggregation`}
                                                 value={
-                                                    group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index ??
-                                                    PERSON
+                                                    group.aggregation_group_type_index !== undefined
+                                                        ? (group.aggregation_group_type_index ?? PERSON)
+                                                        : (releaseFilters.aggregation_group_type_index ?? PERSON)
                                                 }
                                                 onChange={(value) => {
                                                     setConditionAggregation(index, value === PERSON ? null : value)
