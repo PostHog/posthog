@@ -13437,3 +13437,49 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the mock was called
         mock_reconstruct.assert_called_once()
+
+
+class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_passes_runtime_all_and_returns_every_runtime(self, mock_get_flags):
+        """The Person → Feature flags tab must show flags regardless of stored
+        evaluation_runtime. evaluation_reasons must (a) call the Rust service
+        with evaluation_runtime="all" so runtime-based exclusion is bypassed,
+        and (b) surface every returned flag with its evaluation.reason — which
+        is the shape relatedFeatureFlagsLogic.ts depends on."""
+        flag_all = FeatureFlag.objects.create(team=self.team, key="flag-all", evaluation_runtime="all")
+        flag_client = FeatureFlag.objects.create(team=self.team, key="flag-client", evaluation_runtime="client")
+        flag_server = FeatureFlag.objects.create(team=self.team, key="flag-server", evaluation_runtime="server")
+
+        mock_get_flags.return_value = {
+            "flags": {
+                flag_all.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+                flag_client.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+                flag_server.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+
+        data = response.json()
+        for key in (flag_all.key, flag_client.key, flag_server.key):
+            self.assertIn(key, data)
+            self.assertEqual(data[key]["evaluation"]["reason"], "condition_match")
