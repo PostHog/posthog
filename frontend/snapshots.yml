@@ -2536,6 +2536,10 @@ snapshots:
         hash: v1.k794b7964.2a5d49e70e0d284a65ff0ec671063ba0bf2e60eeb6bbc63715ff2bf7bcbc29d7.XUTByC9kY8ePrW29fgJNIKnHCWvn_Z2ZC07pk5EIsOA
     lemon-ui-lemon-color-lemon-color-picker--show-custom-color--light:
         hash: v1.k794b7964.9156f2765f1efeea15d870e08faf5d4c90a64f1138ac36296a2f283bf1078b24.WndYB_kQVe68ZUhu048I4qn9K7M1vfxgFC4JP2wM42s
+    lemon-ui-lemon-color-lemon-color-picker--with-unset--dark:
+        hash: v1.k794b7964.71d425cea0efcec828c973cd33af99174d5b1de4acb16c8ccac3916da87002e2.2P3jzrJ9U2uC7hKK-OogeVGTjiGvBLzxgbw4CXo-b1w
+    lemon-ui-lemon-color-lemon-color-picker--with-unset--light:
+        hash: v1.k794b7964.05fe8e67d2e2102d19b76a95e9e93846eaa39d19425da3272b3a55518e3de83d.fVnP2i2tlppUK0L8or8QisVFOL532YPnix6ryKDVcZE
     lemon-ui-lemon-dialog--customised--dark:
         hash: v1.k794b7964.63943fdae27bc82471ffa286bcb2c8c41cadb3308fea7b729d1c8bf4872c18a4.c_i4Ols6JKKQmRg8dSxxFpDiSnKcr1TUKk1CzZVIq7k
     lemon-ui-lemon-dialog--customised--light:
