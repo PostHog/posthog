@@ -65,10 +65,10 @@ export function SettingsTab(): JSX.Element {
                 </div>
             )}
             <div>
-                <h2 className="font-semibold text-lg">Participant measurability</h2>
+                <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">
                     <LemonCheckbox
-                        label="Only count measurable participants"
+                        label="Require completed conversion window"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
                             updateExperiment({ only_count_matured_users: checked })

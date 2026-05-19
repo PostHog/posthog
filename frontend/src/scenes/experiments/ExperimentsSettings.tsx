@@ -46,7 +46,7 @@ export function ExperimentsSettings(): JSX.Element {
                 <ExperimentRecalculationTime />
             </div>
             <div>
-                <LemonLabel className="text-base">Default participant measurability filter</LemonLabel>
+                <LemonLabel className="text-base">Default conversion window filter</LemonLabel>
                 <p className="text-secondary mt-2">
                     When enabled, new experiments exclude participants whose conversion or retention window hasn't
                     elapsed yet. Can be overridden per experiment.
