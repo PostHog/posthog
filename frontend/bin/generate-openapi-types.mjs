@@ -626,10 +626,20 @@ function opaqueDeepSchemas(schema) {
     }
 
     // Pass 1: opaque only true cycle members.
+    //
+    // Collect *all* cycle members first, then opaque in a second loop —
+    // `isCycleMember` reads from the live `allSchemas`, and opaquing a schema
+    // erases its $refs. In a mutual cycle A↔B with iteration order [A, B],
+    // opaquing A as we go would make `isCycleMember("B")` walk B → A → ∅ and
+    // return false, misclassifying B as a non-member.
+    const cycleMembers = new Set()
     for (const name of Object.keys(allSchemas)) {
         if (isCycleMember(name)) {
-            opaqueSchema(name)
+            cycleMembers.add(name)
         }
+    }
+    for (const name of cycleMembers) {
+        opaqueSchema(name)
     }
 
     // Pass 2: with cycle members now opaque, recompute sizes; opaque anything
