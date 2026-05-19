@@ -2437,6 +2437,25 @@ impl<'a> Parser<'a> {
     fn try_parametric_call(&mut self, name: &str) -> Result<Value, ParseError> {
         self.expect(TokenKind::LParen, "(")?;
         let params = self.parse_arg_list(TokenKind::RParen)?;
+        // A bare `selectSetStmt` inside the first paren means this is
+        // actually a `ColumnExprCallSelect` (subquery-as-arg) followed
+        // by a postfix `ColumnExprCall`, not a parametric
+        // `ColumnExprFunction` — cpp's ANTLR backs off Function
+        // because its first paren slot is `columnExprList`, which a
+        // bare select-set-stmt isn't. Bail so the caller's fallback
+        // path runs `parse_function_args_inner` (with subquery
+        // support) for the first paren and lets the Pratt loop append
+        // the second paren as `ExprCall`.
+        if params.iter().any(|p| {
+            matches!(
+                p.get("node").and_then(Value::as_str),
+                Some("SelectQuery") | Some("SelectSetQuery")
+            )
+        }) {
+            return Err(self.err(
+                "first paren opens a bare select-set-stmt — caller falls back to CallSelect + Call postfix",
+            ));
+        }
         self.expect(TokenKind::RParen, ")")?;
         // Peek the SECOND paren's content. cpp's grammar prefers
         // ColumnExprCallSelect (postfix → ExprCall) over the parametric
