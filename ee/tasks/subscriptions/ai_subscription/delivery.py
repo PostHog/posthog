@@ -216,7 +216,20 @@ def send_slack_ai_subscription_report(
     subscription: Subscription,
     markdown: str,
 ) -> None:
-    integration = get_slack_integration_for_team(subscription.team_id)
+    # Respect the integration the user explicitly attached to this subscription;
+    # only fall back to the team-wide first match when none is configured (matches
+    # the non-AI Slack delivery path).
+    integration = subscription.integration
+    if integration is not None and integration.kind != "slack":
+        logger.warning(
+            "ai_subscription.slack_invalid_integration_kind",
+            subscription_id=subscription.id,
+            integration_id=integration.id,
+            kind=integration.kind,
+        )
+        integration = None
+    if integration is None:
+        integration = get_slack_integration_for_team(subscription.team_id)
     if not integration:
         logger.warning("ai_subscription.slack_no_integration", subscription_id=subscription.id)
         return

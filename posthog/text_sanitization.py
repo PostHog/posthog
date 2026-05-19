@@ -16,7 +16,13 @@ CORE_MEMORY_MAX_LEN = 5001
 
 _TAG_RE = re.compile(r"</?[a-zA-Z_][^>]*>")
 _LLM_MARKER_RE = re.compile(
-    r"</?\s*(?:system|user|assistant|human|insight_data|user_context|subscription_title|core_memory)\b[^>]*>?",
+    r"</?\s*(?:"
+    r"system|user|assistant|human|insight_data|user_context|subscription_title|core_memory"
+    # AI subscription synthesis prompt framing tags — sanitize so a crafted event name
+    # or prompt can't escape the `<user_prompt>` / `<project_context>` / `<query_results>`
+    # envelope and inject instruction-shaped content into the LLM context.
+    r"|user_prompt|project_context|query_results"
+    r")\b[^>]*>?",
     re.IGNORECASE,
 )
 _NEWLINE_RE = re.compile(r"[\r\n\u2028\u2029]+")

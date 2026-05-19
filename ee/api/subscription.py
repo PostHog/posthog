@@ -52,6 +52,8 @@ from posthog.utils import str_to_bool
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
     ALLOWED_AI_MODELS,
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
+    PromptRejectedError,
+    sanitize_prompt,
 )
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
@@ -261,6 +263,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        # `content_type` is set at create time and pinned afterwards — switching kind
+        # mid-life would leave stale fields populated for the previous kind
+        # (`insight_id` on an AI sub, `prompt` on an insight sub) and the delivery
+        # path can't reason about that. Surfaces the help_text contract as code.
+        if existing is not None and "content_type" in attrs and attrs["content_type"] != existing.content_type:
+            raise ValidationError(
+                {"content_type": ["content_type cannot be changed after the subscription is created."]}
+            )
+
         has_insight = attrs.get("insight") or (existing and existing.insight_id)
         has_dashboard = attrs.get("dashboard") or (existing and existing.dashboard_id)
         has_prompt = (attrs.get("prompt") or (existing.prompt if existing else None) or "").strip()
@@ -286,11 +297,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
             if attrs.get("dashboard") or attrs.get("prompt"):
                 raise ValidationError("Insight subscriptions cannot also set dashboard or prompt.")
+            if attrs.get("ai_config") is not None:
+                raise ValidationError({"ai_config": ["ai_config is only valid on AI subscriptions."]})
         elif content_type == Subscription.ContentType.DASHBOARD:
             if not has_dashboard:
                 raise ValidationError({"dashboard": ["Dashboard is required for dashboard subscriptions."]})
             if attrs.get("insight") or attrs.get("prompt"):
                 raise ValidationError("Dashboard subscriptions cannot also set insight or prompt.")
+            if attrs.get("ai_config") is not None:
+                raise ValidationError({"ai_config": ["ai_config is only valid on AI subscriptions."]})
         elif content_type == Subscription.ContentType.AI_PROMPT:
             if attrs.get("insight") or attrs.get("dashboard"):
                 raise ValidationError("AI subscriptions cannot also set insight or dashboard.")
@@ -299,12 +314,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if len(has_prompt) > AI_PROMPT_MAX_LENGTH:
                 raise ValidationError({"prompt": [f"Prompt cannot exceed {AI_PROMPT_MAX_LENGTH} characters."]})
 
-            # Cloud / consent / feature-flag gates only fire when transitioning INTO ai_prompt
-            # (new create, or content_type change). Existing AI subscriptions remain editable
-            # after consent revoke or flag-off — owners can still disable/delete them, and
+            # Cloud / consent / feature-flag gates fire on create only. `content_type` is
+            # pinned (rejected earlier in this method), so an existing AI subscription
+            # cannot be created by mutation. Existing AI subs remain editable after
+            # consent revoke or flag-off — owners can still disable/delete them, and
             # the delivery path is the authoritative cost gate.
-            transitioning_to_ai = existing is None or existing.content_type != Subscription.ContentType.AI_PROMPT
-            if transitioning_to_ai:
+            if existing is None:
                 if not settings.DEBUG and not is_cloud():
                     raise ValidationError("AI subscriptions are only available in PostHog Cloud.")
 
@@ -343,6 +358,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             error_message = validate_re_enable(target_type, integration_id)
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
+            # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
+            # fails sanitization). The delivery path will just re-disable on the next
+            # tick unless the underlying cause is fixed by this PATCH.
+            if content_type == Subscription.ContentType.AI_PROMPT:
+                prompt_after = attrs.get("prompt") if "prompt" in attrs else (existing.prompt if existing else None)
+                created_by_after = existing.created_by if existing else None
+                if created_by_after is None:
+                    raise ValidationError(
+                        {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
+                    )
+                try:
+                    sanitize_prompt(prompt_after)
+                except PromptRejectedError as exc:
+                    raise ValidationError({"prompt": [f"Prompt is invalid: {exc}"]})
 
         # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
         # with a null next_delivery_date is invisible to the scheduler (the

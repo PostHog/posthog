@@ -1901,16 +1901,12 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["ai_config"] == {"model": "gpt-4.1", "planner_model": "gpt-4.1-mini"}
 
-    def test_transitioning_existing_sub_to_ai_re_runs_gates(self, mock_is_cloud, mock_flag, mock_sync):
-        # Existing non-AI subscription, then PATCH content_type → ai_prompt with consent
-        # revoked must be rejected (not silently flipped).
+    def test_content_type_is_immutable_after_create(self, mock_is_cloud, mock_flag, mock_sync):
+        # Switching kind would leave stale `insight_id`/`prompt` populated for the
+        # previous kind; the delivery path can't reason about that.
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        Insight.objects.create(team=self.team, short_id="aiins", name="x")
-        # Create as insight subscription
-        from posthog.models.insight import Insight as InsightModel  # noqa: F401  (use the imported one)
-
-        insight = Insight.objects.filter(short_id="aiins").first()
+        insight = Insight.objects.create(team=self.team, short_id="aiins", name="x")
         create_resp = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             {
@@ -1926,12 +1922,47 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
         sub_id = create_resp.json()["id"]
-        # Revoke consent and attempt to transition.
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         patch_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"content_type": "ai_prompt", "prompt": "anything", "insight": None},
+            {"content_type": "ai_prompt", "prompt": "anything"},
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
-        assert "AI data processing" in str(patch_resp.json()), patch_resp.json()
+        assert "content_type cannot be changed" in str(patch_resp.json()), patch_resp.json()
+
+    def test_re_enabling_ai_sub_with_invalid_prompt_is_rejected(self, mock_is_cloud, mock_flag, mock_sync):
+        # An auto-disabled AI sub re-enabled via plain PATCH {enabled:true} would
+        # just re-disable on the next tick (burning LLM tokens).
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, prompt="   ")
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_ai_config_rejected_on_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        insight = Insight.objects.create(team=self.team, short_id="aicfg", name="x")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "content_type": "insight",
+                "insight": insight.id,
+                "ai_config": {"model": "gpt-4.1"},
+                "target_type": "email",
+                "target_value": "x@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "ins",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "ai_config" in str(response.json()).lower(), response.json()

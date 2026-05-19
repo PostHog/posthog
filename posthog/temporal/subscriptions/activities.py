@@ -94,15 +94,20 @@ async def _persist_ai_markdown(delivery_id: uuid.UUID | None, markdown: str) -> 
         return
 
     @database_sync_to_async(thread_sensitive=False)
-    def _write() -> None:
+    def _write() -> bool:
         try:
             delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
         except SubscriptionDelivery.DoesNotExist:
-            return
+            return False
         delivery.content_snapshot = {**(delivery.content_snapshot or {}), AI_MARKDOWN_SNAPSHOT_KEY: markdown}
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+        return True
 
-    await _write()
+    persisted = await _write()
+    if not persisted:
+        # Without this row we can't memoize across retries — Temporal would re-bill
+        # the planner + synthesis on each attempt with no diagnostic trail.
+        await LOGGER.awarning("deliver_subscription.ai_markdown_persist_skipped", delivery_id=str(delivery_id))
 
 
 async def _resolve_target_delivery_id(inputs: CreateExportAssetsInputs) -> uuid.UUID | None:
@@ -274,18 +279,10 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         target_type=subscription.target_type,
     )
 
-    # Early exit if target value hasn't changed — avoids creating orphaned assets
-    if inputs.previous_value is not None and subscription.target_value == inputs.previous_value:
-        await LOGGER.ainfo(
-            "create_export_assets.no_change_skipping",
-            subscription_id=inputs.subscription_id,
-        )
-        return CreateExportAssetsResult(
-            exported_asset_ids=[],
-            total_insight_count=0,
-            team_id=team.id,
-        )
-
+    # AI prompt short-circuit comes before the no-change guard: AI subs produce a
+    # fresh report each delivery, so an edit that only changed the prompt (and not
+    # `target_value`) still warrants a delivery, which the no-change guard would
+    # otherwise swallow.
     if subscription.content_type == Subscription.ContentType.AI_PROMPT:
         await LOGGER.ainfo(
             "create_export_assets.ai_prompt_short_circuit",
@@ -298,6 +295,19 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
             target_type=subscription.target_type,
             is_ai_prompt=True,
+        )
+
+    # Early exit if target value hasn't changed — avoids creating orphaned assets
+    # for non-AI subs whose payload is identical to the previous delivery.
+    if inputs.previous_value is not None and subscription.target_value == inputs.previous_value:
+        await LOGGER.ainfo(
+            "create_export_assets.no_change_skipping",
+            subscription_id=inputs.subscription_id,
+        )
+        return CreateExportAssetsResult(
+            exported_asset_ids=[],
+            total_insight_count=0,
+            team_id=team.id,
         )
 
     if dashboard:
@@ -737,6 +747,20 @@ async def _deliver_ai_subscription(
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+        # Mirror the non-AI Slack path: if no integration is resolvable for this
+        # subscription, auto-disable rather than re-firing into a silent no-op every cycle.
+        slack_integration = subscription.integration
+        if slack_integration is None or slack_integration.kind != "slack":
+            slack_integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                subscription.team_id
+            )
+        if slack_integration is None:
+            LOGGER.warning(
+                "deliver_subscription.ai_slack_no_integration",
+                subscription_id=subscription.id,
+            )
+            return await _auto_disable_and_return(subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results)
+
         try:
             await database_sync_to_async(send_slack_ai_subscription_report, thread_sensitive=False)(
                 subscription=subscription, markdown=markdown
