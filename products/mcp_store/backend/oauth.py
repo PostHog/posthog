@@ -76,6 +76,38 @@ def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
     return metadata
 
 
+def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
+    """Reject metadata where OAuth endpoints don't share the issuer's origin.
+
+    Without this, a malicious metadata source can mix endpoints from a real
+    provider with an attacker-controlled token_endpoint, exfiltrating
+    authorization codes, PKCE verifiers, and DCR-minted client_secrets while
+    the user authorizes against the legitimate provider.
+    """
+    issuer = (metadata.get("issuer") or "").rstrip("/")
+    if not issuer:
+        raise ValueError("OAuth metadata is missing issuer")
+
+    parsed_issuer = urlparse(issuer)
+    if not parsed_issuer.scheme or not parsed_issuer.netloc:
+        raise ValueError("OAuth metadata issuer is not an absolute URL")
+    issuer_origin = (parsed_issuer.scheme, parsed_issuer.netloc)
+
+    for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+        url = metadata.get(field)
+        if not url:
+            continue
+        parsed = urlparse(url)
+        if (parsed.scheme, parsed.netloc) != issuer_origin:
+            logger.warning(
+                "OAuth endpoint origin does not match issuer",
+                issuer=issuer,
+                field=field,
+                endpoint=url,
+            )
+            raise ValueError(f"OAuth endpoint '{field}' origin does not match issuer")
+
+
 def discover_oauth_metadata(server_url: str) -> dict:
     parsed_server = urlparse(server_url)
     origin = f"{parsed_server.scheme}://{parsed_server.netloc}"
@@ -100,6 +132,7 @@ def discover_oauth_metadata(server_url: str) -> dict:
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
                 metadata["scopes_supported"] = resource_data["scopes_supported"]
+            _validate_endpoints_bound_to_issuer(metadata)
             return metadata
 
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
@@ -108,7 +141,9 @@ def discover_oauth_metadata(server_url: str) -> dict:
     logger.info(
         "RFC 9728 protected resource metadata not available, falling back to direct discovery", server_url=server_url
     )
-    return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
+    metadata = _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
+    _validate_endpoints_bound_to_issuer(metadata)
+    return metadata
 
 
 def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None]:
@@ -342,7 +377,8 @@ def exchange_oauth_token(
 
     token_response = requests.post(token_endpoint, data=form, timeout=TIMEOUT)
 
-    if token_response.status_code != 200:
+    # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
+    if not token_response.ok:
         logger.error(
             "OAuth token exchange failed",
             status_code=token_response.status_code,
