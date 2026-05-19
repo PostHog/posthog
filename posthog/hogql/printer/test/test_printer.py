@@ -3987,15 +3987,65 @@ class TestPrinter(BaseTest):
         result = self._expr(expr)
         self.assertNotIn("$session_id_uuid", result)
 
-    def test_data_warehouse_struct_dot_notation_emits_tuple_element(self):
+    @parameterized.expand(
+        [
+            (
+                "single_level_struct",
+                {
+                    "membership": {
+                        "clickhouse": "Tuple(type String, tier String)",
+                        "hogql": "StructDatabaseField",
+                        "valid": True,
+                        "fields": {
+                            "type": {"clickhouse": "String", "hogql": "string", "valid": True},
+                            "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        },
+                    }
+                },
+                "SELECT membership.type FROM members",
+                "tupleElement(members.membership",
+                "JSONExtractRaw(members.membership",
+            ),
+            (
+                "nested_struct",
+                {
+                    "customer": {
+                        "clickhouse": "Tuple(address Tuple(city String))",
+                        "hogql": "StructDatabaseField",
+                        "valid": True,
+                        "fields": {
+                            "address": {
+                                "clickhouse": "Tuple(city String)",
+                                "hogql": "StructDatabaseField",
+                                "valid": True,
+                                "fields": {
+                                    "city": {
+                                        "clickhouse": "String",
+                                        "hogql": "string",
+                                        "valid": True,
+                                    },
+                                },
+                            }
+                        },
+                    }
+                },
+                "SELECT customer.address.city FROM members",
+                "tupleElement(tupleElement(members.customer",
+                "JSONExtractRaw(members.customer",
+            ),
+        ]
+    )
+    def test_data_warehouse_struct_dot_notation_emits_tuple_element(
+        self, _name, columns, query, expected_substring, forbidden_substring
+    ):
         """Regression test for #58480.
 
         Parquet struct columns surface in HogQL as ``StructDatabaseField``
         backed by a ClickHouse ``Tuple(...)`` column. Dot notation on these
-        columns must emit ``tupleElement(col, 'field')`` rather than the
-        ``JSONExtractRaw(col, 'field')`` chain used for JSON-string columns,
-        because ClickHouse rejects ``JSONExtractRaw`` on a ``Tuple``
-        argument with ``illegal type: Tuple(...)``.
+        columns must emit ``tupleElement(col, 'field')`` (chained for nested
+        structs) rather than the ``JSONExtractRaw(col, 'field')`` chain used
+        for JSON-string columns, because ClickHouse rejects ``JSONExtractRaw``
+        on a ``Tuple`` argument with ``illegal type: Tuple(...)``.
         """
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="key", access_secret="secret"
@@ -4006,25 +4056,13 @@ class TestPrinter(BaseTest):
             format="Parquet",
             url_pattern="http://s3/folder/",
             credential=credential,
-            columns={
-                "membership": {
-                    "clickhouse": "Tuple(type String, tier String)",
-                    "hogql": "StructDatabaseField",
-                    "valid": True,
-                    "fields": {
-                        "type": {"clickhouse": "String", "hogql": "string", "valid": True},
-                        "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
-                    },
-                }
-            },
+            columns=columns,
         )
 
-        printed = self._select("SELECT membership.type, membership.tier FROM members")
+        printed = self._select(query)
 
-        # The bug: JSONExtractRaw is emitted against the Tuple column, which ClickHouse rejects.
-        self.assertNotIn("JSONExtractRaw(members.membership", printed)
-        # The fix: tupleElement is the canonical ClickHouse accessor for Tuple fields.
-        self.assertIn("tupleElement(members.membership", printed)
+        self.assertNotIn(forbidden_substring, printed)
+        self.assertIn(expected_substring, printed)
 
 
 @snapshot_clickhouse_queries
