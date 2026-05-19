@@ -45,7 +45,9 @@ class TestCreateUserInterviewTopicTool(BaseTest):
         assert artifact["question_count"] == 3
 
         topic = await sync_to_async(
-            lambda: UserInterviewTopic.objects.select_related("team", "created_by").get(id=artifact["topic_id"])
+            lambda: UserInterviewTopic.objects.select_related("team", "created_by").get(
+                team=self.team, id=artifact["topic_id"]
+            )
         )()
         assert topic.team == self.team
         assert topic.created_by == self.user
@@ -128,7 +130,7 @@ class TestCreateUserInterviewTopicTool(BaseTest):
         assert artifact["interviewee_distinct_id_count"] == 1
         assert artifact["question_count"] == 1
 
-        topic = await sync_to_async(UserInterviewTopic.objects.get)(id=artifact["topic_id"])
+        topic = await sync_to_async(lambda: UserInterviewTopic.objects.get(team=self.team, id=artifact["topic_id"]))()
         assert topic.interviewee_emails == ["alex@example.com"]
         assert topic.interviewee_distinct_ids == ["user_1"]
         assert topic.questions == ["A real question?"]
