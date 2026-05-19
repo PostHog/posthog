@@ -148,22 +148,34 @@ async def test_transient_error_retries_and_succeeds(
 
 
 @pytest.mark.parametrize(
-    "error_factory,expected_exception_class,expected_error_msg,expected_call_count,expected_outcome",
+    "error_factory,expected_exception_class,expected_error_msg,expected_call_count,expected_outcome,expects_raise",
     [
+        # User-query failures are returned (not raised) by the activity so the
+        # error tracking interceptor doesn't capture them — the workflow
+        # populates SLO error fields from the result instead.
         (
             lambda: QueryError("Invalid HogQL query"),
             "QueryError",
             "QueryError: Invalid HogQL query",
             1,
             SloOutcome.SUCCESS,
+            False,
         ),
-        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", "RuntimeError: Chrome crashed", 1, SloOutcome.FAILURE),
+        (
+            lambda: RuntimeError("Chrome crashed"),
+            "RuntimeError",
+            "RuntimeError: Chrome crashed",
+            1,
+            SloOutcome.FAILURE,
+            True,
+        ),
         (
             lambda: CHQueryErrorS3Error("S3 error", code=499),
             "CHQueryErrorS3Error",
             "CHQueryErrorS3Error: Code: 499.\nS3 error",
             10,
             SloOutcome.FAILURE,
+            True,
         ),
     ],
     ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
@@ -179,6 +191,7 @@ async def test_export_failure_emits_slo_outcome(
     expected_error_msg: str,
     expected_call_count: int,
     expected_outcome: SloOutcome,
+    expects_raise: bool,
 ):
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
@@ -189,7 +202,11 @@ async def test_export_failure_emits_slo_outcome(
         call_count += 1
         raise error_factory()
 
-    with pytest.raises(Exception):
+    if expects_raise:
+        with pytest.raises(Exception):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                await _run_export_workflow(env, asset, team, mock_exporter, failing_export)
+    else:
         async with await WorkflowEnvironment.start_time_skipping() as env:
             await _run_export_workflow(env, asset, team, mock_exporter, failing_export)
 
@@ -197,8 +214,9 @@ async def test_export_failure_emits_slo_outcome(
 
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == expected_outcome
-    # error_type, error_message, and error_trace are all populated by the SLO
-    # interceptor via its shared ActivityError -> ApplicationError unwrap logic.
+    # For system errors, the SLO interceptor unwraps the ApplicationError raised
+    # by the activity. For user errors, the workflow populates these fields
+    # directly from the returned ExportAssetResult.error (see workflows.py).
     assert props["error_type"] == expected_exception_class
     assert props["error_message"] == expected_error_msg
     assert "Traceback" in props["error_trace"]
