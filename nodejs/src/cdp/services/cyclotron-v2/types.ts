@@ -9,10 +9,6 @@ export type CyclotronV2PoolConfig = {
     idleTimeoutMs?: number
 }
 
-// `id` and `functionId` use PostHog's UUIDT-style identifiers which don't set
-// valid UUID version bits, so we only validate them as non-empty strings here.
-// `personId` comes from posthog_person.uuid (a real UUID v4/v7) and ingestion's
-// resolution, so we validate it strictly to catch any bad data at the boundary.
 export const CyclotronV2JobInitSchema = z.object({
     id: z.string().min(1).optional(),
     teamId: z.number().int(),
@@ -23,7 +19,7 @@ export const CyclotronV2JobInitSchema = z.object({
     parentRunId: z.string().nullish(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: z.uuid().nullish(),
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
 })
 
@@ -33,7 +29,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: z.uuid().nullish(),
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
 })
 

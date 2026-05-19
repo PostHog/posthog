@@ -118,7 +118,7 @@ export class CyclotronV2Manager {
                 unnest($7::text[]),
                 unnest($8::bytea[]),
                 unnest($9::text[]),
-                unnest($10::uuid[]),
+                unnest($10::text[]),
                 unnest($11::text[])`,
             [
                 ids,

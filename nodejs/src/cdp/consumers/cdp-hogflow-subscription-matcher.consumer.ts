@@ -272,7 +272,7 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND team_id = ANY($1::int[])
-               AND (distinct_id = ANY($2::text[]) OR person_id = ANY($3::uuid[]))`,
+               AND (distinct_id = ANY($2::text[]) OR person_id = ANY($3::text[]))`,
             [teamIds, distinctIds, personIds]
         )
 
