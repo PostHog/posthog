@@ -108,11 +108,8 @@ export function GoogleAdsCustomerIdPicker({
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
-    const {
-        googleAdsAccessibleAccounts,
-        googleAdsAccessibleAccountsLoading,
-        googleAdsAccessibleAccountsError,
-    } = useValues(googleAdsIntegrationLogic({ id: integration.id }))
+    const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading, googleAdsAccessibleAccountsError } =
+        useValues(googleAdsIntegrationLogic({ id: integration.id }))
     const { loadGoogleAdsAccessibleAccounts } = useActions(googleAdsIntegrationLogic({ id: integration.id }))
 
     const googleAdsAccountOptions = useMemo(
@@ -133,7 +130,7 @@ export function GoogleAdsCustomerIdPicker({
         ? googleAdsAccessibleAccountsError
         : hasNoAccounts
           ? "We didn't find any Google Ads accounts accessible from this login. " +
-            "Make sure the connected Google account has access to at least one Google Ads account, then retry."
+            'Make sure the connected Google account has access to at least one Google Ads account, then retry.'
           : null
 
     return (

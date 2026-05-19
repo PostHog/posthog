@@ -1446,9 +1446,7 @@ class GoogleAdsIntegration:
 
         if per_account_failures and not all_accounts:
             capture_exception(
-                Exception(
-                    f"GoogleAdsIntegration: All accessible-account expansions failed: {per_account_failures}"
-                )
+                Exception(f"GoogleAdsIntegration: All accessible-account expansions failed: {per_account_failures}")
             )
             raise ValidationError(
                 "We couldn't load any Google Ads accounts for this login. "
@@ -1459,9 +1457,7 @@ class GoogleAdsIntegration:
 
         if per_account_failures:
             capture_exception(
-                Exception(
-                    f"GoogleAdsIntegration: Some accessible-account expansions failed: {per_account_failures}"
-                )
+                Exception(f"GoogleAdsIntegration: Some accessible-account expansions failed: {per_account_failures}")
             )
 
         return all_accounts

@@ -54,9 +54,7 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
                         return res.accessibleAccounts
                     } catch (error: any) {
                         actions.setGoogleAdsAccessibleAccountsError(
-                            error?.detail ||
-                                error?.message ||
-                                'Something went wrong while loading Google Ads accounts.'
+                            error?.detail || error?.message || 'Something went wrong while loading Google Ads accounts.'
                         )
                         return []
                     }
