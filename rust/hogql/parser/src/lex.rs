@@ -842,6 +842,24 @@ impl<'a> Lexer<'a> {
         while self.peek_byte(0).is_some_and(|b| b.is_ascii_digit()) {
             self.pos += 1;
         }
+        // FLOATING_LITERAL with an exponent but no fractional digits:
+        // `1.e5` / `1.E+5`. The grammar's FLOATING_LITERAL token is
+        // `DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS|DASH)? DEC_DIGIT+`, so
+        // cpp's lexer munches the whole thing as one token. Consume the
+        // `.` here only when an exponent unambiguously follows; `1.2` /
+        // `t.1.2` (dot then digit, no `e`) is left for parse-time
+        // fractional assembly. The exponent block below then consumes
+        // the `e<digits>` tail.
+        if self.peek_byte(0) == Some(b'.') && matches!(self.peek_byte(1), Some(b'e') | Some(b'E')) {
+            let digit_at = if matches!(self.peek_byte(2), Some(b'+') | Some(b'-')) {
+                3
+            } else {
+                2
+            };
+            if self.peek_byte(digit_at).is_some_and(|b| b.is_ascii_digit()) {
+                self.pos += 1;
+            }
+        }
         // Exponent
         // Exponent: only consume `e`/`E` when followed by an optional
         // sign and at least one digit (else it's a following identifier
