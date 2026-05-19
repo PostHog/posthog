@@ -379,8 +379,8 @@ class PostHogCodeSpendViewSet(viewsets.ViewSet):
         parameters=[_SpendQueryParamsSerializer],
         responses={
             200: TokenSpendAnalysisResponseSerializer,
-            400: TokenSpendAnalysisResponseSerializer,
-            401: TokenSpendAnalysisResponseSerializer,
+            400: None,
+            401: None,
         },
         description=(
             "Return a structured spend analysis for the requesting user's PostHog Code "
