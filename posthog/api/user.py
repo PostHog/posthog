@@ -1229,8 +1229,16 @@ class UserViewSet(
             "individual Personal API Keys via the existing PAT endpoints from the same screen."
         ),
     )
-    @action(methods=["POST"], detail=True, url_path="credentials_review_complete")
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="credentials_review_complete",
+        authentication_classes=[SessionAuthentication],
+    )
     def credentials_review_complete(self, request, **kwargs):
+        # Session-only auth: this endpoint dismisses the partner-issued-PAK review
+        # screen, so accepting PersonalAPIKeyAuthentication here would let the
+        # attacker who minted the PAK silently dismiss their own surfacing.
         user = self.get_object()
         if user.credentials_reviewed_at is None:
             user.credentials_reviewed_at = django_timezone.now()

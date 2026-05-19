@@ -244,8 +244,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
-        self.user.credentials_reviewed_at = None
-        self.user.save(update_fields=["credentials_reviewed_at"])
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
             label="Test key",
@@ -258,22 +257,42 @@ class TestUserAPI(APIBaseTest):
 
         response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == 204
-        self.user.refresh_from_db()
-        assert self.user.credentials_reviewed_at is not None
+
+        refreshed = User.objects.get(pk=self.user.pk)
+        assert refreshed.credentials_reviewed_at is not None
 
         response = self.client.get("/api/users/@me/")
         assert response.json()["requires_credential_review"] is False
 
-        first_ts = self.user.credentials_reviewed_at
+        first_ts = refreshed.credentials_reviewed_at
         response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == 204
-        self.user.refresh_from_db()
-        assert self.user.credentials_reviewed_at == first_ts
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at == first_ts
 
     def test_credentials_review_complete_requires_auth(self):
         self.client.logout()
         response = self.client.post("/api/users/@me/credentials_review_complete/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_credentials_review_complete_rejects_personal_api_key_auth(self):
+        # The partner-issued wildcard PAK is the thing this feature surfaces;
+        # accepting it as auth here would let the attacker silently dismiss
+        # their own review before the legit owner ever logs in.
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Partner-minted key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at is None
 
     def test_can_only_list_yourself(self):
         """

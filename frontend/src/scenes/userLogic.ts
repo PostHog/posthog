@@ -94,6 +94,7 @@ export const userLogic = kea<userLogicType>([
             enabled,
         }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        credentialReviewDismissed: true,
         updateRealtimeNotificationForTeam: (type: string, teamId: number, enabled: boolean) => ({
             type,
             teamId,
@@ -243,6 +244,15 @@ export const userLogic = kea<userLogicType>([
                 updateUserFailure: () => null,
             },
         ],
+        // Set when the user clicks Continue on /account/credential-review. Suppresses
+        // the post-loadUser redirect so an in-flight stale loadUser response can't
+        // bounce the user back to the review screen after they've already dismissed it.
+        credentialReviewDismissedInSession: [
+            false,
+            {
+                credentialReviewDismissed: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         logout: ({ preserveLocation }) => {
@@ -321,9 +331,13 @@ export const userLogic = kea<userLogicType>([
                 // First-login interstitial: route users with unreviewed pre-existing API keys
                 // to the credential review screen before they enter the app. Gated server-side
                 // by UserSerializer.get_requires_credential_review.
+                //
+                // credentialReviewDismissedInSession suppresses a bounce-back if a loadUser
+                // call that was in-flight at dismiss time resolves later with stale state.
                 if (
                     user.requires_credential_review &&
-                    !window.location.pathname.startsWith('/account/credential-review')
+                    !values.credentialReviewDismissedInSession &&
+                    !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
                     router.actions.push(urls.credentialReview())
                 }

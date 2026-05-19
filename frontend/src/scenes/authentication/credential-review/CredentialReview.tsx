@@ -1,10 +1,11 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 
 import { credentialReviewLogic } from './credentialReviewLogic'
 import { CredentialsReviewList } from './CredentialsReviewList'
@@ -16,6 +17,7 @@ export const scene: SceneExport = {
 
 export function CredentialReview(): JSX.Element {
     const { markComplete } = useActions(credentialReviewLogic)
+    const { keysLoading } = useValues(personalAPIKeysLogic)
 
     return (
         <BridgePage view="credential-review" fixedWidth={false}>
@@ -32,7 +34,12 @@ export function CredentialReview(): JSX.Element {
                 <div className="w-full mb-6 text-left">
                     <CredentialsReviewList />
                 </div>
-                <LemonButton type="primary" size="large" onClick={() => markComplete()}>
+                <LemonButton
+                    type="primary"
+                    size="large"
+                    onClick={() => markComplete()}
+                    disabledReason={keysLoading ? 'Loading your API keys…' : null}
+                >
                     Continue to PostHog
                 </LemonButton>
             </div>
