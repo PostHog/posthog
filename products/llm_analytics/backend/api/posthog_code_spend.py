@@ -11,7 +11,7 @@ Endpoint:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -26,7 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.rate_limit import (
     PostHogCodeSpendBurstThrottle,
     PostHogCodeSpendDailyThrottle,
@@ -414,7 +414,7 @@ class PostHogCodeSpendViewSet(viewsets.ViewSet):
         tags=["LLM Analytics"],
     )
     def list(self, request: Request) -> Response:
-        user = request.user
+        user = cast(User, request.user)
         email = getattr(user, "email", None)
         if not email:
             raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
