@@ -10,25 +10,25 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 
 ### Columns
 
-| Column                  | Type                                | Description                                                 |
-| ----------------------- | ----------------------------------- | ----------------------------------------------------------- |
-| `uuid`                  | String                              | Row UUID                                                    |
-| `team_id`               | Int32                               | Team this log belongs to                                    |
-| `trace_id`              | String                              | OTel trace ID. Zero-padded `00000…000` when unset, not null |
-| `span_id`               | String                              | OTel span ID. Same zero-padding rule                        |
-| `body`                  | String                              | Log message. Also exposed as `message`                      |
-| `severity_text`         | LowCardinality(String)              | `trace`, `debug`, `info`, `warn`, `error`, `fatal`          |
-| `severity_number`       | Int32                               | OTel severity number (lower = less severe)                  |
-| `level`                 | LowCardinality(String)              | Alias for `severity_text`                                   |
-| `service_name`          | LowCardinality(String)              | Emitting service                                            |
-| `attributes`            | Map(String, String)                 | Log-level attributes (e.g. `http.method`, `error.type`)     |
-| `resource_attributes`   | Map(LowCardinality(String), String) | Resource-level attributes (k8s labels, deployment info)     |
-| `resource_fingerprint`  | UInt64                              | Hash of `resource_attributes`                               |
-| `instrumentation_scope` | String                              | Instrumentation library                                     |
-| `event_name`            | String                              | OTel event name (often empty)                               |
-| `time_bucket`           | DateTime                            | `toStartOfDay(timestamp)`                                   |
-| `timestamp`             | DateTime64(9)                       | Log time                                                    |
-| `observed_timestamp`    | DateTime64(9)                       | Ingest time                                                 |
+| Column                  | Type                                | Description                                                                                        |
+| ----------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `uuid`                  | String                              | Row UUID                                                                                           |
+| `team_id`               | Int32                               | Team this log belongs to                                                                           |
+| `trace_id`              | String                              | OTel trace ID (24-char base64-encoded 16 bytes). `'AAAAAAAAAAAAAAAAAAAAAA=='` when unset, not null |
+| `span_id`               | String                              | OTel span ID (12-char base64-encoded 8 bytes). `'AAAAAAAAAAA='` when unset                         |
+| `body`                  | String                              | Log message. Also exposed as `message`                                                             |
+| `severity_text`         | LowCardinality(String)              | `trace`, `debug`, `info`, `warn`, `error`, `fatal`                                                 |
+| `severity_number`       | Int32                               | OTel severity number (lower = less severe)                                                         |
+| `level`                 | LowCardinality(String)              | Alias for `severity_text`                                                                          |
+| `service_name`          | LowCardinality(String)              | Emitting service                                                                                   |
+| `attributes`            | Map(String, String)                 | Log-level attributes (e.g. `http.method`, `error.type`)                                            |
+| `resource_attributes`   | Map(LowCardinality(String), String) | Resource-level attributes (k8s labels, deployment info)                                            |
+| `resource_fingerprint`  | UInt64                              | Hash of `resource_attributes`                                                                      |
+| `instrumentation_scope` | String                              | Instrumentation library                                                                            |
+| `event_name`            | String                              | OTel event name (often empty)                                                                      |
+| `time_bucket`           | DateTime                            | `toStartOfDay(timestamp)`                                                                          |
+| `timestamp`             | DateTime64(9)                       | Log time                                                                                           |
+| `observed_timestamp`    | DateTime64(9)                       | Ingest time                                                                                        |
 
 ### Sort key
 
