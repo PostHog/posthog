@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
@@ -364,8 +365,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     source_catalog=discovered_schema.source_catalog,
                     source_schema=discovered_schema.source_schema,
                     source_table_name=discovered_schema.source_table_name,
-                    detected_primary_keys=pk_columns_by_table.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in discovered_schema.columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(
+                        pk_columns_by_table.get(table_name),
+                        discovered_schema.columns,
+                    ),
                 )
             )
 

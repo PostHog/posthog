@@ -33,7 +33,7 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
+from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
@@ -47,7 +47,7 @@ from products.data_warehouse.backend.models.external_data_source import External
 from products.data_warehouse.backend.postgres_helpers import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_postgres_source_location,
-    postgres_schema_metadata_to_dwh_columns,
+    reproject_direct_postgres_table,
 )
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
@@ -402,49 +402,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         )
 
         if source.is_direct_postgres:
-            # We use "should_sync" to determine if the table should be exposed or hidden.
-            if should_sync is True and instance.should_sync is False:
-                source_catalog, source_schema, source_table_name = get_postgres_source_location(
-                    schema_name=instance.name,
-                    schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
-                )
-                validated_data["table"] = upsert_direct_postgres_table(
-                    instance.table,
-                    schema_name=instance.name,
+            # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
+            # (1) row is being re-exposed (should_sync flipping False → True);
+            # (2) the column-picker selection changed on an already-exposed row.
+            newly_exposed = should_sync is True and instance.should_sync is False
+            projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
+            if newly_exposed or projection_needs_refresh:
+                validated_data["table"] = reproject_direct_postgres_table(
+                    instance,
                     source=source,
-                    columns=_filter_dwh_columns_by_enabled_columns(
-                        postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                        validated_data.get("enabled_columns", instance.enabled_columns),
-                        instance.primary_key_columns,
-                        instance.incremental_field,
-                    ),
-                    source_catalog=source_catalog,
-                    source_schema=source_schema,
-                    source_table_name=source_table_name,
-                )
-
-            elif enabled_columns_changed and instance.table is not None and instance.should_sync:
-                # Re-project the live-query DataWarehouseTable so HogQL sees the new column subset
-                # immediately (no re-sync needed for direct mode).
-                source_catalog, source_schema, source_table_name = get_postgres_source_location(
-                    schema_name=instance.name,
-                    schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
-                )
-                validated_data["table"] = upsert_direct_postgres_table(
-                    instance.table,
-                    schema_name=instance.name,
-                    source=source,
-                    columns=_filter_dwh_columns_by_enabled_columns(
-                        postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                        validated_data["enabled_columns"],
-                        instance.primary_key_columns,
-                        instance.incremental_field,
-                    ),
-                    source_catalog=source_catalog,
-                    source_schema=source_schema,
-                    source_table_name=source_table_name,
+                    enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
             if should_sync is False and instance.should_sync is True:

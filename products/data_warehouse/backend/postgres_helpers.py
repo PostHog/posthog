@@ -295,6 +295,40 @@ def reconcile_postgres_schemas(
     return stale_names
 
 
+def reproject_direct_postgres_table(
+    schema_row: Any,
+    *,
+    source: ExternalDataSource,
+    enabled_columns: list[str] | None,
+) -> Any:
+    """Rebuild the direct-query `DataWarehouseTable` for `schema_row` against the current
+    `schema_metadata` + a fresh `enabled_columns` projection.
+
+    Use this whenever the projection changes (column-picker save) or the row's exposure toggles
+    on (should_sync flipping False → True). HogQL sees the new column subset immediately — no
+    re-sync needed in direct mode.
+    """
+    source_catalog, source_schema, source_table_name = get_postgres_source_location(
+        schema_name=schema_row.name,
+        schema_metadata=schema_row.schema_metadata,
+        default_schema=(source.job_inputs or {}).get("schema"),
+    )
+    return upsert_direct_postgres_table(
+        schema_row.table,
+        schema_name=schema_row.name,
+        source=source,
+        columns=filter_dwh_columns_by_enabled_columns(
+            postgres_schema_metadata_to_dwh_columns(schema_row.schema_metadata),
+            enabled_columns,
+            schema_row.primary_key_columns,
+            schema_row.incremental_field,
+        ),
+        source_catalog=source_catalog,
+        source_schema=source_schema,
+        source_table_name=source_table_name,
+    )
+
+
 def rename_postgres_schemas_to_match_source_schemas(
     *,
     source: ExternalDataSource,
