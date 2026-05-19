@@ -17,6 +17,7 @@ from enum import StrEnum
 from typing import Any, Optional
 
 import temporalio
+import temporalio.exceptions
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -26,16 +27,19 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
     INACTIVITY_TIMEOUT,
+    OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+)
+from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
+    ReapOrphanedSandboxInput,
+    reap_orphaned_sandbox,
 )
 from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import (
     ClearPersistedSandboxIdInput,
     PersistSandboxIdInput,
-    ReadPersistedSandboxIdInput,
     clear_persisted_sandbox_id,
     persist_sandbox_id,
-    read_persisted_sandbox_id,
 )
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import (
@@ -113,6 +117,17 @@ COMPLETE_TASK_SIGNAL = "complete_task"
 SEND_FOLLOWUP_SIGNAL = "send_followup_message"
 HEARTBEAT_SIGNAL = "heartbeat"
 
+# Detail string returned in an ACK rejection when the child is mid-cleanup.
+# The orchestrator branches on this exact value in `_handle_shutdown_rejection`
+# to decide whether to re-queue the follow-up for the next sandbox session.
+SHUTDOWN_REJECTION_DETAIL = "child_shutting_down"
+
+# Followup source labels. The child treats both identically (it dispatches
+# whatever the orchestrator tells it); the orchestrator uses them to log and
+# to drive CI-vs-user-message metrics.
+FOLLOWUP_SOURCE_USER = "user"
+FOLLOWUP_SOURCE_CI = "ci"
+
 
 @dataclass
 class ExecuteSandboxInput:
@@ -147,7 +162,7 @@ class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
     ack_id: str
-    source: str = "user"  # "user" | "ci"
+    source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
 
 
 @dataclass
@@ -563,8 +578,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         restarted orchestrator is a no-op. Sending an ACK confirms to the
         parent that the workflow is alive and processing signals.
         """
-        if ack_id in self._acked_ids:
-            self._enqueue_ack(signal_name=PARENT_ATTACHED_SIGNAL, ack_id=ack_id)
+        if self._is_duplicate_signal(PARENT_ATTACHED_SIGNAL, ack_id):
             return
         self._parent_workflow_id = parent_workflow_id
         self._enqueue_ack(signal_name=PARENT_ATTACHED_SIGNAL, ack_id=ack_id)
@@ -576,26 +590,25 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         status: str = "completed",
         error_message: Optional[str] = None,
     ) -> None:
-        if ack_id in self._acked_ids:
-            # Orchestrator re-sent because the original ACK was lost — re-ack
-            # idempotently and don't reapply completion state.
-            self._enqueue_ack(signal_name="complete_task", ack_id=ack_id)
+        # Orchestrator re-sent because the original ACK was lost — re-ack
+        # idempotently and don't reapply completion state.
+        if self._is_duplicate_signal(COMPLETE_TASK_SIGNAL, ack_id):
             return
         if self._shutting_down:
             # We're already in the cleanup path; the orchestrator will see
             # the completion signal we're about to emit. Reject this so it
             # doesn't keep waiting on a slot we'll never honour.
             self._enqueue_ack(
-                signal_name="complete_task",
+                signal_name=COMPLETE_TASK_SIGNAL,
                 ack_id=ack_id,
                 accepted=False,
-                detail="child_shutting_down",
+                detail=SHUTDOWN_REJECTION_DETAIL,
             )
             return
         self._completion_status = status
         self._completion_error = error_message
         self._task_completed = True
-        self._enqueue_ack(signal_name="complete_task", ack_id=ack_id)
+        self._enqueue_ack(signal_name=COMPLETE_TASK_SIGNAL, ack_id=ack_id)
 
     @temporalio.workflow.signal(name=SEND_FOLLOWUP_SIGNAL)
     async def send_followup_message(
@@ -603,7 +616,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         ack_id: str,
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
-        source: str = "user",
+        source: str = FOLLOWUP_SOURCE_USER,
     ) -> None:
         """Accept a follow-up message from the parent and queue it.
 
@@ -620,9 +633,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             source=source,
             ack_id=ack_id,
         )
-        if ack_id in self._acked_ids:
-            # Already dispatched (or rejected) — re-ack and skip.
-            self._enqueue_ack(signal_name="send_followup_message", ack_id=ack_id)
+        # Already dispatched (or rejected) — re-ack and skip.
+        if self._is_duplicate_signal(SEND_FOLLOWUP_SIGNAL, ack_id):
             return
         if any(p.ack_id == ack_id for p in self._pending_followups) or ack_id in self._in_flight_followup_ack_ids:
             # Still in flight from the first delivery (queued, or popped and
@@ -634,10 +646,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # route it to a fresh sandbox instead of waiting indefinitely
             # on a child that has already torn down its session.
             self._enqueue_ack(
-                signal_name="send_followup_message",
+                signal_name=SEND_FOLLOWUP_SIGNAL,
                 ack_id=ack_id,
                 accepted=False,
-                detail="child_shutting_down",
+                detail=SHUTDOWN_REJECTION_DETAIL,
             )
             return
         self._pending_followups.append(
@@ -666,12 +678,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         Relay-originated heartbeats are noisy; the parent is expected to
         debounce on its side.
         """
-        if ack_id is not None and ack_id in self._acked_ids:
-            self._enqueue_ack(signal_name="heartbeat", ack_id=ack_id)
+        if self._is_duplicate_signal(HEARTBEAT_SIGNAL, ack_id):
             return
         self._heartbeat_received = True
         if ack_id is not None:
-            self._enqueue_ack(signal_name="heartbeat", ack_id=ack_id)
+            self._enqueue_ack(signal_name=HEARTBEAT_SIGNAL, ack_id=ack_id)
         self._pending_outbound.append(OutboundSignal(target_signal=PARENT_HEARTBEAT_SIGNAL, args=[agent_active]))
 
     # ------------------------------------------------------------------
@@ -691,7 +702,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     ack_id=followup.ack_id,
                 )
                 self._enqueue_ack(
-                    signal_name="send_followup_message",
+                    signal_name=SEND_FOLLOWUP_SIGNAL,
                     ack_id=followup.ack_id,
                     accepted=False,
                     detail="empty follow-up skipped",
@@ -703,7 +714,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
                 )
-                self._enqueue_ack(signal_name="send_followup_message", ack_id=followup.ack_id)
+                self._enqueue_ack(signal_name=SEND_FOLLOWUP_SIGNAL, ack_id=followup.ack_id)
             except Exception as e:
                 # Mirror process_task: a failed follow-up dispatch is terminal.
                 # Surface the failure to the parent via both the ACK and the
@@ -717,7 +728,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 self._completion_error = f"Follow-up delivery failed: {e}"
                 self._task_completed = True
                 self._enqueue_ack(
-                    signal_name="send_followup_message",
+                    signal_name=SEND_FOLLOWUP_SIGNAL,
                     ack_id=followup.ack_id,
                     accepted=False,
                     detail=str(e)[:200],
@@ -725,6 +736,18 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         finally:
             self._in_flight_followup_ack_ids.discard(followup.ack_id)
             await self._flush_pending_outbound()
+
+    def _is_duplicate_signal(self, signal_name: str, ack_id: Optional[str]) -> bool:
+        """Detect orchestrator re-sends and re-ack idempotently.
+
+        Returns True when the caller should early-return (already processed).
+        Callers pass `None` when the signal didn't carry an ack_id (relay
+        heartbeats), in which case nothing is deduped.
+        """
+        if ack_id is None or ack_id not in self._acked_ids:
+            return False
+        self._enqueue_ack(signal_name=signal_name, ack_id=ack_id)
+        return True
 
     def _enqueue_ack(
         self,
@@ -785,6 +808,12 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     error=str(e),
                 )
                 self._pending_outbound.append(outbound)
+        if self._pending_outbound:
+            # Re-queued items would otherwise wake the main loop immediately
+            # (its wait condition checks `_pending_outbound > 0`) and we'd
+            # tight-loop against an unreachable parent, starving the
+            # inactivity timer. Sleep to rate-limit retries.
+            await workflow.sleep(OUTBOUND_RETRY_BACKOFF.total_seconds())
 
     # ------------------------------------------------------------------
     # Activities — these mirror process_task's implementations directly so
@@ -902,41 +931,34 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _reap_orphaned_sandbox(self, run_id: str) -> None:
         """Destroy any sandbox left by a prior execution under this workflow id.
 
-        Best-effort: Modal-side TTL is the final safety net if cleanup itself
-        fails. We still clear the state key so we don't keep retrying a dead
-        id on every restart.
+        Best-effort: Modal-side TTL is the final safety net if destroy itself
+        fails inside the activity, and the activity always clears the state
+        key — so a stale id staying around doesn't keep retrying a dead
+        sandbox on every restart.
         """
         try:
             result = await workflow.execute_activity(
-                read_persisted_sandbox_id,
-                ReadPersistedSandboxIdInput(run_id=run_id),
-                start_to_close_timeout=timedelta(seconds=30),
+                reap_orphaned_sandbox,
+                ReapOrphanedSandboxInput(run_id=run_id),
+                # Includes the Modal destroy call, so the timeout needs to
+                # cover that as well as two DB roundtrips.
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception as e:
             workflow.logger.warning(
-                "execute_sandbox_reap_read_failed",
+                "execute_sandbox_reap_failed",
                 run_id=run_id,
                 error=str(e),
             )
             return
-        if not result.sandbox_id:
-            return
-        workflow.logger.info(
-            "execute_sandbox_reaping_orphan",
-            run_id=run_id,
-            sandbox_id=result.sandbox_id,
-        )
-        try:
-            await self._cleanup_sandbox(result.sandbox_id)
-        except Exception as e:
-            workflow.logger.warning(
-                "execute_sandbox_reap_cleanup_failed",
+        if result.reaped_sandbox_id is not None:
+            workflow.logger.info(
+                "execute_sandbox_reaped_orphan",
                 run_id=run_id,
-                sandbox_id=result.sandbox_id,
-                error=str(e),
+                sandbox_id=result.reaped_sandbox_id,
+                destroy_succeeded=result.destroy_succeeded,
             )
-        await self._clear_persisted_sandbox_id(run_id)
 
     async def _persist_sandbox_id(self, run_id: str, sandbox_id: str) -> None:
         try:

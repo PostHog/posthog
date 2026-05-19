@@ -115,10 +115,57 @@ class TestExternalSignalHandlers:
         ]
 
     async def test_external_heartbeat_records_activity(self, fixed_now):
+        # No sandbox alive — handler just records timing state, doesn't forward.
         workflow = TaskManagementWorkflow()
         await workflow.heartbeat(agent_active=True)
         assert workflow._heartbeat_received is True
         assert workflow._last_active_time == fixed_now.now
+
+    async def test_external_heartbeat_forwards_to_alive_sandbox(self, monkeypatch, fixed_now):
+        # Callers signaling the top-level workflow id (e.g. the turn poller)
+        # must keep resetting the sandbox's inactivity timer. Without this
+        # forward, a long-idle turn-poll cadence would let the sandbox time
+        # out even while external clients believe the run is active.
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+
+        handle = Mock()
+        handle.signal = AsyncMock()
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+
+        await workflow.heartbeat(agent_active=True)
+
+        from products.tasks.backend.temporal.execute_sandbox.workflow import HEARTBEAT_SIGNAL
+
+        handle.signal.assert_awaited_once_with(HEARTBEAT_SIGNAL, args=[None, True])
+        assert workflow._heartbeat_received is True
+
+    async def test_external_heartbeat_swallows_forward_failure(self, monkeypatch, silent_workflow_logger, fixed_now):
+        # A transient forward failure shouldn't crash the orchestrator; the
+        # local heartbeat state (CI timing) is still recorded.
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+
+        handle = Mock()
+        handle.signal = AsyncMock(side_effect=RuntimeError("child unreachable"))
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+
+        await workflow.heartbeat(agent_active=True)
+
+        assert workflow._heartbeat_received is True
+        silent_workflow_logger.warning.assert_called()
 
 
 class TestChildFacingSignalHandlers:

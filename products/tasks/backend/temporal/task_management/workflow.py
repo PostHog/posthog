@@ -1,6 +1,6 @@
 import json
 import asyncio
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Optional
@@ -22,10 +22,14 @@ from products.tasks.backend.temporal.constants import (
 )
 from products.tasks.backend.temporal.execute_sandbox.workflow import (
     COMPLETE_TASK_SIGNAL,
+    FOLLOWUP_SOURCE_CI,
+    FOLLOWUP_SOURCE_USER,
+    HEARTBEAT_SIGNAL,
     PARENT_ACK_SIGNAL,
     PARENT_COMPLETED_SIGNAL,
     PARENT_HEARTBEAT_SIGNAL,
     SEND_FOLLOWUP_SIGNAL,
+    SHUTDOWN_REJECTION_DETAIL,
     ChildCompletionPayload,
     ExecuteSandboxInput,
 )
@@ -82,7 +86,7 @@ class PendingExternalFollowup:
 
     message: str | None
     artifact_ids: list[str]
-    source: str = "user"  # "user" | "ci"
+    source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
 
 
 @dataclass
@@ -171,6 +175,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # the sandbox workflow. We assign ack_ids when we forward.
         self._pending_external_followups: list[PendingExternalFollowup] = []
         self._pending_external_complete: Optional[tuple[str, Optional[str]]] = None
+        # Last payload we wrote to TaskRun.state, so `_persist_pending_followups`
+        # can skip the DB roundtrip when nothing changed (e.g., draining an
+        # already-empty queue still triggers a persist call).
+        self._last_persisted_followups: list[dict[str, Any]] = []
 
         # Sandbox-side state.
         self._sandbox_workflow_id: Optional[str] = None
@@ -226,7 +234,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         self._pending_external_followups.append(
-            PendingExternalFollowup(message=message, artifact_ids=artifact_ids or [], source="user")
+            PendingExternalFollowup(message=message, artifact_ids=artifact_ids or [], source=FOLLOWUP_SOURCE_USER)
         )
 
     @temporalio.workflow.signal
@@ -235,9 +243,23 @@ class TaskManagementWorkflow(PostHogWorkflow):
         callers that signal the top-level workflow id directly.
 
         The primary heartbeat path is now the child forwarding via
-        `execute_sandbox_heartbeat` below, but we accept both.
+        `execute_sandbox_heartbeat` below, but we accept both. We also forward
+        externally-supplied heartbeats down to the sandbox so callers signaling
+        the top-level workflow id (e.g. the turn poller via
+        `TaskRun.get_workflow_id`) keep resetting the sandbox's inactivity
+        timer the same way they did under `process_task`.
         """
         self._record_heartbeat(agent_active)
+        if not self._sandbox_alive or self._sandbox_workflow_id is None:
+            return
+        try:
+            await self._sandbox_handle().signal(HEARTBEAT_SIGNAL, args=[None, agent_active])
+        except Exception as e:
+            workflow.logger.warning(
+                "task_management_external_heartbeat_forward_failed",
+                run_id=self._run_id,
+                error=str(e),
+            )
 
     # ------------------------------------------------------------------
     # Child-facing signals — only the child should send these.
@@ -528,7 +550,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     ack_id=ack.ack_id,
                 )
                 continue
-            if not ack.accepted and ack.detail == "child_shutting_down":
+            if not ack.accepted and ack.detail == SHUTDOWN_REJECTION_DETAIL:
                 # Sandbox tore down before this signal could be processed.
                 # Re-queue follow-ups so the next sandbox session picks them
                 # up. complete_task rejections are fine to drop — the child
@@ -654,9 +676,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 PendingExternalFollowup(
                     message=item.get("message"),
                     artifact_ids=list(item.get("artifact_ids") or []),
-                    source=item.get("source", "user"),
+                    source=item.get("source", FOLLOWUP_SOURCE_USER),
                 )
             )
+        # Seed the persistence snapshot so the next `_persist_pending_followups`
+        # call detects state-vs-DB equality and skips a redundant write.
+        self._last_persisted_followups = [asdict(f) for f in self._pending_external_followups]
         workflow.logger.info(
             "task_management_restored_pending_followups",
             run_id=self._run_id,
@@ -668,14 +693,15 @@ class TaskManagementWorkflow(PostHogWorkflow):
 
         Best-effort: failure here doesn't compromise the current execution,
         only the recovery picture if we later restart. Logged so we notice
-        sustained failures.
+        sustained failures. Skips the activity when the payload hasn't
+        changed since the last write — drain paths fire this every iteration
+        and an empty-to-empty no-op would still take a row lock.
         """
         if self._run_id is None:
             return
-        payload = [
-            {"message": f.message, "artifact_ids": f.artifact_ids, "source": f.source}
-            for f in self._pending_external_followups
-        ]
+        payload = [asdict(f) for f in self._pending_external_followups]
+        if payload == self._last_persisted_followups:
+            return
         try:
             await workflow.execute_activity(
                 persist_pending_followups,
@@ -683,6 +709,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            self._last_persisted_followups = payload
         except Exception as e:
             workflow.logger.warning(
                 "task_management_persist_pending_failed",
@@ -739,7 +766,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self,
         message: str | None,
         artifact_ids: list[str],
-        source: str = "user",
+        source: str = FOLLOWUP_SOURCE_USER,
     ) -> None:
         if self._sandbox_workflow_id is None:
             workflow.logger.warning(
@@ -914,7 +941,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._ci_repetitions += 1
         ci_message = (self._context.ci_prompt if self._context else None) or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
-        await self._signal_child_followup(message=ci_message, artifact_ids=[], source="ci")
+        await self._signal_child_followup(message=ci_message, artifact_ids=[], source=FOLLOWUP_SOURCE_CI)
 
     # ------------------------------------------------------------------
     # Activities used directly by the parent

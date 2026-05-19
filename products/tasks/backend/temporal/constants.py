@@ -48,6 +48,13 @@ ACK_TIMEOUT = timedelta(seconds=60)
 # under different ack_ids still work normally.
 MAX_ACK_RETRIES = 5
 
+# Cooldown after a failed outbound-signal flush on the child side. The child's
+# main loop wakes whenever `_pending_outbound` is non-empty; if the parent is
+# unreachable the re-queued items would otherwise keep waking the loop
+# immediately, starving the inactivity timer. Sleeping after a partial-failure
+# flush rate-limits retries.
+OUTBOUND_RETRY_BACKOFF = timedelta(seconds=10)
+
 DEFAULT_CI_MESSAGE = """\
 You are re-entering this run to address CI feedback on the pull request you opened.
 

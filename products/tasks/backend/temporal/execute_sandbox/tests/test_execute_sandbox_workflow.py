@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, Mock
 from temporalio.exceptions import ActivityError, RetryState
 
 from products.tasks.backend.temporal.execute_sandbox import workflow as execute_sandbox_workflow_module
-from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import (
-    ReadPersistedSandboxIdInput,
-    SandboxIdResult,
-    read_persisted_sandbox_id,
+from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
+    ReapOrphanedSandboxInput,
+    ReapOrphanedSandboxResult,
+    reap_orphaned_sandbox,
 )
 from products.tasks.backend.temporal.execute_sandbox.workflow import (
     PARENT_ACK_SIGNAL,
@@ -22,7 +22,6 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     OutboundSignal,
     PendingFollowup,
 )
-from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import cleanup_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
@@ -336,11 +335,40 @@ class TestFlushPendingOutbound:
             "get_external_workflow_handle",
             Mock(return_value=handle_mock),
         )
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", sleep_mock)
 
         await workflow._flush_pending_outbound()
 
         assert workflow._pending_outbound == [original]
         silent_workflow_logger.warning.assert_called()
+        # Backoff rate-limits the next retry — without this sleep the main
+        # loop's wait condition (`len(_pending_outbound) > 0`) would fire
+        # immediately and tight-loop against the unreachable parent.
+        sleep_mock.assert_awaited_once()
+
+    async def test_no_backoff_when_flush_succeeds(self, monkeypatch):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+        workflow._pending_outbound.append(
+            OutboundSignal(target_signal=PARENT_ACK_SIGNAL, args=["complete_task", "a1", True, None])
+        )
+
+        handle_mock = Mock()
+        handle_mock.signal = AsyncMock()
+        monkeypatch.setattr(
+            execute_sandbox_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle_mock),
+        )
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", sleep_mock)
+
+        await workflow._flush_pending_outbound()
+
+        # All sent successfully — no rate-limit needed on the happy path.
+        sleep_mock.assert_not_awaited()
 
 
 class TestHandleFollowup:
@@ -417,89 +445,75 @@ class TestHandleFollowup:
 
 
 class TestReapOrphanedSandbox:
+    """The reaper is one activity now: read + Modal destroy + clear-state all
+    happen inside `reap_orphaned_sandbox`. The workflow's only job is to call
+    it and log the outcome."""
+
     async def test_no_op_when_no_persisted_id(self, monkeypatch):
         workflow = ExecuteSandboxWorkflow()
-
-        async def fake_execute_activity(activity_fn, *args, **kwargs):
-            if activity_fn is read_persisted_sandbox_id:
-                return SandboxIdResult(sandbox_id=None)
-            raise AssertionError(f"unexpected activity call: {activity_fn}")
-
-        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        cleanup_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_mock)
-        clear_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", clear_mock)
-
-        await workflow._reap_orphaned_sandbox("run-1")
-
-        cleanup_mock.assert_not_awaited()
-        clear_mock.assert_not_awaited()
-
-    async def test_cleans_up_and_clears_when_persisted_id_present(self, monkeypatch, silent_workflow_logger):
-        workflow = ExecuteSandboxWorkflow()
-        calls: list[tuple[str, object]] = []
+        calls: list[tuple[object, object]] = []
 
         async def fake_execute_activity(activity_fn, input_arg, *args, **kwargs):
-            calls.append((activity_fn.__name__, input_arg))
-            if activity_fn is read_persisted_sandbox_id:
-                assert isinstance(input_arg, ReadPersistedSandboxIdInput)
-                return SandboxIdResult(sandbox_id="sb-orphan")
-            if activity_fn is cleanup_sandbox:
-                return None
+            calls.append((activity_fn, input_arg))
+            if activity_fn is reap_orphaned_sandbox:
+                assert isinstance(input_arg, ReapOrphanedSandboxInput)
+                return ReapOrphanedSandboxResult(reaped_sandbox_id=None, destroy_succeeded=True)
             raise AssertionError(f"unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        clear_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", clear_mock)
 
         await workflow._reap_orphaned_sandbox("run-1")
 
-        assert "read_persisted_sandbox_id" in {name for name, _ in calls}
-        assert "cleanup_sandbox" in {name for name, _ in calls}
-        clear_mock.assert_awaited_once_with("run-1")
+        # Single round-trip — the workflow no longer needs read/cleanup/clear
+        # as three separate calls.
+        assert [fn for fn, _ in calls] == [reap_orphaned_sandbox]
 
-    async def test_swallows_read_error_and_returns_without_cleanup(self, monkeypatch, silent_workflow_logger):
-        # If we can't read the persisted id, we just skip — the Modal-side
-        # per-sandbox TTL is the last-resort backstop.
+    async def test_logs_reaped_id_when_orphan_present(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+
+        async def fake_execute_activity(activity_fn, input_arg, *args, **kwargs):
+            assert activity_fn is reap_orphaned_sandbox
+            return ReapOrphanedSandboxResult(reaped_sandbox_id="sb-orphan", destroy_succeeded=True)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._reap_orphaned_sandbox("run-1")
+
+        # Observable side-effect from the workflow's side is the log line —
+        # the actual destroy + state-clear happened inside the activity.
+        silent_workflow_logger.info.assert_called()
+
+    async def test_swallows_activity_error_and_returns(self, monkeypatch, silent_workflow_logger):
+        # If the consolidated activity itself fails, log and move on — the
+        # Modal-side per-sandbox TTL is the final safety net and the next
+        # workflow start will retry the reap.
         workflow = ExecuteSandboxWorkflow()
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
             raise RuntimeError("db unreachable")
 
         monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        cleanup_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_mock)
-        clear_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", clear_mock)
 
         await workflow._reap_orphaned_sandbox("run-1")
 
-        cleanup_mock.assert_not_awaited()
-        clear_mock.assert_not_awaited()
         silent_workflow_logger.warning.assert_called()
 
-    async def test_clears_id_even_when_cleanup_fails(self, monkeypatch, silent_workflow_logger):
-        # If the sandbox is already gone (or Modal is flaking), we still need
-        # to drop the persisted id so the next start doesn't keep re-reaping
-        # a dead reference forever.
+    async def test_logs_destroy_outcome_when_modal_call_fails(self, monkeypatch, silent_workflow_logger):
+        # When the activity destroyed-or-tried-to-destroy and cleared state
+        # but Modal returned an error, the workflow still treats this as
+        # a successful reap (state is clear) — destroy_succeeded=False just
+        # surfaces in the log so operators can see it.
         workflow = ExecuteSandboxWorkflow()
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
-            if activity_fn is read_persisted_sandbox_id:
-                return SandboxIdResult(sandbox_id="sb-orphan")
-            raise AssertionError("unexpected")
+            assert activity_fn is reap_orphaned_sandbox
+            return ReapOrphanedSandboxResult(reaped_sandbox_id="sb-orphan", destroy_succeeded=False)
 
         monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        cleanup_mock = AsyncMock(side_effect=RuntimeError("modal down"))
-        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_mock)
-        clear_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", clear_mock)
 
         await workflow._reap_orphaned_sandbox("run-1")
 
-        cleanup_mock.assert_awaited_once_with("sb-orphan")
-        clear_mock.assert_awaited_once_with("run-1")
+        silent_workflow_logger.info.assert_called()
 
 
 class TestPersistSandboxId:
