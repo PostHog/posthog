@@ -402,22 +402,6 @@ tools:
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false
-    llma-personal-spend:
-        operation: llm_analytics_me_spend_list
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get personal LLM spend analysis
-        description: >
-            Return the requesting user's own LLM token spend over the last `days` days, broken down by
-            ai_product, tool, model, and top traces. Pass `product=<ai_product>` (e.g. `posthog_code`,
-            `background_agents`) to scope the tool / model / trace breakdowns to a single product;
-            omit it to aggregate across every product. `by_product` is always returned across all
-            products. Strictly scoped to the caller — cannot return other users' data.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false
