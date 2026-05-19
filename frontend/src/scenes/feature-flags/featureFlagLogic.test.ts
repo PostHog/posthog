@@ -573,6 +573,35 @@ describe('featureFlagLogic', () => {
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
 
+        it.each([
+            ['sourceId=42', `${urls.featureFlag('new')}?sourceId=42`],
+            ['type=multivariate', `${urls.featureFlag('new')}?type=multivariate`],
+            ['template=experiment', `${urls.featureFlag('new')}?template=experiment`],
+            ['intent=remote-config', `${urls.featureFlag('new')}?intent=remote-config`],
+        ])('skips the new-flag template re-load on a dirty PUSH carrying %s', async (_label, targetUrl) => {
+            // Pin that the dirty guard also short-circuits the special new-flag
+            // re-load branches (sourceId / type / template / intent) inside `urlToAction`.
+            // Park the router at a non-matching path first so the `new`-keyed logic's
+            // afterMount doesn't see those query params at mount time and prefetch.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setFeatureFlagValue('name', 'Draft new flag')
+            }).toMatchValues({ isFormDirty: true })
+
+            await expectLogic(newLogic, () => {
+                router.actions.push(targetUrl)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(newLogic.values.featureFlag.name).toBe('Draft new flag')
+            newLogic.unmount()
+        })
+
         it('still reloads the flag on a PUSH navigation when the form is clean', async () => {
             await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
 
