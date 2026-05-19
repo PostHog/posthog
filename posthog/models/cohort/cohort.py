@@ -127,7 +127,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     filters = models.JSONField(
         null=True,
         blank=True,
-        help_text="""Filters for the cohort. Examples:
+        help_text="""Filters for the cohort. The `negation` field shown below is specific to
+        cohort definitions (the inner sub-filters that build a cohort). Property filters used
+        *outside* cohort definitions — e.g. on `team.test_account_filters`, insight filters, or
+        feature flag conditions — must use `operator: "in"`/`"not_in"` for cohort exclusion and
+        do NOT accept `negation`.
+
+        Examples:
 
         # Behavioral filter (performed event)
         {
@@ -165,7 +171,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             }
         }
 
-        # Cohort filter
+        # Cohort filter (inner — within a cohort definition)
         {
             "properties": {
                 "type": "OR",
@@ -752,7 +758,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     # avoiding the O(cohort_size) memory cost of loading all
                     # existing member IDs into Python. Both tables live on the
                     # persons DB so the join works on the db_write cursor.
-                    sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                    sql, params = persons_query.only("pk").query.sql_with_params()
                     query = f"""
                         INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
                         SELECT p."id", {self.pk}, {self.version or "NULL"}
@@ -844,6 +850,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
         if not person_uuids:
             return set()
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
             f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",

@@ -114,6 +114,37 @@ export interface HogQLResult {
     results?: unknown[][]
 }
 
+export type RetentionAggregationType = 'count' | 'sum' | 'avg'
+export type RetentionReference = 'total' | 'previous'
+export type RetentionPeriod = 'Hour' | 'Day' | 'Week' | 'Month'
+
+export interface RetentionFilter {
+    aggregationType?: RetentionAggregationType | null
+    period?: RetentionPeriod | null
+    retentionReference?: RetentionReference | null
+    showTrendLines?: boolean | null
+    totalIntervals?: number | null
+}
+
+export interface RetentionQuery {
+    kind: 'RetentionQuery'
+    retentionFilter?: RetentionFilter
+}
+
+export interface RetentionValueItem {
+    count: number
+    aggregation_value?: number | null
+}
+
+export interface RetentionResultItem {
+    date: string
+    label: string
+    breakdown_value?: string | number | null
+    values: RetentionValueItem[]
+}
+
+export type RetentionResult = RetentionResultItem[]
+
 // ============================================================================
 // Tool result payloads
 // The visualization type is inferred from the data structure, not a discriminator
@@ -139,6 +170,11 @@ export interface TablePayload extends BasePayload {
     results: HogQLResult
 }
 
+export interface RetentionPayload extends BasePayload {
+    query: RetentionQuery
+    results: RetentionResult
+}
+
 // ============================================================================
 // Component props
 // ============================================================================
@@ -160,4 +196,9 @@ export interface LifecycleVisualizerProps {
 
 export interface TableVisualizerProps {
     results: HogQLResult
+}
+
+export interface RetentionVisualizerProps {
+    query: RetentionQuery | undefined
+    results: RetentionResult
 }

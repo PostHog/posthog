@@ -1,5 +1,6 @@
 import re
-from typing import Any, Optional, Union
+import json
+from typing import Any, Optional, Union, get_args, get_origin
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
@@ -18,14 +19,46 @@ from posthog.settings import (
 from posthog.utils import str_to_bool
 
 
-def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
+def cast_str_to_desired_type(value: Any, target_type: type) -> Any:
     if target_type is int:
-        return int(str_value)
+        return int(value)
 
     if target_type is bool:
-        return str_to_bool(str_value)
+        return str_to_bool(value)
 
-    return str_value
+    if get_origin(target_type) is list:
+        return _parse_list_value(value, target_type)
+
+    return value
+
+
+def _parse_list_value(value: Any, target_type: type) -> list:
+    args = get_args(target_type)
+    item_type: type = args[0] if args else str
+
+    if isinstance(value, list):
+        items = value
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON array: {e}") from e
+            if not isinstance(parsed, list):
+                raise ValueError(f"Expected a JSON array, got {type(parsed).__name__}")
+            items = parsed
+        else:
+            items = [v.strip() for v in stripped.split(",") if v.strip()]
+    else:
+        raise ValueError(f"Cannot convert {type(value).__name__!r} to {target_type}")
+
+    try:
+        return [item_type(item) for item in items]
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"All items must be of type {item_type.__name__}: {e}") from e
 
 
 class InstanceSettingHelper:
@@ -82,7 +115,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
         if target_type is bool and isinstance(validated_data["value"], bool):
             new_value_parsed = validated_data["value"]
         else:
-            new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
+            try:
+                new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
+            except (ValueError, TypeError) as e:
+                raise serializers.ValidationError({"value": str(e)})
 
         if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
             if is_cloud():

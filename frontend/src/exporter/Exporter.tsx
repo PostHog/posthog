@@ -10,6 +10,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { humanFriendlyDuration } from 'lib/utils'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,6 +25,15 @@ const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
 const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
 const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
+const LazyInterviewScene = lazy(() => import('./scenes/ExporterInterviewScene'))
+
+function ExportedSceneSkeleton(): JSX.Element {
+    return (
+        <WrappingLoadingSkeleton fullWidth>
+            <span className="block w-full h-screen" />
+        </WrappingLoadingSkeleton>
+    )
+}
 
 function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dark' | null {
     if (theme === 'light' || theme === 'dark') {
@@ -49,6 +59,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         themes,
         accessToken,
         exportToken,
+        interview,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
@@ -82,6 +93,14 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     if (type === ExportType.Unlock) {
         return <ExporterLogin whitelabel={whitelabel} />
+    }
+
+    if (type === ExportType.Interview && interview) {
+        return (
+            <Suspense fallback={<ExportedSceneSkeleton />}>
+                <LazyInterviewScene interview={interview} accessToken={accessToken} />
+            </Suspense>
+        )
     }
 
     return (
@@ -149,7 +168,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                 </div>
                             </div>
                         )}
-                        <Suspense fallback={null}>
+                        <Suspense fallback={<ExportedSceneSkeleton />}>
                             <LazyNotebookScene
                                 notebook={notebook}
                                 insights={insights}
@@ -158,15 +177,15 @@ export function Exporter(props: ExportedData): JSX.Element {
                         </Suspense>
                     </div>
                 ) : insight ? (
-                    <Suspense fallback={null}>
+                    <Suspense fallback={<ExportedSceneSkeleton />}>
                         <LazyInsightScene insight={insight} themes={themes!} exportOptions={exportOptions} />
                     </Suspense>
                 ) : dashboard ? (
-                    <Suspense fallback={null}>
+                    <Suspense fallback={<ExportedSceneSkeleton />}>
                         <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
                     </Suspense>
                 ) : recording ? (
-                    <Suspense fallback={null}>
+                    <Suspense fallback={<ExportedSceneSkeleton />}>
                         <LazyRecordingScene
                             recording={recording}
                             mode={props.mode}
@@ -177,7 +196,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                         />
                     </Suspense>
                 ) : type === ExportType.Heatmap ? (
-                    <Suspense fallback={null}>
+                    <Suspense fallback={<ExportedSceneSkeleton />}>
                         <LazyHeatmapScene />
                     </Suspense>
                 ) : (

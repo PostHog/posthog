@@ -102,9 +102,12 @@ import type {
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
+    TaggerCreateApi,
     TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
+    TestHogTaggerRequestApi,
+    TestHogTaggerResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceReviewApi,
@@ -1997,14 +2000,14 @@ export const getTaggersCreateUrl = (projectId: string) => {
 
 export const taggersCreate = async (
     projectId: string,
-    taggerApi: NonReadonly<TaggerApi>,
+    taggerCreateApi: TaggerCreateApi,
     options?: RequestInit
 ): Promise<TaggerApi> => {
     return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerApi),
+        body: JSON.stringify(taggerCreateApi),
     })
 }
 
@@ -2017,14 +2020,14 @@ export const getTaggersTestHogCreateUrl = (projectId: string) => {
  */
 export const taggersTestHogCreate = async (
     projectId: string,
-    taggerApi: NonReadonly<TaggerApi>,
+    testHogTaggerRequestApi: TestHogTaggerRequestApi,
     options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersTestHogCreateUrl(projectId), {
+): Promise<TestHogTaggerResponseApi> => {
+    return apiMutator<TestHogTaggerResponseApi>(getTaggersTestHogCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerApi),
+        body: JSON.stringify(testHogTaggerRequestApi),
     })
 }
 

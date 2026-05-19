@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from products.links.backend.models import Link
 
 
+@admin.register(Link)
 class LinkAdmin(admin.ModelAdmin):
     list_display = (
         "id",
