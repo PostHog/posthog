@@ -1,6 +1,6 @@
 import pytest
 
-from posthog.temporal.subscriptions.prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
+from posthog.text_sanitization import sanitize_core_memory_text, sanitize_user_text
 
 
 class TestSanitizeUserText:

@@ -18,6 +18,8 @@ import { SubscriptionType } from '~/types'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
 
+const PROMPT_PREVIEW_MAX_CHARS = 80
+
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
     onClick: () => void
@@ -94,8 +96,8 @@ export function SubscriptionListItem({
                     {subscription.content_type === 'ai_prompt' && subscription.prompt ? (
                         <div className="text-sm text-text-3000 italic">
                             {`"${
-                                subscription.prompt.length > 80
-                                    ? `${subscription.prompt.slice(0, 80)}…`
+                                subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS
+                                    ? `${subscription.prompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…`
                                     : subscription.prompt
                             }"`}
                         </div>

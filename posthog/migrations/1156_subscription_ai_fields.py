@@ -18,9 +18,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # The index on `content_type` is added separately in
-        # `1157_subscription_content_type_idx` via `AddIndexConcurrently` so the
-        # production rollout doesn't take an ACCESS EXCLUSIVE lock building it.
         migrations.AddField(
             model_name="subscription",
             name="content_type",

@@ -100,6 +100,13 @@ class DeliverSubscriptionInputs:
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
+    # AI subscriptions only: the SubscriptionDelivery row that caches the
+    # generated markdown across activity retries. None for non-AI deliveries
+    # and for standalone callers (tests, management commands) that bypass the
+    # full workflow. When set, `_deliver_ai_subscription` short-circuits the
+    # planner + HogQL + synthesis pipeline on retry if the markdown is already
+    # persisted, so a transient send-side failure doesn't re-bill LLM tokens.
+    delivery_id: typing.Optional[uuid.UUID] = None
 
 
 @dataclasses.dataclass

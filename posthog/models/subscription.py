@@ -145,7 +145,6 @@ class Subscription(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
-            models.Index(fields=["content_type"], name="posthog_sub_content_type_idx"),
         ]
 
     def __init__(self, *args, **kwargs):
@@ -292,7 +291,7 @@ class Subscription(models.Model):
             "interval": self.interval,
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
-            "prompt_length": len(self.prompt or "") if self.content_type == self.ContentType.AI_PROMPT else None,
+            "prompt_length": len(self.prompt or ""),
         }
 
 
@@ -306,10 +305,10 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
 
     # AI subscriptions carry higher blast radius (prompts can spend money, output is LLM-authored)
     # so we record them in the activity log even though insight/dashboard subscriptions are not.
-    # Skip scheduler-driven saves — those only touch `next_delivery_date` and attributing them
-    # to `created_by` would produce a misleading audit trail.
     if instance.content_type != Subscription.ContentType.AI_PROMPT or not instance.created_by:
         return
+    # Skip scheduler-driven saves — those only touch `next_delivery_date` and attributing them
+    # to `created_by` would produce a misleading audit trail.
     update_fields = kwargs.get("update_fields")
     is_scheduler_save = update_fields is not None and set(update_fields) <= {"next_delivery_date"}
     if not created and is_scheduler_save:

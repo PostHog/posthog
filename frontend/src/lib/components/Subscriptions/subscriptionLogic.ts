@@ -17,6 +17,22 @@ import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
 const AI_PROMPT_MAX_LENGTH = 4000
 
+function validatePrompt(
+    content_type: SubscriptionType['content_type'],
+    prompt: string | undefined
+): string | undefined {
+    if (content_type !== 'ai_prompt') {
+        return undefined
+    }
+    if (!prompt?.trim()) {
+        return 'A prompt is required for AI subscriptions'
+    }
+    if (prompt.length > AI_PROMPT_MAX_LENGTH) {
+        return `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`
+    }
+    return undefined
+}
+
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
         const msg = (error.detail || error.message || '').trim()
@@ -125,14 +141,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_type: !['slack', 'email', 'webhook'].includes(target_type)
                     ? 'Unsupported target type'
                     : undefined,
-                prompt:
-                    content_type === 'ai_prompt'
-                        ? !prompt?.trim()
-                            ? 'A prompt is required for AI subscriptions'
-                            : prompt.length > AI_PROMPT_MAX_LENGTH
-                              ? `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`
-                              : undefined
-                        : undefined,
+                prompt: validatePrompt(content_type, prompt),
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'

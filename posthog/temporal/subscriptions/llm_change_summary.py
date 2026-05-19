@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from posthog.api.insight_suggestions import get_query_specific_instructions
 from posthog.exceptions_capture import capture_exception
 from posthog.models.llm_prompt import normalize_prompt_to_string
-from posthog.temporal.subscriptions.prompt_sanitization import (
+from posthog.text_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
     SUBSCRIPTION_TITLE_MAX_LEN,

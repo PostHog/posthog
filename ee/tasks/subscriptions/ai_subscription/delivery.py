@@ -1,7 +1,8 @@
-import asyncio
 import uuid
+import asyncio
 from datetime import UTC, datetime
 
+import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
@@ -20,6 +21,7 @@ from ee.tasks.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTH
 from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
     DEFAULT_SYNTHESIS_MODEL,
+    PromptRejectedError,
     build_enriched_prompt,
     resolve_ai_model,
 )
@@ -30,6 +32,44 @@ logger = structlog.get_logger(__name__)
 
 _MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False})
 _SLACK_CONVERTER = SlackMarkdownConverter()
+
+# Defense-in-depth on top of `html=False` in markdown-it: explicitly allow only the
+# tags commonmark emits, strip everything else. Protects against a markdown-it
+# regression or a future synthesis-prompt change that leaks raw HTML through.
+_ALLOWED_EMAIL_TAGS = {
+    "a",
+    "p",
+    "br",
+    "hr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "strong",
+    "em",
+    "b",
+    "i",
+    "code",
+    "pre",
+    "blockquote",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+}
+_ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
+
+# Wall-clock bounds for the in-band LLM + HogQL pipeline. Combined with the activity's
+# `start_to_close_timeout`, these prevent a single slow upstream from soaking the budget.
+_LLM_CALL_TIMEOUT_SECONDS = 90.0
+_HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
@@ -72,7 +112,10 @@ async def _arun_plan(spec: EnrichedPromptSpec, subscription: Subscription) -> li
     async def run_step(step) -> str:
         try:
             query = AssistantHogQLQuery(query=step.hogql)
-            formatted, _ = await executor.arun_and_format_query(query)
+            formatted, _ = await asyncio.wait_for(
+                executor.arun_and_format_query(query),
+                timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
+            )
             return f"### {step.description}\n\n{formatted}"
         except Exception as exc:
             logger.warning(
@@ -82,18 +125,17 @@ async def _arun_plan(spec: EnrichedPromptSpec, subscription: Subscription) -> li
                 exc_info=True,
             )
             capture_exception(exc, {"subscription_id": subscription.id, "stage": "query"})
-            return f"### {step.description}\n\n_Query failed: {exc}_"
+            # The exception message goes into the synthesis prompt and the resulting
+            # email; pass only the type, not the body — ClickHouse errors can echo
+            # team-scoped identifiers (cluster URL, table names) that shouldn't ship.
+            return f"### {step.description}\n\n_Query failed: {type(exc).__name__}_"
 
     return await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
 
 
 def generate_ai_subscription_markdown(subscription: Subscription) -> str:
-    # Both LLM calls below pass `user=subscription.created_by` and MaxChatOpenAI
-    # requires a non-None user. `created_by` is FK SET_NULL — fail fast if the
-    # creator has been deleted so the activity captures a clear error.
+    # `created_by` is FK SET_NULL; MaxChatOpenAI requires a non-None user.
     if subscription.created_by is None:
-        from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError
-
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
     spec = build_enriched_prompt(subscription)
@@ -103,6 +145,7 @@ def generate_ai_subscription_markdown(subscription: Subscription) -> str:
     chat = MaxChatOpenAI(
         model=model_name,
         temperature=0.2,
+        timeout=_LLM_CALL_TIMEOUT_SECONDS,
         user=subscription.created_by,
         team=subscription.team,
         billable=False,
@@ -125,7 +168,8 @@ def generate_ai_subscription_markdown(subscription: Subscription) -> str:
 
 
 def render_ai_email_html(markdown: str) -> str:
-    return _MARKDOWN_RENDERER.render(markdown)
+    rendered = _MARKDOWN_RENDERER.render(markdown)
+    return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
 
 
 def send_email_ai_subscription_report(
@@ -189,7 +233,7 @@ def send_slack_ai_subscription_report(
     ]
     if len(sections) > 1:
         main_blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": "_See 🧵 for the rest of the report._"}}
+            {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
         )
 
     subscription_url = subscription.url or absolute_uri(
@@ -203,7 +247,7 @@ def send_slack_ai_subscription_report(
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Manage Subscription"},
+                        "text": {"type": "plain_text", "text": "Manage subscription"},
                         "url": f"{subscription_url}?{utm_tags}",
                     }
                 ],
@@ -217,11 +261,24 @@ def send_slack_ai_subscription_report(
 
     if thread_ts and len(sections) > 1:
         for section_text in sections[1:]:
-            slack_integration.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": section_text}}],
-            )
+            # Per-thread-post failures shouldn't raise: the main message is already
+            # delivered, and re-raising would trigger a Temporal retry that re-posts
+            # the main message (Slack has no idempotency key the way email's
+            # MessagingRecord does). Capture + continue.
+            try:
+                slack_integration.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": section_text}}],
+                )
+            except Exception as exc:
+                logger.warning(
+                    "ai_subscription.slack_thread_post_failed",
+                    subscription_id=subscription.id,
+                    thread_ts=thread_ts,
+                    exc_info=True,
+                )
+                capture_exception(exc, {"subscription_id": subscription.id, "stage": "slack_thread"})
 
 
 __all__ = [

@@ -42,7 +42,9 @@ from ee.tasks.subscriptions.ai_subscription.delivery import (
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
+from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from ee.tasks.subscriptions.auto_disable import (
+    AI_PROMPT_INVALID_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     UNSUPPORTED_TARGET_DISABLE_REASON,
@@ -61,6 +63,46 @@ LOGGER = get_logger(__name__)
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+
+# `SubscriptionDelivery.content_snapshot` key under which AI deliveries cache the
+# generated markdown so Temporal retries don't re-bill the planner + synthesis LLM.
+AI_MARKDOWN_SNAPSHOT_KEY = "ai_markdown"
+
+
+async def _load_cached_ai_markdown(delivery_id: uuid.UUID | None) -> str | None:
+    """Return a previously-persisted AI markdown for this delivery, or None."""
+    if delivery_id is None:
+        return None
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _read() -> str | None:
+        try:
+            snapshot = SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
+        except SubscriptionDelivery.DoesNotExist:
+            return None
+        if not isinstance(snapshot, dict):
+            return None
+        cached = snapshot.get(AI_MARKDOWN_SNAPSHOT_KEY)
+        return cached if isinstance(cached, str) and cached else None
+
+    return await _read()
+
+
+async def _persist_ai_markdown(delivery_id: uuid.UUID | None, markdown: str) -> None:
+    """Write the generated markdown onto the delivery row so retries can reuse it."""
+    if delivery_id is None:
+        return
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _write() -> None:
+        try:
+            delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
+        except SubscriptionDelivery.DoesNotExist:
+            return
+        delivery.content_snapshot = {**(delivery.content_snapshot or {}), AI_MARKDOWN_SNAPSHOT_KEY: markdown}
+        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+    await _write()
 
 
 async def _resolve_target_delivery_id(inputs: CreateExportAssetsInputs) -> uuid.UUID | None:
@@ -618,43 +660,49 @@ async def _deliver_ai_subscription(
     """
     # Reject unsupported targets BEFORE running the LLM — otherwise every Temporal
     # retry burns full planner + synthesis + HogQL costs against a sub that can never
-    # deliver. Auto-disable matches the non-AI path (see `_auto_disable_and_return`
-    # for the equivalent UNSUPPORTED_TARGET_DISABLE_REASON branch on line ~480).
-    if subscription.target_type not in ("email", "slack"):
+    # deliver.
+    if subscription.target_type not in (Subscription.SubscriptionTarget.EMAIL, Subscription.SubscriptionTarget.SLACK):
         LOGGER.warning(
             "deliver_subscription.ai_unsupported_target",
             subscription_id=subscription.id,
             target_type=subscription.target_type,
         )
-        return await _auto_disable_and_return(
-            subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results
-        )
+        return await _auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
 
-    # Let transient LLM / DB errors propagate so Temporal can retry. `PromptRejectedError`
-    # (deterministic) is the one exception we know retries can't recover.
-    from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError
-
-    try:
-        markdown = await database_sync_to_async(generate_ai_subscription_markdown, thread_sensitive=False)(
-            subscription
-        )
-    except PromptRejectedError as exc:
-        LOGGER.warning(
-            "deliver_subscription.ai_prompt_rejected",
+    cached_markdown = await _load_cached_ai_markdown(inputs.delivery_id)
+    if cached_markdown is not None:
+        await LOGGER.ainfo(
+            "deliver_subscription.ai_markdown_cache_hit",
             subscription_id=subscription.id,
-            reason=str(exc),
+            delivery_id=str(inputs.delivery_id),
         )
-        _capture_delivery_failed_event(subscription, exc)
-        recipient_results.append(
-            RecipientResult(
-                recipient=subscription.target_value,
-                status="failed",
-                error={"message": str(exc), "type": "PromptRejectedError"},
+        markdown = cached_markdown
+    else:
+        try:
+            markdown = await database_sync_to_async(generate_ai_subscription_markdown, thread_sensitive=False)(
+                subscription
             )
-        )
-        return DeliverSubscriptionResult(recipient_results=recipient_results)
+        except PromptRejectedError as exc:
+            # PromptRejectedError is structurally permanent (no creator, prompt now fails
+            # post-hoc sanitization, planner returned malformed plan). Re-firing wastes
+            # LLM tokens every cycle, so auto-disable like the other terminal failures.
+            LOGGER.warning(
+                "deliver_subscription.ai_prompt_rejected",
+                subscription_id=subscription.id,
+                reason=str(exc),
+            )
+            _capture_delivery_failed_event(subscription, exc)
+            recipient_results.append(
+                RecipientResult(
+                    recipient=subscription.target_value,
+                    status="failed",
+                    error={"message": str(exc), "type": "PromptRejectedError"},
+                )
+            )
+            return await _auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
+        await _persist_ai_markdown(inputs.delivery_id, markdown)
 
-    if subscription.target_type == "email":
+    if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
         emails = subscription.target_value.split(",")
         if inputs.is_new_subscription_target and inputs.previous_value is not None:
             emails = list(set(emails) - set(inputs.previous_value.split(",")))
@@ -688,14 +736,12 @@ async def _deliver_ai_subscription(
                 )
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
-    if subscription.target_type == "slack":
+    if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
         try:
             await database_sync_to_async(send_slack_ai_subscription_report, thread_sensitive=False)(
                 subscription=subscription, markdown=markdown
             )
-            recipient_results.append(
-                RecipientResult(recipient=subscription.target_value, status="success", error=None)
-            )
+            recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success", error=None))
             return DeliverSubscriptionResult(recipient_results=recipient_results)
         except Exception as exc:
             slack_error_code = exc.response.get("error") if isinstance(exc, SlackApiError) else None
@@ -716,9 +762,7 @@ async def _deliver_ai_subscription(
                 )
             raise  # Transient Slack errors — let Temporal retry
 
-    # Unreachable: the target_type gate at the top of the function returns early
-    # for anything other than email / slack.
-    return DeliverSubscriptionResult(recipient_results=recipient_results)
+    raise AssertionError(f"Unreachable: target_type gate already rejected {subscription.target_type!r}")
 
 
 @temporalio.activity.defn

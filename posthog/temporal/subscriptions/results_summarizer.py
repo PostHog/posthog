@@ -3,11 +3,7 @@ from typing import Any
 
 from structlog import get_logger
 
-from posthog.temporal.subscriptions.prompt_sanitization import (
-    GENERIC_VALUE_MAX_LEN,
-    SERIES_LABEL_MAX_LEN,
-    sanitize_user_text,
-)
+from posthog.text_sanitization import GENERIC_VALUE_MAX_LEN, SERIES_LABEL_MAX_LEN, sanitize_user_text
 
 LOGGER = get_logger(__name__)
 

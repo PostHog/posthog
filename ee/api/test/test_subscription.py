@@ -1763,10 +1763,6 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
 @patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.api.subscription.is_cloud", return_value=True)
 class TestAISubscriptionAPI(APILicensedTest):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-
     def _enable_ai(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -1845,7 +1841,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ("dashboard_set_too", {"prompt": "ok", "dashboard": -1}),
         ]
     )
-    def test_rejects_invalid_ai_payloads(self, name, overrides, mock_is_cloud, mock_flag, mock_sync):
+    def test_rejects_invalid_ai_payloads(self, mock_is_cloud, mock_flag, mock_sync, name, overrides):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         if overrides.get("insight") == -1:
@@ -1876,3 +1872,66 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert update_resp.status_code == status.HTTP_200_OK, update_resp.json()
         assert update_resp.json()["prompt"] == "Show me new error events"
+
+    @parameterized.expand(
+        [
+            ("non_dict", "gpt-4.1", "ai_config must be an object."),
+            ("unknown_key", {"unknown": "x"}, "unknown ['unknown']"),
+            ("disallowed_model", {"model": "gpt-4o"}, "must be one of"),
+            ("non_string_model", {"model": 123}, "must be one of"),
+        ]
+    )
+    def test_rejects_invalid_ai_config(self, mock_is_cloud, mock_flag, mock_sync, name, ai_config, expected_substring):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_config=ai_config),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_substring in str(response.json()), response.json()
+
+    def test_accepts_whitelisted_ai_config(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_config={"model": "gpt-4.1", "planner_model": "gpt-4.1-mini"}),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["ai_config"] == {"model": "gpt-4.1", "planner_model": "gpt-4.1-mini"}
+
+    def test_transitioning_existing_sub_to_ai_re_runs_gates(self, mock_is_cloud, mock_flag, mock_sync):
+        # Existing non-AI subscription, then PATCH content_type → ai_prompt with consent
+        # revoked must be rejected (not silently flipped).
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        Insight.objects.create(team=self.team, short_id="aiins", name="x")
+        # Create as insight subscription
+        from posthog.models.insight import Insight as InsightModel  # noqa: F401  (use the imported one)
+
+        insight = Insight.objects.filter(short_id="aiins").first()
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "content_type": "insight",
+                "insight": insight.id,
+                "target_type": "email",
+                "target_value": "x@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "ins",
+            },
+        )
+        assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
+        sub_id = create_resp.json()["id"]
+        # Revoke consent and attempt to transition.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"content_type": "ai_prompt", "prompt": "anything", "insight": None},
+        )
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "AI data processing" in str(patch_resp.json()), patch_resp.json()

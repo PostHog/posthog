@@ -234,6 +234,11 @@ export function EditSubscription({
 
                         <LemonField name="content_type" label="What to send">
                             <LemonSelect
+                                disabledReason={
+                                    isEditing
+                                        ? 'Content type cannot be changed after a subscription is created.'
+                                        : undefined
+                                }
                                 options={[
                                     {
                                         value: 'insight',

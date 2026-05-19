@@ -14,9 +14,9 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
-from posthog.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+from posthog.text_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 
 from ee.models import CoreMemory
 

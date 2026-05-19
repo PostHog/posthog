@@ -3,12 +3,13 @@ from datetime import UTC, datetime
 
 import structlog
 
+from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
+
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.subscription import Subscription
-from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
-from posthog.temporal.subscriptions.prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
+from posthog.text_sanitization import sanitize_core_memory_text, sanitize_user_text
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.tasks.subscriptions.ai_subscription.prompts import PLAN_GENERATION_PROMPT
@@ -23,6 +24,10 @@ EVENT_NAME_MAX_LENGTH = 120
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1-mini"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1-mini"
+# Wall-clock bound on the planner LLM call; combined with the activity timeout and
+# `max_retries` on `MaxChatOpenAI` (3), prevents a single stuck request from soaking
+# the delivery budget.
+_PLANNER_LLM_TIMEOUT_SECONDS = 90.0
 # Whitelist of models a user can opt their subscription into via `ai_config`.
 # Without this, any authenticated user could PATCH `ai_config: {"model": ...}` and
 # force scheduled deliveries to use an arbitrarily expensive model.
@@ -35,16 +40,12 @@ def resolve_ai_model(ai_config: dict | None, key: str, default: str) -> str:
         return requested
     return default
 
-# Layered on top of `sanitize_core_memory_text` (which strips invisible chars and structural
-# LLM markers like `<system>`). Best-effort only; the real defenses are response-side
-# (markdown rendering with html=False, Slack mrkdwn).
-INJECTION_PATTERNS = [
-    re.compile(r"(?i)ignore\s+(all\s+|previous\s+|the\s+above\s+)?instructions"),
-    re.compile(r"(?i)you\s+are\s+now\s+"),
-    re.compile(r"(?i)system\s+prompt\s*:"),
-    re.compile(r"```\s*system", re.IGNORECASE),
-]
 
+# No second-layer regex blocklist: the prompt is summarized back to the same user who
+# wrote it, so injection here is self-targeted. The structural defenses are the
+# `<user_prompt>` framing in the system prompt and `sanitize_core_memory_text` stripping
+# `<system>`-style markers; layering ad-hoc patterns on top just creates false positives
+# for legitimate phrasings like "ignore null values".
 
 _FREQUENCY_WINDOW_DAYS = {
     Subscription.SubscriptionFrequency.HOURLY: 1,
@@ -68,10 +69,6 @@ def sanitize_prompt(raw: str | None) -> str:
     cleaned = sanitize_core_memory_text(raw, max_len=PROMPT_MAX_LENGTH)
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
-
-    for pattern in INJECTION_PATTERNS:
-        if pattern.search(cleaned):
-            raise PromptRejectedError("Prompt contains content that cannot be processed.")
 
     return cleaned
 
@@ -128,8 +125,12 @@ def generate_query_plan(*, cleaned_prompt: str, context_blob: str, subscription:
     llm = MaxChatOpenAI(
         model=model_name,
         temperature=0,
+        timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
+        # `billable=False` while AI subscriptions are in beta — PostHog absorbs the
+        # LLM spend. Flip to True when the feature flag rolls to GA and AI usage is
+        # priced into the billing model.
         billable=False,
         posthog_properties={
             "feature": "ai_subscription",

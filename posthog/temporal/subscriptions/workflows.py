@@ -296,6 +296,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         previous_value=inputs.previous_value,
                         invite_message=inputs.invite_message,
                         change_summary=None,
+                        # Pass the delivery_id so the activity can cache its generated
+                        # markdown across retries and avoid re-billing the planner +
+                        # synthesis LLM calls on a transient send-side failure.
+                        delivery_id=delivery_id,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=temporalio.common.RetryPolicy(

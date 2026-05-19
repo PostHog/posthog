@@ -49,7 +49,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
-from ee.tasks.subscriptions.ai_subscription.spec_generator import PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH
+from ee.tasks.subscriptions.ai_subscription.spec_generator import (
+    ALLOWED_AI_MODELS,
+    PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
+)
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
@@ -168,6 +171,26 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
         ]
         extra_kwargs = {
+            "content_type": {
+                "help_text": (
+                    "What the subscription delivers: 'insight' (snapshot of one insight), "
+                    "'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). "
+                    "Cannot be changed after creation."
+                ),
+            },
+            "prompt": {
+                "help_text": (
+                    "Free-text prompt that drives the AI-generated report. Required when "
+                    "content_type is 'ai_prompt'. Max 4000 characters."
+                ),
+            },
+            "ai_config": {
+                "help_text": (
+                    "Optional AI subscription configuration. Currently supports the keys "
+                    "'model' (synthesis model) and 'planner_model'. Values outside the "
+                    "allowed model whitelist are ignored at delivery time."
+                ),
+            },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
             "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
@@ -208,13 +231,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         info = obj.resource_info
         return info.name if info else None
 
+    def validate_ai_config(self, value):
+        # Reject unknown keys + non-whitelisted models at the API boundary so the only
+        # values we ever persist are the ones `resolve_ai_model` actually consumes —
+        # otherwise an attacker can stash arbitrary JSON that activates later if the
+        # delivery-time allowlist grows.
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise ValidationError("ai_config must be an object.")
+        allowed_keys = {"model", "planner_model"}
+        unknown = set(value.keys()) - allowed_keys
+        if unknown:
+            raise ValidationError(
+                f"ai_config keys must be a subset of {sorted(allowed_keys)}; got unknown {sorted(unknown)}."
+            )
+        for key in allowed_keys & value.keys():
+            model_val = value[key]
+            if not isinstance(model_val, str) or model_val not in ALLOWED_AI_MODELS:
+                raise ValidationError(f"ai_config.{key} must be one of {sorted(ALLOWED_AI_MODELS)}; got {model_val!r}.")
+        return value
+
     def validate(self, attrs):
         existing = self.instance
-        content_type = (
-            attrs.get("content_type")
-            or (existing.content_type if existing else None)
-            or Subscription.ContentType.INSIGHT
-        )
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
@@ -225,6 +264,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         has_insight = attrs.get("insight") or (existing and existing.insight_id)
         has_dashboard = attrs.get("dashboard") or (existing and existing.dashboard_id)
         has_prompt = (attrs.get("prompt") or (existing.prompt if existing else None) or "").strip()
+
+        # `content_type` was added late; legacy callers (and the dashboard-subscription
+        # tests they shipped against) omit it and rely on `dashboard`/`insight` to imply
+        # the kind. Honour an explicit value if present, otherwise infer from the
+        # populated FK so existing paths keep their original validation errors. Persist
+        # the inferred value to `attrs` so the create path stores the right discriminator
+        # (the model default is INSIGHT, which would mis-classify dashboard subs).
+        explicit_content_type = attrs.get("content_type") or (existing.content_type if existing else None)
+        if explicit_content_type:
+            content_type = explicit_content_type
+        elif has_dashboard:
+            content_type = Subscription.ContentType.DASHBOARD
+        else:
+            content_type = Subscription.ContentType.INSIGHT
+        if existing is None and "content_type" not in attrs:
+            attrs["content_type"] = content_type
 
         if content_type == Subscription.ContentType.INSIGHT:
             if not has_insight:
