@@ -345,13 +345,13 @@ class TestTeam(BaseTest):
         # Only the org admin gets access — the role-backed member does not
         assert all_user_with_access_ids == [self.user.id]
 
-_api_token_field = Team._meta.get_field("api_token")
-assert isinstance(_api_token_field, models.CharField)
-assert _api_token_field.max_length is not None, "api_token CharField must declare a max_length"
-API_TOKEN_MAX_LENGTH: int = _api_token_field.max_length
-
 
 class TestTeamSetTokenAndSave(BaseTest):
+    _api_token_field = Team._meta.get_field("api_token")
+    assert isinstance(_api_token_field, models.CharField)
+    assert _api_token_field.max_length is not None, "api_token CharField must declare a max_length"
+    API_TOKEN_MAX_LENGTH: int = _api_token_field.max_length
+
     def setUp(self) -> None:
         super().setUp()
         self.team.api_token = "phc_old_token_value"
@@ -429,7 +429,7 @@ class TestTeamSetTokenAndSave(BaseTest):
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     @patch("posthog.models.team.team.set_team_in_cache")
     def test_set_token_and_save_accepts_token_at_field_max_length(self, _mock_set_cache, _mock_push_vercel) -> None:
-        new_token = "a" * API_TOKEN_MAX_LENGTH
+        new_token = "a" * self.API_TOKEN_MAX_LENGTH
         self.team.set_token_and_save(
             new_token=new_token,
             user=self.user,
