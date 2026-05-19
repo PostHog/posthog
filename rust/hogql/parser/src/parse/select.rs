@@ -1337,19 +1337,11 @@ impl<'a> Parser<'a> {
             // COMMA?` — after a comma the list continues with another
             // column for any clause keyword that can also be a Field
             // (`select 1, window from t` keeps `window` as the second
-            // column). The comma is only trailing when the next token
-            // is `FROM` — the clause that immediately follows the
-            // column list — or a two-token clause head (`GROUP BY` /
-            // `ORDER BY` / `ARRAY JOIN` / …), where treating the
-            // keyword as a column would strand the clause body. The
-            // leading `selectColumnExpr` is mandatory, so this never
-            // fires for the first column (`select prewhere from t`).
-            if !cols.is_empty()
-                && (matches!(self.peek(), TokenKind::Keyword(Kw::From))
-                    || self.peek_is_two_token_clause_terminator())
-            {
-                break;
-            }
+            // column). Whether the comma was trailing is decided
+            // entirely by `peek_is_clause_terminator` below (it folds
+            // in `peek_is_two_token_clause_terminator` and the `FROM`
+            // table-reference carve-out).
+            //
             // A clause keyword after the trailing comma starts its
             // clause — not another column — whenever a valid clause
             // body follows: cpp's ALL(*) prefers the clause when both

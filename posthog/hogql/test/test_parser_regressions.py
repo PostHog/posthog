@@ -323,6 +323,23 @@ class TestParserRegressions(BaseTest):
             node = parse_select("select q, having y", backend=backend)
             self.assertEqual(len(node.select), 1, msg=f"{backend}: having y")
 
+    def test_from_after_comma_needs_a_table_reference(self):
+        # FROM's clause body is a `joinExpr` (a table reference), not a
+        # `columnExpr`. After a trailing comma `from` only opens the
+        # FROM clause when a table-reference starter follows; otherwise
+        # it stays a Field column (`select q, from` → two columns,
+        # `select q, from + 1` → `q` and `from + 1`). The Rust parser
+        # broke the column list on `from` unconditionally.
+        for backend in _BACKENDS:
+            for src in ("select q, from", "select q, from + 1", "select q, from()"):
+                node = parse_select(src, backend=backend)
+                self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
+                self.assertIsNone(node.select_from, msg=f"{backend}: {src!r}")
+            # guard: a real table reference still opens the FROM clause
+            node = parse_select("select q, from t", backend=backend)
+            self.assertEqual(len(node.select), 1, msg=f"{backend}: from t")
+            self.assertIsNotNone(node.select_from, msg=f"{backend}: from t")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

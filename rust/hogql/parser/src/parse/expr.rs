@@ -2794,6 +2794,25 @@ impl<'a> Parser<'a> {
         {
             return false;
         }
+        // `FROM`'s clause body is a `joinExpr` — a table reference,
+        // not a `columnExpr` — so it only opens the FROM clause when a
+        // table-reference starter follows: an identifier, `(`
+        // subquery, `{}` placeholder, or a hogqlx `<` tag. `from + 1`
+        // / `from 5` keep `from` as a Field column. (Empty `from ()`
+        // is already caught as a call by the two-token probe above.)
+        if self.peek() == TokenKind::Keyword(Kw::From)
+            && !matches!(
+                self.peek_next(),
+                TokenKind::Ident
+                    | TokenKind::QuotedIdent
+                    | TokenKind::Keyword(_)
+                    | TokenKind::LParen
+                    | TokenKind::LBrace
+                    | TokenKind::Lt
+            )
+        {
+            return false;
+        }
         is_clause_kw || self.peek_is_two_token_clause_terminator()
     }
 
