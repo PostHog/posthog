@@ -552,6 +552,18 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 0, 0],
+                    [1, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+        self.assertEqual(
             pluck(result, "values", "aggregation_value"),
             pad(
                 [
@@ -564,7 +576,15 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def test_retention_data_warehouse_property_aggregation_same_table_sum_and_avg(self) -> None:
+    @parameterized.expand(
+        [
+            ("sum", [40, 120]),
+            ("avg", [20, 60]),
+        ]
+    )
+    def test_retention_data_warehouse_property_aggregation_same_table(
+        self, aggregation_type: str, expected_aggregation_values: list[float]
+    ) -> None:
         person_ids = self._create_people()
         video_watches_table_name = self._create_data_warehouse_table(
             filename="warehouse_video_watches.csv",
@@ -586,63 +606,42 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        base_query: dict[str, Any] = {
-            "dateRange": {
-                "date_from": "2025-01-01T00:00:00Z",
-                "date_to": "2025-01-05T00:00:00Z",
-            },
-            "retentionFilter": {
-                "period": "Day",
-                "totalIntervals": 4,
-                "targetEntity": {
-                    "id": video_watches_table_name,
-                    "name": video_watches_table_name,
-                    "type": "data_warehouse",
-                    "table_name": video_watches_table_name,
-                    "aggregation_target_field": "person_id",
-                    "timestamp_field": "watched_at",
-                },
-                "returningEntity": {
-                    "id": video_watches_table_name,
-                    "name": video_watches_table_name,
-                    "type": "data_warehouse",
-                    "table_name": video_watches_table_name,
-                    "aggregation_target_field": "person_id",
-                    "timestamp_field": "watched_at",
-                },
-                "aggregationProperty": "watch_duration",
-                "aggregationPropertyType": "data_warehouse",
-            },
-        }
-
-        sum_result = self.run_query(
+        result = self.run_query(
             query={
-                **base_query,
-                "retentionFilter": {
-                    **base_query["retentionFilter"],
-                    "aggregationType": "sum",
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
                 },
-            }
-        )
-        avg_result = self.run_query(
-            query={
-                **base_query,
                 "retentionFilter": {
-                    **base_query["retentionFilter"],
-                    "aggregationType": "avg",
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": {
+                        "id": video_watches_table_name,
+                        "name": video_watches_table_name,
+                        "type": "data_warehouse",
+                        "table_name": video_watches_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "watched_at",
+                    },
+                    "returningEntity": {
+                        "id": video_watches_table_name,
+                        "name": video_watches_table_name,
+                        "type": "data_warehouse",
+                        "table_name": video_watches_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "watched_at",
+                    },
+                    "aggregationType": aggregation_type,
+                    "aggregationProperty": "watch_duration",
+                    "aggregationPropertyType": "data_warehouse",
                 },
             }
         )
 
-        self.assertEqual(sum_result[0]["values"][0]["count"], 2)
-        self.assertEqual(sum_result[0]["values"][0]["aggregation_value"], 40)
-        self.assertEqual(sum_result[0]["values"][1]["count"], 2)
-        self.assertEqual(sum_result[0]["values"][1]["aggregation_value"], 120)
-
-        self.assertEqual(avg_result[0]["values"][0]["count"], 2)
-        self.assertEqual(avg_result[0]["values"][0]["aggregation_value"], 20)
-        self.assertEqual(avg_result[0]["values"][1]["count"], 2)
-        self.assertEqual(avg_result[0]["values"][1]["aggregation_value"], 60)
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], expected_aggregation_values[0])
+        self.assertEqual(result[0]["values"][1]["count"], 2)
+        self.assertEqual(result[0]["values"][1]["aggregation_value"], expected_aggregation_values[1])
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_and_events(self):
