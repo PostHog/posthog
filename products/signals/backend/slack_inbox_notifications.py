@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db.models import Q
+
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import User
