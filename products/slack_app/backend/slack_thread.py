@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,21 @@ from posthog.models.integration import Integration, SlackIntegration
 logger = structlog.get_logger(__name__)
 
 PROGRESS_MESSAGE_MARKER = "Working on task..."
+UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
+    "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
+)
+UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+
+
+def _format_task_error(error: str) -> str:
+    error = error.strip()
+    if not error:
+        return "Unknown error"
+
+    if UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.search(error):
+        return UPSTREAM_PROVIDER_FAILURE_MESSAGE
+
+    return error
 
 
 @dataclass
@@ -289,6 +305,7 @@ class SlackThreadHandler:
     def post_error(self, error: str, task_url: str) -> None:
         """Post error message with link to PostHog for details."""
         header = "*Task Failed* :x:"
+        error = _format_task_error(error)
         truncated_error = error[:200] if len(error) > 200 else error
 
         blocks: list[dict[str, Any]] = [
