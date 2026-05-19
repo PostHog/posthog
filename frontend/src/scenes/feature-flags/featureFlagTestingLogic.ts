@@ -196,9 +196,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
 
                 return result.conditions.map((condition: ConditionAnalysis) => {
                     // Check if this condition is the actual winner
-                    // A condition is only a winner if it's the condition_index AND the result is truthy or the condition matched
-                    const isWinningCondition =
-                        result.condition_index === condition.index && (result.result || condition.matched)
+                    // Per the API serializer, matched is the source of truth - "at most one condition per flag is True"
+                    const isWinningCondition = condition.matched
                     // Determine if this condition matched but wasn't the winner
                     const matchedButNotWinner =
                         condition.properties_matched && !isWinningCondition && !condition.rollout_excluded
