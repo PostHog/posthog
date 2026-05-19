@@ -147,7 +147,7 @@ export class CdpEventsConsumer<
             cost: 1,
         }))
         const [rateLimits] = await Promise.all([
-            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                 return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
             }),
             mirrorCall('hog-rate-limiter.rateLimitGrouped', () =>
@@ -317,7 +317,7 @@ export class CdpEventsConsumer<
             cost: 1,
         }))
         const [rateLimits] = await Promise.all([
-            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                 return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
             }),
             mirrorCall('hog-rate-limiter.rateLimitGrouped', () =>
