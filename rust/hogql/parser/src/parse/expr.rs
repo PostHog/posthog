@@ -3221,7 +3221,14 @@ impl<'a> Parser<'a> {
     fn parse_type_param_item(&mut self) -> Result<String, ParseError> {
         // `IDENT TYPE` nested struct field: an ident at peek0 followed
         // by another type-starting token at peek1 (but not a `(` —
-        // that's a parametric type, not a field).
+        // that's a parametric type, not a field). Speculative — the
+        // shape `case when …`, `if expr …` etc. trips this matcher
+        // (both `case` and `when` are admissible identifiers), so we
+        // require the inner type-parse to land cleanly at a `,` / `)`
+        // terminator before committing. On failure, restore and fall
+        // through to the heuristic + speculative-type-expr branches
+        // below, which route the expression form to spaceless raw
+        // text.
         if matches!(
             self.peek(),
             TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
@@ -3230,6 +3237,7 @@ impl<'a> Parser<'a> {
             TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
         ) && self.peek_next() != TokenKind::LParen
         {
+            let cp = self.checkpoint();
             let name_tok = self.bump()?;
             let raw = self.text(name_tok);
             // Unquote QuotedIdents the same way parse_type_atom does
@@ -3239,8 +3247,12 @@ impl<'a> Parser<'a> {
                 TokenKind::QuotedIdent => identifier_text(raw, name_tok.kind).to_ascii_lowercase(),
                 _ => raw.to_ascii_lowercase(),
             };
-            let type_str = self.parse_type_expr()?;
-            return Ok(format!("{field_name} {type_str}"));
+            match self.parse_type_expr() {
+                Ok(type_str) if matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) => {
+                    return Ok(format!("{field_name} {type_str}"));
+                }
+                _ => self.restore(cp)?,
+            }
         }
         // Bare numeric parameter — preserve as a raw token.
         if matches!(self.peek(), TokenKind::Number) {
@@ -3261,7 +3273,30 @@ impl<'a> Parser<'a> {
         if self.param_looks_like_expression() {
             return self.consume_raw_type_param_text();
         }
-        self.parse_type_expr()
+        // The heuristic catches the obvious expression markers (`{`,
+        // operators, strings, numbers in mid-position), but cpp's
+        // `ColumnTypeExprParam` admits arbitrary `columnExpr` and the
+        // visitor takes verbatim text. Anything that fits the type
+        // grammar (`Array(Int)`, `Tuple(a, b)`) is parsed as a type
+        // and yields the same text via `parse_type_expr`. Anything
+        // else (a parenthesised `(b)`, a `case…end`, an `if(c, d, e)`
+        // whose head is a keyword) falls back to raw concatenation,
+        // matching cpp's `getText()`.
+        //
+        // A type-expr success only counts when it consumes the whole
+        // param — i.e. lands on a `,` / `)` terminator. `case when (c)
+        // then d end` happens to start `case when (c)` in a way that
+        // `parse_type_expr`'s compound + param-list loops accept as a
+        // pseudo-type `case when(c)`, then chokes on `then` instead of
+        // a terminator. Restore and treat as expression in that case.
+        let cp = self.checkpoint();
+        match self.parse_type_expr() {
+            Ok(name) if matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) => Ok(name),
+            _ => {
+                self.restore(cp)?;
+                self.consume_raw_type_param_text()
+            }
+        }
     }
 
     /// Peek the current type-param's content and decide whether it
@@ -3334,9 +3369,16 @@ impl<'a> Parser<'a> {
     ///   matching close) are dropped, since the cpp visitor's
     ///   columnExprList iteration never emits the separator token.
     fn consume_raw_type_param_text(&mut self) -> Result<String, ParseError> {
+        // Mirrors ANTLR's `ctx.getText()` on `ColumnTypeExprParam`:
+        // join every token verbatim with no separator at all
+        // (whitespace is on a hidden channel and dropped). So
+        // `case when (c) then d end` → `casewhen(c)thendend`,
+        // `if((c), d, e)` → `if((c),d,e)`. Stops at the param's own
+        // depth-0 `,` or `)` terminator. Trailing commas at any depth
+        // (i.e. immediately before a matching close) are dropped,
+        // since the cpp recursive visit skips them.
         let mut out = String::new();
         let mut depth: i32 = 0;
-        let mut prev_was_ident_like = false;
         loop {
             let kind = self.peek();
             match kind {
@@ -3346,49 +3388,31 @@ impl<'a> Parser<'a> {
                     depth += 1;
                     let t = self.bump()?;
                     out.push_str(self.text(t));
-                    prev_was_ident_like = false;
                 }
                 TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
                     depth -= 1;
                     let t = self.bump()?;
                     out.push_str(self.text(t));
-                    prev_was_ident_like = false;
                 }
                 TokenKind::Comma => {
-                    // Drop a comma at depth > 0 immediately followed
-                    // by the matching close — trailing-comma
-                    // separator the cpp recursive visit drops.
-                    // Otherwise emit `", "` (comma + single space) to
-                    // mirror the cpp visitor's `", ".join(...)` over
-                    // sibling columnExprs.
                     self.bump()?;
                     if !matches!(
                         self.peek(),
                         TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
                     ) {
-                        out.push_str(", ");
+                        out.push(',');
                     }
-                    prev_was_ident_like = false;
                 }
                 _ => {
                     let t = self.bump()?;
-                    let now_ident_like = matches!(
-                        kind,
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                    );
-                    if prev_was_ident_like && now_ident_like {
-                        out.push(' ');
-                    }
-                    // Unquote QuotedIdents so the emitted text matches
-                    // cpp's recursive visit (which resolves through
-                    // `visitIdentifier` → unquoted form). Other tokens
-                    // pass through unchanged.
+                    // Unquote QuotedIdents — cpp's recursive visit
+                    // resolves through `visitIdentifier` to the
+                    // unquoted form. Other tokens pass through.
                     if t.kind == TokenKind::QuotedIdent {
                         out.push_str(&identifier_text(self.text(t), t.kind));
                     } else {
                         out.push_str(self.text(t));
                     }
-                    prev_was_ident_like = now_ident_like;
                 }
             }
         }

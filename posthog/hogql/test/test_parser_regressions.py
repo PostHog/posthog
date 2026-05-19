@@ -695,6 +695,103 @@ class TestParserRegressions(BaseTest):
             with self.assertRaises(ExposedHogQLError, msg=f"{backend}: '0x.8p3'"):
                 parse_expr("0x.8p3", backend=backend)
 
+    def test_cast_type_arg_with_parenthesized_expr(self):
+        # `CAST(x AS name(...))` parses the type as a columnTypeExpr; the
+        # `ColumnTypeExprParam` form (`identifier LPAREN columnExprList?
+        # RPAREN`) admits arbitrary column exprs in its argument list,
+        # including ones with their own `(…)` groups. cpp builds a
+        # TypeCast and captures the raw type text; the Rust parser fell
+        # out of the CAST type-expr path when the type arg contained a
+        # parenthesised expression and re-parsed the whole thing as a
+        # plain `cast(...)` function call.
+        cases = (
+            "cast(x as a((b)))",
+            "cast(x as a(case when (c) then d end))",
+            "cast(x as a(if((c), d, e)))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_subquery_arg_call_then_second_call(self):
+        # `f(select 1)` is a `ColumnExprCallSelect` (`columnExpr LPAREN
+        # selectSetStmt RPAREN`); a trailing `()` is a separate
+        # `ColumnExprCall` postfix that nests on top — cpp builds
+        # `ExprCall(Call(f, [SelectQuery]), [])`. The Rust parser folded
+        # both groups into a single parametric `Call(params=[…], args=[…])`,
+        # which is only valid when the first group is a columnExprList
+        # (a SelectQuery is not).
+        cases = (
+            "f(select 1)()",
+            "a(select 1)(2)",
+            "f(select 1)(x)(y)",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_between_not_lambda_lower_bound(self):
+        # `a BETWEEN <low> AND <high>` requires the low-bound parse to
+        # leave its own AND available for the BETWEEN. With a bare
+        # lambda low bound the Rust parser gets this right, but with
+        # `NOT` wrapping the lambda the AND-reservation context is lost
+        # across the `NOT` prefix into the lambda body, so the lambda
+        # over-consumes `… and c` and the BETWEEN has no AND left.
+        cases = (
+            "a between not lambda x: b and c",
+            "a between not x -> y and z",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_bare_asterisk_clause_body_after_comma(self):
+        # A clause keyword after a trailing comma with a bare `*` body
+        # starts its clause; the following LIMIT / WITH TOTALS / GROUP
+        # BY is a normal subsequent clause. Same family as the existing
+        # `test_clause_keyword_after_comma_in_select_columns`, but
+        # uncovered for the bare-`*` body. The Rust parser used to keep
+        # `where *` as a select column and choke on the trailing clause.
+        cases = (
+            "select a, where * limit 1",
+            "select a, where * with totals",
+            "select a, prewhere * with totals",
+            "select a, where * group by x",
+            "select a, where * order by x",
+            "select a, having * limit 1",
+            "select a, qualify * limit 1",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_placeholder_statement_then_postfix_call_or_property(self):
+        # `{expr}` at statement start is a placeholder expression; a
+        # trailing `(…)` call or `.x` property access is a postfix on
+        # it. The Rust parser committed `{1}` to a `block` statement
+        # and failed on the dangling postfix token. It already
+        # reconsiders for `[` and `+`, so the disambiguation set is
+        # incomplete (`(` and `.` were missing).
+        cases = (
+            "{1}()",
+            "{1}.x",
+            "{a}()",
+            "{ {1}() }",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_window_frame_bound_low_precedence_value(self):
         # A window frame bound's value is a full `columnExpr`, so it
         # admits comparison / AND / OR operators. The Rust parser
