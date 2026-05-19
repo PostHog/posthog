@@ -17,11 +17,29 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-ENDPOINT = "/api/llm_analytics/personal_spend/"
+ENDPOINT = "/api/llm_analytics/@me/spend/"
 
 
 def _by_product(rows: list[dict], product: str | None) -> dict | None:
     return next((r for r in rows if r["product"] == product), None)
+
+
+class TestPersonalSpendEuRedirect(APIBaseTest):
+    """Pure unit test of the EU redirect view — does not depend on URL conf for EU."""
+
+    def test_eu_redirect_view_preserves_query_string(self) -> None:
+        from django.test import RequestFactory
+
+        from products.llm_analytics.backend.api.personal_spend import personal_spend_eu_redirect
+
+        factory = RequestFactory()
+        request = factory.get("/api/llm_analytics/@me/spend/", data={"days": "7", "product": "posthog_code"})
+        response = personal_spend_eu_redirect(request)
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"].startswith("https://us.posthog.com/api/llm_analytics/@me/spend/")
+        assert "days=7" in response["Location"]
+        assert "product=posthog_code" in response["Location"]
 
 
 class TestPersonalSpendAuth(APIBaseTest):
@@ -75,6 +93,20 @@ class TestPersonalSpendValidation(APIBaseTest):
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("zero", "0", status.HTTP_400_BAD_REQUEST),
+            ("negative", "-1", status.HTTP_400_BAD_REQUEST),
+            ("over_max", "1000", status.HTTP_400_BAD_REQUEST),
+            ("valid_min", "1", status.HTTP_200_OK),
+            ("valid_default", "50", status.HTTP_200_OK),
+            ("valid_max", "200", status.HTTP_200_OK),
+        ]
+    )
+    def test_limit_param_validation(self, _label: str, limit: str, expected: int) -> None:
+        response = self.client.get(f"{ENDPOINT}?limit={limit}")
+        assert response.status_code == expected
 
 
 class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
@@ -130,10 +162,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["summary"]["event_count"] == 0
         assert body["summary"]["scoped_cost_usd"] == 0
         assert body["summary"]["scoped_event_count"] == 0
-        assert body["by_product"] == []
-        assert body["by_tool"] == []
-        assert body["by_model"] == []
-        assert body["top_traces"] == []
+        assert body["by_product"] == {"items": [], "truncated": False}
+        assert body["by_tool"] == {"items": [], "truncated": False}
+        assert body["by_model"] == {"items": [], "truncated": False}
+        assert body["top_traces"] == {"items": [], "truncated": False}
 
     def test_unfiltered_summary_aggregates_across_products(self) -> None:
         self._create_generation(ai_product="posthog_code", cost=2.0)
@@ -151,9 +183,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert summary["scoped_event_count"] == 3
         assert summary["scoped_cost_usd"] == 3.5
         # by_product carries each slice for the caller to pick out.
-        code_row = _by_product(body["by_product"], "posthog_code")
+        code_row = _by_product(body["by_product"]["items"], "posthog_code")
         assert code_row is not None
         assert code_row["cost_usd"] == 2.5
+        assert body["by_product"]["truncated"] is False
 
     def test_product_filter_scopes_summary_and_breakdowns(self) -> None:
         self._create_generation(ai_product="posthog_code", tool="Bash", cost=2.0)
@@ -169,12 +202,13 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["summary"]["scoped_cost_usd"] == 2.0
 
         # by_tool is scoped to the filter — only the posthog_code Bash row.
-        tool_rows = body["by_tool"]
+        tool_rows = body["by_tool"]["items"]
         assert len(tool_rows) == 1
         assert tool_rows[0]["cost_usd"] == 2.0
+        assert tool_rows[0]["share_of_scoped"] == 1.0
 
         # by_product is always cross-product, regardless of the filter.
-        assert {r["product"] for r in body["by_product"]} == {"posthog_code", "background_agents"}
+        assert {r["product"] for r in body["by_product"]["items"]} == {"posthog_code", "background_agents"}
 
     def test_by_tool_includes_null_tool_rows(self) -> None:
         self._create_generation(tool="Bash", cost=2.0)
@@ -182,7 +216,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(f"{ENDPOINT}?product=posthog_code")
-        tools = {r["tool"] for r in response.json()["by_tool"]}
+        tools = {r["tool"] for r in response.json()["by_tool"]["items"]}
         assert tools == {"Bash", None}
 
     def test_by_tool_splits_comma_separated_tools(self) -> None:
@@ -194,7 +228,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(f"{ENDPOINT}?product=posthog_code")
-        rows = {r["tool"]: r for r in response.json()["by_tool"]}
+        rows = {r["tool"]: r for r in response.json()["by_tool"]["items"]}
         assert set(rows) == {"Bash", "Read"}
         # Bash row picks up both the Bash-only generation and the Bash,Read generation.
         assert rows["Bash"]["generation_count"] == 2
@@ -212,7 +246,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(ENDPOINT)
-        traces = response.json()["top_traces"]
+        traces = response.json()["top_traces"]["items"]
         assert traces[0]["trace_id"] == "expensive"
         assert traces[0]["cost_usd"] == 8.0
         assert traces[0]["generation_count"] == 2
@@ -279,3 +313,34 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             first = mock_exec.call_count
             self.client.get(f"{ENDPOINT}?product=posthog_code")
             assert mock_exec.call_count == first * 2
+
+    def test_cache_key_includes_limit(self) -> None:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+            mock_exec.return_value.results = []
+            self.client.get(f"{ENDPOINT}?limit=10")
+            first = mock_exec.call_count
+            self.client.get(f"{ENDPOINT}?limit=50")
+            assert mock_exec.call_count == first * 2
+
+    def test_by_product_truncated_when_more_than_limit_products(self) -> None:
+        # Three products, ask for limit=2 → top 2 returned, truncated=True.
+        self._create_generation(ai_product="a", cost=3.0)
+        self._create_generation(ai_product="b", cost=2.0)
+        self._create_generation(ai_product="c", cost=1.0)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?limit=2")
+        by_product = response.json()["by_product"]
+        assert len(by_product["items"]) == 2
+        assert by_product["truncated"] is True
+
+    def test_by_tool_share_of_scoped(self) -> None:
+        self._create_generation(tool="Bash", cost=2.0)
+        self._create_generation(tool="Read", cost=2.0)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?product=posthog_code")
+        rows = {r["tool"]: r for r in response.json()["by_tool"]["items"]}
+        # Each tool drove half of the scoped spend.
+        assert rows["Bash"]["share_of_scoped"] == 0.5
+        assert rows["Read"]["share_of_scoped"] == 0.5

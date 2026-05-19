@@ -403,7 +403,7 @@ tools:
         operation: evaluations_update
         enabled: false
     llma-personal-spend:
-        operation: llm_analytics_personal_spend_list
+        operation: llm_analytics_me_spend_list
         enabled: true
         scopes:
             - llm_analytics:read

@@ -220,9 +220,11 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 # Personal LLM spend data lives only in PostHog Cloud US's internal team — register
-# the endpoint there plus dev/test envs so it stays reachable in development.
+# the endpoint there plus dev/test envs so it stays reachable in development. EU
+# adds a redirect (declared in posthog/urls.py) so callers get a discoverable
+# pointer instead of a silent 404.
 if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
-    router.register(r"llm_analytics/personal_spend", PersonalSpendViewSet, "personal_spend")
+    router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
