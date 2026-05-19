@@ -173,6 +173,8 @@ class TestSharing(APIBaseTest):
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state(self, patched_exporter_task: Mock):
+        assert ActivityLog.objects.filter(scope="Dashboard").count() == 0
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             {"enabled": True},
@@ -185,6 +187,38 @@ class TestSharing(APIBaseTest):
 
         assert response.json()["is_shared"]
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": False},
+        )
+
+        dashboard_sharing_logs = ActivityLog.objects.filter(
+            scope="Dashboard", activity__in=["sharing enabled", "sharing disabled"]
+        ).order_by("created_at")
+        assert [(x.activity, x.user_id) for x in dashboard_sharing_logs] == [
+            ("sharing enabled", self.user.id),
+            ("sharing disabled", self.user.id),
+        ]
+
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_refreshing_dashboard_share_token_is_logged(self, patched_exporter_task: Mock):
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        assert (
+            ActivityLog.objects.filter(
+                scope="Dashboard", activity="access token refreshed", user_id=self.user.id
+            ).count()
+            == 1
+        )
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
