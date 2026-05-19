@@ -1472,11 +1472,11 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  # --timeout=400 caps a single hung phase at ~6m40s — a safety net for the
-                  # Core segment, which previously relied solely on the 30-minute job-level
-                  # kill. --reruns 1 keeps a single retry for genuine flakes while halving
-                  # the rerun cost relative to the previous --reruns 2.
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=400 --timeout-method=thread ${{
+                  # --reruns 1 (down from 2) keeps a single retry for genuine flakes but
+                  # halves the rerun cost when a test fails. No per-test --timeout: real
+                  # Core setups can run ~600s on the heaviest shards (Django+Clickhouse
+                  # fixture warmup), so a tight per-phase cap would falsely fail them.
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
