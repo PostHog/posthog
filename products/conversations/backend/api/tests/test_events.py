@@ -276,10 +276,21 @@ class TestConversationEvents(BaseTest):
         assert groups["project"] == str(self.team.uuid)
         assert "instance" in groups
 
+    @parameterized.expand(
+        [
+            ("user_not_found", False, False),
+            ("user_has_no_membership", True, False),
+        ]
+    )
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_no_groups_when_user_not_found(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_no_groups_when(
+        self, _name, create_user, create_membership, mock_get_persons, mock_capture
+    ):
         from posthog.models.person.person import Person
+
+        if create_user:
+            User.objects.create(email="lonely@example.com", distinct_id="customer-123")
 
         mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
 

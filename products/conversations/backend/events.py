@@ -47,7 +47,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
             if any(p.is_identified for p in persons):
                 try:
                     user = User.objects.get(distinct_id=ticket.distinct_id)
-                    membership = OrganizationMembership.objects.filter(user=user).first()
+                    membership = OrganizationMembership.objects.select_related("organization").filter(user=user).first()
                     if membership:
                         process_person = True
                         properties["$groups"] = build_groups(membership.organization, team)
