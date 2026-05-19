@@ -39,7 +39,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
-    PARTITIONED_TABLE_MAX_CHUNK_SIZE,
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
@@ -1562,15 +1561,7 @@ def postgres_source(
                         logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
-                        # Cap chunk size for partitioned tables. Server-cursor FETCH
-                        # on a partitioned parent scans across all child partitions,
-                        # so a large chunk can exceed statement_timeout even when
-                        # per-row size is small.
-                        if is_partitioned and chunk_size > PARTITIONED_TABLE_MAX_CHUNK_SIZE:
-                            logger.debug(
-                                f"Capping chunk_size from {chunk_size} to {PARTITIONED_TABLE_MAX_CHUNK_SIZE} for partitioned table"
-                            )
-                            chunk_size = PARTITIONED_TABLE_MAX_CHUNK_SIZE
+
                     logger.debug("Getting rows to sync...")
                     # For partitioned tables without an incremental cursor (initial
                     # sync, re-sync, or non-incremental), use pg_class.reltuples

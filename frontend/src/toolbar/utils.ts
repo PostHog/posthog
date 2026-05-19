@@ -15,6 +15,10 @@ import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 
+// Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
+// load-bearing at runtime — verify before storing strings that flow into auth headers.
+export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'

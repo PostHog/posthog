@@ -6,6 +6,7 @@ from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models import AlertConfiguration
 
 
+@admin.register(AlertConfiguration)
 class AlertConfigurationAdmin(admin.ModelAdmin):
     show_full_result_count = False
     paginator = NoCountPaginator

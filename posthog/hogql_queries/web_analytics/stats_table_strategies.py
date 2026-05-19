@@ -59,7 +59,7 @@ class MainQueryStrategy(StatsTableQueryStrategy):
     def build_query(self) -> ast.SelectQuery:
         breakdown = self.breakdown_override or self.runner._counts_breakdown_value()
 
-        with self.runner.timings.measure("stats_table_query"):
+        with self.runner.timings.measure(self.runner.query_strategy()):
             selects: list[ast.Expr] = [
                 ast.Alias(alias="context.columns.breakdown_value", expr=self.runner._processed_breakdown_value()),
                 self.runner._period_comparison_tuple("filtered_person_id", "context.columns.visitors", "uniq"),
@@ -144,7 +144,7 @@ class PathBounceStrategy(StatsTableQueryStrategy):
     """PAGE breakdown with bounce rate (no scroll depth or avg time)."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("stats_table_path_bounce_query"):
+        with self.runner.timings.measure("stats_table_path_bounce"):
             query = parse_select(
                 PATH_BOUNCE_QUERY,
                 timings=self.runner.timings,
@@ -167,7 +167,7 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
     """PAGE breakdown with average time on page and bounce rate."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("stats_table_time_on_page_query"):
+        with self.runner.timings.measure("stats_table_path_bounce_and_avg_time"):
             query = parse_select(
                 PATH_BOUNCE_AND_AVG_TIME_QUERY,
                 timings=self.runner.timings,
@@ -194,7 +194,7 @@ class FrustrationMetricsStrategy(StatsTableQueryStrategy):
     """FRUSTRATION_METRICS breakdown: rage clicks, dead clicks, errors."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("frustration_metrics_query"):
+        with self.runner.timings.measure("stats_table_frustration_metrics"):
             selects: list[ast.Expr] = [
                 ast.Alias(alias="context.columns.breakdown_value", expr=self.runner._processed_breakdown_value()),
                 self.runner._period_comparison_tuple("rage_clicks_count", "context.columns.rage_clicks", "sum"),

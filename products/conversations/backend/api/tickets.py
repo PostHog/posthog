@@ -930,11 +930,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         recipient_email = data["recipient_email"]
         distinct_id = data.get("recipient_distinct_id", "") or recipient_email
 
-        person = get_person_by_distinct_id(team.id, distinct_id)
-        if person is None and distinct_id == recipient_email:
+        person: Person | None = None
+        if distinct_id != recipient_email:
+            person = get_person_by_distinct_id(team.id, distinct_id)
+
+        if person is None:
             person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())
             if person is not None and person.distinct_ids:
                 distinct_id = person.distinct_ids[0]
+
+        if data.get("recipient_distinct_id") and person is not None:
+            person_email = (person.properties or {}).get("email", "")
+            if person_email and person_email.lower() != recipient_email.lower():
+                return Response(
+                    {"detail": "Recipient email does not match the person's email on file."},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
 
         with transaction.atomic():
             ticket = Ticket.objects.create_with_number(
