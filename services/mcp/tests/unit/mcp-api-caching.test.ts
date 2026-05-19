@@ -296,3 +296,115 @@ describe('MCP.updateProps() token propagation (cold start / hibernation)', () =>
         expect(api.config.apiToken).toBe('token-A')
     })
 })
+
+describe('MCP.setName() MCP-id rotation (warm DO path)', () => {
+    // The `Mcp-Session-Id` HTTP header is absent on the initialize call but
+    // present on every request after. Without explicit rotation, `_api` —
+    // constructed during init() with `mcpSessionId: undefined` — would never
+    // see the header and `x-posthog-mcp-session-id` would never be sent on
+    // the outbound API hops. These tests pin that rotation behaviour for
+    // both the protocol session id and the conversation id.
+    beforeEach(() => {
+        ApiClientCtor.mockClear()
+        storagePutSpy.mockClear()
+        superSetNameSpy.mockClear()
+        superUpdatePropsSpy.mockClear()
+    })
+
+    function buildMcpWithMcpIds(opts: { mcpSessionId?: string; mcpConversationId?: string } = {}): MCP {
+        const mcp = buildMcp('token-A')
+        ;(mcp as any).props = {
+            ...(mcp as any).props,
+            ...(opts.mcpSessionId !== undefined ? { mcpSessionId: opts.mcpSessionId } : {}),
+            ...(opts.mcpConversationId !== undefined ? { mcpConversationId: opts.mcpConversationId } : {}),
+        }
+        return mcp
+    }
+
+    it('updates the cached ApiClient mcpSessionId when the header appears on a later request', async () => {
+        // Reproduces the production bug: init() runs before any inbound
+        // `Mcp-Session-Id` exists, so `_api` is built with `mcpSessionId:
+        // undefined`. The next request *does* carry the header and must
+        // propagate onto the cached client.
+        const mcp = buildMcpWithMcpIds()
+        const api = await mcp.api()
+        expect(api.config.mcpSessionId).toBeUndefined()
+
+        await (mcp as any).setName('streamable-http:session-1', {
+            userHash: 'user-hash',
+            apiToken: 'token-A',
+            mcpSessionId: 'mcp-session-abc',
+        })
+
+        expect(api.config.mcpSessionId).toBe('mcp-session-abc')
+        expect(ApiClientCtor).toHaveBeenCalledTimes(1)
+    })
+
+    it('updates the cached ApiClient mcpConversationId when one appears', async () => {
+        const mcp = buildMcpWithMcpIds()
+        const api = await mcp.api()
+        expect(api.config.mcpConversationId).toBeUndefined()
+
+        await (mcp as any).setName('streamable-http:session-1', {
+            userHash: 'user-hash',
+            apiToken: 'token-A',
+            mcpConversationId: 'conv-xyz',
+        })
+
+        expect(api.config.mcpConversationId).toBe('conv-xyz')
+    })
+
+    it('does not overwrite a populated id with undefined', async () => {
+        // If the cached value is already set and a later request omits the
+        // header, the cached value must win — otherwise transport blips
+        // would clear the correlation id mid-session.
+        const mcp = buildMcpWithMcpIds({ mcpSessionId: 'mcp-session-abc' })
+        const api = await mcp.api()
+        expect(api.config.mcpSessionId).toBe('mcp-session-abc')
+
+        await (mcp as any).setName('streamable-http:session-1', {
+            userHash: 'user-hash',
+            apiToken: 'token-A',
+            mcpSessionId: undefined,
+        })
+
+        expect(api.config.mcpSessionId).toBe('mcp-session-abc')
+    })
+})
+
+describe('MCP.updateProps() MCP-id rotation (cold start / hibernation)', () => {
+    beforeEach(() => {
+        ApiClientCtor.mockClear()
+        storagePutSpy.mockClear()
+        superSetNameSpy.mockClear()
+        superUpdatePropsSpy.mockClear()
+    })
+
+    it('propagates a fresh mcpSessionId onto the cached ApiClient', async () => {
+        const mcp = buildMcp('token-A')
+        const api = await mcp.api()
+        expect(api.config.mcpSessionId).toBeUndefined()
+
+        await (mcp as any).updateProps({
+            userHash: 'user-hash',
+            apiToken: 'token-A',
+            mcpSessionId: 'mcp-session-abc',
+        })
+
+        expect(api.config.mcpSessionId).toBe('mcp-session-abc')
+    })
+
+    it('propagates a fresh mcpConversationId onto the cached ApiClient', async () => {
+        const mcp = buildMcp('token-A')
+        const api = await mcp.api()
+        expect(api.config.mcpConversationId).toBeUndefined()
+
+        await (mcp as any).updateProps({
+            userHash: 'user-hash',
+            apiToken: 'token-A',
+            mcpConversationId: 'conv-xyz',
+        })
+
+        expect(api.config.mcpConversationId).toBe('conv-xyz')
+    })
+})
