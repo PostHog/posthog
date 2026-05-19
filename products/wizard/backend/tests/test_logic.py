@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from products.wizard.backend.facade.api import WizardSessionAPI
+from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 
@@ -25,7 +25,7 @@ def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
 
 @pytest.mark.django_db
 def test_upsert_creates_new_session(team):
-    dto = WizardSessionAPI.upsert(_input(team.id))
+    dto = wizard_facade.upsert(_input(team.id))
 
     assert dto.session_id == "onboarding-nextjs-2026-05-19T10:00:00Z"
     assert dto.team_id == team.id
@@ -36,9 +36,9 @@ def test_upsert_creates_new_session(team):
 
 @pytest.mark.django_db
 def test_upsert_with_same_session_id_replaces_state(team):
-    WizardSessionAPI.upsert(_input(team.id))
+    wizard_facade.upsert(_input(team.id))
 
-    updated = WizardSessionAPI.upsert(
+    updated = wizard_facade.upsert(
         _input(
             team.id,
             run_phase=RunPhase.COMPLETED,
@@ -48,41 +48,41 @@ def test_upsert_with_same_session_id_replaces_state(team):
 
     assert updated.run_phase == RunPhase.COMPLETED
     assert updated.tasks[0].status == TaskStatus.COMPLETED
-    assert len(WizardSessionAPI.list_for_team(team.id)) == 1
+    assert len(wizard_facade.list_for_team(team.id)) == 1
 
 
 @pytest.mark.django_db
 def test_upsert_with_different_session_id_creates_new_row(team):
-    WizardSessionAPI.upsert(_input(team.id, session_id="run-1"))
-    WizardSessionAPI.upsert(_input(team.id, session_id="run-2"))
+    wizard_facade.upsert(_input(team.id, session_id="run-1"))
+    wizard_facade.upsert(_input(team.id, session_id="run-2"))
 
-    assert len(WizardSessionAPI.list_for_team(team.id)) == 2
+    assert len(wizard_facade.list_for_team(team.id)) == 2
 
 
 @pytest.mark.django_db
 def test_get_session_returns_matching_row(team):
-    WizardSessionAPI.upsert(_input(team.id, session_id="run-1"))
+    wizard_facade.upsert(_input(team.id, session_id="run-1"))
 
-    found = WizardSessionAPI.get(team.id, "run-1")
+    found = wizard_facade.get(team.id, "run-1")
     assert found is not None
     assert found.session_id == "run-1"
 
 
 @pytest.mark.django_db
 def test_get_session_returns_none_when_missing(team):
-    assert WizardSessionAPI.get(team.id, "missing") is None
+    assert wizard_facade.get(team.id, "missing") is None
 
 
 @pytest.mark.django_db
 def test_get_latest_returns_most_recent_for_workflow_skill_pair(team):
-    WizardSessionAPI.upsert(
+    wizard_facade.upsert(
         _input(
             team.id,
             session_id="onboarding-nextjs-09:00",
             started_at=datetime(2026, 5, 19, 9, 0, 0, tzinfo=UTC),
         )
     )
-    WizardSessionAPI.upsert(
+    wizard_facade.upsert(
         _input(
             team.id,
             session_id="onboarding-nextjs-11:00",
@@ -90,40 +90,38 @@ def test_get_latest_returns_most_recent_for_workflow_skill_pair(team):
         )
     )
 
-    latest = WizardSessionAPI.get_latest(team.id, "onboarding", "nextjs")
+    latest = wizard_facade.get_latest(team.id, "onboarding", "nextjs")
     assert latest is not None
     assert latest.session_id == "onboarding-nextjs-11:00"
 
 
 @pytest.mark.django_db
 def test_get_latest_ignores_other_workflow_skill_pairs(team):
-    WizardSessionAPI.upsert(
-        _input(team.id, session_id="onboarding-nextjs-1", workflow_id="onboarding", skill_id="nextjs")
-    )
-    WizardSessionAPI.upsert(
+    wizard_facade.upsert(_input(team.id, session_id="onboarding-nextjs-1", workflow_id="onboarding", skill_id="nextjs"))
+    wizard_facade.upsert(
         _input(team.id, session_id="migration-amplitude-1", workflow_id="migration", skill_id="amplitude")
     )
 
-    latest = WizardSessionAPI.get_latest(team.id, "onboarding", "nextjs")
+    latest = wizard_facade.get_latest(team.id, "onboarding", "nextjs")
     assert latest is not None
     assert latest.session_id == "onboarding-nextjs-1"
 
 
 @pytest.mark.django_db
 def test_get_latest_returns_none_when_no_match(team):
-    assert WizardSessionAPI.get_latest(team.id, "missing", "missing") is None
+    assert wizard_facade.get_latest(team.id, "missing", "missing") is None
 
 
 @pytest.mark.django_db
 def test_list_for_team_returns_sessions_ordered_by_started_at_desc(team):
-    WizardSessionAPI.upsert(
+    wizard_facade.upsert(
         _input(
             team.id,
             session_id="run-early",
             started_at=datetime(2026, 5, 19, 9, 0, 0, tzinfo=UTC),
         )
     )
-    WizardSessionAPI.upsert(
+    wizard_facade.upsert(
         _input(
             team.id,
             session_id="run-late",
@@ -131,5 +129,5 @@ def test_list_for_team_returns_sessions_ordered_by_started_at_desc(team):
         )
     )
 
-    sessions = WizardSessionAPI.list_for_team(team.id)
+    sessions = wizard_facade.list_for_team(team.id)
     assert [s.session_id for s in sessions] == ["run-late", "run-early"]
