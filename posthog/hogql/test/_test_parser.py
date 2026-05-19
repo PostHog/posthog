@@ -1430,6 +1430,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
                 ),
             )
+            # `TableExprAlias` is left-recursive, so a table can carry a
+            # chain of implicit aliases — the last one wins.
+            self.assertEqual(
+                self._select("select 1 from events e1 e2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e2"),
+                ),
+            )
             self.assertEqual(
                 self._select("select 1 from complex.table"),
                 ast.SelectQuery(

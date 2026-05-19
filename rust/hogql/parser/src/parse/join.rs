@@ -286,27 +286,7 @@ impl<'a> Parser<'a> {
             // Alias still attaches here — `(a JOIN b) AS x` is cpp's
             // accepted shape even though the strict grammar reads it
             // through a separate TableExprAlias rule.
-            let alias = self.try_consume_table_alias()?;
-            let column_aliases = if self.peek() == TokenKind::LParen {
-                self.bump()?;
-                let mut cols = Vec::new();
-                if self.peek() != TokenKind::RParen {
-                    loop {
-                        let t = self.bump()?;
-                        cols.push(identifier_text(self.text(t), t.kind));
-                        if !self.eat(TokenKind::Comma)? {
-                            break;
-                        }
-                        if self.peek() == TokenKind::RParen {
-                            break;
-                        }
-                    }
-                }
-                self.expect(TokenKind::RParen, ")")?;
-                Some(cols)
-            } else {
-                None
-            };
+            let (alias, column_aliases) = self.consume_table_alias_chain()?;
             if let Some(obj) = table_expr.as_object_mut() {
                 if let Some(a) = alias {
                     obj.insert("alias".into(), Value::String(a));
@@ -333,29 +313,7 @@ impl<'a> Parser<'a> {
         // first, FINAL and SAMPLE after. Parsing SAMPLE before the
         // alias (as this did) silently dropped the sample on an
         // aliased table — `t AS e SAMPLE 1` lost its `SampleExpr`.
-        let alias = self.try_consume_table_alias()?;
-        // Optional `(col1, col2, ...)` column aliases — used after a
-        // VALUES query or a subquery to rename its output columns.
-        let column_aliases = if self.peek() == TokenKind::LParen {
-            self.bump()?;
-            let mut cols = Vec::new();
-            if self.peek() != TokenKind::RParen {
-                loop {
-                    let t = self.bump()?;
-                    cols.push(identifier_text(self.text(t), t.kind));
-                    if !self.eat(TokenKind::Comma)? {
-                        break;
-                    }
-                    if self.peek() == TokenKind::RParen {
-                        break;
-                    }
-                }
-            }
-            self.expect(TokenKind::RParen, ")")?;
-            Some(cols)
-        } else {
-            None
-        };
+        let (alias, column_aliases) = self.consume_table_alias_chain()?;
         // `JoinExprTable: tableExpr FINAL? sampleClause?` — FINAL and
         // SAMPLE decorate the (possibly aliased) table.
         let final_ = self.eat_kw(Kw::Final)?;
@@ -388,6 +346,54 @@ impl<'a> Parser<'a> {
             );
         }
         Ok(Value::Object(obj))
+    }
+
+    /// Consume a chain of table aliases. The grammar's `TableExprAlias`
+    /// — `tableExpr (alias | AS identifier) columnAliases?` — is
+    /// left-recursive, so a table may carry several stacked aliases
+    /// (`t a b c`). cpp's `visitTableExprAlias` overwrites `alias` and
+    /// `column_aliases` on every wrap, so the LAST alias wins and its
+    /// column-aliases win with it (a final alias with no `columnAliases`
+    /// clears any that an inner alias set). Returns `(alias,
+    /// column_aliases)` for the outermost — last — alias, or
+    /// `(None, None)` when the table carries no alias at all.
+    fn consume_table_alias_chain(&mut self) -> Result<(Option<String>, Option<Vec<String>>), ParseError> {
+        let mut alias: Option<String> = None;
+        let mut column_aliases: Option<Vec<String>> = None;
+        while let Some(a) = self.try_consume_table_alias()? {
+            alias = Some(a);
+            // `columnAliases` belongs to *this* alias's `TableExprAlias`;
+            // re-read each iteration so the last alias's value (present
+            // or absent) is the one that survives.
+            column_aliases = self.try_consume_column_aliases()?;
+        }
+        Ok((alias, column_aliases))
+    }
+
+    /// Optional `columnAliases` — `LPAREN identifier (COMMA identifier)*
+    /// RPAREN` — renaming a table's output columns. The grammar only
+    /// admits it directly after a table alias, so the caller consumes it
+    /// inside the alias chain, never on its own.
+    fn try_consume_column_aliases(&mut self) -> Result<Option<Vec<String>>, ParseError> {
+        if self.peek() != TokenKind::LParen {
+            return Ok(None);
+        }
+        self.bump()?;
+        let mut cols = Vec::new();
+        if self.peek() != TokenKind::RParen {
+            loop {
+                let t = self.bump()?;
+                cols.push(identifier_text(self.text(t), t.kind));
+                if !self.eat(TokenKind::Comma)? {
+                    break;
+                }
+                if self.peek() == TokenKind::RParen {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RParen, ")")?;
+        Ok(Some(cols))
     }
 
     fn try_consume_table_alias(&mut self) -> Result<Option<String>, ParseError> {
