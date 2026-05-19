@@ -114,16 +114,25 @@ def _extract_type_str(entry: Any) -> str | None:
     return None
 
 
-def _parse_temporal_value(value: str, team_tz: "ZoneInfo | None") -> datetime:
-    """Parquet drops the timezone metadata from ClickHouse `DateTime('Europe/...')` columns,
-    so naive parsed values are treated as UTC and converted to team_tz before strftime.
-    Already-aware values are converted directly so the function is correct either way."""
-    parsed = datetime.fromisoformat(value)
-    if team_tz is not None:
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        parsed = parsed.astimezone(team_tz)
-    return parsed
+def _to_team_tz(value: Any, team_tz: "ZoneInfo | None") -> Any:
+    """Re-anchor a temporal value to team_tz so downstream strftime renders the local day.
+
+    Parquet-backed reads return DateTime columns as tz-aware UTC datetimes (or, in some
+    code paths, as ISO strings). In both cases the wall-clock is UTC, not team-tz, which
+    shifts the rendered day by the team's UTC offset. Naive values are treated as UTC;
+    aware values are converted directly. Non-temporal values pass through.
+    """
+    if team_tz is None:
+        return value
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value)
+    elif isinstance(value, datetime):
+        parsed = value
+    else:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(team_tz)
 
 
 def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None = None) -> None:
@@ -154,11 +163,9 @@ def _coerce_temporal_columns(rows: list, types: list | None, team: Team | None =
             value = row[col_idx]
             convert_tz = team_tz if is_datetime else None
             if isinstance(value, list):
-                coerced: Any = [
-                    _parse_temporal_value(item, convert_tz) if isinstance(item, str) else item for item in value
-                ]
-            elif isinstance(value, str):
-                coerced = _parse_temporal_value(value, convert_tz)
+                coerced: Any = [_to_team_tz(item, convert_tz) for item in value]
+            elif isinstance(value, str | datetime):
+                coerced = _to_team_tz(value, convert_tz)
             else:
                 continue
             if new_row is None:
