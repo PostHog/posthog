@@ -273,6 +273,8 @@ pub struct KafkaConfig {
     pub kafka_topic: String,
     #[envconfig(default = "ingestion-traces")]
     pub kafka_traces_topic: String,
+    #[envconfig(default = "ingestion-metrics")]
+    pub kafka_metrics_topic: String,
     #[envconfig(default = "events_plugin_ingestion_overflow")]
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
@@ -342,4 +344,19 @@ pub struct KafkaConfig {
     pub kafka_traces_producer_max_retries: Option<u32>,
     pub kafka_traces_topic_metadata_refresh_interval_ms: Option<u32>,
     pub kafka_traces_metadata_max_age_ms: Option<u32>,
+
+    // Metrics-cluster overrides (consumed by capture-logs). When unset, the
+    // metrics producer reuses the corresponding `kafka_*` value above.
+    pub kafka_metrics_hosts: Option<String>,
+    pub kafka_metrics_tls: Option<bool>,
+    pub kafka_metrics_client_id: Option<String>,
+    pub kafka_metrics_compression_codec: Option<String>,
+    pub kafka_metrics_producer_acks: Option<String>,
+    pub kafka_metrics_producer_linger_ms: Option<u32>,
+    pub kafka_metrics_producer_queue_mib: Option<u32>,
+    pub kafka_metrics_message_timeout_ms: Option<u32>,
+    pub kafka_metrics_producer_message_max_bytes: Option<u32>,
+    pub kafka_metrics_producer_max_retries: Option<u32>,
+    pub kafka_metrics_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_metrics_metadata_max_age_ms: Option<u32>,
 }

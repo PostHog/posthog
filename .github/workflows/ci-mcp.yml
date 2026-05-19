@@ -198,6 +198,9 @@ jobs:
                     exit 1
                   fi
 
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
+
             - name: Create snapshot patch
               id: create-snapshot-patch
               if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
@@ -459,7 +462,7 @@ jobs:
                   PersonalAPIKey.objects.create(
                       user=user,
                       label='mcp_ci_api_key',
-                      secure_value=hash_key_value('e2e_demo_api_key'),
+                      secure_value=hash_key_value('phx_e2e_demo_api_key'),
                       scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
@@ -491,7 +494,7 @@ jobs:
               run: cd services/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
-                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
 

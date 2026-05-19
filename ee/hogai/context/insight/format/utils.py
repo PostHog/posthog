@@ -2,7 +2,7 @@ import datetime
 from math import floor
 from typing import Any, Optional, Union
 
-from posthog.hogql_queries.insights.trends.breakdown import (
+from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,

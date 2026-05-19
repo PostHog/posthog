@@ -369,6 +369,23 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("filter_group_is_list", {"filterGroup": [{"type": "AND", "values": []}]}),
+            ("filter_group_is_string", {"filterGroup": "AND"}),
+            ("filter_group_missing_type", {"filterGroup": {"values": []}}),
+            ("filter_group_invalid_operator", {"filterGroup": {"type": "XOR", "values": []}}),
+        ]
+    )
+    def test_create_rejects_malformed_filter_group(self, _name, filters):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=filters),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(
+        [
             ("severity_levels", {"severityLevels": ["error"]}),
             ("service_names", {"serviceNames": ["my-service"]}),
             ("filter_group", {"filterGroup": {"type": "AND", "values": []}}),

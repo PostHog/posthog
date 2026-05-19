@@ -657,11 +657,14 @@ export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number
 }
 
 /**
- * Ship a variant to 100% of users and (optionally) end the experiment.
+ * Ship a variant and (optionally) end the experiment.
 
-Rewrites the feature flag so that the selected variant is served to everyone.
-Existing release conditions (flag groups) are preserved so the change can be
-rolled back by deleting the auto-added release condition in the feature flag UI.
+Updates the feature flag so the selected variant gets 100% of the variant
+distribution. By default, existing release conditions on the flag are preserved
+untouched — the variant is served only to users who already match them. Pass
+``release_to_everyone: true`` to also prepend a catch-all release condition
+that rolls the variant out to 100% of users (overrides any existing release
+conditions on the flag).
 
 Can be called on both running and stopped experiments. If the experiment is
 still running, it will also be ended (end_date set and status marked as stopped).

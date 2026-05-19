@@ -108,6 +108,7 @@ def pre_aggregate_web_analytics_data(
         )
 
         context.log.info(f"Populating staging table with hourly data from {date_start} to {date_end}")
+        context.log.info(f"Processing {len(team_ids) if team_ids else 0} team_ids: {team_ids}")
         context.log.info(insert_query)
         with tags_context(product=ProductKey.WEB_ANALYTICS, feature=Feature.PREAGGREGATION):
             sync_execute(insert_query)
