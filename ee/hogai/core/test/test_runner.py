@@ -440,11 +440,12 @@ class TestRunnerCancellation(BaseTest):
             self.assertEqual(capture_call_args[1]["properties"]["thread_id"], str(self.conversation.id))
             self.assertEqual(capture_call_args[1]["properties"]["agent_mode"], "product_analytics")
 
-            mock_logger.exception.assert_called_with(
+            mock_logger.warning.assert_called_with(
                 "Assistant stream cancelled before completion",
                 conversation_id=str(self.conversation.id),
                 team_id=self.team.id,
                 agent_mode="product_analytics",
+                exc_info=True,
             )
 
             # Don't await in the cancel handler; aupdate_state could re-raise

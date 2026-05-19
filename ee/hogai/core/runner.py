@@ -406,14 +406,18 @@ class BaseAgentRunner(ABC):
                 return  # Don't run interrupt handling after LLM errors
             except asyncio.CancelledError as e:
                 # asyncio.CancelledError is BaseException, so `except Exception` below
-                # doesn't catch it. No awaits before the yield - in a cancelled task,
-                # additional awaits can re-raise and skip the FailureMessage.
+                # doesn't catch it. Avoid awaits before the yield: the activity may
+                # still be in cancelling state, and a re-delivery of CancelledError
+                # would skip the FailureMessage yield.
                 agent_mode = getattr(self._state, "agent_mode", None) if self._state else None
-                logger.exception(
+                # Cancellation is captured to PostHog error tracking via capture_exception below;
+                # log at WARNING to avoid double-counting it as an error in log-based alerting.
+                logger.warning(
                     "Assistant stream cancelled before completion",
                     conversation_id=str(self._conversation.id),
                     team_id=self._team.id,
                     agent_mode=agent_mode,
+                    exc_info=True,
                 )
                 posthoganalytics.capture_exception(
                     e,
@@ -687,7 +691,7 @@ class BaseAgentRunner(ABC):
             properties={
                 "$session_id": self._session_id,
                 "$ai_trace_id": self._trace_id,
-                "thread_id": self._conversation.id,
+                "thread_id": str(self._conversation.id),
                 "tag": "max_ai",
                 "$groups": event_usage.groups(team=self._team),
             },
