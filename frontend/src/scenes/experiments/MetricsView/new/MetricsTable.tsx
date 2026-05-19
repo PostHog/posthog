@@ -35,8 +35,14 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, exposuresLoading } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
-        useActions(experimentLogic)
+    const {
+        duplicateMetric,
+        updateExperimentMetrics,
+        updateMetricBreakdown,
+        removeMetricBreakdown,
+        removeMetric,
+        removeSharedMetricFromExperiment,
+    } = useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
@@ -123,6 +129,16 @@ export function MetricsTable({
                                     const newUuid = crypto.randomUUID()
                                     duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
                                     updateExperimentMetrics()
+                                }}
+                                onDeleteMetric={() => {
+                                    if (metric.isSharedMetric && metric.sharedMetricId) {
+                                        removeSharedMetricFromExperiment(metric.sharedMetricId)
+                                        return
+                                    }
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+                                    removeMetric(metric.uuid, isSecondary ? 'secondary' : 'primary')
                                 }}
                                 onBreakdownChange={(breakdown) => {
                                     if (!metric.uuid) {
