@@ -420,6 +420,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -444,12 +445,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": redact_sandbox_command(command), "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
     def execute_stream(
@@ -468,6 +472,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
@@ -477,12 +482,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": redact_sandbox_command(command), "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
         class _ModalExecutionStream:
