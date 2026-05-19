@@ -8,8 +8,13 @@ from parameterized import parameterized
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.utils import hash_key_value
 from posthog.session_recordings.session_recording_api import (
     LISTING_RATES,
     REPLAY_TIER_CACHE_TTL_SECONDS,
@@ -302,8 +307,15 @@ class TestSnapshotAndListingThrottlesUseIndependentRates(BaseTest):
         assert listing_throttle._get_rates() == listing_rates()
 
 
-def _fake_sharing_token_request(token: str):
-    auth = SharingAccessTokenAuthentication()
+def _counter_value(location: str, auth_type: str) -> float:
+    from posthog.session_recordings.session_recording_api import SESSION_RECORDING_THROTTLED
+
+    sample = SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type)
+    return sample._value.get()  # prometheus_client's internal counter accessor
+
+
+def _fake_sharing_token_request(token: str, auth_cls: type = SharingAccessTokenAuthentication):
+    auth = auth_cls()
     auth.sharing_configuration = SharingConfiguration(access_token=token, enabled=True)
     return type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": auth})()
 
@@ -317,13 +329,15 @@ class TestSharingTokenReplayThrottle(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def test_cache_key_uses_token_not_ip(self) -> None:
+    def test_cache_key_uses_hashed_token_not_raw(self) -> None:
+        # Raw bearer tokens must never appear in cache keys (Redis MONITOR / log leakage).
         throttle = SharingTokenReplayThrottle()
 
         key = throttle.get_cache_key(_fake_sharing_token_request("token-abc"), view=None)
 
         assert key is not None
-        assert "token-abc" in key
+        assert "token-abc" not in key
+        assert hash_key_value("token-abc") in key
         assert throttle.scope in key
 
     def test_different_tokens_have_different_cache_keys(self) -> None:
@@ -341,6 +355,19 @@ class TestSharingTokenReplayThrottle(BaseTest):
         key_second = throttle.get_cache_key(_fake_sharing_token_request("token-shared"), view=None)
 
         assert key_first == key_second
+
+    def test_password_protected_auth_shares_bucket_with_access_token_auth(self) -> None:
+        # Both authenticators expose `sharing_configuration.access_token` — same recording, same bucket.
+        throttle = SharingTokenReplayThrottle()
+
+        key_access = throttle.get_cache_key(
+            _fake_sharing_token_request("token-x", SharingAccessTokenAuthentication), view=None
+        )
+        key_password = throttle.get_cache_key(
+            _fake_sharing_token_request("token-x", SharingPasswordProtectedAuthentication), view=None
+        )
+
+        assert key_access == key_password
 
     def test_returns_none_cache_key_when_no_sharing_configuration(self) -> None:
         # Defensive guard against misrouted requests.
@@ -360,6 +387,37 @@ class TestSharingTokenReplayThrottle(BaseTest):
 
         assert throttle.rate == "42/minute"
 
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=False)
+    def test_allow_request_short_circuits_when_kill_switch_off(self, _mock) -> None:
+        throttle = SharingTokenReplayThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+
+        for _ in range(10_000):
+            assert throttle.allow_request(_fake_sharing_token_request("token"), view=view) is True
+
+    @patch("posthog.session_recordings.session_recording_api.team_is_allowed_to_bypass_throttle", return_value=True)
+    def test_allow_request_short_circuits_for_bypass_listed_team(self, _mock) -> None:
+        throttle = SharingTokenReplayThrottle()
+        view = type("FakeView", (), {"team_id": 7})()
+
+        for _ in range(10_000):
+            assert throttle.allow_request(_fake_sharing_token_request("token"), view=view) is True
+
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
+    @override_settings(REPLAY_SHARING_TOKEN_RATE="2/minute")
+    def test_allow_request_emits_throttled_counter_on_rejection(self, _mock) -> None:
+        throttle = SharingTokenReplayThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+        before = _counter_value("replay_sharing_token", "sharing_token")
+
+        # Burn the bucket then attempt one more — only the rejected one bumps the counter.
+        for _ in range(2):
+            throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
+        throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
+
+        after = _counter_value("replay_sharing_token", "sharing_token")
+        assert after - before == 1
+
 
 class TestSessionRecordingViewSetThrottleSelection(BaseTest):
     def _viewset(self, action: str, authenticator) -> SessionRecordingViewSet:
@@ -370,8 +428,14 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         viewset.request = request  # ty: ignore[invalid-assignment]
         return viewset
 
-    def test_sharing_token_requests_only_use_per_token_throttle(self) -> None:
-        auth = SharingAccessTokenAuthentication()
+    @parameterized.expand(
+        [
+            ("access_token", SharingAccessTokenAuthentication),
+            ("password_protected", SharingPasswordProtectedAuthentication),
+        ]
+    )
+    def test_sharing_token_requests_only_use_per_token_throttle(self, _name: str, auth_cls: type) -> None:
+        auth = auth_cls()
         auth.sharing_configuration = SharingConfiguration(access_token="tok", enabled=True)
         viewset = self._viewset(action="snapshots", authenticator=auth)
 
