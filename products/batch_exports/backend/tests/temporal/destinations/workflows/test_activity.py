@@ -233,6 +233,11 @@ async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_er
     assert handler.error_data[0] in handler.data  # And should have been retried
 
 
+@pytest.mark.skip(
+    reason="Hangs in CI in clickhouse fixture setup (threadpool deadlock); blocks master Backend CI. "
+    "Reproducible on shard 4/7 of the Temporal segment. Re-enable once the underlying "
+    "threadpool deadlock in create_clickhouse_tables is resolved."
+)
 async def test_insert_into_workflows_activity_from_stage_fails_with_empty_url(
     clickhouse_client,
     activity_environment,

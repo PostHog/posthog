@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -39,6 +40,11 @@ class TestSyncRevenueAnalyticsViews(BaseTest):
             kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
+    @pytest.mark.skip(
+        reason="Hangs in CI in clickhouse fixture setup (threadpool deadlock); blocks master Backend CI. "
+        "Reproducible on shard 1/7 of the Temporal segment. Re-enable once the underlying "
+        "threadpool deadlock in create_clickhouse_tables is resolved."
+    )
     @patch(f"{PATH}.DataWarehouseSavedQuery.schedule_materialization")
     def test_sync_called_for_stripe_source_with_revenue_analytics_enabled(self, _):
         schema = ExternalDataSchema.objects.create(
