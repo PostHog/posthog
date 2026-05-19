@@ -2,10 +2,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { ConversionRateInputType, Experiment } from '~/types'
 
-import { DEFAULT_MDE, experimentLogic } from '../experimentLogic'
+import { DEFAULT_MDE } from '../constants'
+import { experimentLogic } from '../experimentLogic'
 import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
@@ -43,6 +45,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
             modalsLogic,
             ['isRunningTimeConfigModalOpen'],
+            experimentsConfigLogic,
+            ['experimentsConfig'],
         ],
         actions: [
             experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
@@ -84,13 +88,14 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         ],
 
         initialConfig: [
-            (s) => [s.experiment, s.isManualMode],
-            (experiment, isManualMode): RunningTimeConfig => {
+            (s) => [s.experiment, s.isManualMode, s.experimentsConfig],
+            (experiment, isManualMode, experimentsConfig): RunningTimeConfig => {
                 // Pre-launch experiments must use manual mode (no data available for automatic)
                 const isPreLaunch = !isLaunched(experiment)
+                const configDefaultMde = experimentsConfig?.default_minimum_detectable_effect ?? DEFAULT_MDE
                 return {
                     mode: isPreLaunch || isManualMode ? 'manual' : 'automatic',
-                    mde: experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
+                    mde: experiment?.parameters?.minimum_detectable_effect ?? configDefaultMde,
                     metricType:
                         (experiment?.parameters?.exposure_estimate_config
                             ?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
@@ -121,7 +126,9 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     }
                     const metricType = (saved?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel'
                     const adjustedBaseline = metricType === 'funnel' ? baseline / 100 : baseline
-                    const mde = experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
+                    // Use the experiment's MDE if set, otherwise fall back to config.mde which already
+                    // resolves the chain: experiment.parameters -> experimentsConfig -> DEFAULT_MDE
+                    const mde = experiment?.parameters?.minimum_detectable_effect ?? config.mde
                     return calculateSampleSize(metricType, adjustedBaseline, mde, numberOfVariants)
                 }
 

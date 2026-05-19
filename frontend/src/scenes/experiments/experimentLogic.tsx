@@ -26,6 +26,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -53,6 +54,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import {
     AccessControlLevel,
     BreakdownAttributionType,
@@ -136,8 +138,6 @@ export const NEW_EXPERIMENT: Experiment = {
     },
     user_access_level: AccessControlLevel.Editor,
 }
-
-export const DEFAULT_MDE = 30
 
 export const FORM_MODES = {
     create: 'create',
@@ -587,6 +587,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as funnelMetricInsightLoading'],
             sharedMetricsLogic,
             ['sharedMetrics'],
+            experimentsConfigLogic,
+            ['experimentsConfig'],
         ],
         actions: [
             experimentsLogic,
@@ -2438,9 +2440,10 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment],
-            (newExperiment): number => {
-                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
+            (s) => [s.experiment, s.experimentsConfig],
+            (newExperiment, experimentsConfig): number => {
+                const configDefaultMde = experimentsConfig?.default_minimum_detectable_effect ?? DEFAULT_MDE
+                return newExperiment?.parameters?.minimum_detectable_effect ?? configDefaultMde
             },
         ],
         recommendedSampleSize: [

@@ -61,5 +61,15 @@ class TeamExperimentsConfig(models.Model):
         ),
     )
 
+    default_minimum_detectable_effect = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Default minimum detectable effect (MDE) percentage for new experiments in this environment. "
+            "Valid values: 1-100. MDE is the smallest effect size you want to be able to detect with "
+            "statistical significance. Lower values require more data and longer run times."
+        ),
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)
