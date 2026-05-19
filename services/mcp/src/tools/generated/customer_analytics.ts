@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    AccountsCreateBody,
+    AccountsDestroyParams,
+    AccountsListQueryParams,
+    AccountsPartialUpdateBody,
+    AccountsPartialUpdateParams,
+    AccountsRetrieveParams,
     GroupsTypesMetricsCreateBody,
     GroupsTypesMetricsCreateParams,
     GroupsTypesMetricsDestroyParams,
@@ -15,6 +21,117 @@ import {
 import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const AccountsCreateSchema = AccountsCreateBody.extend({
+    properties: AccountsCreateBody.shape['properties'].describe(
+        'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. All three are optional.'
+    ),
+})
+
+const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account> => ({
+    name: 'accounts-create',
+    schema: AccountsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.external_id !== undefined) {
+            body['external_id'] = params.external_id
+        }
+        if (params.properties !== undefined) {
+            body['properties'] = params.properties
+        }
+        const result = await context.api.request<Schemas.Account>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsDestroySchema = AccountsDestroyParams.omit({ project_id: true })
+
+const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => ({
+    name: 'accounts-destroy',
+    schema: AccountsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsListSchema = AccountsListQueryParams
+
+const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Schemas.PaginatedAccountList>> => ({
+    name: 'accounts-list',
+    schema: AccountsListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_id: true })
+    .extend(AccountsPartialUpdateBody.shape)
+    .extend({
+        properties: AccountsPartialUpdateBody.shape['properties'].describe(
+            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`, each taking `{id, email}` of an existing user.'
+        ),
+    })
+
+const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, Schemas.Account> => ({
+    name: 'accounts-partial-update',
+    schema: AccountsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.external_id !== undefined) {
+            body['external_id'] = params.external_id
+        }
+        if (params.properties !== undefined) {
+            body['properties'] = params.properties
+        }
+        const result = await context.api.request<Schemas.Account>({
+            method: 'PATCH',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsRetrieveSchema = AccountsRetrieveParams.omit({ project_id: true })
+
+const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Account> => ({
+    name: 'accounts-retrieve',
+    schema: AccountsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Account>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_id: true })
     .extend(GroupsTypesMetricsCreateBody.shape)
@@ -181,6 +298,11 @@ const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'accounts-create': accountsCreate,
+    'accounts-destroy': accountsDestroy,
+    'accounts-list': accountsList,
+    'accounts-partial-update': accountsPartialUpdate,
+    'accounts-retrieve': accountsRetrieve,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

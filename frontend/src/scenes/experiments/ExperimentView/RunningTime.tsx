@@ -8,10 +8,10 @@ import { Label } from 'lib/ui/Label/Label'
 
 import { Experiment } from '~/types'
 
-import { RunningTimeConfigModal } from '../RunningTimeCalculatorNew/RunningTimeConfigModal'
-import { runningTimeLogic } from '../RunningTimeCalculatorNew/runningTimeLogic'
+import { RunningTimeConfigModal } from '../RunningTimeCalculator/RunningTimeConfigModal'
+import { runningTimeLogic } from '../RunningTimeCalculator/runningTimeLogic'
 
-export const RunningTimeNew = ({
+export const RunningTime = ({
     experiment,
     tabId,
     onClick,
