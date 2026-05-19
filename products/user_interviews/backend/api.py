@@ -32,10 +32,10 @@ from posthog.api.embedding_worker import generate_embedding
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.user import User
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import absolute_uri
 
