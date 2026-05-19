@@ -326,6 +326,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
+        // Existing nested-modal flows: `/insights/:shortId/subscriptions/new`,
+        // `/dashboard/:id/subscriptions/new`. The project prefix is stripped by
+        // `pathFromWindowToRoutes`, leaving two leading segments for the parent
+        // resource. Top-level AI flows (next entries) match after that strip too,
+        // but with no parent resource at all.
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
             if (searchParams.target_type) {
@@ -333,6 +338,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
         },
         '/*/*/subscriptions/:id': () => {
+            actions.loadSubscription()
+        },
+        // Top-level parent-less (AI prompt) flows. Browser URL is
+        // `/project/:teamId/subscriptions/...`; after project-prefix strip the
+        // path is `/subscriptions/...`, which has fewer segments than the nested
+        // patterns above match. Without these entries, loadSubscription never
+        // fires and the form shows the NEW_SUBSCRIPTION defaults.
+        '/subscriptions/new': (_, searchParams) => {
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            if (searchParams.target_type) {
+                actions.setSubscriptionValue('target_type', searchParams.target_type)
+            }
+        },
+        '/subscriptions/:id/edit': () => {
             actions.loadSubscription()
         },
     })),

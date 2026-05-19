@@ -20,7 +20,8 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     } else if (dashboardId) {
         return urls.dashboardSubscriptions(dashboardId)
     }
-    return ''
+    // Parent-less (e.g. AI prompt) subscriptions live at the top-level list.
+    return urls.subscriptions()
 }
 
 export const urlForSubscription = (
@@ -32,7 +33,8 @@ export const urlForSubscription = (
     } else if (dashboardId) {
         return urls.dashboardSubscription(dashboardId, id.toString())
     }
-    return ''
+    // Parent-less (e.g. AI prompt) subscriptions: top-level detail/new page.
+    return id === 'new' ? urls.subscriptionNew() : urls.subscription(id)
 }
 
 export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [

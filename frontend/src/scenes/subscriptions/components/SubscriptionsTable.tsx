@@ -115,9 +115,20 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             title: 'Type',
             key: 'type',
             width: '7rem',
-            render: (_value: unknown, sub: SubscriptionApi) => (
-                <span className="whitespace-nowrap">{sub.insight ? 'Insight' : sub.dashboard ? 'Dashboard' : '—'}</span>
-            ),
+            render: (_value: unknown, sub: SubscriptionApi) => {
+                if (sub.content_type === 'ai_prompt') {
+                    return (
+                        <LemonTag type="completion" size="small">
+                            AI report
+                        </LemonTag>
+                    )
+                }
+                return (
+                    <span className="whitespace-nowrap">
+                        {sub.insight ? 'Insight' : sub.dashboard ? 'Dashboard' : '—'}
+                    </span>
+                )
+            },
         },
         {
             title: 'Resource',
@@ -127,6 +138,23 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 maxWidth: 0,
             }),
             render: (_value: unknown, sub: SubscriptionApi) => {
+                // AI subs have no insight/dashboard FK — surface the prompt instead so the row
+                // reads as intentional ("this is what the AI was asked to do") rather than empty.
+                if (sub.content_type === 'ai_prompt') {
+                    const prompt = sub.prompt?.trim()
+                    if (!prompt) {
+                        return <span className="text-secondary">—</span>
+                    }
+                    return (
+                        <Tooltip title={prompt}>
+                            <div className="min-w-0 w-full overflow-hidden">
+                                <span className="text-muted italic block truncate" data-attr="subscription-ai-prompt">
+                                    {prompt}
+                                </span>
+                            </div>
+                        </Tooltip>
+                    )
+                }
                 const href = subscriptionResourceViewUrl(sub)
                 if (!href) {
                     return <span className="text-secondary">—</span>
