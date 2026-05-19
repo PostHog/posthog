@@ -2612,6 +2612,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method, initial }) => {
+            // Don't disturb in-progress edits when a same-pathname PUSH slips through
+            // (e.g. the beforeUnload prompt was shown and cancelled, but the route still
+            // reaches this handler). This must run before `editFeatureFlag` is dispatched,
+            // because its listener calls `loadFeatureFlag()` whenever `editing === true` —
+            // which would wipe the form on any re-push carrying `?edit=true`.
+            // The `initial` mount must still run so first-load setup happens.
+            if (method === 'PUSH' && values.isFormDirty) {
+                return
+            }
+
             // Set editing state on initial mount or PUSH navigation
             if (method === 'PUSH' || initial) {
                 actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
@@ -2625,12 +2635,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             if (method === 'PUSH') {
-                // Don't wipe the user's in-progress edits if a navigation slips through
-                // (e.g. the beforeUnload prompt was shown and cancelled, but the route still
-                // reaches this handler).
-                if (values.isFormDirty) {
-                    return
-                }
                 if (props.id) {
                     // When there is sourceId, we load the feature flag (for duplicating)
                     if (props.id === 'new' && searchParams.sourceId != null) {
@@ -2664,6 +2668,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
 
+    // TODO(#58936): this block is missing the scene-tab-cache guard that
+    // `actionEditLogic.tsx` (L305-332) uses, so the prompt can fire twice on tab
+    // switches. Fix requires making this scene tab-aware (`/making-scenes-tab-aware`).
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
             if (!logic.values.isFormDirty) {
