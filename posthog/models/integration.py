@@ -1279,7 +1279,7 @@ class SlackIntegration:
                         "is_admin": bool(member.get("is_admin")),
                     }
                 )
-            cursor = res.get("response_metadata", {}).get("next_cursor")
+            cursor = res["response_metadata"]["next_cursor"]
             if not cursor:
                 break
 
