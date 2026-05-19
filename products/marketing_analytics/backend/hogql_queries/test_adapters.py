@@ -1550,19 +1550,22 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         )
         return GoogleAdsAdapter(config=config, context=replace(self.context, drill_down_level=level))
 
-    def test_google_ad_name_single_candidate_skips_coalesce(self):
-        # When only the id column exists there is nothing to coalesce — the
-        # field is a bare toString, not a one-argument coalesce.
-        adapter = self._build_google_ad_level_adapter(["ad_group_ad_ad_id"], MarketingAnalyticsDrillDownLevel.AD)
-        assert adapter._get_ad_name_field().to_hogql() == "toString(googleads_ad.ad_group_ad_ad_id)"
-
-    def test_google_ad_name_is_null_below_ad_level(self):
-        # The ad-name column only exists at AD drill-down; elsewhere it must be
-        # NULL, matching the base adapter contract for hierarchy fields.
-        adapter = self._build_google_ad_level_adapter(["ad_group_ad_ad_id"], MarketingAnalyticsDrillDownLevel.CAMPAIGN)
-        field = adapter._get_ad_name_field()
-        assert isinstance(field, ast.Constant)
-        assert field.value is None
+    @parameterized.expand(
+        [
+            # At AD level with only the id column present, the coalesce
+            # collapses to a bare toString — no one-argument coalesce wrapper.
+            ("at_ad_level", MarketingAnalyticsDrillDownLevel.AD, "toString(googleads_ad.ad_group_ad_ad_id)"),
+            # Below the AD drill-down, the ad-name field must be NULL, mirroring
+            # the base adapter contract for hierarchy fields.
+            ("below_ad_level", MarketingAnalyticsDrillDownLevel.CAMPAIGN, None),
+        ]
+    )
+    def test_google_ad_name_with_only_id_column(self, _name, level, expected_hogql):
+        field = self._build_google_ad_level_adapter(["ad_group_ad_ad_id"], level)._get_ad_name_field()
+        if expected_hogql is None:
+            assert isinstance(field, ast.Constant) and field.value is None
+        else:
+            assert field.to_hogql() == expected_hogql
 
     def test_tiktok_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
