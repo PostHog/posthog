@@ -181,6 +181,59 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("notIn(resource_fingerprint", query_str)
         self.assertNotIn("in(resource_fingerprint", query_str)
 
+    def test_multiple_negative_resource_attribute_filters_use_array_exists(self):
+        """Multiple negative resource attribute filters must exclude resources matching ANY of them, not ALL."""
+
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="k8s.container.name",
+                                operator=PropertyOperator.IS_NOT,
+                                type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                                value="nginx",
+                            ),
+                            LogPropertyFilter(
+                                key="k8s.namespace",
+                                operator=PropertyOperator.IS_NOT,
+                                type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                                value="kube-system",
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        # Negative-filter subquery must use arrayExists so NOT IN excludes resources matching ANY filter.
+        self.assertIn("notIn(resource_fingerprint", query_str)
+        self.assertIn("arrayExists", query_str)
+        self.assertNotIn("arrayAll", query_str)
+
     def test_mixed_attribute_filters(self):
         """Test combinations of log attributes and resource attributes"""
         query = LogsQuery(
