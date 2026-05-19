@@ -97,7 +97,7 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
-    PostHogCodeSpendViewSet,
+    PersonalSpendViewSet,
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
@@ -219,10 +219,10 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-# PostHog Code spend data lives only in PostHog Cloud US's internal team — register
+# Personal LLM spend data lives only in PostHog Cloud US's internal team — register
 # the endpoint there plus dev/test envs so it stays reachable in development.
 if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
-    router.register(r"llm_analytics/posthog_code_spend", PostHogCodeSpendViewSet, "posthog_code_spend")
+    router.register(r"llm_analytics/personal_spend", PersonalSpendViewSet, "personal_spend")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")

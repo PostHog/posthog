@@ -9,7 +9,7 @@ from .evaluation_summary import LLMEvaluationSummaryViewSet
 from .evaluations import EvaluationViewSet
 from .models import LLMModelsViewSet
 from .offline_evaluations import LLMAnalyticsOfflineEvaluationsViewSet
-from .posthog_code_spend import PostHogCodeSpendViewSet
+from .personal_spend import PersonalSpendViewSet
 from .provider_keys import LLMProviderKeyValidationViewSet, LLMProviderKeyViewSet
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
@@ -45,7 +45,7 @@ __all__ = [
     "ScoreDefinitionViewSet",
     "LLMAnalyticsSentimentViewSet",
     "LLMAnalyticsOfflineEvaluationsViewSet",
-    "PostHogCodeSpendViewSet",
+    "PersonalSpendViewSet",
     "TaggerViewSet",
     "TraceReviewViewSet",
 ]

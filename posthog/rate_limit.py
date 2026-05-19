@@ -560,22 +560,22 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
-class PostHogCodeSpendBurstThrottle(PersonalApiKeyRateThrottle):
-    # Burst limit for the PostHog Code spend analysis endpoint.
+class PersonalSpendBurstThrottle(PersonalApiKeyRateThrottle):
+    # Burst limit for the personal LLM spend analysis endpoint.
     # ClickHouse-bound; protects against impatient refresh-spamming.
-    scope = "posthog_code_spend_burst"
+    scope = "personal_spend_burst"
     rate = "10/minute"
 
 
-class PostHogCodeSpendSustainedThrottle(PersonalApiKeyRateThrottle):
-    # Sustained limit for the PostHog Code spend analysis endpoint.
-    scope = "posthog_code_spend_sustained"
+class PersonalSpendSustainedThrottle(PersonalApiKeyRateThrottle):
+    # Sustained limit for the personal LLM spend analysis endpoint.
+    scope = "personal_spend_sustained"
     rate = "60/hour"
 
 
-class PostHogCodeSpendDailyThrottle(PersonalApiKeyRateThrottle):
-    # Daily cap for the PostHog Code spend analysis endpoint.
-    scope = "posthog_code_spend_daily"
+class PersonalSpendDailyThrottle(PersonalApiKeyRateThrottle):
+    # Daily cap for the personal LLM spend analysis endpoint.
+    scope = "personal_spend_daily"
     rate = "200/day"
 
 
