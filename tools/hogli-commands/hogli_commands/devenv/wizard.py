@@ -233,7 +233,7 @@ def _parse_exclude_input(raw: str, units: list[str]) -> tuple[list[str], list[in
         token = token.strip()
         if not token:
             continue
-        if token.isdigit():
+        if token.isdecimal():
             idx = int(token)
             if 1 <= idx <= len(units):
                 excluded.append(units[idx - 1])

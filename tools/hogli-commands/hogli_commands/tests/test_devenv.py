@@ -758,6 +758,8 @@ class TestParseExcludeInput:
             ("  ,  ,  ", [], []),
             ("99", [], [99]),
             ("99, feature-flags", ["feature-flags"], [99]),
+            ("1, backend", ["backend", "backend"], []),
+            ("²", ["²"], []),
         ]
     )
     def test_parse(self, raw: str, expected_excluded: list[str], expected_out_of_range: list[int]) -> None:
