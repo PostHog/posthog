@@ -347,4 +347,15 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn schema_init_rejects_unsupported_naming_conventions() {
+        let error =
+            match Cli::try_parse_from(["posthog-cli", "schema", "init", "--naming", "camelCase"]) {
+                Ok(_) => panic!("schema init should reject unsupported naming conventions"),
+                Err(error) => error.to_string(),
+            };
+
+        assert!(error.contains("snake_case_past_tense"));
+    }
 }

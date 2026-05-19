@@ -116,8 +116,13 @@ pub struct InitArgs {
     /// Starter event taxonomy
     #[arg(long, value_enum, default_value = "posthog_growth_v0")]
     baseline: Baseline,
-    /// Event naming convention
-    #[arg(long, default_value = "snake_case_past_tense")]
+    /// Event naming convention (currently only snake_case_past_tense is supported)
+    #[arg(
+        long,
+        default_value = "snake_case_past_tense",
+        value_parser = ["snake_case_past_tense"],
+        hide = true
+    )]
     naming: String,
     /// Overwrite an existing source file
     #[arg(long, default_value = "false")]
@@ -330,7 +335,7 @@ fn init_local(args: InitArgs) -> Result<()> {
     let hash = hash_plan(&plan)?;
 
     let mut config = LocalSchemaConfig::load();
-    config.update_tracking_plan(&args, hash, plan.events.len());
+    config.update_tracking_plan(&args, hash.clone(), plan.events.len());
 
     let detected_languages = detect_local_languages()?;
     let selected_language = args.lang.or_else(|| {
@@ -346,7 +351,7 @@ fn init_local(args: InitArgs) -> Result<()> {
             .out
             .clone()
             .unwrap_or_else(|| lang.default_output_path().to_string());
-        config.update_local_language(lang, out.clone(), hash_plan(&plan)?, plan.events.len());
+        config.update_local_language(lang, out.clone(), hash.clone(), plan.events.len());
         write_generated_file(&plan, lang, &out)?;
         println!(
             "✓ Generated {} typed helpers at {}",
@@ -382,8 +387,8 @@ fn generate_local(args: GenerateArgs) -> Result<()> {
     let plan = read_tracking_plan(&args.source)?;
     validate_tracking_plan(&plan)?;
 
+    let mut config = LocalSchemaConfig::load();
     let output_path = args.out.unwrap_or_else(|| {
-        let config = LocalSchemaConfig::load();
         config
             .languages
             .get(args.lang.as_config_key())
@@ -393,7 +398,6 @@ fn generate_local(args: GenerateArgs) -> Result<()> {
 
     write_generated_file(&plan, args.lang, &output_path)?;
 
-    let mut config = LocalSchemaConfig::load();
     config.update_local_language(
         args.lang,
         output_path.clone(),
@@ -516,7 +520,7 @@ struct DesiredProperty {
 struct RemoteState {
     events: BTreeMap<String, RemoteEvent>,
     property_groups: BTreeMap<String, RemotePropertyGroup>,
-    event_schema_links: BTreeSet<(String, String)>,
+    event_schema_links: BTreeMap<(String, String), String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -567,7 +571,7 @@ impl SyncChange {
             SyncChange::UnexpectedEventSchema {
                 event,
                 property_group,
-            } => format!("Unexpected event schema properties: {event} -> {property_group}"),
+            } => format!("Remove event schema properties: {event} -> {property_group}"),
         }
     }
 }
@@ -686,7 +690,7 @@ fn diff_remote_state(desired: &DesiredRemotePlan, remote: &RemoteState) -> Vec<S
     for (event, property_group) in &desired.event_schema_links {
         if !remote
             .event_schema_links
-            .contains(&(event.clone(), property_group.clone()))
+            .contains_key(&(event.clone(), property_group.clone()))
         {
             changes.push(SyncChange::AttachEventSchema {
                 event: event.clone(),
@@ -695,7 +699,7 @@ fn diff_remote_state(desired: &DesiredRemotePlan, remote: &RemoteState) -> Vec<S
         }
     }
 
-    for (event, property_group) in &remote.event_schema_links {
+    for (event, property_group) in remote.event_schema_links.keys() {
         if desired.events.contains_key(event)
             && !desired
                 .event_schema_links
@@ -764,7 +768,10 @@ fn fetch_remote_state(client: &PHClient) -> Result<RemoteState> {
                 .map(|group| group.id.clone())?;
             let event_name = events_by_id.get(&event_id)?;
             let property_group_name = property_groups_by_id.get(&property_group_id)?;
-            Some((event_name.clone(), property_group_name.clone()))
+            Some((
+                (event_name.clone(), property_group_name.clone()),
+                schema.id.clone(),
+            ))
         })
         .collect();
 
@@ -881,7 +888,7 @@ fn apply_remote_plan(
     for (event_name, property_group_name) in &desired.event_schema_links {
         if refreshed
             .event_schema_links
-            .contains(&(event_name.clone(), property_group_name.clone()))
+            .contains_key(&(event_name.clone(), property_group_name.clone()))
         {
             continue;
         }
@@ -904,6 +911,17 @@ fn apply_remote_plan(
             }),
         )?;
         println!("Attach event schema properties: {event_name} -> {property_group_name}");
+    }
+
+    for ((event_name, property_group_name), schema_id) in &refreshed.event_schema_links {
+        if desired.events.contains_key(event_name)
+            && !desired
+                .event_schema_links
+                .contains(&(event_name.clone(), property_group_name.clone()))
+        {
+            request_empty(client, "DELETE", &format!("event_schemas/{schema_id}/"))?;
+            println!("Remove event schema properties: {event_name} -> {property_group_name}");
+        }
     }
 
     Ok(())
@@ -966,6 +984,25 @@ fn request_json(client: &PHClient, method: &str, path: &str, payload: Value) -> 
         .context(format!("Failed to parse {method} {path} response"))
 }
 
+fn request_empty(client: &PHClient, method: &str, path: &str) -> Result<()> {
+    let url = client.project_url(path)?;
+    let request = match method {
+        "DELETE" => client.delete(url),
+        _ => return Err(anyhow::anyhow!("Unsupported HTTP method `{method}`")),
+    };
+    let response = request
+        .send()
+        .context(format!("Failed to {method} {path}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_else(|_| String::new());
+        return Err(anyhow::anyhow!(
+            "PostHog API request failed: {method} {path} returned {status}: {body}"
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 struct PaginatedResponse<T> {
     results: Vec<T>,
@@ -977,6 +1014,7 @@ where
     T: serde::de::DeserializeOwned,
 {
     let mut url = client.project_url(path)?;
+    let allowed_origin = client.project_url("")?;
     let mut results = Vec::new();
 
     loop {
@@ -997,14 +1035,26 @@ where
         results.extend(page.results);
         match page.next {
             Some(next_url) => {
-                url = Url::parse(&next_url)
+                let parsed = Url::parse(&next_url)
                     .context(format!("Failed to parse next page URL `{next_url}`"))?;
+                if !same_origin(&parsed, &allowed_origin) {
+                    return Err(anyhow::anyhow!(
+                        "Pagination next URL `{next_url}` does not match the configured PostHog host"
+                    ));
+                }
+                url = parsed;
             }
             None => break,
         }
     }
 
     Ok(results)
+}
+
+fn same_origin(left: &Url, right: &Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1045,6 +1095,7 @@ struct SchemaPropertyGroupPropertyResponse {
 
 #[derive(Debug, Deserialize)]
 struct EventSchemaResponse {
+    id: String,
     event_definition: IdReference,
     #[serde(default)]
     property_group: Option<SchemaPropertyGroupReference>,
@@ -1413,7 +1464,7 @@ fn write_generated_file(plan: &TrackingPlan, lang: LocalLanguage, output_path: &
 
     let content = match lang {
         LocalLanguage::Typescript => generate_typescript(plan),
-        LocalLanguage::Golang => generate_go(plan),
+        LocalLanguage::Golang => generate_go(plan, &go_package_name(output_path)),
         LocalLanguage::Python => generate_python(plan),
     };
     fs::write(output_path, content).context(format!("Failed to write {output_path}"))?;
@@ -1468,9 +1519,9 @@ fn generate_typescript(plan: &TrackingPlan) -> String {
     out
 }
 
-fn generate_go(plan: &TrackingPlan) -> String {
-    let mut out = String::from(
-        "// Generated by posthog-cli schema generate. Do not edit by hand.\npackage typed\n\n",
+fn generate_go(plan: &TrackingPlan, package_name: &str) -> String {
+    let mut out = format!(
+        "// Generated by posthog-cli schema generate. Do not edit by hand.\npackage {package_name}\n\n",
     );
     out.push_str("type EventName string\n\nconst (\n");
     let max_const_name_len = plan
@@ -1564,6 +1615,77 @@ fn generate_go(plan: &TrackingPlan) -> String {
     }
     out
 }
+
+fn go_package_name(output_path: &str) -> String {
+    let package_name = Path::new(output_path)
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or("typed");
+
+    sanitize_go_package_name(package_name)
+}
+
+fn sanitize_go_package_name(name: &str) -> String {
+    let mut sanitized = String::new();
+    for character in name.chars() {
+        if character.is_ascii_alphanumeric() || character == '_' {
+            sanitized.push(character.to_ascii_lowercase());
+        } else if character == '-' || character == ' ' {
+            sanitized.push('_');
+        }
+    }
+
+    let sanitized = sanitized.trim_matches('_');
+    if sanitized.is_empty() {
+        return "typed".to_string();
+    }
+
+    let package_name = if sanitized
+        .chars()
+        .next()
+        .map(|character| character.is_ascii_digit())
+        .unwrap_or(false)
+    {
+        format!("pkg_{sanitized}")
+    } else {
+        sanitized.to_string()
+    };
+
+    if GO_KEYWORDS.contains(&package_name.as_str()) {
+        format!("{package_name}_pkg")
+    } else {
+        package_name
+    }
+}
+
+const GO_KEYWORDS: &[&str] = &[
+    "break",
+    "default",
+    "func",
+    "interface",
+    "select",
+    "case",
+    "defer",
+    "go",
+    "map",
+    "struct",
+    "chan",
+    "else",
+    "goto",
+    "package",
+    "switch",
+    "const",
+    "fallthrough",
+    "if",
+    "range",
+    "type",
+    "continue",
+    "for",
+    "import",
+    "return",
+    "var",
+];
 
 fn spaces(count: usize) -> String {
     " ".repeat(count)
@@ -1708,8 +1830,8 @@ mod local_schema_tests {
         assert!(ts.contains("'user_signed_up'"));
         assert!(ts.contains("signup_method: string"));
 
-        let go = generate_go(&plan);
-        assert!(go.contains("package typed"));
+        let go = generate_go(&plan, "analytics");
+        assert!(go.contains("package analytics"));
         assert!(go.contains("UserSignedUp"));
         assert!(go.contains("EventName = \"user_signed_up\""));
         assert!(go.contains("SignupMethod string"));
@@ -1718,6 +1840,18 @@ mod local_schema_tests {
         assert!(py.contains("PostHogEventName = Literal"));
         assert!(py.contains("class UserSignedUpProperties"));
         assert!(py.contains("signup_method: str"));
+    }
+
+    #[test]
+    fn derives_go_package_from_output_path() {
+        assert_eq!(go_package_name("posthog-events-typed.go"), "typed");
+        assert_eq!(go_package_name("internal/analytics/events.go"), "analytics");
+        assert_eq!(
+            go_package_name("internal/posthog-events/events.go"),
+            "posthog_events"
+        );
+        assert_eq!(go_package_name("internal/123/events.go"), "pkg_123");
+        assert_eq!(go_package_name("internal/type/events.go"), "type_pkg");
     }
 
     #[test]
@@ -1841,7 +1975,7 @@ mod local_schema_tests {
         let remote = RemoteState {
             events: BTreeMap::new(),
             property_groups: BTreeMap::new(),
-            event_schema_links: BTreeSet::new(),
+            event_schema_links: BTreeMap::new(),
         };
 
         let changes = diff_remote_state(&desired, &remote);
@@ -2015,12 +2149,14 @@ mod local_schema_tests {
         let plan = starter_plan(Baseline::ActivationRevenue, "snake_case_past_tense");
         let desired = build_remote_plan(&plan).expect("remote plan should build");
         let mut remote = remote_state_from_desired(&desired);
-        remote
-            .event_schema_links
-            .insert(("user_signed_up".to_string(), "extra_context".to_string()));
-        remote
-            .event_schema_links
-            .insert(("unmanaged_event".to_string(), "extra_context".to_string()));
+        remote.event_schema_links.insert(
+            ("user_signed_up".to_string(), "extra_context".to_string()),
+            "schema-extra".to_string(),
+        );
+        remote.event_schema_links.insert(
+            ("unmanaged_event".to_string(), "extra_context".to_string()),
+            "schema-unmanaged".to_string(),
+        );
 
         let changes = diff_remote_state(&desired, &remote);
 
@@ -2069,7 +2205,12 @@ mod local_schema_tests {
                     )
                 })
                 .collect(),
-            event_schema_links: desired.event_schema_links.clone(),
+            event_schema_links: desired
+                .event_schema_links
+                .iter()
+                .enumerate()
+                .map(|(index, link)| (link.clone(), format!("schema-{index}")))
+                .collect(),
         }
     }
 }
