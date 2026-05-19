@@ -112,6 +112,15 @@ class TestCoreEvent(BaseTest):
 
 
 class TestTeam(BaseTest):
+    def _enable_access_control(self, role_based: bool = False) -> None:
+        from posthog.constants import AvailableFeature
+
+        features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+        if role_based:
+            features.append({"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.available_product_features = features
+        self.organization.save()
+
     def test_all_users_with_access_simple_org_membership(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -153,6 +162,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team(self):
         """Test that only users with specific access have access to a private team with the new access control system"""
+        self._enable_access_control()
 
         # Make the team private
         AccessControl.objects.create(
@@ -185,6 +195,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
+        self._enable_access_control()
 
         # Make the team private
         AccessControl.objects.create(
@@ -227,6 +238,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
+        self._enable_access_control(role_based=True)
 
         # Make the team private
         AccessControl.objects.create(
@@ -268,3 +280,61 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+
+    def test_all_users_with_access_returns_all_org_members_without_access_control_feature(self):
+        """Without ACCESS_CONTROL there are no private teams — every org member has access,
+        even if AccessControl rows exist in the DB."""
+        # No features enabled
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        member_user = User.objects.create_and_join(
+            self.organization,
+            email="member-no-feature@posthog.com",
+            first_name="first_name",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
+        # Both users in, despite the private AccessControl row
+        assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+
+    def test_all_users_with_access_role_access_inert_without_role_based_access_feature(self):
+        """With ACCESS_CONTROL but no ROLE_BASED_ACCESS, role-backed AccessControl rows
+        must not grant access — mirrors the UI gate and User.teams behaviour."""
+        self._enable_access_control()  # ACCESS_CONTROL only
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        member_user = User.objects.create_and_join(
+            self.organization,
+            email="member-no-rbac@posthog.com",
+            first_name="first_name",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        member_org_membership = OrganizationMembership.objects.get(organization=self.organization, user=member_user)
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=member_user, organization_member=member_org_membership)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level="member"
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
+        # Only the org admin gets access — the role-backed member does not
+        assert all_user_with_access_ids == [self.user.id]

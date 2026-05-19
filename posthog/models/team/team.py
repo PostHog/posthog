@@ -1030,11 +1030,20 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
+        from posthog.constants import AvailableFeature
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
+
+        # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
+        # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(
@@ -1075,21 +1084,25 @@ class Team(UUIDTClassicModel):
                 id__in=org_memberships_with_access
             ).values_list("user_id", flat=True)
 
-            # Get roles with access to this team
-            roles_with_access = AccessControl.objects.filter(
-                team_id=self.id,
-                resource="project",
-                resource_id=str(self.id),
-                role__isnull=False,
-                access_level__in=["member", "admin"],
-            ).values_list("role", flat=True)
+            # Role-backed access only contributes when the org has ROLE_BASED_ACCESS —
+            # same gate as the UI's "Roles" block on the project access settings page.
+            if self.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+                roles_with_access = AccessControl.objects.filter(
+                    team_id=self.id,
+                    resource="project",
+                    resource_id=str(self.id),
+                    role__isnull=False,
+                    access_level__in=["member", "admin"],
+                ).values_list("role", flat=True)
 
-            # Get users who have these roles
-            role_user_ids = (
-                RoleMembership.objects.filter(role_id__in=roles_with_access)
-                .values_list("organization_member__user_id", flat=True)
-                .distinct()
-            )
+                role_user_ids = (
+                    RoleMembership.objects.filter(role_id__in=roles_with_access)
+                    .values_list("organization_member__user_id", flat=True)
+                    .distinct()
+                )
+            else:
+                # Empty queryset (not a list) so `.union()` keeps working.
+                role_user_ids = RoleMembership.objects.none().values_list("organization_member__user_id", flat=True)
 
             # Union all sets of user IDs
             user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)

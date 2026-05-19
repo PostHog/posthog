@@ -12,6 +12,7 @@ import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -79,6 +80,10 @@ class RemoteConfig(UUIDTModel):
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            # Route writes to the dedicated cache the Rust feature-flags service reads from.
+            # Without this, prod writes land in the shared cache while Rust reads from the
+            # dedicated one, forcing every /flags config_response to fall through to S3.
+            cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
         )
 
     def _build_session_recording_config(self, team: Team) -> dict:

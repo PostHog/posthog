@@ -12,7 +12,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { composeTicketLogic } from './composeTicketLogic'
-import { ComposeTicketModal } from './ComposeTicketModal'
 
 interface ComposeTicketButtonProps {
     size?: LemonButtonProps['size']
@@ -85,7 +84,6 @@ export function ComposeTicketButton({
                     {iconOnly ? null : 'New ticket'}
                 </LemonButton>
             </Popover>
-            <ComposeTicketModal />
         </>
     )
 }

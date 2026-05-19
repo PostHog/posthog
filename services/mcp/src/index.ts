@@ -1,4 +1,3 @@
-import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
     buildInsufficientScopeChallenge,
@@ -8,6 +7,7 @@ import {
 } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { getPostHogClient } from '@/lib/posthog'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -16,26 +16,11 @@ import { MCP, RequestProperties } from './mcp'
 
 function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
     const mcpServerLog: Record<string, unknown> = {
-        ...(props.mcpAnalyticsProvider ? { mcpAnalyticsProvider: props.mcpAnalyticsProvider } : {}),
-        ...(props.mcpAnalyticsFlagKey ? { mcpAnalyticsFlagKey: props.mcpAnalyticsFlagKey } : {}),
-        ...(props.mcpAnalyticsFlagEnabled !== undefined
-            ? { mcpAnalyticsFlagEnabled: props.mcpAnalyticsFlagEnabled }
-            : {}),
-        ...(props.mcpAnalyticsFlagErrorName ? { mcpAnalyticsFlagErrorName: props.mcpAnalyticsFlagErrorName } : {}),
-        ...(props.mcpAnalyticsFlagErrorMessage
-            ? { mcpAnalyticsFlagErrorMessage: props.mcpAnalyticsFlagErrorMessage }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitAction
-            ? { posthogMcpAnalyticsInitAction: props.posthogMcpAnalyticsInitAction }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitReason
-            ? { posthogMcpAnalyticsInitReason: props.posthogMcpAnalyticsInitReason }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitErrorName
-            ? { posthogMcpAnalyticsInitErrorName: props.posthogMcpAnalyticsInitErrorName }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitErrorMessage
-            ? { posthogMcpAnalyticsInitErrorMessage: props.posthogMcpAnalyticsInitErrorMessage }
+        ...(props.mcpAnalyticsInitAction ? { mcpAnalyticsInitAction: props.mcpAnalyticsInitAction } : {}),
+        ...(props.mcpAnalyticsInitReason ? { mcpAnalyticsInitReason: props.mcpAnalyticsInitReason } : {}),
+        ...(props.mcpAnalyticsInitErrorName ? { mcpAnalyticsInitErrorName: props.mcpAnalyticsInitErrorName } : {}),
+        ...(props.mcpAnalyticsInitErrorMessage
+            ? { mcpAnalyticsInitErrorMessage: props.mcpAnalyticsInitErrorMessage }
             : {}),
     }
 
