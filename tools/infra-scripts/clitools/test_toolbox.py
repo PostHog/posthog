@@ -1200,62 +1200,48 @@ class TestToolbox(unittest.TestCase):
         )
 
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):
-        """No --pool argument defaults to toolbox-django and threads its labels."""
-        patches = self._patch_main_collaborators()
+        """--pool toolbox-django (the default) threads the right kwargs per active namespace.
 
-        with (
-            patches["get_current_user"],
-            patches["get_toolbox_pod"] as m_get_pod,
-            patches["claim_pod"],
-            patches["connect_to_pod"],
-            patches["delete_pod"],
-            patches["select_context"],
-            patches["validate_context"],
-            patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
-            patch.dict(os.environ, {}, clear=False),
-        ):
-            self._clean_env()
-            with self.assertRaises(SystemExit):
-                toolbox_script.main()
-
-        m_get_pod.assert_called_once_with(
-            "user_at_posthog.com",
-            check_claimed=True,
-            app_label="posthog-toolbox-django",
-            claimed_label_key="toolbox-claimed",
-            namespace="posthog",
-            context="posthog-dev",
-            extra_selector=None,
-        )
-
-    def test_main_toolbox_django_in_per_app_namespace_adds_component_selector(self):
-        """Targeting the golden-chart namespace adds `component=app` to the kubectl selector.
-
-        Under the golden chart, the toolbox release also owns pgbouncer Deployments in the
-        per-app namespace, and they share `app.kubernetes.io/name=posthog-toolbox-django`
-        with the toolbox itself. Without the extra `component=app` filter, the wrapper
-        could pick up a pgbouncer pod.
+        The legacy `posthog` namespace gets no `extra_selector`. The golden-chart per-app
+        namespace `posthog-toolbox-django` adds `app.kubernetes.io/component=app` so the
+        wrapper can't claim a pgbouncer pod (the chart's pgbouncers share
+        `app.kubernetes.io/name=posthog-toolbox-django` with the toolbox itself).
         """
-        patches = self._patch_main_collaborators()
+        cases = [
+            ("posthog", None),  # legacy default — KUBE_NAMESPACE unset
+            ("posthog-toolbox-django", "app.kubernetes.io/component=app"),
+        ]
+        for namespace, expected_extra in cases:
+            with self.subTest(namespace=namespace):
+                patches = self._patch_main_collaborators()
+                env_override = {"KUBE_NAMESPACE": namespace} if namespace != "posthog" else {}
+                with (
+                    patches["get_current_user"],
+                    patches["get_toolbox_pod"] as m_get_pod,
+                    patches["claim_pod"],
+                    patches["connect_to_pod"],
+                    patches["delete_pod"],
+                    patches["select_context"],
+                    patches["validate_context"],
+                    patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
+                    patch.dict(os.environ, env_override, clear=False),
+                ):
+                    os.environ.pop("KUBE_CONTEXT", None)
+                    os.environ.pop("FLOX_ENV", None)
+                    if namespace == "posthog":
+                        os.environ.pop("KUBE_NAMESPACE", None)
+                    with self.assertRaises(SystemExit):
+                        toolbox_script.main()
 
-        with (
-            patches["get_current_user"],
-            patches["get_toolbox_pod"] as m_get_pod,
-            patches["claim_pod"],
-            patches["connect_to_pod"],
-            patches["delete_pod"],
-            patches["select_context"],
-            patches["validate_context"],
-            patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
-            patch.dict(os.environ, {"KUBE_NAMESPACE": "posthog-toolbox-django"}, clear=False),
-        ):
-            os.environ.pop("KUBE_CONTEXT", None)
-            os.environ.pop("FLOX_ENV", None)
-            with self.assertRaises(SystemExit):
-                toolbox_script.main()
-
-        self.assertEqual(m_get_pod.call_args.kwargs["namespace"], "posthog-toolbox-django")
-        self.assertEqual(m_get_pod.call_args.kwargs["extra_selector"], "app.kubernetes.io/component=app")
+                m_get_pod.assert_called_once_with(
+                    "user_at_posthog.com",
+                    check_claimed=True,
+                    app_label="posthog-toolbox-django",
+                    claimed_label_key="toolbox-claimed",
+                    namespace=namespace,
+                    context="posthog-dev",
+                    extra_selector=expected_extra,
+                )
 
     def test_main_kube_context_env_validates_without_switching(self):
         """When KUBE_CONTEXT is set, main() validates it and threads it as --context, never calling switch_context."""
