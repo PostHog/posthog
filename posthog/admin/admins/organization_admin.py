@@ -158,6 +158,9 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_hipaa",
         "is_platform",
         "members_can_invite",
+        "is_ai_training_opted_in",
+        "is_ai_training_locked",
+        "is_ai_training_cta_shown",
     ]
     inlines = [
         ProjectInline,
