@@ -1081,11 +1081,13 @@ class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         topic_id = self.parents_query_dict["topic_id"]
         team_id = self.parents_query_dict["team_id"]
 
-        if not UserInterviewTopic.objects.filter(id=topic_id, team_id=team_id).exists():
+        topic = UserInterviewTopic.objects.filter(id=topic_id, team_id=team_id).first()
+        if topic is None:
             return response.Response(
                 {"error": "Topic not found in this project."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        self.check_object_permissions(request, topic)
 
         payload = BulkIntervieweeContextRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
