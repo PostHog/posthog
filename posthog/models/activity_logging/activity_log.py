@@ -594,10 +594,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "Evaluation": [
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
-        # FK to LLMModelConfiguration. The encoder has no branch for that class, so including it would
-        # raise TypeError when the diff is JSON-encoded into ActivityLog.detail. Provider-key assignment
-        # already has its own audit trail.
-        "model_configuration",
     ],
 }
 
