@@ -239,6 +239,25 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_pivot_binds_to_last_joined_table(self):
+        # `joinExpr PIVOT` is left-recursive on the immediately
+        # preceding joinExpr: `a JOIN b PIVOT (…)` pivots `b` alone,
+        # not the whole `a JOIN b` chain. A PIVOT after a join
+        # constraint (`a JOIN b ON x PIVOT (…)`) or explicit parens
+        # (`(a JOIN b) PIVOT (…)`) does apply to the whole chain. The
+        # Rust parser wrapped the entire chain unconditionally.
+        cases = (
+            "select 1 from a join b pivot (x for y in (z))",
+            "select 1 from a, b pivot (x for y in (z))",
+            "select 1 from a join b on x pivot (s for t in (u))",
+            "select 1 from (a join b) pivot (x for y in (z))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_decoration_after_pivot(self):
         # `tableExpr PIVOT (…)` is itself a `tableExpr`, so the result
         # can still take a `TableExprAlias` alias and a `JoinExprTable`

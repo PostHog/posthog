@@ -17,7 +17,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_join_expr(&mut self) -> Result<Value, ParseError> {
         // Left-recursive in the grammar; iterate, chaining each new
         // right-side table into the previous JoinExpr's `next_join` field.
-        let mut left = self.parse_table_atom()?;
+        let mut left = self.parse_table_atom_with_pivot()?;
         let mut joined_any = false;
         loop {
             // ARRAY JOIN belongs to the outer SELECT statement, not the
@@ -38,7 +38,7 @@ impl<'a> Parser<'a> {
             }
             // `,` cross join.
             if self.eat(TokenKind::Comma)? {
-                let right = self.parse_table_atom()?;
+                let right = self.parse_table_atom_with_pivot()?;
                 left = chain_join(left, right, "CROSS JOIN", None);
                 joined_any = true;
                 continue;
@@ -49,7 +49,7 @@ impl<'a> Parser<'a> {
             {
                 self.bump()?;
                 self.bump()?;
-                let right = self.parse_table_atom()?;
+                let right = self.parse_table_atom_with_pivot()?;
                 left = chain_join(left, right, "CROSS JOIN", None);
                 joined_any = true;
                 continue;
@@ -60,7 +60,7 @@ impl<'a> Parser<'a> {
             {
                 self.bump()?;
                 self.bump()?;
-                let right = self.parse_table_atom()?;
+                let right = self.parse_table_atom_with_pivot()?;
                 let constraint = self.parse_join_constraint_opt()?;
                 left = chain_join(left, right, "POSITIONAL JOIN", constraint);
                 joined_any = true;
@@ -84,7 +84,7 @@ impl<'a> Parser<'a> {
             }
             let op_text = join_op.unwrap_or_default();
             self.expect_kw(Kw::Join, "JOIN")?;
-            let right = self.parse_table_atom()?;
+            let right = self.parse_table_atom_with_pivot()?;
             let constraint = self.parse_join_constraint_opt()?;
             let join_type = if op_text.is_empty() {
                 "JOIN".to_string()
@@ -96,6 +96,25 @@ impl<'a> Parser<'a> {
         }
 
         Ok(left)
+    }
+
+    /// `parse_table_atom` followed by an optional immediately-adjacent
+    /// `PIVOT` / `UNPIVOT`. The grammar's `joinExpr PIVOT` is
+    /// left-recursive on the *immediately preceding* joinExpr, so
+    /// `a JOIN b PIVOT (…)` pivots `b` alone — the PIVOT binds to the
+    /// freshly-parsed atom, not the whole JOIN chain. A PIVOT that
+    /// instead follows a join *constraint* (`a JOIN b ON x PIVOT (…)`)
+    /// applies to the whole chain; that case is left for the caller's
+    /// loop, which calls `wrap_pivot_chain` with `joined_any`.
+    fn parse_table_atom_with_pivot(&mut self) -> Result<Value, ParseError> {
+        let atom = self.parse_table_atom()?;
+        if matches!(
+            self.peek(),
+            TokenKind::Keyword(Kw::Pivot) | TokenKind::Keyword(Kw::Unpivot)
+        ) {
+            return self.wrap_pivot_chain(atom, false);
+        }
+        Ok(atom)
     }
 
     /// Consume a `PIVOT (...)` / `UNPIVOT (...)` run that decorates the
