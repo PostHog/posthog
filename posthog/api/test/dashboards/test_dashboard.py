@@ -1157,7 +1157,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
         self.assertEqual(
             response["tiles"][0]["insight"]["query"]["source"]["properties"],
-            [{"key": "prop", "value": "val"}],
+            [
+                {
+                    "key": "prop",
+                    "label": None,
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "val",
+                }
+            ],
         )
 
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
