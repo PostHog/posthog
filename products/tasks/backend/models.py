@@ -875,6 +875,9 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+
+        notify_task_run_completed(self)
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
@@ -904,6 +907,9 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_failed
+
+        notify_task_run_failed(self)
 
     def build_stream_state_event(self) -> dict[str, Any]:
         return {

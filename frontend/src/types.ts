@@ -428,6 +428,9 @@ export interface InAppNotification {
     read: boolean
     read_at: string | null
     resource_type: string | null
+    resource_id: string
+    target_type: string
+    target_id: string
     source_url: string
     source_type: string | null
     source_id: string | null
@@ -847,6 +850,8 @@ export interface ElementType {
     text?: string
 }
 
+// Keep the union literal so kea-typegen can inline its members; the runtime allowlist below
+// is asserted to satisfy the same members so TypeScript fails the build if either side drifts.
 export type ToolbarUserIntent =
     | 'add-action'
     | 'edit-action'
@@ -856,6 +861,17 @@ export type ToolbarUserIntent =
     | 'add-product-tour'
     | 'edit-product-tour'
     | 'preview-product-tour'
+
+export const TOOLBAR_USER_INTENTS = [
+    'add-action',
+    'edit-action',
+    'heatmaps',
+    'add-experiment',
+    'edit-experiment',
+    'add-product-tour',
+    'edit-product-tour',
+    'preview-product-tour',
+] as const satisfies readonly ToolbarUserIntent[]
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -938,7 +954,6 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
-    Home = 'home',
     All = 'all',
     Yours = 'yours',
     History = 'history',
@@ -3490,6 +3505,7 @@ export interface OpenQuestionResponseData {
     /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
     personDisplayName?: string
     timestamp?: string
+    sessionId?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -4888,8 +4904,8 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number | null
-    value_type: 'bool' | 'str' | 'int'
+    value: boolean | string | number | number[] | null
+    value_type: 'bool' | 'str' | 'int' | 'list[int]'
     description?: string
     editable: boolean
     is_secret: boolean
@@ -5036,7 +5052,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     target_type: string
     target_value: string
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null
@@ -5293,6 +5309,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'deployment'
     | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
@@ -5305,6 +5322,8 @@ export type APIScopeObject =
     | 'external_data_source'
     | 'export'
     | 'feature_flag'
+    | 'file_system'
+    | 'file_system_shortcut'
     | 'group'
     | 'health_issue'
     | 'heatmap'
@@ -5326,6 +5345,7 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'

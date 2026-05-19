@@ -93,9 +93,9 @@ class TestDeniedTableError(BaseTest):
 
         from ee.models import AccessControl
 
-        # Enable advanced permissions feature
+        # Enable access control feature
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 

@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import type { tracingDataLogicType } from './tracingDataLogicType'
@@ -34,12 +35,21 @@ function isUserInitiatedError(error: unknown): boolean {
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
-export const tracingDataLogic = kea<tracingDataLogicType>([
-    path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
+export interface TracingDataLogicProps {
+    tabId?: string
+}
 
-    connect({
-        values: [tracingFiltersLogic, ['filters', 'utcDateRange']],
-    }),
+export const tracingDataLogic = kea<tracingDataLogicType>([
+    props({} as TracingDataLogicProps),
+    key((p) => p.tabId ?? 'default'),
+    path((tabId) => ['products', 'tracing', 'frontend', 'tracingDataLogic', tabId]),
+
+    connect((p: TracingDataLogicProps) => ({
+        values: [
+            tracingFiltersLogic({ tabId: p.tabId }),
+            ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs'],
+        ],
+    })),
 
     actions({
         runQuery: true,
@@ -47,10 +57,26 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         clearSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressAggregation: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressSpanTree: (controller: AbortController | null) => ({ controller }),
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
         setSparklineAbortController: (controller: AbortController | null) => ({ controller }),
+        setAggregationAbortController: (controller: AbortController | null) => ({ controller }),
+        setSpanTreeAbortController: (controller: AbortController | null) => ({ controller }),
         setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
         setNextCursor: (cursor: string | null) => ({ cursor }),
+        /**
+         * Snapshot the resolved time windows used for the last aggregation fetch.
+         * The drill-down flame query reads this snapshot instead of recomputing from
+         * the (potentially shifted) `-1h`-style relative date range, so its numbers
+         * line up with the row the user clicked.
+         */
+        setLastAggregationWindow: (window: {
+            currentStartMs: number
+            currentEndMs: number
+            previousStartMs: number
+            previousEndMs: number
+        }) => ({ window }),
     }),
 
     reducers({
@@ -61,6 +87,23 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         sparklineAbortController: [
             null as AbortController | null,
             { setSparklineAbortController: (_, { controller }) => controller },
+        ],
+        aggregationAbortController: [
+            null as AbortController | null,
+            { setAggregationAbortController: (_, { controller }) => controller },
+        ],
+        spanTreeAbortController: [
+            null as AbortController | null,
+            { setSpanTreeAbortController: (_, { controller }) => controller },
+        ],
+        lastAggregationWindow: [
+            null as null | {
+                currentStartMs: number
+                currentEndMs: number
+                previousStartMs: number
+                previousEndMs: number
+            },
+            { setLastAggregationWindow: (_, { window }) => window },
         ],
         hasRunQuery: [
             false as boolean,
@@ -88,6 +131,22 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchSparklineFailure: () => false,
             },
         ],
+        aggregationLoading: [
+            false as boolean,
+            {
+                fetchAggregation: () => true,
+                fetchAggregationSuccess: () => false,
+                fetchAggregationFailure: () => false,
+            },
+        ],
+        spanTreeLoading: [
+            false as boolean,
+            {
+                fetchSpanTree: () => true,
+                fetchSpanTreeSuccess: () => false,
+                fetchSpanTreeFailure: () => false,
+            },
+        ],
         hasMoreToLoad: [
             true as boolean,
             {
@@ -113,14 +172,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await api.tracing.listSpans({
-                        dateRange: values.utcDateRange,
-                        orderBy: values.filters.orderBy,
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        prefetchSpans: PREFETCH_SPANS,
-                        limit: DEFAULT_PAGE_SIZE,
-                    })
+                    const response = await api.tracing.listSpans(
+                        {
+                            dateRange: values.utcDateRange,
+                            orderBy: values.filters.orderBy,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            prefetchSpans: PREFETCH_SPANS,
+                            limit: DEFAULT_PAGE_SIZE,
+                        },
+                        controller.signal
+                    )
 
                     actions.setSpansAbortController(null)
                     actions.setHasMoreToLoad(!!response.hasMore)
@@ -135,14 +198,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await api.tracing.listSpans({
-                        dateRange: values.utcDateRange,
-                        orderBy: values.filters.orderBy,
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        limit: DEFAULT_PAGE_SIZE,
-                        after: values.nextCursor,
-                    })
+                    const response = await api.tracing.listSpans(
+                        {
+                            dateRange: values.utcDateRange,
+                            orderBy: values.filters.orderBy,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            limit: DEFAULT_PAGE_SIZE,
+                            after: values.nextCursor,
+                        },
+                        controller.signal
+                    )
 
                     actions.setSpansAbortController(null)
                     actions.setHasMoreToLoad(!!response.hasMore)
@@ -167,6 +234,102 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 },
             },
         ],
+        spanTree: [
+            {
+                spanName: null as string | null,
+                current: [] as SpanTreeNode[],
+                previous: null as SpanTreeNode[] | null,
+            },
+            {
+                fetchSpanTree: async (params: { spanName: string; serviceName: string }) => {
+                    // Abort any in-flight tree fetch so rapid row-clicks can't deliver a stale
+                    // response that overwrites the newer one — matches the pattern used by
+                    // fetchSpans / fetchSparkline / fetchAggregation.
+                    const controller = new AbortController()
+                    actions.cancelInProgressSpanTree(controller)
+
+                    // Use the snapshotted window from the last aggregation fetch when available
+                    // so the drill-down numbers align with the row the user clicked. Fall back
+                    // to the live computed window only on a cold start (e.g. deep link before
+                    // any aggregation has run).
+                    const snapshot = values.lastAggregationWindow
+                    const currentStartMs = snapshot?.currentStartMs ?? values.currentWindowMs.startMs
+                    const currentEndMs = snapshot?.currentEndMs ?? values.currentWindowMs.endMs
+                    const previousStartMs = snapshot?.previousStartMs ?? values.previousWindowMs.startMs
+
+                    const response = await api.tracing.tree(
+                        {
+                            spanName: params.spanName,
+                            serviceName: params.serviceName,
+                            dateRange: {
+                                date_from: new Date(currentStartMs).toISOString(),
+                                date_to: new Date(currentEndMs).toISOString(),
+                            },
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            compareFilter: {
+                                compare: values.filters.compareMode,
+                                compare_to: new Date(previousStartMs).toISOString(),
+                            },
+                        },
+                        controller.signal
+                    )
+
+                    actions.setSpanTreeAbortController(null)
+                    return {
+                        spanName: params.spanName,
+                        current: response.results ?? [],
+                        previous: response.compare ?? null,
+                    }
+                },
+            },
+        ],
+        aggregation: [
+            { current: [] as AggregatedSpanRow[], previous: null as AggregatedSpanRow[] | null },
+            {
+                fetchAggregation: async () => {
+                    const controller = new AbortController()
+                    actions.cancelInProgressAggregation(controller)
+
+                    // Snapshot the resolved windows so the drill-down flame query uses the
+                    // same absolute timestamps as this aggregation, even if the user's
+                    // relative `-1h` range has since shifted forward in time. Dispatched
+                    // BEFORE the await so a concurrent `fetchSpanTree` (e.g. fired from the
+                    // same `setOverlayWindows` listener) reads the new window, not the old.
+                    const window = {
+                        currentStartMs: values.currentWindowMs.startMs,
+                        currentEndMs: values.currentWindowMs.endMs,
+                        previousStartMs: values.previousWindowMs.startMs,
+                        previousEndMs: values.previousWindowMs.endMs,
+                    }
+                    actions.setLastAggregationWindow(window)
+
+                    const response = await api.tracing.aggregate(
+                        {
+                            dateRange: {
+                                date_from: new Date(window.currentStartMs).toISOString(),
+                                date_to: new Date(window.currentEndMs).toISOString(),
+                            },
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            compareFilter: {
+                                compare: values.filters.compareMode,
+                                compare_to: new Date(window.previousStartMs).toISOString(),
+                            },
+                        },
+                        controller.signal
+                    )
+
+                    actions.setAggregationAbortController(null)
+                    return {
+                        current: response.results ?? [],
+                        previous: response.compare ?? null,
+                    }
+                },
+            },
+        ],
         rawSparklineData: [
             [] as SparklineRow[],
             {
@@ -174,11 +337,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await api.tracing.sparkline({
-                        dateRange: values.utcDateRange,
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                    })
+                    const response = await api.tracing.sparkline(
+                        {
+                            dateRange: values.utcDateRange,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        },
+                        controller.signal
+                    )
 
                     actions.setSparklineAbortController(null)
                     return response.results
@@ -254,8 +421,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     listeners(({ actions, values }) => ({
         runQuery: () => {
             actions.clearSpans()
-            actions.fetchSpans()
             actions.fetchSparkline()
+            if (values.filters.compareMode) {
+                actions.fetchAggregation()
+            } else {
+                actions.fetchSpans()
+            }
         },
         cancelInProgressSpans: ({ controller }) => {
             if (values.spansAbortController !== null) {
@@ -269,6 +440,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setSparklineAbortController(controller)
         },
+        cancelInProgressAggregation: ({ controller }) => {
+            if (values.aggregationAbortController !== null) {
+                values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setAggregationAbortController(controller)
+        },
+        cancelInProgressSpanTree: ({ controller }) => {
+            if (values.spanTreeAbortController !== null) {
+                values.spanTreeAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setSpanTreeAbortController(controller)
+        },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
@@ -277,6 +460,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchSparklineFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 // Sparkline failures are non-critical, don't show toast
+            }
+        },
+        fetchAggregationFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load span aggregation: ${error}`)
+            }
+        },
+        fetchSpanTreeFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load call tree: ${error}`)
             }
         },
     })),
@@ -288,6 +481,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             if (values.sparklineAbortController) {
                 values.sparklineAbortController.abort('unmounting component')
+            }
+            if (values.spanTreeAbortController) {
+                values.spanTreeAbortController.abort('unmounting component')
+            }
+            if (values.aggregationAbortController) {
+                values.aggregationAbortController.abort('unmounting component')
             }
         },
     })),
