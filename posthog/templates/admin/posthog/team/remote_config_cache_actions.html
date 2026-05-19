@@ -4,7 +4,26 @@
         formmethod="post" formaction="{{ rebuild_url }}" formnovalidate
         onclick="return confirm('Rebuild cache for team {{ team_name_escaped }}?');">
         Rebuild cache</button>
+    <button type="submit" name="_force_resync_remote_config" class="button"
+        formmethod="post" formaction="{{ force_resync_url }}" formnovalidate
+        style="margin-left: 6px;"
+        onclick="return confirm('Force-rebuild RemoteConfig from team state and purge CDN for team {{ team_name_escaped }}?');">
+        Force resync (rebuild + purge CDN)</button>
     <p style="margin-top: 8px; color: #666; font-size: 12px;">
         Cache key: <code>{{ cache_key }}</code>
     </p>
+    {% if not remote_config_exists %}
+        <p style="margin-top: 4px; color: #b03a2e; font-size: 12px;">
+            No RemoteConfig row exists for this team yet. The first sync will create it.
+        </p>
+    {% elif synced_at %}
+        <p style="margin-top: 4px; color: {% if synced_age_seconds > 3600 %}#b03a2e{% elif synced_age_seconds > 600 %}#a16207{% else %}#666{% endif %}; font-size: 12px;">
+            Last synced: <code>{{ synced_at|date:"Y-m-d H:i:s e" }}</code>
+            ({{ synced_at|timesince }} ago{% if synced_age_seconds > 3600 %} &mdash; likely stale, click force resync{% endif %})
+        </p>
+    {% else %}
+        <p style="margin-top: 4px; color: #b03a2e; font-size: 12px;">
+            RemoteConfig row exists but has never been successfully synced. Click force resync.
+        </p>
+    {% endif %}
 </div>

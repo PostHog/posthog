@@ -172,13 +172,16 @@ fn get_linked_flag_value(linked_flag_config: Option<Value>) -> Option<Value> {
     }
 }
 
-// TODO: this silently drops wildcard domains like `https://*.example.com` because
-// url::Url::parse rejects `*` per the WHATWG spec. Django's urlparse is lenient.
-// See hypercache-server/src/sanitize.rs for the fixed version.
 fn parse_domain(url: Option<&str>) -> Option<String> {
     url.and_then(|u| {
-        if let Ok(parsed) = url::Url::parse(u) {
-            parsed.host_str().map(|h| h.to_string())
+        // url::Url::parse can reject `*` in hostnames depending on the spec version,
+        // but Django's urlparse accepts it. Replace `*` with a placeholder before
+        // parsing, then restore it — this guarantees wildcard domains like
+        // `https://*.example.com` parse correctly regardless of url crate behavior.
+        // Keep this in sync with hypercache-server/src/sanitize.rs::parse_domain.
+        let sanitized = u.replace('*', "_wildcard_");
+        if let Ok(parsed) = url::Url::parse(&sanitized) {
+            parsed.host_str().map(|h| h.replace("_wildcard_", "*"))
         } else {
             None
         }
@@ -350,6 +353,71 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.wrong.com".parse().unwrap());
         assert!(!on_permitted_domain(&recording_domains, &headers));
+    }
+
+    #[test]
+    fn test_parse_domain_wildcard_round_trip() {
+        // Regression test: wildcard URLs must survive parse_domain without being dropped.
+        // If url::Url::parse rejects `*` (per the WHATWG spec), the placeholder swap
+        // keeps the hostname intact so downstream wildcard matching can still fire.
+        assert_eq!(
+            parse_domain(Some("https://*.example.com")),
+            Some("*.example.com".to_string())
+        );
+        assert_eq!(
+            parse_domain(Some("https://app-*.example.com")),
+            Some("app-*.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_session_recording_domain_not_allowed_with_wildcard_origin() {
+        use axum::http::HeaderMap;
+
+        // End-to-end regression: a team whose recording_domains uses a wildcard
+        // pattern must permit matching subdomains. This is the exact case the
+        // SDK-facing /flags endpoint was getting wrong while /array/<token>/config
+        // (served from the Python-built snapshot through hypercache-server) was
+        // accepting the same request.
+        let team = Team {
+            recording_domains: Some(vec!["https://*.example.com".to_string()]),
+            ..Team::default()
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://app.example.com".parse().unwrap());
+        assert!(!session_recording_domain_not_allowed(&team, &headers));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://attacker.com".parse().unwrap());
+        assert!(session_recording_domain_not_allowed(&team, &headers));
+    }
+
+    #[test]
+    fn test_session_recording_domain_not_allowed_mobile_ua_bypasses_domain_check() {
+        use axum::http::HeaderMap;
+
+        // Mobile clients don't send an Origin/Referer matching the team's web domains.
+        // The UA allowlist is what keeps native SDKs (Android, iOS, React Native,
+        // Flutter) from getting `sessionRecording: false` on /flags responses.
+        let team = Team {
+            recording_domains: Some(vec!["https://web-only.example.com".to_string()]),
+            ..Team::default()
+        };
+
+        for ua in [
+            "posthog-android/3.0.0",
+            "posthog-ios/2.0.0",
+            "posthog-react-native/1.0.0",
+            "posthog-flutter/1.0.0",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("User-Agent", ua.parse().unwrap());
+            assert!(
+                !session_recording_domain_not_allowed(&team, &headers),
+                "Mobile UA '{ua}' should not be domain-blocked"
+            );
+        }
     }
 
     // Tests for sample rate handling - verifies compatibility between Python cache and Rust

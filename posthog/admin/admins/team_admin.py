@@ -18,6 +18,7 @@ from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
@@ -323,6 +324,17 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
 
+        synced_at = None
+        synced_age_seconds: float | None = None
+        try:
+            remote_config = RemoteConfig.objects.only("synced_at").get(team_id=team.pk)
+            synced_at = remote_config.synced_at
+        except RemoteConfig.DoesNotExist:
+            remote_config = None
+
+        if synced_at is not None:
+            synced_age_seconds = (timezone.now() - synced_at).total_seconds()
+
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
@@ -330,8 +342,12 @@ class TeamAdmin(admin.ModelAdmin):
                 {
                     "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
                     "rebuild_url": reverse("admin:posthog_team_rebuild_cache", args=[team.pk]),
+                    "force_resync_url": reverse("admin:posthog_team_force_resync_remote_config", args=[team.pk]),
                     "team_name_escaped": escapejs(team.name),
                     "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
+                    "synced_at": synced_at,
+                    "synced_age_seconds": synced_age_seconds,
+                    "remote_config_exists": remote_config is not None,
                 },
             )
         )
@@ -348,6 +364,11 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/rebuild-cache/",
                 self.admin_site.admin_view(self.rebuild_cache),
                 name="posthog_team_rebuild_cache",
+            ),
+            path(
+                "<path:object_id>/force-resync-remote-config/",
+                self.admin_site.admin_view(self.force_resync_remote_config),
+                name="posthog_team_force_resync_remote_config",
             ),
             path(
                 "<path:object_id>/export-replay/",
@@ -550,6 +571,46 @@ class TeamAdmin(admin.ModelAdmin):
         RemoteConfig.get_hypercache().update_cache(team.api_token)
 
         self.message_user(request, f"Cache rebuilt for team '{team.name}' (token: {team.api_token})")
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def force_resync_remote_config(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        # Forces a full rebuild from team state regardless of whether the
+        # cached config blob looks unchanged. This is the lever support reaches
+        # for when /array/<token>/config is stuck serving a stale snapshot
+        # (e.g. session_recording_opt_in was flipped after the previous sync
+        # bailed out via the "no_changes" short-circuit, or a Celery task
+        # silently dropped the update).
+        try:
+            remote_config, _ = RemoteConfig.objects.get_or_create(team=team)
+            remote_config.sync(force=True)
+            messages.success(
+                request,
+                f"RemoteConfig force-resynced for team '{team.name}' (token: {team.api_token}). "
+                "Hypercache updated and CDN purge requested.",
+            )
+            logger.info(
+                "admin_force_resync_remote_config",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+        except Exception as e:
+            logger.exception(
+                "admin_force_resync_remote_config_failed",
+                team_id=team.id,
+                error=str(e),
+            )
+            messages.error(
+                request,
+                f"Force resync failed for team '{team.name}': {e}",
+            )
+
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def import_replay_view(self, request, object_id):
