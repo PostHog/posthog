@@ -459,13 +459,16 @@ class DatabricksClient:
         is either taking too long to resume or is under heavy load.
         """
         try:
-            await self.execute_query("SELECT 1", timeout=timeout)
-        except TimeoutError:
+            async with handle_common_errors("PING", timeout):
+                await self.execute_query("SELECT 1", timeout=timeout)
+        except DatabricksOperationTimeoutError:
+            # A timeout on `SELECT 1` is the strongest signal we get that the warehouse
+            # isn't responsive, so surface it as such rather than as a generic timeout.
             raise DatabricksWarehouseStoppedError(
                 "PING",
                 "Timed out waiting for the Databricks SQL warehouse to respond. "
-                "The warehouse may be stopped or still starting up — please check its "
-                "state in the Databricks console and retry.",
+                "The warehouse may be stopped, still starting up, or under heavy load — "
+                "please check its state in the Databricks console and retry.",
             )
 
     async def use_catalog(self, catalog: str):
@@ -646,23 +649,24 @@ class DatabricksClient:
                 timeout=timeout,
             )
 
-    async def aget_table_columns(self, table_name: str) -> list[str]:
+    async def aget_table_columns(self, table_name: str, timeout: float = FIVE_MINUTES) -> list[str]:
         """Asynchronously get the columns of a Databricks table.
 
         The Databricks connector has dedicated methods for retrieving metadata.
         """
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(
-                    cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
-                )
-                results = await asyncio.to_thread(cursor.fetchall)
-                try:
-                    column_names = [row.name for row in results]
-                except AttributeError:
-                    # depending on the table column mapping mode, this could also be returned via a different attribute
-                    column_names = [row.COLUMN_NAME for row in results]
-            except asyncio.CancelledError:
+                async with asyncio.timeout(timeout):
+                    await asyncio.to_thread(
+                        cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
+                    )
+                    results = await asyncio.to_thread(cursor.fetchall)
+                    try:
+                        column_names = [row.name for row in results]
+                    except AttributeError:
+                        # depending on the table column mapping mode, this could also be returned via a different attribute
+                        column_names = [row.COLUMN_NAME for row in results]
+            except (asyncio.CancelledError, TimeoutError):
                 await self._cancel_cursor(cursor)
                 raise
             except DatabaseError as err:
