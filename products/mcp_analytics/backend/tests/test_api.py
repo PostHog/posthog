@@ -6,6 +6,7 @@ from posthog.models.utils import uuid7
 
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
 class TestMCPAnalyticsFacade(APIBaseTest):
@@ -58,7 +59,7 @@ class TestMCPAnalyticsFacade(APIBaseTest):
         assert submissions[0].kind == enums.SubmissionKind.MISSING_CAPABILITY
 
 
-class TestListMCPSessions(APIBaseTest):
+class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def _create_session(
         self,
         session_id: str,

@@ -6,9 +6,10 @@ import numpy as np
 from products.mcp_analytics.backend import intent_clustering
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 from products.mcp_analytics.backend.tasks import tasks
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
-class TestComputeIntentClusters(APIBaseTest):
+class TestComputeIntentClusters(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def _stub_corpus(self) -> list[intent_clustering.IntentRecord]:
         return [
             intent_clustering.IntentRecord(

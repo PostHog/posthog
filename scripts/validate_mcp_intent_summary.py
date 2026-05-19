@@ -27,7 +27,7 @@ async def main() -> None:
 
     from products.mcp_analytics.backend.models import MCPSession
 
-    pending_before = await sync_to_async(MCPSession.objects.filter(intent__isnull=True).count)()
+    pending_before = await sync_to_async(MCPSession.objects.unscoped().filter(intent__isnull=True).count)()
     sys.stdout.write(f"Sessions awaiting intent BEFORE: {pending_before}\n")
 
     if not os.environ.get("OPENAI_API_KEY"):
@@ -35,12 +35,12 @@ async def main() -> None:
 
     await summarize_mcp_session_intents(SummarizeMCPSessionIntentsInput(batch_size=5))
 
-    pending_after = await sync_to_async(MCPSession.objects.filter(intent__isnull=True).count)()
+    pending_after = await sync_to_async(MCPSession.objects.unscoped().filter(intent__isnull=True).count)()
     sys.stdout.write(f"Sessions awaiting intent AFTER:  {pending_after}\n")
 
     sys.stdout.write("\nMost recent summaries:\n")
     rows = await sync_to_async(
-        lambda: list(MCPSession.objects.filter(intent__isnull=False).order_by("-updated_at")[:5])
+        lambda: list(MCPSession.objects.unscoped().filter(intent__isnull=False).order_by("-updated_at")[:5])
     )()
     for row in rows:
         sys.stdout.write(f"  {row.session_id[:24]}\n    {row.intent}\n")

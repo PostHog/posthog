@@ -67,7 +67,8 @@ def _upsert_session(row: dict[str, Any]) -> None:
     session_start = _parse_clickhouse_ts(row["session_start"])
     session_end = _parse_clickhouse_ts(row["session_end"])
 
-    MCPSession.objects.update_or_create(
+    # Cross-team activity — backfills sessions for every team in a single ClickHouse pass.
+    MCPSession.objects.unscoped().update_or_create(
         team_id=int(row["team_id"]),
         session_id=row["session_id"],
         defaults={

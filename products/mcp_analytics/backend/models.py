@@ -3,10 +3,11 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 
-class MCPIntentClusterSnapshot(models.Model):
+class MCPIntentClusterSnapshot(TeamScopedRootMixin):
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
         COMPUTING = "computing", "Computing"
@@ -76,7 +77,7 @@ class MCPAnalyticsSubmission(UUIDModel):
         ]
 
 
-class MCPSession(UUIDModel):
+class MCPSession(UUIDModel, TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     session_id = models.CharField(max_length=64)
 

@@ -25,17 +25,17 @@ async def main() -> None:
 
     from products.mcp_analytics.backend.models import MCPSession
 
-    before = await sync_to_async(MCPSession.objects.count)()
+    before = await sync_to_async(MCPSession.objects.unscoped().count)()
     sys.stdout.write(f"MCPSession rows BEFORE: {before}\n")
 
     await aggregate_and_upsert_mcp_sessions(BackfillMCPSessionsInput(lookback_hours=72))
 
-    after = await sync_to_async(MCPSession.objects.count)()
+    after = await sync_to_async(MCPSession.objects.unscoped().count)()
     sys.stdout.write(f"MCPSession rows AFTER:  {after}\n")
     sys.stdout.write(f"Delta: {after - before}\n")
 
     sys.stdout.write("\nFirst 5 rows:\n")
-    rows = await sync_to_async(lambda: list(MCPSession.objects.order_by("-session_end")[:5]))()
+    rows = await sync_to_async(lambda: list(MCPSession.objects.unscoped().order_by("-session_end")[:5]))()
     for row in rows:
         sys.stdout.write(
             f"  team={row.team_id} session_id={row.session_id} "

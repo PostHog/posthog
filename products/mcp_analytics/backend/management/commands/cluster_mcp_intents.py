@@ -9,6 +9,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
@@ -39,7 +40,8 @@ class Command(BaseCommand):
         self.stdout.write(f"Running intent clustering for team {team_id}...")
         compute_intent_clusters.apply(args=[team_id, None]).get()
 
-        snapshot = MCPIntentClusterSnapshot.objects.filter(team_id=team_id).first()
+        with team_scope(team_id):
+            snapshot = MCPIntentClusterSnapshot.objects.filter(team_id=team_id).first()
         if snapshot is None:
             self.stderr.write(self.style.ERROR("No snapshot was produced."))
             return

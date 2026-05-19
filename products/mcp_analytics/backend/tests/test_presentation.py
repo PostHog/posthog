@@ -5,9 +5,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
-class TestMCPAnalyticsPresentation(APIBaseTest):
+class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),

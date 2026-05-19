@@ -5,9 +5,10 @@ from django.utils import timezone
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
-class TestMCPAnalyticsLogic(APIBaseTest):
+class TestMCPAnalyticsLogic(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def test_create_feedback_submission(self) -> None:
         submission = logic.create_feedback_submission(
             self.team,
@@ -63,7 +64,7 @@ class TestMCPAnalyticsLogic(APIBaseTest):
         assert [submission.kind for submission in submissions] == [MCPAnalyticsSubmission.Kind.FEEDBACK]
 
 
-class TestGetIntentClusterSnapshot(APIBaseTest):
+class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def test_returns_empty_idle_snapshot_when_no_row_exists(self) -> None:
         snapshot = logic.get_intent_cluster_snapshot(self.team)
 

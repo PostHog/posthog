@@ -24,6 +24,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     fetch_intent_corpus,
 )
 from products.mcp_analytics.backend.models import MCPSession
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 # Helpers
 
@@ -225,7 +226,7 @@ class TestBuildSnapshot:
 # fetch_intent_corpus -----------------------------------------------------
 
 
-class TestFetchIntentCorpus(ClickhouseTestMixin, BaseTest):
+class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
     """End-to-end: posthog_mcp_session in Postgres + mcp_tool_call in ClickHouse."""
 
     def _seed_session(self, session_id: str, intent: str) -> None:

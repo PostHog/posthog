@@ -27,7 +27,7 @@ async def main() -> None:
 
     from products.mcp_analytics.backend.models import MCPSession
 
-    pending_count = await sync_to_async(MCPSession.objects.filter(intent__isnull=True).count)()
+    pending_count = await sync_to_async(MCPSession.objects.unscoped().filter(intent__isnull=True).count)()
     sys.stdout.write(f"Sessions pending intent: {pending_count}\n")
 
     for iteration in range(MAX_ITERATIONS):
@@ -35,15 +35,15 @@ async def main() -> None:
             break
         sys.stdout.write(f"\nIteration {iteration + 1}: summarising up to {BATCH_SIZE} sessions...\n")
         await summarize_mcp_session_intents(SummarizeMCPSessionIntentsInput(batch_size=BATCH_SIZE))
-        new_pending = await sync_to_async(MCPSession.objects.filter(intent__isnull=True).count)()
+        new_pending = await sync_to_async(MCPSession.objects.unscoped().filter(intent__isnull=True).count)()
         sys.stdout.write(f"  pending after: {new_pending}\n")
         if new_pending >= pending_count:
             sys.stdout.write("  No progress made; stopping to avoid infinite loop.\n")
             break
         pending_count = new_pending
 
-    final_pending = await sync_to_async(MCPSession.objects.filter(intent__isnull=True).count)()
-    total = await sync_to_async(MCPSession.objects.count)()
+    final_pending = await sync_to_async(MCPSession.objects.unscoped().filter(intent__isnull=True).count)()
+    total = await sync_to_async(MCPSession.objects.unscoped().count)()
     sys.stdout.write(f"\nDone. pending={final_pending} total={total}\n")
 
 

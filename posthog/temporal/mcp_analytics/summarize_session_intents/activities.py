@@ -124,7 +124,8 @@ def _take_pending_sessions(batch_size: int, idle_minutes: int) -> list[tuple[int
 
 @database_sync_to_async
 def _save_intent(team_id: int, session_id: str, intent: str) -> None:
-    MCPSession.objects.filter(team_id=team_id, session_id=session_id).update(intent=intent)
+    # Cross-team activity — picks pending rows across all teams in one pass.
+    MCPSession.objects.unscoped().filter(team_id=team_id, session_id=session_id).update(intent=intent)
 
 
 async def _fetch_tool_call_intents(team_id: int, session_id: str) -> list[str]:
