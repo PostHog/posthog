@@ -1529,6 +1529,19 @@ jobs:
                   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
                   echo "==================================="
 
+            - name: Pre-run Django migrations for test databases
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  PGPASSWORD: 'posthog'
+              run: |
+                  # Create test databases if they don't exist (--reuse-db expects them)
+                  createdb -h localhost -U posthog test_posthog 2>/dev/null || true
+                  createdb -h localhost -U posthog test_posthog_persons 2>/dev/null || true
+                  # Run Django migrations so pytest's setup_databases() becomes a fast no-op
+                  python manage.py migrate --run-syncdb
+                  python manage.py migrate --database=persons_db_writer --run-syncdb
+
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
