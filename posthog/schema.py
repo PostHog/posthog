@@ -19341,6 +19341,7 @@ class CustomerAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    account_group_type_index: int | None = None
     activity_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     signup_event: EventsNode | ActionsNode

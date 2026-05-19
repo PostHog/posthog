@@ -179,7 +179,7 @@ function ConditionHeader({
                 <span className="text-sm break-all">{summary}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-                <span className="text-sm text-muted mr-2">
+                <span className="text-sm text-muted mr-2 tabular-nums">
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
                 </span>
@@ -631,18 +631,33 @@ const ConditionContent = ({
                                                     if (rolloutPct === 100) {
                                                         return (
                                                             <>
-                                                                <b>{humanFriendlyNumber(affected)}</b> of{' '}
-                                                                {humanFriendlyNumber(total)} {resolvedTargetName} match
-                                                                these filters
+                                                                <b className="tabular-nums">
+                                                                    {humanFriendlyNumber(affected)}
+                                                                </b>{' '}
+                                                                of{' '}
+                                                                <span className="tabular-nums">
+                                                                    {humanFriendlyNumber(total)}
+                                                                </span>{' '}
+                                                                {resolvedTargetName} match these filters
                                                             </>
                                                         )
                                                     }
                                                     return (
                                                         <>
-                                                            Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b> of{' '}
-                                                            {humanFriendlyNumber(total)} {resolvedTargetName} (
-                                                            {rolloutPct}% of {humanFriendlyNumber(affected)} matching
-                                                            the filters)
+                                                            Will match ~
+                                                            <b className="tabular-nums">
+                                                                {humanFriendlyNumber(receivingFlag)}
+                                                            </b>{' '}
+                                                            of{' '}
+                                                            <span className="tabular-nums">
+                                                                {humanFriendlyNumber(total)}
+                                                            </span>{' '}
+                                                            {resolvedTargetName} (
+                                                            <span className="tabular-nums">{rolloutPct}%</span> of{' '}
+                                                            <span className="tabular-nums">
+                                                                {humanFriendlyNumber(affected)}
+                                                            </span>{' '}
+                                                            matching the filters)
                                                         </>
                                                     )
                                                 })()}
@@ -898,7 +913,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         </span>
                                         <span>{summary}</span>
                                     </div>
-                                    <span className="text-muted">
+                                    <span className="text-muted tabular-nums">
                                         ({rollout}%{group.variant && ` · ${group.variant}`})
                                     </span>
                                 </div>
@@ -1300,7 +1315,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
-                                                    <span className="text-sm text-muted mr-2">
+                                                    <span className="text-sm text-muted mr-2 tabular-nums">
                                                         ({draggedGroup.rollout_percentage ?? 100}%
                                                         {draggedGroup.variant && ` · ${draggedGroup.variant}`})
                                                     </span>

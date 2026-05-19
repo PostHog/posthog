@@ -2,10 +2,34 @@ import datetime as dt
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
+from temporalio.exceptions import ApplicationError
 
+from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+
+
+class LensSnapshot(BaseModel, frozen=True):
+    """Frozen view of a `ReplayLens` at observation-create time, persisted into `ReplayObservation.lens_snapshot`."""
+
+    name: str
+    lens_type: LensType
+    lens_version: int = Field(ge=1)
+    model: LensModel
+    provider: LensProvider
+    emits_signals: bool
+    lens_config: dict[str, Any]
+
+    @classmethod
+    def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "LensSnapshot":
+        """Validate a persisted `lens_snapshot` blob, raising a non-retryable error tagged with the observation id."""
+        try:
+            return cls.model_validate(raw or {})
+        except ValidationError as exc:
+            raise ApplicationError(
+                f"ReplayObservation {observation_id} has malformed lens_snapshot: {exc}", non_retryable=True
+            ) from exc
 
 
 class ApplyLensInputs(BaseModel, frozen=True):
@@ -82,3 +106,41 @@ class EnsureSessionAssetInputs(BaseModel, frozen=True):
 
 class EnsureSessionAssetOutput(BaseModel, frozen=True):
     asset_id: int
+
+
+class UploadVideoToGeminiInputs(BaseModel, frozen=True):
+    asset_id: int
+
+
+class UploadedVideo(BaseModel, frozen=True):
+    file_uri: str
+    mime_type: str
+    gemini_file_name: str  # opaque ID for `files.delete`
+
+
+class CallLensProviderInputs(BaseModel, frozen=True):
+    team_id: int
+    observation_id: UUID  # locates the LensLlmInputs blob in Redis AND the lens_snapshot on the row
+    file_uri: str
+    mime_type: str
+
+
+class LensCallOutput(BaseModel, frozen=True):
+    """Result of one `call_lens_provider` invocation; `model_output` is the lens-specific dict (shape varies per `LensType`)."""
+
+    model_output: dict[str, Any]
+
+
+class CleanupGeminiFileInputs(BaseModel, frozen=True):
+    gemini_file_name: str
+
+
+class MarkObservationSucceededInputs(BaseModel, frozen=True):
+    observation_id: UUID
+
+
+class EmitObservationEventInputs(BaseModel, frozen=True):
+    """Payload for the `$recording_observed` capture; this is the only place lens output lives outside of ClickHouse."""
+
+    observation_id: UUID
+    model_output: dict[str, Any]
