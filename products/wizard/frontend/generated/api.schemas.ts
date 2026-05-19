@@ -55,17 +55,27 @@ export interface WizardTaskApi {
 }
 
 export interface WizardSessionApi {
-    /** @maxLength 255 */
+    /** Stable identifier the wizard assigns to a run, formatted '{workflow_id}-{skill_id}-{started_at_iso}'. Re-posting with the same session_id upserts the existing row. */
     session_id: string
     readonly team_id: number
-    /** @maxLength 255 */
+    /** High-level workflow being run, e.g. 'onboarding', 'migration', 'audit'. */
     workflow_id: string
-    /** @maxLength 255 */
+    /** Specific skill within the workflow, e.g. 'posthog_integration', 'revenue_analytics_setup'. */
     skill_id: string
+    /** UTC timestamp when the wizard started this run. Matches the timestamp encoded in session_id. */
     started_at: string
+    /** Lifecycle stage of the wizard run.
+
+  * `idle` - idle
+  * `running` - running
+  * `completed` - completed
+  * `error` - error */
     run_phase: RunPhaseEnumApi
+    /** Full snapshot of the wizard's current task list. Each push overwrites the previous list; tasks may be added, removed, or re-ordered between pushes. */
     tasks: WizardTaskApi[]
+    /** Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific. */
     event_plan?: unknown
+    /** Populated when run_phase='error'. Shape: { type: string, message: string }. */
     error?: unknown
     readonly created_at: string
     readonly updated_at: string
@@ -80,35 +90,7 @@ export interface PaginatedWizardSessionListApi {
     results: WizardSessionApi[]
 }
 
-export interface PatchedWizardSessionApi {
-    /** @maxLength 255 */
-    session_id?: string
-    readonly team_id?: number
-    /** @maxLength 255 */
-    workflow_id?: string
-    /** @maxLength 255 */
-    skill_id?: string
-    started_at?: string
-    run_phase?: RunPhaseEnumApi
-    tasks?: WizardTaskApi[]
-    event_plan?: unknown
-    error?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
 export type WizardSessionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WizardListParams = {
     /**
      * Number of results to return per page.
      */

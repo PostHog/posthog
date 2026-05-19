@@ -16,7 +16,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.wizard.backend.facade.api import WizardSessionAPI
+from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.models import WizardSession
@@ -26,7 +26,7 @@ from products.wizard.backend.presentation.serializers import WizardSessionSerial
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "wizard_session"
     serializer_class = WizardSessionSerializer
-    queryset = WizardSession.objects.unscoped()  # type: ignore[attr-defined]
+    queryset = WizardSession.objects.unscoped()
     lookup_field = "session_id"
     http_method_names = ["get", "post", "head", "options"]
 
@@ -67,7 +67,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        dto = WizardSessionAPI.upsert(
+        dto = wizard_facade.upsert(
             UpsertWizardSessionInput(
                 team_id=self.team_id,
                 session_id=data["session_id"],
