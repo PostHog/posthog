@@ -67,12 +67,14 @@ export type LiveUserCountProps = {
     docLink?: string
     showUpdatedTimeInTooltip?: boolean
     dataAttr?: string
+    onClick?: () => void
 } & LiveCountProps
 
 export function LiveUserCount({
     pollIntervalMs = 30000,
     docLink,
     showUpdatedTimeInTooltip = true,
+    onClick,
 }: LiveUserCountProps): JSX.Element | null {
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs }))
@@ -88,6 +90,24 @@ export function LiveUserCount({
 
     const isOnline = (liveUserCount ?? 0) > 0
 
+    const badgeClassName = cn(
+        'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
+        isOnline ? 'bg-success-highlight' : 'bg-border-light',
+        onClick &&
+            'cursor-pointer hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+    )
+
+    const badgeContent = (
+        <>
+            <div className={cn('live-user-indicator', isOnline ? 'online' : 'offline')} />
+            <IconPerson className="size-4 shrink-0 min-[660px]:hidden" />
+            <span className="text-xs font-medium whitespace-nowrap" data-attr="web-analytics-live-user-count">
+                <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong>
+            </span>
+            <span className="hidden min-[660px]:inline">recently online</span>
+        </>
+    )
+
     return liveUserCount === null ? null : (
         <Tooltip
             title={
@@ -100,19 +120,13 @@ export function LiveUserCount({
             delayMs={0}
             docLink={docLink}
         >
-            <div
-                className={cn(
-                    'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
-                    isOnline ? 'bg-success-highlight' : 'bg-border-light'
-                )}
-            >
-                <div className={cn('live-user-indicator', isOnline ? 'online' : 'offline')} />
-                <IconPerson className="size-4 shrink-0 min-[660px]:hidden" />
-                <span className="text-xs font-medium whitespace-nowrap" data-attr="web-analytics-live-user-count">
-                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong>
-                </span>
-                <span className="hidden min-[660px]:inline">recently online</span>
-            </div>
+            {onClick ? (
+                <button type="button" onClick={onClick} className={badgeClassName}>
+                    {badgeContent}
+                </button>
+            ) : (
+                <div className={badgeClassName}>{badgeContent}</div>
+            )}
         </Tooltip>
     )
 }

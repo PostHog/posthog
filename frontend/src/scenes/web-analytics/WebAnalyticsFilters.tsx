@@ -95,7 +95,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
         dateFilter: { dateTo, dateFrom },
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
-    const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { setDates, setIsPathCleaningEnabled, setProductTab } = useActions(webAnalyticsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -126,6 +126,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                             <LiveUserCount
                                 docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
                                 dataAttr="web-analytics-live-user-count"
+                                onClick={() => setProductTab(ProductTab.LIVE)}
                             />
                         </>
                     }

@@ -12,12 +12,15 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
+import { ProductTab } from 'scenes/web-analytics/common'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 
 export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { setProductTab } = useActions(webAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
@@ -46,6 +49,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                 <LiveUserCount
                     docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
                     dataAttr="web-analytics-live-user-count"
+                    onClick={() => setProductTab(ProductTab.LIVE)}
                 />
             )}
             {showShareButton && (
