@@ -78,18 +78,19 @@ def _raw_delete_personless_distinct_ids_for_team(team_id: int, batch_size: int =
 
     db_alias = router.db_for_write(PersonlessDistinctId)
     db_connection = connections[db_alias]
+    table_name = PersonlessDistinctId._meta.db_table
 
     while True:
         with db_connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 WITH deletion_candidates AS (
                     SELECT ctid
-                    FROM posthog_personlessdistinctid
+                    FROM {table_name}
                     WHERE team_id = %s
                     LIMIT %s
                 )
-                DELETE FROM posthog_personlessdistinctid p
+                DELETE FROM {table_name} p
                 USING deletion_candidates d
                 WHERE p.ctid = d.ctid
                 """,  # nosemgrep: no-direct-persons-db-orm
