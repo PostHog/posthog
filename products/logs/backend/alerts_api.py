@@ -10,11 +10,14 @@ from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import PropertyGroupFilter
 
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -511,11 +514,20 @@ def _validate_filters(filters: dict) -> None:
         raise ValidationError({"filters": "Must be a JSON object."})
     has_severity = bool(filters.get("severityLevels"))
     has_services = bool(filters.get("serviceNames"))
-    has_filter_group = bool(filters.get("filterGroup"))
+    filter_group = filters.get("filterGroup")
+    has_filter_group = bool(filter_group)
     if not (has_severity or has_services or has_filter_group):
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
+    if has_filter_group:
+        # Validate filterGroup shape against PropertyGroupFilter so malformed
+        # payloads (e.g. a bare list at the top level) are rejected at write
+        # time rather than bricking the alerting worker's cohort discovery.
+        try:
+            PropertyGroupFilter.model_validate(filter_group)
+        except PydanticValidationError as e:
+            raise ValidationError({"filters": f"Invalid filterGroup shape: {e.errors()[0]['msg']}"})
 
 
 class LogsAlertEventSerializer(serializers.ModelSerializer):

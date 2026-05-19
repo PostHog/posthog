@@ -1,5 +1,31 @@
 from posthog.schema import BreakdownFilter
 
+from posthog.hogql import ast
+from posthog.hogql.visitor import CloningVisitor
+
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
+BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
+
+ALL_USERS_COHORT_ID = 0
+# Keep in sync with NOT_IN_COHORT_ID in frontend/src/scenes/insights/utils.tsx
+NOT_IN_COHORT_ID = 2**52
+
+
+class _AliasStripper(CloningVisitor):
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
+        return self.visit(node.expr)
+
+
+def strip_user_aliases(expr: ast.Expr) -> ast.Expr:
+    # User-supplied `AS <name>` on a breakdown is display-only; leaving aliases in the
+    # SQL AST risks colliding with system aliases or rendering invalid SQL in WHERE.
+    # Strip recursively to cover nested (`x AS a AS b`) and inner-position
+    # (`concat(x AS a, y)`) variants.
+    return _AliasStripper().visit(expr)
+
 
 def has_single_breakdown(breakdown_filter: BreakdownFilter | None) -> bool:
     """Return whether the single-field `breakdown` representation is populated."""

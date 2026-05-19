@@ -12,8 +12,13 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/Deployments'),
             projectBased: true,
             name: 'Deployments',
-            iconType: 'live',
-            description: 'Build and ship your project site straight from PostHog.',
+            iconType: 'deployments',
+            description: 'Connect a GitHub repository to start deploying your site.',
+        },
+        DeploymentProject: {
+            import: () => import('./frontend/DeploymentProject'),
+            projectBased: true,
+            name: 'Deployment project',
         },
         Deployment: {
             import: () => import('./frontend/Deployment'),
@@ -23,13 +28,23 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/deployments': ['Deployments', 'deployments'],
-        '/deployments/:id': ['Deployment', 'deployment'],
+        '/deployments/:projectId': ['DeploymentProject', 'deploymentProject'],
+        '/deployments/:projectId/:deploymentId': ['Deployment', 'deployment'],
     },
     urls: {
         deployments: (): string => '/deployments',
-        deployment: (id: string): string => `/deployments/${id}`,
+        deploymentProject: (projectId: string): string => `/deployments/${projectId}`,
+        deployment: (projectId: string, deploymentId: string): string => `/deployments/${projectId}/${deploymentId}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        deployments: {
+            name: 'Deployment',
+            iconType: 'deployments',
+            iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
+            href: () => urls.deployments(),
+            filterKey: 'deployments',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {
@@ -37,11 +52,14 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.DEPLOYMENTS],
             category: ProductItemCategory.TOOLS,
             href: urls.deployments(),
-            type: 'live',
-            iconType: 'live' as FileSystemIconType,
-            iconColor: ['var(--color-text-3000)'] as FileSystemIconColor,
+            type: 'deployments',
+            iconType: 'deployments' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-deployments-light)',
+                'var(--color-product-deployments-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Deployments',
-            sceneKeys: ['Deployments', 'Deployment'],
+            sceneKeys: ['Deployments', 'DeploymentProject', 'Deployment'],
             flag: FEATURE_FLAGS.DEPLOYMENTS,
             tags: ['alpha'],
         },

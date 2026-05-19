@@ -305,6 +305,7 @@ function ReportListPane(): JSX.Element {
                         loading={reportsLoading}
                         onClick={() => loadReports()}
                         tooltip="Refresh reports"
+                        className="bg-surface-primary"
                     />
                 </div>
                 {hasNoSources && filteredReports.length > 0 && (

@@ -226,6 +226,7 @@ function ManagedSchemaTable({
     showMetrics,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
+    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -271,8 +272,18 @@ function ManagedSchemaTable({
                         if (!schema.status) {
                             return <span className="text-muted">—</span>
                         }
+                        const openSyncsForSchema = (): void => {
+                            setSelectedSchemas([schema.name])
+                            router.actions.push(urls.dataWarehouseSource(prefixedSourceId, 'syncs'))
+                        }
                         const tagContent = (
-                            <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            <LemonTag
+                                type={StatusTagSetting[schema.status] || 'default'}
+                                forceClickable
+                                onClick={openSyncsForSchema}
+                            >
+                                {schema.status}
+                            </LemonTag>
                         )
                         return schema.latest_error && schema.status === 'Failed' ? (
                             <Tooltip title={schema.latest_error} interactive>

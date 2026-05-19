@@ -1250,6 +1250,46 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         assert response_data["type"] == "authentication_error"
         assert response_data["code"] == "impersonation_path_blocked"
 
+    def test_impersonation_blocks_post_to_personal_api_keys_without_trailing_slash(self):
+        """The DefaultRouterPlusPlus router accepts paths with or without a trailing slash
+        (trailing_slash = r"/?"), so /api/personal_api_keys reaches the same viewset as
+        /api/personal_api_keys/. The middleware must block both forms — a startswith
+        check against "/api/personal_api_keys/" alone is bypassed by the slashless variant."""
+        self.login_as_other_user()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            data={"label": "Test Key"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, (
+            f"expected 403 (impersonation block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_path_blocked"
+
+    def test_impersonation_blocks_patch_to_users_api_without_trailing_slash(self):
+        """Same bypass class as the personal_api_keys slashless test: /api/users/@me
+        (no trailing slash) must be blocked just like /api/users/@me/."""
+        self.login_as_other_user()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.patch(
+            "/api/users/@me",
+            data={"first_name": "Changed"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, (
+            f"expected 403 (impersonation block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        assert response.json()["code"] == "impersonation_path_blocked"
+
 
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
