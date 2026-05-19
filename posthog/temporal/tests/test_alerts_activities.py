@@ -575,6 +575,7 @@ class TestNotifyAlert:
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
 
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 class TestCleanupAlertChecks:

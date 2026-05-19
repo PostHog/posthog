@@ -371,6 +371,8 @@ async def run_investigation_safety_net() -> int:
 
     async with Heartbeater():
         return await _sweep()
+
+
 async def cleanup_alert_checks() -> None:
     """Purge old ``AlertCheck`` rows per the model's retention rules."""
 

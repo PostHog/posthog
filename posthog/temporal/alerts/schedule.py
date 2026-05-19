@@ -59,6 +59,8 @@ async def create_run_investigation_safety_net_schedule(client: Client) -> None:
         await a_update_schedule(client, INVESTIGATION_SAFETY_NET_SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(client, INVESTIGATION_SAFETY_NET_SCHEDULE_ID, schedule, trigger_immediately=False)
+
+
 async def create_cleanup_alert_checks_schedule(client: Client) -> None:
     """Daily at 8:00 UTC — matches the prior Celery crontab."""
     schedule = Schedule(
