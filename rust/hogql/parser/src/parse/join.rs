@@ -357,7 +357,9 @@ impl<'a> Parser<'a> {
     /// clears any that an inner alias set). Returns `(alias,
     /// column_aliases)` for the outermost — last — alias, or
     /// `(None, None)` when the table carries no alias at all.
-    fn consume_table_alias_chain(&mut self) -> Result<(Option<String>, Option<Vec<String>>), ParseError> {
+    fn consume_table_alias_chain(
+        &mut self,
+    ) -> Result<(Option<String>, Option<Vec<String>>), ParseError> {
         let mut alias: Option<String> = None;
         let mut column_aliases: Option<Vec<String>> = None;
         while let Some(a) = self.try_consume_table_alias()? {

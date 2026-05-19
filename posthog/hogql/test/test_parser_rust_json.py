@@ -14,12 +14,10 @@ from ._test_parser import parser_test_factory
 #   - pop_empty_stack: a deserialization crash on a malformed-stack input
 #   - promoted_assignment_target_carries_position: assignment-LHS source
 #     positions under the master `exprStmt`-fold grammar
-#   - select_set_level_limit_offset_divergences: set-level LIMIT/OFFSET
 _DEFERRED_EXACT: set[str] = {
     "test_lt_vs_tags_and_comments",
     "test_pop_empty_stack",
     "test_promoted_assignment_target_carries_position",
-    "test_select_set_level_limit_offset_divergences",
 }
 
 

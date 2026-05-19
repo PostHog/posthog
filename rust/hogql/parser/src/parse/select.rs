@@ -68,6 +68,19 @@ impl<'a> Parser<'a> {
             if let Some(obj) = first.as_object_mut() {
                 obj.remove("__rust_offset_liftable");
             }
+            // A set-level LIMIT / OFFSET clause has nowhere to attach on a
+            // bare `{placeholder}` select body — only `SelectQuery` /
+            // `SelectSetQuery` carry those fields — so it is dropped, the
+            // same way cpp does (`#58885`). Without this the clause would
+            // be written onto the `Placeholder` node and crash AST
+            // deserialization.
+            let body_takes_decorators = matches!(
+                first.get("node").and_then(Value::as_str),
+                Some("SelectQuery") | Some("SelectSetQuery")
+            );
+            if !body_takes_decorators {
+                return Ok(first);
+            }
             return Ok(merge_select_decorators(first, filtered));
         }
         // cpp's `VISIT(SelectSetStmt)` lifts the inner SelectQuery's
