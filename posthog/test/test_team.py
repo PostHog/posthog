@@ -169,10 +169,6 @@ class TestTeam(BaseTest):
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
 
     def test_team_on_cloud_defaults_to_v2_when_modifier_unset(self):
-        # Cloud teams are backfilled into team.modifiers["personsOnEventsMode"]
-        # (see posthog/dags/backfill_persons_on_events_mode.py). Brand-new cloud
-        # teams created after the backfill have a null modifier and should adopt
-        # v2 as the canonical modern default.
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)

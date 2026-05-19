@@ -738,12 +738,7 @@ class Team(UUIDTClassicModel):
         if self._person_on_events_person_id_no_override_properties_on_events:
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        # Cloud teams are backfilled into `team.modifiers["personsOnEventsMode"]`
-        # (see posthog/dags/backfill_persons_on_events_mode.py), so this branch
-        # is reached on cloud only for brand-new teams created after the backfill.
-        # v2 has been at 100% rollout for orgs created after 2024-06-14, so it is
-        # the canonical modern default. Self-hosted with neither instance setting
-        # enabled keeps the historical JOINED behavior.
+        # Cloud teams are backfilled via backfill_persons_on_events_mode_job; this branch is hit only for new teams.
         if is_cloud():
             return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
