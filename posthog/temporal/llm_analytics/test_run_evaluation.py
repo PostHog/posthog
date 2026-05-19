@@ -471,9 +471,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_skips_internal_product_traces(
-        self, ai_product: str, setup_data
-    ):
+    async def test_execute_llm_judge_activity_skips_internal_product_traces(self, ai_product: str, setup_data):
         """Traces tagged with PostHog-internal `ai_product` values are meta-content (research
         agents inspecting prior signals, evaluator outputs, signals grouping prompts) — never
         real customer LLM traffic. Running judges on them creates a feedback loop where the
