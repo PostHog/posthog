@@ -317,9 +317,7 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate([[HumanMessage(content="Test query")]])
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertEqual(
-                call_kwargs["metadata"]["posthog_properties"]["ai_product"], "alert_investigation_agent"
-            )
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "alert_investigation_agent")
 
     @parameterized.expand(
         [
