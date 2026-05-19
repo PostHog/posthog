@@ -11,13 +11,16 @@ import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
+from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
+
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
 SANDBOX_CONNECTION_AUDIENCE = "posthog:sandbox_connection"
 SANDBOX_EVENT_INGEST_AUDIENCE = "posthog:sandbox_event_ingest"
-SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(hours=24)
+SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER = timedelta(hours=1)
+SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(seconds=SANDBOX_TTL_SECONDS) + SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER
 
 
 @dataclass(frozen=True)

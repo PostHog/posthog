@@ -6,14 +6,15 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import cast
 
-from django.core.cache import cache
-
 import structlog
 from asgiref.sync import sync_to_async
 from jwt import PyJWTError
 
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.connection_token import validate_sandbox_event_ingest_token
+from products.tasks.backend.services.connection_token import (
+    SandboxEventIngestTokenPayload,
+    validate_sandbox_event_ingest_token,
+)
 from products.tasks.backend.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
@@ -30,13 +31,9 @@ TASK_RUN_EVENT_INGEST_ROUTE = re.compile(
     r"^/api/projects/(?P<project_id>[^/]+)/tasks/(?P<task_id>[^/]+)/runs/(?P<run_id>[^/]+)/event_stream/?$"
 )
 HEARTBEAT_THROTTLE_SECONDS = 30
-RUN_EXISTS_CACHE_SECONDS = 60
-PRODUCER_CONFIRMED_CACHE_SECONDS = 24 * 60 * 60
 MAX_EVENT_LINE_BYTES = 1_000_000
 MAX_REQUEST_BYTES = 5_000_000
 MAX_EVENTS_PER_REQUEST = 1_000
-COMPLETE_ON_CLOSE_HEADER = b"x-posthog-event-stream-complete"
-COMPLETE_ON_CLOSE_FINAL_SEQUENCE_HEADER = b"x-posthog-event-stream-final-seq"
 STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete"
 
 ASGIMessage = dict[str, object]
@@ -56,6 +53,20 @@ class EventIngestPayloadTooLarge(Exception):
     def __init__(self, message: str, last_accepted_seq: int = 0):
         super().__init__(message)
         self.last_accepted_seq = last_accepted_seq
+
+
+class EventIngestHTTPError(Exception):
+    def __init__(self, status_code: int, payload: dict):
+        super().__init__(payload.get("error", "Event ingest request failed"))
+        self.status_code = status_code
+        self.payload = payload
+
+
+@dataclass(frozen=True)
+class EventIngestRoute:
+    project_id: str
+    task_id: str
+    run_id: str
 
 
 @dataclass
@@ -85,53 +96,27 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
     if not isinstance(path, str):
         return False
 
-    route_match = TASK_RUN_EVENT_INGEST_ROUTE.match(path)
-    if route_match is None:
+    route = _match_event_ingest_route(path)
+    if route is None:
         return False
 
     if scope.get("method") != "POST":
         await _send_json(send, 405, {"error": "Method not allowed"})
         return True
 
-    token = _get_bearer_token(scope)
-    if token is None:
-        await _send_json(send, 401, {"error": "Missing authorization bearer token"})
-        return True
-
     try:
-        claims = await sync_to_async(validate_sandbox_event_ingest_token, thread_sensitive=False)(token)
-    except PyJWTError as error:
-        await _send_json(send, 401, {"error": "Invalid event ingest token", "code": error.__class__.__name__})
-        return True
-
-    path_task_id = route_match.group("task_id")
-    path_run_id = route_match.group("run_id")
-    path_project_id = route_match.group("project_id")
-    if claims.task_id != path_task_id or claims.run_id != path_run_id:
-        await _send_json(send, 403, {"error": "Token does not match task run"})
-        return True
-    if path_project_id != "@current" and (not path_project_id.isdigit() or int(path_project_id) != claims.team_id):
-        await _send_json(send, 403, {"error": "Token does not match project"})
-        return True
-
-    if not await _task_run_exists(claims.run_id, claims.task_id, claims.team_id):
-        await _send_json(send, 404, {"error": "Task run not found"})
+        claims = await _authorize_event_ingest_request(scope, route)
+    except EventIngestHTTPError as error:
+        await _send_json(send, error.status_code, error.payload)
         return True
 
     redis_stream = TaskRunRedisStream(get_task_run_stream_key(claims.run_id))
-    complete_on_close = _get_header(scope, COMPLETE_ON_CLOSE_HEADER) == "true"
-    try:
-        complete_on_close_final_sequence = _get_complete_on_close_final_sequence(scope) if complete_on_close else None
-    except EventIngestBadRequest as error:
-        await _send_json(send, 400, {"error": str(error)})
-        return True
 
     try:
         result = await _ingest_event_lines(
             redis_stream,
             claims.run_id,
             receive,
-            complete_on_close_final_sequence=complete_on_close_final_sequence,
         )
     except ClientDisconnected:
         logger.info("task_run_event_ingest_client_disconnected", run_id=claims.run_id)
@@ -152,7 +137,6 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         await _send_json(send, 409, {"error": str(error), "last_accepted_seq": error.last_accepted_seq})
         return True
 
-    await _mark_event_ingest_producer_confirmed(claims.run_id)
     await _send_json(
         send,
         200,
@@ -169,8 +153,6 @@ async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
     run_id: str,
     receive: ASGIReceive,
-    *,
-    complete_on_close_final_sequence: int | None = None,
 ) -> EventIngestResult:
     result = EventIngestResult(last_accepted_seq=await redis_stream.get_last_sequence())
 
@@ -208,17 +190,14 @@ async def _ingest_event_lines(
             error.last_accepted_seq = result.last_accepted_seq
         raise
 
-    final_sequence = completion_line_final_sequence
-    if final_sequence is None:
-        final_sequence = complete_on_close_final_sequence
-
-    if final_sequence is not None:
-        await redis_stream.mark_complete_after_sequence(final_sequence)
+    if completion_line_final_sequence is not None:
+        await redis_stream.mark_complete_after_sequence(completion_line_final_sequence)
 
     return result
 
 
 async def _iter_request_lines(receive: ASGIReceive) -> AsyncGenerator[str, None]:
+    """Yield NDJSON request lines with bounded event-loop work per request."""
     buffer = b""
     request_size = 0
 
@@ -290,22 +269,6 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
     return EventIngestEventLine(sequence=sequence, event=event)
 
 
-def _get_complete_on_close_final_sequence(scope: ASGIMessage) -> int:
-    final_sequence_raw = _get_header(scope, COMPLETE_ON_CLOSE_FINAL_SEQUENCE_HEADER)
-    if final_sequence_raw is None:
-        raise EventIngestBadRequest("Completion request must include X-PostHog-Event-Stream-Final-Seq")
-
-    try:
-        final_sequence = int(final_sequence_raw)
-    except ValueError as error:
-        raise EventIngestBadRequest("Completion final sequence must be a non-negative integer") from error
-
-    if final_sequence < 0:
-        raise EventIngestBadRequest("Completion final sequence must be a non-negative integer")
-
-    return final_sequence
-
-
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
@@ -344,38 +307,11 @@ def _is_session_update(event: dict) -> bool:
 
 
 def _task_run_exists_sync(run_id: str, task_id: str, team_id: int) -> bool:
-    cache_key = f"task-run-event-ingest-exists:{team_id}:{task_id}:{run_id}"
-    if cache.get(cache_key) is True:
-        return True
-
-    exists = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists()
-    if exists:
-        cache.set(cache_key, True, RUN_EXISTS_CACHE_SECONDS)
-    return exists
+    return TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists()
 
 
 def _task_run_exists(run_id: str, task_id: str, team_id: int) -> Awaitable[bool]:
     return sync_to_async(_task_run_exists_sync, thread_sensitive=True)(run_id, task_id, team_id)
-
-
-def _mark_event_ingest_producer_confirmed_sync(run_id: str) -> None:
-    cache_key = f"task-run-event-ingest-confirmed:{run_id}"
-    if cache.get(cache_key) is True:
-        return
-
-    try:
-        TaskRun.update_state_atomic(run_id, updates={"sandbox_event_ingest_producer_confirmed": True})
-    except TaskRun.DoesNotExist:
-        logger.warning("task_run_event_ingest_confirm_run_missing", run_id=run_id)
-        return
-    except Exception as error:
-        logger.warning("task_run_event_ingest_confirm_failed", run_id=run_id, error=str(error))
-        return
-    cache.set(cache_key, True, PRODUCER_CONFIRMED_CACHE_SECONDS)
-
-
-def _mark_event_ingest_producer_confirmed(run_id: str) -> Awaitable[None]:
-    return sync_to_async(_mark_event_ingest_producer_confirmed_sync, thread_sensitive=True)(run_id)
 
 
 def _get_bearer_token(scope: ASGIMessage) -> str | None:
@@ -388,6 +324,43 @@ def _get_bearer_token(scope: ASGIMessage) -> str | None:
         return None
     token = authorization[len(prefix) :].strip()
     return token or None
+
+
+def _match_event_ingest_route(path: str) -> EventIngestRoute | None:
+    route_match = TASK_RUN_EVENT_INGEST_ROUTE.match(path)
+    if route_match is None:
+        return None
+    return EventIngestRoute(
+        project_id=route_match.group("project_id"),
+        task_id=route_match.group("task_id"),
+        run_id=route_match.group("run_id"),
+    )
+
+
+async def _authorize_event_ingest_request(
+    scope: ASGIMessage, route: EventIngestRoute
+) -> SandboxEventIngestTokenPayload:
+    token = _get_bearer_token(scope)
+    if token is None:
+        raise EventIngestHTTPError(401, {"error": "Missing authorization bearer token"})
+
+    try:
+        claims = await sync_to_async(validate_sandbox_event_ingest_token, thread_sensitive=False)(token)
+    except PyJWTError as error:
+        raise EventIngestHTTPError(
+            401,
+            {"error": "Invalid event ingest token", "code": error.__class__.__name__},
+        ) from error
+
+    if claims.task_id != route.task_id or claims.run_id != route.run_id:
+        raise EventIngestHTTPError(403, {"error": "Token does not match task run"})
+    if route.project_id != "@current" and (not route.project_id.isdigit() or int(route.project_id) != claims.team_id):
+        raise EventIngestHTTPError(403, {"error": "Token does not match project"})
+
+    if not await _task_run_exists(claims.run_id, claims.task_id, claims.team_id):
+        raise EventIngestHTTPError(404, {"error": "Task run not found"})
+
+    return claims
 
 
 def _get_header(scope: ASGIMessage, header_name: bytes) -> str | None:

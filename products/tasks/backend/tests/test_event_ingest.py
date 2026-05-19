@@ -1,5 +1,6 @@
 import json
 import asyncio
+import threading
 from collections.abc import Sequence
 
 from unittest.mock import patch
@@ -72,17 +73,12 @@ class TestTaskRunEventIngest(TransactionTestCase):
         token: str,
         lines: Sequence[dict],
         path: str | None = None,
-        *,
-        complete_on_close: bool = False,
-        complete_on_close_final_sequence: int | str | None = None,
     ) -> tuple[int, dict]:
         body = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
         return self._call_ingest_chunks(
             token,
             [body[: len(body) // 2], body[len(body) // 2 :]],
             path=path,
-            complete_on_close=complete_on_close,
-            complete_on_close_final_sequence=complete_on_close_final_sequence,
         )
 
     def _call_ingest_chunks(
@@ -90,9 +86,6 @@ class TestTaskRunEventIngest(TransactionTestCase):
         token: str,
         chunks: Sequence[bytes],
         path: str | None = None,
-        *,
-        complete_on_close: bool = False,
-        complete_on_close_final_sequence: int | str | None = None,
     ) -> tuple[int, dict]:
         async def _call() -> tuple[int, dict]:
             messages = [
@@ -108,12 +101,6 @@ class TestTaskRunEventIngest(TransactionTestCase):
                 sent.append(message)
 
             headers = [(b"authorization", f"Bearer {token}".encode())]
-            if complete_on_close:
-                headers.append((b"x-posthog-event-stream-complete", b"true"))
-            if complete_on_close_final_sequence is not None:
-                headers.append(
-                    (b"x-posthog-event-stream-final-seq", str(complete_on_close_final_sequence).encode("ascii"))
-                )
 
             handled = await handle_task_run_event_ingest(
                 {
@@ -172,9 +159,8 @@ class TestTaskRunEventIngest(TransactionTestCase):
                         "seq": 2,
                         "event": {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
                     },
+                    {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 2},
                 ],
-                complete_on_close=True,
-                complete_on_close_final_sequence=2,
             )
 
         self.assertEqual(status, 200)
@@ -185,9 +171,6 @@ class TestTaskRunEventIngest(TransactionTestCase):
         events = self._read_stream_events()
         self.assertEqual(self._read_notification_methods(), ["session/update", "_posthog/task_complete"])
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
-
-        self.task_run.refresh_from_db()
-        self.assertIs(self.task_run.state.get("sandbox_event_ingest_producer_confirmed"), True)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_current_project_path_ingests_with_token_scoped_task_run(self) -> None:
@@ -202,6 +185,67 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
         self.assertEqual(self._read_notification_methods(), ["session/update"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
+        token = self._create_token()
+        heartbeat_entered = threading.Event()
+        heartbeat_released = threading.Event()
+        heartbeat_timed_out = threading.Event()
+
+        def blocking_heartbeat(_run_id: str, _agent_active: bool) -> None:
+            heartbeat_entered.set()
+            if not heartbeat_released.wait(timeout=1):
+                heartbeat_timed_out.set()
+
+        async def _call() -> tuple[int, dict]:
+            body = (
+                json.dumps(
+                    {
+                        "seq": 1,
+                        "event": {"type": "notification", "notification": {"method": "session/update"}},
+                    }
+                )
+                + "\n"
+            ).encode("utf-8")
+            messages = [{"type": "http.request", "body": body, "more_body": False}]
+            sent: list[dict] = []
+
+            async def receive() -> dict:
+                return messages.pop(0)
+
+            async def send(message: dict) -> None:
+                sent.append(message)
+
+            async def release_heartbeat_from_event_loop() -> None:
+                for _ in range(1000):
+                    if heartbeat_entered.is_set():
+                        break
+                    await asyncio.sleep(0.001)
+                heartbeat_released.set()
+
+            await asyncio.gather(
+                handle_task_run_event_ingest(
+                    {
+                        "type": "http",
+                        "method": "POST",
+                        "path": self._ingest_url(),
+                        "headers": [(b"authorization", f"Bearer {token}".encode())],
+                    },
+                    receive,
+                    send,
+                ),
+                release_heartbeat_from_event_loop(),
+            )
+            return sent[0]["status"], json.loads(sent[1]["body"])
+
+        with patch("products.tasks.backend.stream.event_ingest._heartbeat_workflow", side_effect=blocking_heartbeat):
+            status, body = asyncio.run(_call())
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        self.assertTrue(heartbeat_entered.is_set())
+        self.assertFalse(heartbeat_timed_out.is_set())
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_sequence_is_skipped_on_reconnect(self) -> None:
@@ -225,7 +269,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertEqual(self._read_notification_methods(), ["first", "second"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_duplicate_terminal_sequence_does_not_complete_without_completion_header(self) -> None:
+    def test_duplicate_terminal_sequence_does_not_complete_without_completion_line(self) -> None:
         token = self._create_token()
         terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
 
@@ -241,7 +285,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_duplicate_terminal_sequence_can_complete_with_completion_header(self) -> None:
+    def test_duplicate_terminal_sequence_can_complete_with_completion_line(self) -> None:
         token = self._create_token()
         terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
 
@@ -250,9 +294,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
         with patch.object(TaskRun, "heartbeat_workflow"):
             status, body = self._call_ingest(
                 token,
-                [{"seq": 1, "event": terminal_event}],
-                complete_on_close=True,
-                complete_on_close_final_sequence=1,
+                [{"seq": 1, "event": terminal_event}, {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 1}],
             )
 
         self.assertEqual(status, 200)
@@ -401,7 +443,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertGreaterEqual(sequence_ttl, 23 * 60 * 60)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_non_terminal_request_close_does_not_complete_without_header(self) -> None:
+    def test_non_terminal_request_close_does_not_complete(self) -> None:
         token = self._create_token()
 
         status, body = self._call_ingest(
@@ -412,59 +454,6 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
         self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
-
-    @parameterized.expand(
-        [
-            (
-                "accepted_final_sequence",
-                [
-                    (1, {"type": "notification", "notification": {"method": "first"}}),
-                    (2, {"type": "notification", "notification": {"method": "second"}}),
-                ],
-                2,
-                200,
-                {"accepted": 0},
-                True,
-            ),
-            (
-                "missing_final_sequence",
-                [],
-                None,
-                400,
-                {"error": "Completion request must include X-PostHog-Event-Stream-Final-Seq"},
-                False,
-            ),
-            ("unaccepted_final_sequence", [], 1, 409, {"last_accepted_seq": 0}, False),
-            ("empty_stream_final_zero", [], 0, 200, {"accepted": 0}, True),
-        ]
-    )
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_completion_header_cases(
-        self,
-        _case_name: str,
-        seed_events: Sequence[tuple[int, dict]],
-        final_sequence: int | None,
-        expected_status: int,
-        expected_body: dict,
-        completes_stream: bool,
-    ) -> None:
-        token = self._create_token()
-        self._seed_stream_events(seed_events)
-
-        status, body = self._call_ingest(
-            token,
-            [],
-            complete_on_close=True,
-            complete_on_close_final_sequence=final_sequence,
-        )
-
-        self.assertEqual(status, expected_status)
-        for key, expected_value in expected_body.items():
-            self.assertEqual(body[key], expected_value)
-        if completes_stream:
-            self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
-        else:
-            self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_empty_request_returns_last_accepted_sequence(self) -> None:
