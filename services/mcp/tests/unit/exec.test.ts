@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -337,6 +337,33 @@ describe('exec tool', () => {
             const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
+    })
+
+    describe('parseExecCallInnerToolName', () => {
+        it.each([
+            ['call my-tool {}', 'my-tool'],
+            ['call my-tool', 'my-tool'],
+            ['call --json my-tool {}', 'my-tool'],
+            ['  call   my-tool   {}  ', 'my-tool'],
+        ])('extracts inner tool name from "%s"', (command, expected) => {
+            expect(parseExecCallInnerToolName(command)).toBe(expected)
+        })
+
+        // Non-call verbs (info/schema/search/tools) are intentionally undefined —
+        // the resolver only fires for real invocations, not for browsing/inspection.
+        it.each([
+            ['info my-tool'],
+            ['schema my-tool'],
+            ['search query-'],
+            ['tools'],
+            ['call'],
+            ['call '],
+            ['call --json'],
+            [''],
+            ['   '],
+        ])('returns undefined for "%s"', (command) => {
+            expect(parseExecCallInnerToolName(command)).toBeUndefined()
         })
     })
 

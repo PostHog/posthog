@@ -1,15 +1,16 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,8 +20,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
-import { BlockedRunsBanner } from './BlockedRunsBanner'
-import { BlockedRunsReplay } from './BlockedRunsReplay'
 import { Workflow } from './Workflow'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
@@ -53,9 +52,10 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow } = useValues(logic)
-
-    const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
+    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } = useValues(logic)
+    const { setAutoSaveEnabled } = useActions(logic)
+    const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
+    const isDraft = originalWorkflow?.status === 'draft'
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -99,22 +99,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <ActivityLog id={workflowSceneProps.id!} scope={ActivityScope.HOG_FLOW} />,
         },
-        showBlockedRuns
-            ? {
-                  label: 'Blocked runs',
-                  key: 'blocked_runs' as WorkflowTab,
-                  content: <BlockedRunsReplay id={workflowSceneProps.id!} />,
-              }
-            : null,
     ]
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
-                <FlaggedFeature flag={FEATURE_FLAGS.WORKFLOWS_REPLAY_BLOCKED_RUNS}>
-                    <BlockedRunsBanner id={props.id} />
-                </FlaggedFeature>
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...props} />
@@ -124,6 +114,35 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset
+                        rightSlot={
+                            isDraft ? (
+                                <span className="flex items-center gap-3">
+                                    {autoSaveEnabled && showSaving ? (
+                                        <span className="text-xs text-tertiary flex items-center gap-1">
+                                            <Spinner textColored /> Saving…
+                                        </span>
+                                    ) : lastSavedAt ? (
+                                        <LastSavedIndicator timestamp={lastSavedAt} />
+                                    ) : null}
+                                    <span className="flex items-center gap-1">
+                                        <LemonSwitch
+                                            checked={autoSaveEnabled}
+                                            onChange={setAutoSaveEnabled}
+                                            label="Auto-save"
+                                            size="small"
+                                        />
+                                        <Tooltip
+                                            title="Auto-save is only available for draft workflows. Active workflows require an explicit save to prevent unintended changes to live behavior."
+                                            placement="bottom"
+                                        >
+                                            <IconInfo className="text-tertiary size-4" />
+                                        </Tooltip>
+                                    </span>
+                                </span>
+                            ) : lastSavedAt ? (
+                                <LastSavedIndicator timestamp={lastSavedAt} />
+                            ) : null
+                        }
                         className={clsx({
                             'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
                         })}

@@ -48,6 +48,12 @@ describe('DataTable utils', () => {
         // Malformed - returns null
         ['x AS', null],
         ['x AS ', null],
+        // Quoted alias on a wrapped expression
+        ['cutQueryStringAndFragment(properties.$current_url) AS "Current URL"', 'Current URL'],
+        // AS inside string literal followed by a real trailing alias
+        ["concat(properties.a, ' AS fake') AS real", 'real'],
+        // Alias name matching a system-generated alias
+        ['properties.x AS breakdown_value', 'breakdown_value'],
     ])('extractAsAlias(%s) = %s', (input, expected) => {
         expect(extractAsAlias(input)).toBe(expected)
     })
@@ -63,6 +69,10 @@ describe('DataTable utils', () => {
         ['x AS foo -- bar', 'foo'],
         // No alias or comment - returns original
         ['properties.$browser', 'properties.$browser'],
+        // Quoted alias on a wrapped expression
+        ['cutQueryStringAndFragment(properties.$current_url) AS "Current URL"', 'Current URL'],
+        // Alias name matching a system-generated alias
+        ['properties.x AS breakdown_value', 'breakdown_value'],
     ])('extractDisplayLabel(%s) = %s', (input, expected) => {
         expect(extractDisplayLabel(input)).toBe(expected)
     })

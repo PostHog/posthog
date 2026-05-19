@@ -3,8 +3,10 @@ from django.utils.html import format_html
 
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.user_integration import UserIntegration
 
 
+@admin.register(Integration)
 class IntegrationAdmin(admin.ModelAdmin):
     list_select_related = ("team", "created_by")
     list_display = ("id", "kind", "integration_id", "team_link", "created_by", "created_at")
@@ -37,6 +39,7 @@ class IntegrationAdmin(admin.ModelAdmin):
         return format_html("{} ({})", obj.team.name, obj.team_id)
 
 
+@admin.register(UserIntegration)
 class UserIntegrationAdmin(admin.ModelAdmin):
     list_select_related = ("user",)
     list_display = ("id", "kind", "integration_id", "user", "created_at")
@@ -50,6 +53,7 @@ class UserIntegrationAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "user", "created_at", "updated_at")
 
 
+@admin.register(OrganizationIntegration)
 class OrganizationIntegrationAdmin(admin.ModelAdmin):
     list_select_related = ("organization", "created_by")
     list_display = ("id", "kind", "integration_id", "organization_link", "created_by", "created_at")

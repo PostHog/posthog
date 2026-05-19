@@ -22,7 +22,7 @@ from hogli.command_types import BinScriptCommand, CompositeCommand, DirectComman
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
 from hogli.lazy_commands import add_commands_dir_to_path, add_repo_root_to_path, resolve_click_command
 from hogli.manifest import REPO_ROOT, get_category_for_command, get_manifest, get_services_for_command, load_manifest
-from hogli.validate import auto_update_manifest, find_missing_manifest_entries
+from hogli.validate import auto_update_manifest, find_missing_manifest_entries, find_orphan_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
 
@@ -189,16 +189,22 @@ def cli(ctx: click.Context) -> None:
 
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
-    """Validate that all bin scripts are in the manifest."""
+    """Validate that bin scripts and manifest entries stay in sync."""
     missing = find_missing_manifest_entries()
+    orphans = find_orphan_manifest_entries()
 
-    if not missing:
-        click.echo("✓ All bin scripts are in the manifest")
+    if not missing and not orphans:
+        click.echo("✓ All bin scripts are in the manifest and all manifest entries resolve")
         return
 
-    click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
-    for script in sorted(missing):
-        click.echo(f"  - {script}")
+    if missing:
+        click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
+        for script in sorted(missing):
+            click.echo(f"  - {script}")
+    if orphans:
+        click.echo(f"✗ Found {len(orphans)} manifest entr(ies) with no matching bin script:")
+        for cmd in sorted(orphans):
+            click.echo(f"  - {cmd}")
 
     raise SystemExit(1)
 

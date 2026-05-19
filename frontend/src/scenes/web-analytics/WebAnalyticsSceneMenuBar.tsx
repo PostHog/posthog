@@ -43,7 +43,7 @@ function NewQueryEngineTooltipBody(): JSX.Element {
         <div className="max-w-100 p-1 text-xs">
             <div className="mb-2 flex items-center gap-2">
                 <strong>About the new query engine</strong>
-                <Badge variant="info" size="sm" className="uppercase">
+                <Badge variant="info" className="uppercase">
                     Beta
                 </Badge>
             </div>
@@ -124,7 +124,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                                 >
                                     <IconBolt />
                                     New query engine
-                                    <Badge variant="info" size="sm" className="ml-1 uppercase">
+                                    <Badge variant="info" className="ml-1 uppercase">
                                         Beta
                                     </Badge>
                                 </SceneMenuBarCheckboxItem>

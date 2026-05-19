@@ -420,6 +420,7 @@ export interface LogsAlertDeleteDestinationApi {
  * `snooze` - Snooze
  * `unsnooze` - Unsnooze
  * `threshold_change` - Threshold change
+ * `broken_config` - Broken config
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -431,6 +432,7 @@ export const LogsAlertEventKindEnumApi = {
     Snooze: 'snooze',
     Unsnooze: 'unsnooze',
     ThresholdChange: 'threshold_change',
+    BrokenConfig: 'broken_config',
 } as const
 
 export interface LogsAlertEventApi {

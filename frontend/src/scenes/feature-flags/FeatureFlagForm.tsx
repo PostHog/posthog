@@ -104,7 +104,7 @@ function SortableVariantHeader({
             <div className="flex gap-2 items-center">
                 <Lettermark name={alphabet[index] ?? String(index + 1)} color={LettermarkColor.Gray} size="small" />
                 <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
-                <span className="text-xs text-muted">({variant.rollout_percentage || 0}%)</span>
+                <span className="text-xs text-muted tabular-nums">({variant.rollout_percentage || 0}%)</span>
             </div>
             <div className="flex gap-1 items-center ml-auto">
                 <LemonButton
@@ -942,7 +942,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             <span className="text-sm font-medium">
                                                                 {getActiveVariant()?.key || 'Variant'}
                                                             </span>
-                                                            <span className="text-xs text-muted">
+                                                            <span className="text-xs text-muted tabular-nums">
                                                                 ({getActiveVariant()?.rollout_percentage || 0}%)
                                                             </span>
                                                         </div>

@@ -244,6 +244,9 @@
                 "unicodeRange": {
                     "type": "string"
                 },
+                "variationSettings": {
+                    "type": "string"
+                },
                 "weight": {
                     "type": "string"
                 }

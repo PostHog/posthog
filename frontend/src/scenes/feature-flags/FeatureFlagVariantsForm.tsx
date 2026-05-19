@@ -150,7 +150,7 @@ export function FeatureFlagVariantsForm({
                                     <span className="text-secondary">No payload associated with this variant</span>
                                 )}
                             </div>
-                            <div>{variant.rollout_percentage}%</div>
+                            <div className="tabular-nums">{variant.rollout_percentage}%</div>
                             {(flagKey || onGetFeedback) && (
                                 <div className="col-span-2 flex gap-2 items-start">
                                     {flagKey && (

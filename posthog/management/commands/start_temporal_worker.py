@@ -165,6 +165,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.deployments.backend.temporal import (
+    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
+    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+)
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
@@ -344,6 +348,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.DEPLOYMENTS_TASK_QUEUE,
+        DEPLOYMENTS_WORKFLOWS,
+        DEPLOYMENTS_ACTIVITIES,
     ),
 ]
 
