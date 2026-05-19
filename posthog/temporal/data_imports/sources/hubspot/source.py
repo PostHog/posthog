@@ -85,6 +85,10 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            "Hubspot refresh or access token not found": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "Hubspot refresh token not found": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "does not support search-based incremental sync": "This HubSpot endpoint can only be synced as a full refresh. Please change the sync type to full refresh.",
+            "has no cursor_filter_property_field": "This HubSpot endpoint can only be synced as a full refresh. Please change the sync type to full refresh.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options

@@ -71,6 +71,18 @@ Any_Source_Errors: dict[str, str | None] = {
     "Integration matching query does not exist": None,
 }
 
+# Strips a leading Python exception class name from a raw error string, e.g.
+# turns `ValueError: foo` into `foo`. The Pipeline status card surfaces
+# `latest_error` verbatim, so exposing Python internals to end users looks like
+# a bug even when the underlying message is otherwise legible.
+_EXCEPTION_CLASS_PREFIX_RE = re.compile(r"^[A-Z][A-Za-z0-9_]*(?:Error|Exception):\s*")
+
+
+def _strip_exception_class_prefix(message: str | None) -> str | None:
+    if not message:
+        return message
+    return _EXCEPTION_CLASS_PREFIX_RE.sub("", message, count=1)
+
 
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
@@ -165,6 +177,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
+
+        # Fall-through cleanup: if no friendly mapping replaced `latest_error`,
+        # the value persisted to the schema is still a raw Python error string
+        # (set by the workflow's exception handlers). Strip any leading
+        # `ClassName:` prefix so the Pipeline status card doesn't surface it.
+        inputs.latest_error = _strip_exception_class_prefix(inputs.latest_error)
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,

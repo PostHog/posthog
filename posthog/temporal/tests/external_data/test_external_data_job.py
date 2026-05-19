@@ -514,6 +514,127 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert schema.should_sync is False
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "internal_error,expected_latest_error",
+    [
+        (
+            "ValueError: Hubspot refresh or access token not found for job abc-123",
+            "Your HubSpot connection is invalid or expired. Please reconnect it.",
+        ),
+        (
+            "ValueError: Hubspot refresh token not found for job abc-123",
+            "Your HubSpot connection is invalid or expired. Please reconnect it.",
+        ),
+        (
+            "ValueError: Endpoint deals does not support search-based incremental sync",
+            "This HubSpot endpoint can only be synced as a full refresh. Please change the sync type to full refresh.",
+        ),
+        (
+            "ValueError: Search path requested for deals but endpoint has no cursor_filter_property_field",
+            "This HubSpot endpoint can only be synced as a full refresh. Please change the sync type to full refresh.",
+        ),
+    ],
+)
+async def test_update_external_job_activity_translates_hubspot_value_errors(
+    activity_environment, team, internal_error, expected_latest_error, **kwargs
+):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Hubspot",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="contacts",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.FAILED,
+        latest_error=internal_error,
+        internal_error=internal_error,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert schema.latest_error == expected_latest_error
+    assert "ValueError:" not in (schema.latest_error or "")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_strips_exception_class_prefix_when_no_friendly_mapping(
+    activity_environment, team, **kwargs
+):
+    """Errors that fall outside the friendly_errors mapping should still have
+    any leading Python class prefix (e.g. `ValueError: `) stripped before being
+    persisted to `latest_error` and surfaced on the Pipeline status card."""
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_unmapped",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    raw_error = "RuntimeError: something unexpected blew up downstream"
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.FAILED,
+        latest_error=raw_error,
+        internal_error=raw_error,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert schema.latest_error == "something unexpected blew up downstream"
+    assert "RuntimeError:" not in (schema.latest_error or "")
+
+
 @pytest.fixture
 def mock_stripe_client():
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
