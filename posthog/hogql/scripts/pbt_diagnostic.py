@@ -68,7 +68,7 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 
 from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,
@@ -80,7 +80,7 @@ from posthog.hogql.scripts._diagnostic_common import (
     _safe_parse,
     _shape_for,
 )
-from posthog.hogql.test._generated_grammar_strategies import expr_strategy, select_strategy
+from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
 from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle
 
 # ---------------------------------------------------------------------------
@@ -191,8 +191,18 @@ def _print_failure_sample(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n", type=int, default=int(os.environ.get("N", "500")))
-    parser.add_argument("--rule", choices=("expr", "select"), default="expr")
+    parser.add_argument("--rule", choices=("expr", "select", "program"), default="expr")
     parser.add_argument("--jiggle", action="store_true")
+    parser.add_argument(
+        "--accepted-only",
+        action="store_true",
+        help=(
+            "Make `--n` count only examples the ORACLE accepts: oracle "
+            "rejects/crashes are `assume()`d out (Hypothesis keeps "
+            "generating until --n oracle-accepted examples are reached), "
+            "so the match denominator is exactly --n."
+        ),
+    )
     parser.add_argument(
         "--oracle",
         default=os.environ.get("ORACLE_BACKEND", "cpp-json"),
@@ -254,7 +264,11 @@ def main() -> int:
     # abort the whole grind. Keyed by normalised `<ExcType>: …`.
     crash_buckets: dict[str, list[str]] = {}
 
-    base_strategy = expr_strategy() if args.rule == "expr" else select_strategy()
+    base_strategy = {
+        "expr": expr_strategy,
+        "select": select_strategy,
+        "program": program_strategy,
+    }[args.rule]()
     strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
 
     # Stream JSONL during the run rather than collecting everything in
@@ -287,12 +301,19 @@ def main() -> int:
         o_status, o_ast, _ = _safe_parse(query, args.rule, oracle)
         if o_status == "reject":
             counts["oracle_reject"] += 1
+            # `--accepted-only`: discard so this doesn't count toward
+            # `max_examples` — Hypothesis regenerates until `--n`
+            # oracle-accepted examples land.
+            if args.accepted_only:
+                assume(False)
             return
         if o_status == "crash":
             # The oracle (source of truth) crashing is its own kind of
             # finding — count it, but with no oracle AST there's
             # nothing to compare the candidate against, so stop here.
             counts["oracle_crash"] += 1
+            if args.accepted_only:
+                assume(False)
             return
 
         c_status, c_ast, c_detail = _safe_parse(query, args.rule, candidate)

@@ -47,3 +47,7 @@ rust/persons_migrations/** @PostHog/team-ingestion
 posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 ee/api/scim/auth.py @PostHog/team-security
+
+# v1 data-modeling workflow is frozen during the v1 → v2 migration.
+# this will be removed from CODEOWNERS by June 1
+posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling

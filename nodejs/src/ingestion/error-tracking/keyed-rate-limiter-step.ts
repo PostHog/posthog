@@ -89,7 +89,7 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
 
         const limitedKeys = new Set<string>()
         if (requestByKey.size > 0) {
-            const rateLimitResults = await opts.rateLimiter.rateLimitMany(Array.from(requestByKey.values()))
+            const rateLimitResults = await opts.rateLimiter.rateLimitGrouped(Array.from(requestByKey.values()))
             for (const [key, result] of rateLimitResults) {
                 if (result.isRateLimited) {
                     limitedKeys.add(key)
