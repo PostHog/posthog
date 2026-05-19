@@ -1,6 +1,5 @@
 import uuid
 import typing as t
-import dataclasses
 from typing import cast
 
 from freezegun import freeze_time
@@ -1161,8 +1160,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
-        parsed_config = Mock(spec=["to_dict", "schema"])
-        parsed_config.schema = "analytics"
+        parsed_config = Mock(spec=["to_dict"])
         parsed_config.to_dict.return_value = {
             "host": "localhost",
             "port": "5432",
@@ -1187,7 +1185,6 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(data["added"], 2)
         self.assertEqual(data["deleted"], 0)
         self.assertEqual(data["total_tables_seen"], 2)
-        self.assertEqual(data["schema_queried"], "analytics")
         self.assertEqual(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
         )
@@ -1428,12 +1425,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertIn("Connection failed", message)
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
-    def test_refresh_schemas_returns_schema_queried_and_total_tables_seen(self, mock_get_source):
-        @dataclasses.dataclass
-        class _StubConfig:
-            schema: str = "dim_10mins"
-
-        mock_get_source.return_value.parse_config.return_value = _StubConfig()
+    def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = []
         source = self._create_external_data_source()
 
@@ -1446,28 +1439,6 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(data["added"], 0)
         self.assertEqual(data["deleted"], 0)
         self.assertEqual(data["total_tables_seen"], 0)
-        self.assertEqual(data["schema_queried"], "dim_10mins")
-
-    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
-    def test_refresh_schemas_schema_queried_is_null_when_config_has_no_schema(self, mock_get_source):
-        @dataclasses.dataclass
-        class _SaasConfig:
-            api_key: str = "x"
-
-        mock_get_source.return_value.parse_config.return_value = _SaasConfig()
-        mock_get_source.return_value.get_schemas.return_value = [
-            SourceSchema(name="customers", supports_incremental=False, supports_append=False),
-        ]
-        source = self._create_external_data_source()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
-        )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["total_tables_seen"], 1)
-        self.assertIsNone(data["schema_queried"])
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")

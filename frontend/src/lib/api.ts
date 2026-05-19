@@ -5446,7 +5446,6 @@ const api = {
             added: number
             deleted: number
             total_tables_seen: number
-            schema_queried: string | null
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },

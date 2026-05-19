@@ -613,7 +613,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         added = 0,
                         deleted = 0,
                         total_tables_seen = 0,
-                        schema_queried = null,
                     } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
                     posthog.capture('schemas refreshed', {
@@ -621,27 +620,23 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         added,
                         deleted,
                         total_tables_seen,
-                        schema_queried,
                     })
-                    const schemaSuffix = schema_queried ? ` in schema "${schema_queried}"` : ''
                     // Connected and got an empty table list — almost always a permissions
                     // gap or a typo in the schema name. Warn rather than silently succeed.
                     if (total_tables_seen === 0) {
                         lemonToast.warning(
-                            `No tables found${schemaSuffix}. Check that the configured user has SELECT access and that the schema name is correct.`
+                            'No tables found. Check that the configured user has SELECT access and that the schema name is correct.'
                         )
                         return
                     }
                     if (added === 0 && deleted === 0) {
-                        lemonToast.success(
-                            `No schema changes — all ${total_tables_seen} table(s) already tracked${schemaSuffix}.`
-                        )
+                        lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
                         return
                     }
                     const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
                         .filter(Boolean)
                         .join(' / ')
-                    lemonToast.success(`Schemas refreshed${schemaSuffix}: ${counts}`)
+                    lemonToast.success(`Schemas refreshed: ${counts}`)
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)

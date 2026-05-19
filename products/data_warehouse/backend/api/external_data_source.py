@@ -1389,7 +1389,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "added": {"type": "integer"},
                     "deleted": {"type": "integer"},
                     "total_tables_seen": {"type": "integer"},
-                    "schema_queried": {"type": "string", "nullable": True},
                 },
             }
         }
@@ -1432,19 +1431,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema_names=schema_names,
             )
         except Exception as e:
-            # Surface the underlying error to the caller (and Sentry) — the previous generic
-            # 400 made it impossible for users to tell apart "wrong schema name", "permission
-            # denied", and "connector crashed", all of which look identical in the UI.
             capture_exception(e)
             logger.exception("Could not fetch schemas from source", exc_info=e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not fetch schemas from source: {e}"},
             )
-        # `schema` is present on SQL-style source configs (Postgres, Redshift, MySQL, …) and
-        # absent on most SaaS source configs — surface it when we have it so the UI can say
-        # "Pulled from schema <name>" and a zero-table result becomes self-explanatory.
-        schema_queried = getattr(config, "schema", None) if config is not None else None
+
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
@@ -1473,7 +1466,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             added=len(schemas_created),
             deleted=len(schemas_deleted),
             total_tables_seen=len(schemas),
-            schema_queried=schema_queried,
         )
         return Response(
             status=status.HTTP_200_OK,
@@ -1481,7 +1473,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "added": len(schemas_created),
                 "deleted": len(schemas_deleted),
                 "total_tables_seen": len(schemas),
-                "schema_queried": schema_queried,
             },
         )
 
