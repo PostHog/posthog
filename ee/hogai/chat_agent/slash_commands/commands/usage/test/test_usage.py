@@ -12,7 +12,6 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     CLOUD_REGION_TO_URL,
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
-    POSTHOG_AI_EVENTS_PRIMARY_REGION,
     format_usage_message,
     get_ai_credits,
     get_ai_free_tier_credits,
@@ -80,9 +79,9 @@ class TestUsage(BaseTest):
 
     @parameterized.expand(
         [
-            ("eu_cloud", "EU", CLOUD_REGION_TO_TEAM_ID[POSTHOG_AI_EVENTS_PRIMARY_REGION], CLOUD_REGION_TO_URL["EU"]),
-            ("us_cloud", "US", CLOUD_REGION_TO_TEAM_ID[POSTHOG_AI_EVENTS_PRIMARY_REGION], CLOUD_REGION_TO_URL["US"]),
-            ("local_dev", None, CLOUD_REGION_TO_TEAM_ID["EU"], None),
+            ("eu_cloud", "EU", CLOUD_REGION_TO_TEAM_ID["EU"], CLOUD_REGION_TO_URL["EU"], 2),
+            ("us_cloud", "US", CLOUD_REGION_TO_TEAM_ID["US"], CLOUD_REGION_TO_URL["US"], 1),
+            ("local_dev", None, CLOUD_REGION_TO_TEAM_ID["EU"], None, None),
         ]
     )
     def test_get_ai_credits_scopes_ai_events_query(
@@ -91,17 +90,31 @@ class TestUsage(BaseTest):
         region,
         expected_team_to_query,
         expected_region_url,
+        instance_group_index,
     ):
         begin = datetime(2026, 5, 1, tzinfo=UTC)
         end = datetime(2026, 5, 2, tzinfo=UTC)
         conversation_id = uuid4()
 
+        group_mappings = (
+            [
+                {"group_type": "organization", "group_type_index": 0},
+                {"group_type": "instance", "group_type_index": instance_group_index},
+            ]
+            if instance_group_index is not None
+            else []
+        )
+
         with (
             patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
             patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_group_types_for_team"
+            ) as mock_group_types,
         ):
             mock_region.return_value = region
             mock_sync_execute.return_value = [(42,)]
+            mock_group_types.return_value = group_mappings
 
             credits = get_ai_credits(team_id=133393, begin=begin, end=end, conversation_id=conversation_id)
 
@@ -111,10 +124,38 @@ class TestUsage(BaseTest):
             self.assertEqual(params["session_id"], str(conversation_id))
             if expected_region_url is None:
                 self.assertNotIn("region_url", params)
-                self.assertNotIn("JSONExtractString(properties, '$group_1') = %(region_url)s", query)
+                self.assertNotIn("%(region_url)s", query)
+                mock_group_types.assert_not_called()
             else:
                 self.assertEqual(params["region_url"], expected_region_url)
-                self.assertIn("JSONExtractString(properties, '$group_1') = %(region_url)s", query)
+                mock_group_types.assert_called_once_with(expected_team_to_query)
+                self.assertIn(
+                    f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s",
+                    query,
+                )
+
+    def test_get_ai_credits_skips_region_filter_when_instance_group_missing(self):
+        """If the destination team has no `instance` group registered, skip the region filter rather than match nothing."""
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+        conversation_id = uuid4()
+
+        with (
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_group_types_for_team",
+                return_value=[{"group_type": "organization", "group_type_index": 0}],
+            ),
+        ):
+            mock_region.return_value = "EU"
+            mock_sync_execute.return_value = [(0,)]
+
+            get_ai_credits(team_id=133393, begin=begin, end=end, conversation_id=conversation_id)
+
+            query, params = mock_sync_execute.call_args[0][:2]
+            self.assertNotIn("region_url", params)
+            self.assertNotIn("%(region_url)s", query)
 
     def test_get_conversation_start_time_exists(self):
         """Test retrieving conversation start time for existing conversation."""
