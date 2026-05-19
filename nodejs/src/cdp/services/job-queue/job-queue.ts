@@ -82,22 +82,12 @@ export class CyclotronJobQueue {
             this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.consumerBatchSize, this.config)
         }
 
-        // Without this, writes to postgres-v2 silently no-op via optional chaining,
-        // causing stall-reset loops and duplicate execution at the consumer side.
+        // hogflow is hardcoded to postgres-v2 — CYCLOTRON_NODE_DATABASE_URL is required.
         if (!this.jobQueuePostgresV2) {
-            const missingV2TargetError = (configKey: string): Error =>
-                new Error(
-                    `${configKey} routes to postgres-v2 but CYCLOTRON_NODE_DATABASE_URL is not configured. ` +
-                        `Set CYCLOTRON_NODE_DATABASE_URL (via psql.cyclotron in charts) or change the mapping to not target postgres-v2.`
-                )
-            if (routingReferencesV2(this.producerMapping)) {
-                throw missingV2TargetError('CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING')
-            }
-            for (const perTeamRouting of Object.values(this.producerTeamMapping)) {
-                if (routingReferencesV2(perTeamRouting)) {
-                    throw missingV2TargetError('CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING')
-                }
-            }
+            throw new Error(
+                `CYCLOTRON_NODE_DATABASE_URL is not configured but is required for hogflow (always routes to postgres-v2). ` +
+                    `Set CYCLOTRON_NODE_DATABASE_URL (via psql.cyclotron in charts).`
+            )
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
@@ -144,9 +134,8 @@ export class CyclotronJobQueue {
             await this.jobQueuePostgres.startAsProducer()
         }
 
-        if (targets.has('postgres-v2')) {
-            await this.jobQueuePostgresV2?.startAsProducer()
-        }
+        // Always start v2 — hogflow is hardcoded to postgres-v2 regardless of mapping config
+        await this.jobQueuePostgresV2?.startAsProducer()
 
         if (targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
@@ -212,6 +201,11 @@ export class CyclotronJobQueue {
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
+        // hogflow is always postgres-v2 — no config-based routing
+        if (invocation.queue === 'hogflow') {
+            return 'postgres-v2'
+        }
+
         const teamId = invocation.teamId
         const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
         const entries = mapping[invocation.queue] ?? mapping['*']

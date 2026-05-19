@@ -90,7 +90,8 @@ describe('Workflows E2E (postgres-v2)', () => {
         mockProducerObserver.resetKafkaProducer()
 
         // Route hogflow to postgres-v2, everything else to kafka
-        hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = 'hogflow:postgres-v2,*:kafka'
+        // hogflow is hardcoded to postgres-v2 in the job queue — no explicit mapping needed
+        hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
         hub.CDP_FETCH_RETRIES = 2
         hub.CDP_FETCH_BACKOFF_BASE_MS = 50

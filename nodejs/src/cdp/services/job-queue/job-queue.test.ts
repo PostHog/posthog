@@ -33,45 +33,19 @@ describe('CyclotronJobQueue', () => {
     })
 
     describe('v2 client validation', () => {
-        it.each([
-            {
-                description: 'producer mapping routes to postgres-v2 but v2 URL is not set',
-                v2URL: undefined as string | undefined,
-                producerMapping: '*:kafka,hogflow:postgres-v2',
-                producerTeamMapping: '',
-                expectThrow: /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING routes to postgres-v2/,
-            },
-            {
-                description: 'producer team mapping routes to postgres-v2 but v2 URL is not set',
-                v2URL: undefined as string | undefined,
-                producerMapping: '*:kafka',
-                producerTeamMapping: '1:*:kafka,1:hogflow:postgres-v2',
-                expectThrow: /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING routes to postgres-v2/,
-            },
-            {
-                description: 'producer mapping routes to postgres-v2 and v2 URL is set',
-                v2URL: 'postgres://localhost:5432',
-                producerMapping: '*:kafka,hogflow:postgres-v2',
-                producerTeamMapping: '',
-                expectThrow: null,
-            },
-            {
-                description: 'producer mapping does not route to postgres-v2 and v2 URL is not set',
-                v2URL: undefined as string | undefined,
-                producerMapping: '*:kafka,hogflow:kafka',
-                producerTeamMapping: '',
-                expectThrow: null,
-            },
-        ])('$description', ({ v2URL, producerMapping, producerTeamMapping, expectThrow }) => {
-            config.CYCLOTRON_NODE_DATABASE_URL = v2URL
-            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = producerMapping
-            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = producerTeamMapping
+        it('should throw when CYCLOTRON_NODE_DATABASE_URL is not set', () => {
+            config.CYCLOTRON_NODE_DATABASE_URL = undefined
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
             const create = () => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
-            if (expectThrow) {
-                expect(create).toThrow(expectThrow)
-            } else {
-                expect(create).not.toThrow()
-            }
+            // hogflow always requires v2, so CYCLOTRON_NODE_DATABASE_URL is mandatory
+            expect(create).toThrow(/CYCLOTRON_NODE_DATABASE_URL is not configured/)
+        })
+
+        it('should not throw when CYCLOTRON_NODE_DATABASE_URL is set', () => {
+            config.CYCLOTRON_NODE_DATABASE_URL = 'postgres://localhost:5432'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            const create = () => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            expect(create).not.toThrow()
         })
     })
 
@@ -173,17 +147,18 @@ describe('CyclotronJobQueue', () => {
                 ])
             })
 
-            it('should route non-hog queues to the team default', async () => {
+            it('should always route hogflow to postgres-v2 regardless of team mapping', async () => {
                 const invocation = {
                     ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, team79155HogFunction),
                     queue: 'hogflow' as const,
                 }
                 await queue.queueInvocations([invocation])
 
-                expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
+                // hogflow is hardcoded to v2 — team mapping is ignored
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([
                     expect.objectContaining({ teamId: 79155, queue: 'hogflow' }),
                 ])
-                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+                expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([])
             })
 
             it('should not affect other teams', async () => {
