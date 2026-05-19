@@ -15,7 +15,14 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.slack_inbox_notifications import _meets_min_priority, dispatch_inbox_item_notifications
+from products.signals.backend.slack_inbox_notifications import (
+    _build_message_blocks,
+    _meets_min_priority,
+    _recipient_presentation,
+    _RecipientPresentation,
+    _summary_excerpt,
+    dispatch_inbox_item_notifications,
+)
 
 
 @pytest.mark.parametrize(
@@ -43,6 +50,76 @@ def test_meets_min_priority(report_priority: str | None, min_priority: str | Non
     assert _meets_min_priority(report_priority, min_priority) is expected
 
 
+def test_summary_excerpt_uses_first_line_only() -> None:
+    assert _summary_excerpt("First line.\nSecond line should not appear.") == "First line."
+
+
+def test_summary_excerpt_truncates_first_line_at_600_chars() -> None:
+    long_line = "x" * 650
+    assert len(_summary_excerpt(long_line)) == 600
+    assert _summary_excerpt(long_line).endswith("...")
+
+
+def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> None:
+    report = SignalReport(
+        id="report-uuid",
+        title="Checkout errors spiked",
+        summary="Error rate rose after deploy.\nIgnored second line.",
+        signal_count=12,
+    )
+    recipient = _RecipientPresentation(header_label="<@U123>", plain_name="Marcus Twix")
+    blocks, text = _build_message_blocks(
+        report,
+        priority="P1",
+        source_products=["error_tracking"],
+        recipient=recipient,
+    )
+
+    assert blocks[0]["text"]["text"] == "Inbox for <@U123> · P1"
+    section_text = blocks[1]["text"]["text"]
+    assert "Suggested for" not in section_text
+    assert "*Checkout errors spiked*" in section_text
+    assert "Error rate rose after deploy." in section_text
+    assert "Ignored second line." not in section_text
+    context_text = blocks[2]["elements"][0]["text"]
+    assert "12 signals" in context_text
+    assert "Error tracking" in context_text
+    assert "Inbox" in context_text
+    button = blocks[3]["elements"][0]
+    assert button["text"]["text"] == "Open in PostHog Code"
+    assert button["url"] == "posthog-code-dev://inbox/report-uuid"
+    assert text == "Inbox for Marcus Twix (P1): Checkout errors spiked"
+
+
+def test_recipient_presentation_uses_slack_mention_when_lookup_succeeds() -> None:
+    user = User(first_name="Marcus", last_name="Twix", email="marcus@example.com")
+    slack = MagicMock()
+    integration = MagicMock()
+
+    with patch(
+        "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+        return_value="U_SLACK",
+    ):
+        presentation = _recipient_presentation(user, slack, integration)
+
+    assert presentation.header_label == "<@U_SLACK>"
+    assert presentation.plain_name == "Marcus Twix"
+
+
+def test_recipient_presentation_falls_back_to_name_when_slack_user_not_found() -> None:
+    user = User(first_name="Marcus", last_name="Twix", email="marcus@example.com")
+    slack = MagicMock()
+    integration = MagicMock()
+
+    with patch(
+        "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+        return_value=None,
+    ):
+        presentation = _recipient_presentation(user, slack, integration)
+
+    assert presentation.header_label == "Marcus Twix"
+
+
 @pytest.fixture
 def org_and_team():
     org = Organization.objects.create(name="slack-notif-org")
@@ -53,7 +130,7 @@ def org_and_team():
 
 
 def _make_reviewer_user(org: Organization, email: str, login: str) -> User:
-    user = User.objects.create(email=email)
+    user = User.objects.create(email=email, first_name="Reviewer", last_name="Bot")
     OrganizationMembership.objects.create(user=user, organization=org)
     UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
     return user
@@ -125,7 +202,13 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["another-bot"])
 
     fake_client = MagicMock()
-    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value="U_REVIEWER",
+        ),
+    ):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id, source_products=["error_tracking"])
 
@@ -133,7 +216,10 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "C123"
-    assert "needs your review" in call_kwargs["text"]
+    assert "Inbox for Reviewer Bot (P1)" in call_kwargs["text"]
+    blocks = call_kwargs["blocks"]
+    assert blocks[0]["text"]["text"] == "Inbox for <@U_REVIEWER> · P1"
+    assert blocks[3]["elements"][0]["url"] == f"posthog-code-dev://inbox/{report.id}"
 
 
 @pytest.mark.django_db
@@ -179,10 +265,15 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
 
     fake_client = MagicMock()
     fake_client.chat_postMessage.side_effect = [Exception("slack down"), {"ok": True}]
-    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    # One succeeded, one failed silently.
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 2

@@ -255,6 +255,19 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
     .describe('Standard Integration serializer.')
 
 /**
+ * Complete a GitHub App setup callback using server-side authorize state.
+
+Used when GitHub's Setup URL redirect omits ``state`` (common for ``setup_action=update``)
+or when the browser cannot recover project context (e.g. PostHog Code system browser).
+ */
+export const IntegrationsGithubFinishSetupCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod.string().describe('GitHub App installation id from the setup callback.'),
+    code: zod.string().nullish().describe('User authorization code from GitHub (omitted when setup_action=update).'),
+    setup_action: zod.string().nullish().describe('GitHub setup action (install or update).'),
+    state: zod.string().nullish().describe('Opaque state from GitHub (may be omitted on setup_action=update).'),
+})
+
+/**
  * Reuse a GitHub installation already linked to a sibling team in the same organization.
  */
 export const IntegrationsGithubLinkExistingCreateBody = /* @__PURE__ */ zod
@@ -353,6 +366,21 @@ export const IntegrationsGithubOauthAuthorizeCreateBody = /* @__PURE__ */ zod
         config: zod.unknown().optional(),
     })
     .describe('Standard Integration serializer.')
+
+/**
+ * Seed GitHub setup callback state without redirecting to GitHub.
+
+Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+ */
+export const IntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({
+    next: zod
+        .string()
+        .optional()
+        .describe(
+            'Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).'
+        ),
+})
 
 /**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).

@@ -1006,8 +1006,12 @@ class SignalUserAutonomyConfigView(APIView):
                 # is what the semgrep IDOR rule wants — a blanket
                 # `team_id__in=` filter would be flagged.
                 accessible_team_ids = set(UserPermissions(user).team_ids_visible_for_user)
-                candidate = Integration.objects.filter(pk=integration_id, kind="slack").first()
-                if candidate is None or candidate.team_id not in accessible_team_ids:
+                candidate = Integration.objects.filter(
+                    pk=integration_id,
+                    kind="slack",
+                    team_id__in=accessible_team_ids,
+                ).first()
+                if candidate is None:
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )

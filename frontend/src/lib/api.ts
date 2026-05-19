@@ -5830,6 +5830,22 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
         },
+        async githubFinishSetup(
+            data: {
+                installation_id: string
+                code?: string | null
+                setup_action?: string | null
+                state?: string | null
+            },
+            teamId?: TeamType['id']
+        ): Promise<{
+            integration?: IntegrationType
+            next: string
+            installation_id: string
+            oauth_url?: string
+        }> {
+            return await new ApiRequest().integrations(teamId).withAction('github/finish_setup').create({ data })
+        },
         async githubOAuthAuthorize(
             data: {
                 installation_id: string | number

@@ -232,6 +232,8 @@ export const urls = {
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
+    githubIntegrationCallback: (projectId: string | number = ':projectId'): string =>
+        urls.project(projectId, '/integrations/github/callback'),
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(

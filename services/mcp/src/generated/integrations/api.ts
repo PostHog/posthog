@@ -89,3 +89,29 @@ export const IntegrationsChannelsRetrieveParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const integrationsChannelsRetrieveQueryLimitDefault = 50
+export const integrationsChannelsRetrieveQueryLimitMax = 200
+
+export const integrationsChannelsRetrieveQueryOffsetDefault = 0
+export const integrationsChannelsRetrieveQueryOffsetMin = 0
+
+export const integrationsChannelsRetrieveQuerySearchDefault = ``
+
+export const IntegrationsChannelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsChannelsRetrieveQueryLimitMax)
+        .default(integrationsChannelsRetrieveQueryLimitDefault)
+        .describe('Maximum number of channels to return per request (max 200).'),
+    offset: zod
+        .number()
+        .min(integrationsChannelsRetrieveQueryOffsetMin)
+        .default(integrationsChannelsRetrieveQueryOffsetDefault)
+        .describe('Number of channels to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsChannelsRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive channel name or ID search query.'),
+})

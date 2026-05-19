@@ -203,61 +203,52 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
             let replaceUrl: string = next || urls.settings('project-integrations')
 
-            // GitHub callback runs on a non-scoped route where currentTeamId may differ from the
-            // team that started the flow; recover it from `next`'s project_id.
-            const nextParams: Record<string, any> = next ? combineUrl(next).searchParams : {}
-            const projectIdFromNext = nextParams.project_id
-            const teamIdForIntegration = projectIdFromNext ? parseInt(projectIdFromNext, 10) : undefined
+            const nextParams = next ? combineUrl(next).searchParams : {}
+            const projectIdFromNext = nextParams.project_id ? parseInt(nextParams.project_id, 10) : undefined
+            const projectIdFromCookieRaw = getCookie('ph_github_project_id')
+            const projectIdFromCookie = projectIdFromCookieRaw ? parseInt(projectIdFromCookieRaw, 10) : undefined
+            const pathMatch = window.location.pathname.match(/\/project\/(\d+)\/integrations\/github\/callback\/?$/)
+            const projectIdFromPath = pathMatch ? parseInt(pathMatch[1], 10) : undefined
+            const targetProjectId = projectIdFromPath || projectIdFromNext || projectIdFromCookie
+
+            // GitHub App setup URL is global; bounce into /project/:id/... so AutoProjectMiddleware and
+            // team-scoped API routes use the project that started authorize (also in ph_github_project_id).
+            if (targetProjectId && !projectIdFromPath) {
+                const query = new URLSearchParams(
+                    Object.entries(searchParams).flatMap(([key, value]) =>
+                        value != null && value !== '' ? [[key, String(value)]] : []
+                    )
+                ).toString()
+                router.actions.replace(`${urls.githubIntegrationCallback(targetProjectId)}${query ? `?${query}` : ''}`)
+                return
+            }
+
+            const teamIdForIntegration = targetProjectId
 
             try {
                 if (installation_id) {
-                    if (stateToken !== getCookie('ph_github_state')) {
-                        throw new Error('Invalid state token')
+                    const finishResult = await api.integrations.githubFinishSetup(
+                        {
+                            installation_id: String(installation_id),
+                            code: code ?? null,
+                            setup_action: setup_action ?? null,
+                            state: state ?? null,
+                        },
+                        teamIdForIntegration
+                    )
+
+                    if (finishResult.oauth_url) {
+                        window.location.href = finishResult.oauth_url
+                        return
                     }
 
-                    // setup_action=update / missing code means the App was already installed on the org;
-                    // try cloning from a sibling team, and fall back to a User OAuth round-trip when the
-                    // server can't auto-link (orphan install, no personal GitHub yet, or stale token).
-                    const isAlreadyInstalled = setup_action === 'update' || !code
-
-                    let integration: IntegrationType | null = null
-                    if (isAlreadyInstalled) {
-                        try {
-                            integration = await api.integrations.githubLinkExisting(
-                                { installation_id: String(installation_id) },
-                                teamIdForIntegration
-                            )
-                        } catch (e) {
-                            const errorCode = e instanceof ApiError ? e.code : null
-                            const needsUserOAuth =
-                                errorCode === 'github_link_existing_orphan_installation' ||
-                                errorCode === 'github_link_existing_personal_github_required'
-                            if (!needsUserOAuth) {
-                                throw e
-                            }
-                            const { oauth_url } = await api.integrations.githubOAuthAuthorize(
-                                {
-                                    installation_id: String(installation_id),
-                                    next: replaceUrl,
-                                    connect_from: nextParams.connect_from ?? undefined,
-                                },
-                                teamIdForIntegration
-                            )
-                            window.location.href = oauth_url
-                            return
-                        }
-                    } else {
-                        integration = await api.integrations.create({
-                            kind: 'github',
-                            config: { installation_id, state: stateToken, code },
-                        })
+                    if (!finishResult.integration) {
+                        throw new Error('GitHub setup completed without an integration')
                     }
 
-                    // Forward the ids so the `next` landing page (e.g. the PostHog Code
-                    // deep link) knows which install was just completed.
-                    replaceUrl = combineUrl(replaceUrl, {
-                        installation_id: String(installation_id),
-                        integration_id: String(integration!.id),
+                    replaceUrl = combineUrl(finishResult.next || replaceUrl, {
+                        installation_id: finishResult.installation_id,
+                        integration_id: String(finishResult.integration.id),
                     }).url
 
                     actions.loadIntegrations()
@@ -378,7 +369,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
+        // Global Setup URL (legacy); project-scoped route is preferred once GitHub redirects there.
         '/integrations/github/callback': (_, searchParams) => {
+            actions.handleGithubCallback(searchParams)
+        },
+        [urls.githubIntegrationCallback()]: (_, searchParams) => {
             actions.handleGithubCallback(searchParams)
         },
         '/integrations/:kind/callback': ({ kind = '' }, searchParams) => {
