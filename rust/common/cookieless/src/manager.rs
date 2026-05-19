@@ -259,7 +259,28 @@ impl CookielessManager {
             params.event_time_zone,
             params.team_time_zone,
         )?;
-        let salt = self.get_salt_for_day(&yyyymmdd).await?;
+
+        // Try to get salt for the computed date, falling back to current date if it's out of range.
+        // This handles cases where the client sends timestamps in seconds instead of milliseconds,
+        // or sends otherwise invalid timestamps that produce dates like 1970.
+        let salt = match self.get_salt_for_day(&yyyymmdd).await {
+            Ok(salt) => salt,
+            Err(CookielessManagerError::SaltCacheError(SaltCacheError::DateOutOfRange)) => {
+                tracing::warn!(
+                    original_date = %yyyymmdd,
+                    original_timestamp_ms = params.timestamp_ms,
+                    "Date out of range for salt cache, falling back to current date"
+                );
+                let now_ms = Utc::now().timestamp_millis() as u64;
+                let fallback_date = to_yyyy_mm_dd_in_timezone_safe(
+                    now_ms,
+                    params.event_time_zone,
+                    params.team_time_zone,
+                )?;
+                self.get_salt_for_day(&fallback_date).await?
+            }
+            Err(e) => return Err(e),
+        };
 
         // Extract the root domain from the host
         let root_domain = extract_root_domain(params.host)?;
@@ -1118,5 +1139,89 @@ mod tests {
         let error_str = result.to_string();
         assert!(error_str.contains(&redis_key));
         assert!(error_str.contains("Some Redis error"));
+    }
+
+    #[tokio::test]
+    async fn test_do_hash_for_day_falls_back_on_invalid_timestamp() {
+        // Create a mock Redis client that only has a salt for today
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{today}");
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Use a timestamp in seconds (not milliseconds) which would produce 1970
+        // This simulates a client bug where timestamp is sent as seconds
+        let timestamp_in_seconds: u64 = 1779190409; // ~2026-05-19 in seconds
+
+        let hash_params = HashParams {
+            timestamp_ms: timestamp_in_seconds, // Bug: seconds instead of ms
+            event_time_zone: None,
+            team_time_zone: Some("UTC"),
+            team_id: 1,
+            ip: "127.0.0.1",
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            n: 0,
+            hash_extra: "",
+        };
+
+        // This should succeed by falling back to today's date
+        let result = manager.do_hash_for_day(hash_params).await;
+        assert!(
+            result.is_ok(),
+            "Should fall back to current date when timestamp produces invalid date"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_with_timestamp_in_seconds() {
+        // Create a mock Redis client that only has a salt for today
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{today}");
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Simulate a client sending timestamp in seconds instead of milliseconds
+        let timestamp_in_seconds: u64 = 1779190409; // ~2026-05-19 in seconds
+
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: timestamp_in_seconds, // Bug: seconds instead of ms
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
+        };
+
+        // This should succeed by falling back to today's date
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                },
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Should succeed with fallback when timestamp produces invalid date"
+        );
+        assert!(result.unwrap().starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
     }
 }
