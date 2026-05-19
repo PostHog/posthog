@@ -89,6 +89,10 @@ export const PopoverReferenceContext = React.createContext<[boolean, Placement] 
 
 let nestedPopoverReceivedClick = false
 
+// Must outlast the `setTimeout(..., 1)` that parent popovers use in their outside-click
+// callback to check `nestedPopoverReceivedClick`. 10ms gives comfortable headroom.
+const NESTED_CLICK_FLAG_HOLD_MS = 10
+
 /** This is a custom popover control that uses `floating-ui` to position DOM nodes.
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithDropdown`.
@@ -320,6 +324,36 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }
 
+    // For nested popovers, holding `nestedPopoverReceivedClick` true across a drag (mousedown
+    // until just after mouseup) requires a document-level mouseup listener. We manage its
+    // lifecycle here so it can't leak past unmount or visibility change — see PR #59028.
+    const pendingMouseDownResetRef = useRef(false)
+    useEffect(() => {
+        if (parentPopoverLevel <= -1 || closeParentPopoverOnClickInside || !visible) {
+            return
+        }
+        const onUp = (): void => {
+            if (!pendingMouseDownResetRef.current) {
+                return
+            }
+            pendingMouseDownResetRef.current = false
+            setTimeout(() => {
+                nestedPopoverReceivedClick = false
+            }, NESTED_CLICK_FLAG_HOLD_MS)
+        }
+        document.addEventListener('mouseup', onUp, true)
+        return () => {
+            document.removeEventListener('mouseup', onUp, true)
+            // If we unmount or hide mid-drag, clear the global flag so a never-arriving
+            // mouseup doesn't leave it stuck — that would suppress legitimate
+            // outside-click dismissals on sibling popovers opened shortly after.
+            if (pendingMouseDownResetRef.current) {
+                pendingMouseDownResetRef.current = false
+                nestedPopoverReceivedClick = false
+            }
+        }
+    }, [visible, parentPopoverLevel, closeParentPopoverOnClickInside])
+
     const _onMouseDownInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
             return
@@ -327,14 +361,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         onMouseDownInside?.(e)
         if (parentPopoverLevel > -1 && !closeParentPopoverOnClickInside) {
             nestedPopoverReceivedClick = true
-            const onUp = (): void => {
-                document.removeEventListener('mouseup', onUp, true)
-                // Hold the flag past the parent's outside-click setTimeout(1) check.
-                setTimeout(() => {
-                    nestedPopoverReceivedClick = false
-                }, 10)
-            }
-            document.addEventListener('mouseup', onUp, true)
+            pendingMouseDownResetRef.current = true
         }
     }
 

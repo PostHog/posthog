@@ -24,8 +24,11 @@ export function useOutsideClickHandler(
     const exceptTagNamesRef = useRef(exceptTagNames)
     exceptTagNamesRef.current = exceptTagNames
 
-    // Tracks whether the pointer/touch gesture started inside any of the tracked refs.
-    const gestureStartedInsideRef = useRef(false)
+    // Tracks per-gesture whether the down event landed inside any tracked ref. Keyed by
+    // touch identifier for `TouchEvent`s, and a separate sentinel for the mouse — touch
+    // identifiers are integers starting at 0, so we can't share a key space with mouse.
+    const MOUSE_GESTURE_KEY = 'mouse' as const
+    const gestureStartedInsideMap = useRef<Map<number | typeof MOUSE_GESTURE_KEY, boolean>>(new Map())
 
     useEffect(() => {
         function isInsideRefs(event: Event): boolean {
@@ -50,12 +53,35 @@ export function useOutsideClickHandler(
             if (event instanceof MouseEvent && event.button !== 0) {
                 return
             }
-            gestureStartedInsideRef.current = isInsideRefs(event)
+            const inside = isInsideRefs(event)
+            if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
+                // Track each newly-started touch independently so a concurrent touch
+                // outside the popover doesn't overwrite an earlier touch that started inside.
+                for (let i = 0; i < event.changedTouches.length; i++) {
+                    gestureStartedInsideMap.current.set(event.changedTouches[i].identifier, inside)
+                }
+            } else {
+                gestureStartedInsideMap.current.set(MOUSE_GESTURE_KEY, inside)
+            }
         }
 
         function handleClick(event: Event): void {
-            const startedInside = gestureStartedInsideRef.current
-            gestureStartedInsideRef.current = false
+            // Pull and clear the entries for the gesture(s) ending in this event.
+            // For touchend with multiple ended touches, treat the release as "started inside"
+            // if *any* ended touch began inside — matches the single-touch semantics.
+            let startedInside = false
+            if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
+                for (let i = 0; i < event.changedTouches.length; i++) {
+                    const id = event.changedTouches[i].identifier
+                    if (gestureStartedInsideMap.current.get(id)) {
+                        startedInside = true
+                    }
+                    gestureStartedInsideMap.current.delete(id)
+                }
+            } else {
+                startedInside = gestureStartedInsideMap.current.get(MOUSE_GESTURE_KEY) ?? false
+                gestureStartedInsideMap.current.delete(MOUSE_GESTURE_KEY)
+            }
 
             // Ignore non-primary clicks (right-click, middle-click).
             // Radix context menus (BrowserLikeMenuItems) fire `contextmenu` before `mouseup`,
