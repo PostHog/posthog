@@ -679,6 +679,13 @@ class ExperimentService:
             **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
 
+        # Per-variant payloads (variant_key -> JSON string). Callers pass this when they need to
+        # attach metadata that the SDK can read alongside the variant assignment, e.g. prompt
+        # experiments map each variant to {"prompt_name": ..., "prompt_version": ...}.
+        feature_flag_payloads = params.get("feature_flag_payloads")
+        if feature_flag_payloads:
+            feature_flag_filters["payloads"] = feature_flag_payloads
+
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
             "name": f"Feature Flag for Experiment {experiment_name}",
@@ -1958,6 +1965,10 @@ class ExperimentService:
                     queryset = queryset.filter(feature_flag_id=int(feature_flag_id))
                 except ValueError:
                     raise ValidationError("feature_flag_id must be an integer")
+
+            prompt_name = query_params.get("prompt_name")
+            if prompt_name:
+                queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
 
         search = query_params.get("search")
         if search:

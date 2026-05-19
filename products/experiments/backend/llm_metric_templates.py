@@ -5,6 +5,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     ExperimentMeanMetric,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
     HogQLPropertyFilter,
@@ -31,6 +32,7 @@ def _prompt_filter(prompt_name: str) -> EventPropertyFilter:
 def build_cost_metric(prompt_name: str) -> ExperimentMeanMetric:
     return ExperimentMeanMetric(
         name="Cost",
+        goal=ExperimentMetricGoal.DECREASE,
         source=EventsNode(
             event="$ai_generation",
             math=ExperimentMetricMathType.SUM,
@@ -43,6 +45,7 @@ def build_cost_metric(prompt_name: str) -> ExperimentMeanMetric:
 def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
     return ExperimentMeanMetric(
         name="Latency",
+        goal=ExperimentMetricGoal.DECREASE,
         source=EventsNode(
             event="$ai_generation",
             math=ExperimentMetricMathType.SUM,
@@ -86,6 +89,21 @@ _TEMPLATES: dict[str, Callable[[str], LLMMetric]] = {
     "eval_pass_rate": build_eval_pass_rate_metric,
 }
 
+_TEMPLATE_METADATA: dict[str, dict[str, str]] = {
+    "cost": {
+        "label": "Cost",
+        "description": "Compares LLM cost per user across prompt versions.",
+    },
+    "latency": {
+        "label": "Latency",
+        "description": "Compares LLM response time per user across prompt versions.",
+    },
+    "eval_pass_rate": {
+        "label": "Eval pass rate",
+        "description": "Compares the share of evaluations that pass across prompt versions.",
+    },
+}
+
 TEMPLATE_NAMES = tuple(_TEMPLATES)
 
 
@@ -93,6 +111,10 @@ def build_template(name: str, prompt_name: str) -> LLMMetric:
     if name not in _TEMPLATES:
         raise ValueError(f"Unknown LLM metric template: {name!r}. Known: {sorted(_TEMPLATES)}")
     return _TEMPLATES[name](prompt_name)
+
+
+def list_templates() -> list[dict[str, str]]:
+    return [{"key": name, **_TEMPLATE_METADATA[name]} for name in _TEMPLATES]
 
 
 def apply_metric_to_experiment(
