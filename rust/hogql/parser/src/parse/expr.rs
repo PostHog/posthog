@@ -422,9 +422,7 @@ impl<'a> Parser<'a> {
                 let body = &raw[2..raw.len() - 1];
                 parse_template_body(body)
             }
-            TokenKind::Keyword(Kw::True | Kw::False)
-                if self.peek_next() == TokenKind::LParen =>
-            {
+            TokenKind::Keyword(Kw::True | Kw::False) if self.peek_next() == TokenKind::LParen => {
                 // `true`/`false` are not lexer tokens in the grammar —
                 // they are ordinary identifiers, and become Bool
                 // Constants only as a bare `columnIdentifier`. As a

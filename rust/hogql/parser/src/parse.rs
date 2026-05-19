@@ -468,12 +468,11 @@ fn emit_float_constant(f: f64) -> Value {
 }
 
 pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, ParseError> {
-    // Hex — an integer when it fits i64. cpp's `VISIT(NumberLiteral)`
-    // parses it with `stoll(text, 16)`; on `out_of_range` it falls
-    // back to `stod` and emits a float. We parse the (possibly signed)
-    // hex with `from_str_radix`, and on overflow accumulate the hex
-    // digits into an f64 by hand — Rust's f64 parser doesn't read a
-    // `0x` prefix.
+    // Hex — an integer when it fits i64. Beyond that the literal is
+    // kept lossless: `serde_json::Value` can't hold an integer wider
+    // than `u64`, so the full `0x…` text is carried as a digit string
+    // (`value_type: "number"`) and the deserialiser rebuilds an exact
+    // arbitrary-precision Python `int`.
     if let Some(rest) = src.strip_prefix("0x").or_else(|| src.strip_prefix("0X")) {
         let signed = if negative {
             format!("-{rest}")
@@ -483,11 +482,12 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
         match i64::from_str_radix(&signed, 16) {
             Ok(n) => return Ok(emit::constant(Value::from(n))),
             Err(_) => {
-                let mut f = 0.0_f64;
-                for c in rest.chars() {
-                    f = f * 16.0 + f64::from(c.to_digit(16).unwrap_or(0));
-                }
-                return Ok(emit_float_constant(if negative { -f } else { f }));
+                let lit = if negative {
+                    format!("-{src}")
+                } else {
+                    src.to_string()
+                };
+                return Ok(emit::constant_number_string(lit));
             }
         }
     }
@@ -557,10 +557,10 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
         let f: f64 = src.parse().unwrap_or(0.0);
         return Ok(emit_float_constant(if negative { -f } else { f }));
     }
-    // Integer. cpp parses with `stoll(text, 10)`; the `text` carries
-    // the sign, so `-9223372036854775808` (i64::MIN) parses exactly.
-    // On `out_of_range` cpp falls back to `stod` (a float). Parse the
-    // signed text as i64, falling back to f64 on overflow.
+    // Integer. The signed text carries the sign so
+    // `-9223372036854775808` (i64::MIN) parses exactly. A literal
+    // wider than i64 is kept lossless as a digit string — see the hex
+    // branch above for why it can't round-trip as a JSON number.
     let signed = if negative {
         format!("-{src}")
     } else {
@@ -568,7 +568,7 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
     };
     match signed.parse::<i64>() {
         Ok(i) => Ok(emit::constant(Value::from(i))),
-        Err(_) => Ok(emit_float_constant(signed.parse::<f64>().unwrap_or(0.0))),
+        Err(_) => Ok(emit::constant_number_string(signed)),
     }
 }
 

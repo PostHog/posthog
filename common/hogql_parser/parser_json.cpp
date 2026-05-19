@@ -2911,12 +2911,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         int base = is_hex ? 16 : 10;
         json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
-        try {
-          json["value"] = Json(stod(text));  // Too large for int64, use float
-        } catch (const std::out_of_range&) {
-          json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
-          json["value_type"] = "number";
-        }
+        // Beyond Int64 — keep the literal lossless rather than
+        // narrowing it to a double. Standard JSON numbers can't always
+        // round-trip a value wider than 64 bits through every backend,
+        // so the exact digit text (decimal, or `0x…` hex, with an
+        // optional leading `-`) is carried in the `value_type:
+        // "number"` string envelope; the deserialiser rebuilds an
+        // arbitrary-precision Python int.
+        json["value"] = text;
+        json["value_type"] = "number";
       }
       return json;
     }

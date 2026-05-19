@@ -462,25 +462,28 @@ class TestParserRegressions(BaseTest):
                 self.assertIsNotNone(node.having, msg=f"{backend}: {kw}")
 
     def test_integer_literal_above_i64_max(self):
-        # A decimal/hex integer literal that overflows i64 must not
-        # silently become 0. cpp's VISIT(NumberLiteral) catches stoll's
-        # out_of_range and falls back to stod (a float); a magnitude
-        # that fits i64 only with the sign (`-9223372036854775808`)
-        # stays an exact integer. The Rust parse_number_literal used
-        # `.unwrap_or(0)` with no fallback. (The pure-Python backend
-        # keeps an exact bigint instead of cpp's float — a separate
-        # cpp-vs-python divergence — so this pins rust against cpp.)
-        cases = (
-            "9223372036854775808",
-            "18446744073709551616",
-            "-9223372036854775808",
-            "0x8000000000000000",
-            "0xFFFFFFFFFFFFFFFFFF",
-        )
-        for src in cases:
-            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
-            got = clear_locations(parse_expr(src, backend="rust-json"))
-            self.assertEqual(got, oracle, msg=f"rust-json: {src!r}")
+        # An integer literal wider than i64 is kept lossless — never
+        # narrowed to a float, all the way up through u64 and into
+        # arbitrary-precision bigints. The value can't round-trip as a
+        # native JSON number (orjson rejects >64-bit number tokens), so
+        # the JSON backends carry the exact digits as a string in the
+        # `value_type: "number"` envelope; all three backends must
+        # agree on the exact int.
+        cases = {
+            "9223372036854775808": 9223372036854775808,  # i64::MAX + 1
+            "18446744073709551615": 18446744073709551615,  # u64::MAX
+            "18446744073709551616": 18446744073709551616,  # u64::MAX + 1
+            "99999999999999999999999999": 99999999999999999999999999,
+            "-9223372036854775809": -9223372036854775809,  # i64::MIN - 1
+            "0x8000000000000000": 0x8000000000000000,
+            "0xFFFFFFFFFFFFFFFFFF": 0xFFFFFFFFFFFFFFFFFF,
+        }
+        for src, expected in cases.items():
+            for backend in _BACKENDS:
+                node = parse_expr(src, backend=backend)
+                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
+                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
+                self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
 
     def test_string_escape_nul_bel_vtab(self):
         # cpp's string.cpp drops `\0` (NUL ignored) and decodes

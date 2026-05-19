@@ -22,6 +22,16 @@ pub fn constant_special_number(name: &'static str) -> Value {
     json!({"node": "Constant", "value": name, "value_type": "number"})
 }
 
+/// An integer-literal Constant whose magnitude exceeds `i64`. The exact
+/// digit text (decimal, or `0x…` hex, with an optional leading `-`) is
+/// carried in the same `value_type: "number"` string envelope; the
+/// deserialiser rebuilds an arbitrary-precision Python `int` from it.
+/// `serde_json::Value` can't hold an integer wider than `u64`, so the
+/// literal can't round-trip as a native JSON number.
+pub fn constant_number_string(text: String) -> Value {
+    json!({"node": "Constant", "value": text, "value_type": "number"})
+}
+
 pub fn field(chain: Vec<Value>) -> Value {
     json!({"node": "Field", "chain": chain})
 }

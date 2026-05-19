@@ -59,6 +59,21 @@ assert ast.CompareOperation in _ENUM_FIELDS, "_build_enum_fields did not registe
 _SPECIAL_FLOATS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "NaN": float("nan")}
 
 
+def _parse_large_int_literal(value: str) -> int | None:
+    """Parse an integer literal the parser kept lossless as a string — a
+    decimal or `0x`-prefixed hex magnitude with an optional leading `-`.
+    An integer wider than 64 bits can't round-trip as a native JSON
+    number, so the parser emits the exact digits in the same
+    `value_type: "number"` string envelope the non-finite floats use.
+    Returns None when `value` isn't an integer literal."""
+    body = value[1:] if value.startswith("-") else value
+    base = 16 if body[:2] in ("0x", "0X") else 10
+    try:
+        return int(value, base)
+    except ValueError:
+        return None
+
+
 def deserialize_ast(json_str: str) -> ast.AST:
     """Deserialize a JSON string into a Python AST object."""
     return _deserialize_node(orjson.loads(json_str))
@@ -108,13 +123,19 @@ def _deserialize_node(data: Any) -> Any:
                 kwargs[key] = offset
                 continue
 
-        # Non-finite floats on Constant nodes are emitted as strings.
+        # Numeric Constants emitted as strings: non-finite floats
+        # (Infinity / NaN) and integer literals too wide to round-trip
+        # as a native JSON number.
         if is_constant and key == "value" and value_type == "number" and isinstance(value, str):
             special = _SPECIAL_FLOATS.get(value)
             if special is not None:
                 kwargs[key] = special
                 continue
-            raise ValueError(f"Unknown special float value: {value}")
+            int_value = _parse_large_int_literal(value)
+            if int_value is not None:
+                kwargs[key] = int_value
+                continue
+            raise ValueError(f"Unknown numeric constant value: {value!r}")
 
         # `ctes` may be a list of nodes carrying a `name` (preserves order)
         # — fold it into a dict keyed by the name.
