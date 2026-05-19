@@ -25,7 +25,6 @@ class EventProperty(models.Model):
             # Index on project_id foreign key
             models.Index(fields=["project"], name="posthog_eve_proj_id_dd2337d2"),
             models.Index(fields=["team", "event"]),
-            models.Index(Coalesce(F("project_id"), F("team_id")), F("event"), name="posthog_eve_proj_id_22de03_idx"),
             models.Index(fields=["team", "property"]),
             models.Index(Coalesce(F("project_id"), F("team_id")), F("property"), name="posthog_eve_proj_id_26dbfb_idx"),
         ]
