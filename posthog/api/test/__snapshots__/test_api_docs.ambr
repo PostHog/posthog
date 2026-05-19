@@ -2,6 +2,5 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
-    'Warning: operationId "surveys_stats_retrieve" has collisions [(\'/api/projects/{project_id}/surveys/{id}/stats/\', \'get\'), (\'/api/projects/{project_id}/surveys/stats/\', \'get\')]. resolving with numeral suffixes.',
   ])
 # ---
