@@ -435,17 +435,21 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
         self.bump()?;
+        // `columnAliases: LPAREN identifier (COMMA identifier)* RPAREN` —
+        // the grammar requires at least one identifier. Empty `()` is a
+        // parse error in cpp.
+        if self.peek() == TokenKind::RParen {
+            return Err(self.err("column-alias list must have at least one identifier"));
+        }
         let mut cols = Vec::new();
-        if self.peek() != TokenKind::RParen {
-            loop {
-                let t = self.bump()?;
-                cols.push(identifier_text(self.text(t), t.kind));
-                if !self.eat(TokenKind::Comma)? {
-                    break;
-                }
-                if self.peek() == TokenKind::RParen {
-                    break;
-                }
+        loop {
+            let t = self.bump()?;
+            cols.push(identifier_text(self.text(t), t.kind));
+            if !self.eat(TokenKind::Comma)? {
+                break;
+            }
+            if self.peek() == TokenKind::RParen {
+                break;
             }
         }
         self.expect(TokenKind::RParen, ")")?;

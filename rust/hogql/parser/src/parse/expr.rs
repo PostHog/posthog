@@ -1287,8 +1287,11 @@ impl<'a> Parser<'a> {
                 if !self.eat(TokenKind::Comma)? {
                     break;
                 }
+                // `columnsReplaceList: columnsReplaceItem (COMMA
+                // columnsReplaceItem)*` — no trailing comma; cpp rejects
+                // `REPLACE (b AS c,)`.
                 if self.peek() == TokenKind::RParen {
-                    break;
+                    return Err(self.err("trailing comma in REPLACE clause"));
                 }
             }
             self.expect(TokenKind::RParen, ")")?;
@@ -2705,6 +2708,12 @@ impl<'a> Parser<'a> {
         // Parametric / nested / complex form: `IDENT ( … )`.
         if self.peek() == TokenKind::LParen {
             self.bump()?;
+            // `ColumnTypeExprEnum` matches `IDENT LPAREN enumValue (COMMA
+            // enumValue)* COMMA? RPAREN` where `enumValue: STRING_LITERAL
+            // EQ_SINGLE numberLiteral`. cpp/python both reject the visit
+            // with "Unsupported rule: ColumnTypeExprEnum", so rust must
+            // also error rather than fall through to the Param raw-text
+            // path (which would happily emit `enum8('a'=1)`).
             // Pre-classify the whole paren group. cpp's ANTLR ALL(*) commits the
             // entire `IDENT(...)` to a single alt (Nested/Complex/Param/Enum). If
             // ANY depth-0 token forces Param (e.g. `#1`, `{}`, a bare literal,
@@ -3382,60 +3391,6 @@ impl<'a> Parser<'a> {
                 {
                     return true;
                 }
-                _ => {}
-            }
-        }
-        false
-    }
-
-    /// Peek the current type-param's content and decide whether it
-    /// matches `columnTypeExpr` (idents / keywords / nested type
-    /// constructors) or `columnExpr` (anything with a string, number,
-    /// operator, etc.). Returns true if the param looks like a generic
-    /// expression — the cpp grammar's `ColumnTypeExprParam` alt.
-    fn param_looks_like_expression(&self) -> bool {
-        let mut probe = Lexer::with_pos(self.src, self.peek0.start);
-        let mut depth: i32 = 0;
-        for _ in 0..256 {
-            let Ok(t) = probe.next_token() else {
-                return false;
-            };
-            match t.kind {
-                TokenKind::Eof => return false,
-                TokenKind::Comma | TokenKind::RParen if depth == 0 => return false,
-                // Top-level `{` is always an expression marker (placeholder
-                // / dict). Nested braces just track depth like any other
-                // bracket pair.
-                TokenKind::LBrace if depth == 0 => return true,
-                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
-                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
-                // Expression-only tokens — strings, numbers in
-                // mid-position (top-level numbers are already handled
-                // by the Number branch above), template strings,
-                // braces (placeholder / dict), positional refs (`#`),
-                // and any binary / unary operator. The presence of any
-                // of these forces us into the Param path.
-                TokenKind::String
-                | TokenKind::TemplateString
-                | TokenKind::Number
-                | TokenKind::Plus
-                | TokenKind::Dash
-                | TokenKind::Slash
-                | TokenKind::Percent
-                | TokenKind::Asterisk
-                | TokenKind::Dot
-                | TokenKind::EqDouble
-                | TokenKind::EqSingle
-                | TokenKind::NotEq
-                | TokenKind::Lt
-                | TokenKind::LtEq
-                | TokenKind::Gt
-                | TokenKind::GtEq
-                | TokenKind::Arrow
-                | TokenKind::ColonEquals
-                | TokenKind::Concat
-                | TokenKind::Nullish
-                | TokenKind::Hash => return true,
                 _ => {}
             }
         }

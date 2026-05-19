@@ -809,6 +809,54 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_empty_paren_only_clauses_rejected(self):
+        # Three places where the grammar requires at least one body element
+        # when parens are present, but rust was accepting bare `()`:
+        #   `columnAliases: LPAREN identifier (COMMA identifier)* RPAREN`
+        #   `interpolateClause: INTERPOLATE (LPAREN interpolateExpr (COMMA
+        #     interpolateExpr)* RPAREN)?`
+        #   `columnsReplaceList: columnsReplaceItem (COMMA
+        #     columnsReplaceItem)*` (no trailing comma)
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid_select = (
+            "SELECT * FROM t AS x ()",
+            "SELECT 1 ORDER BY x INTERPOLATE ()",
+        )
+        for src in invalid_select:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+
+        invalid_expr = (
+            "COLUMNS(* REPLACE (b AS c,))",
+            "COLUMNS(* EXCLUDE (a) REPLACE (b AS c,))",
+        )
+        for src in invalid_expr:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        # Guards: populated / bare-keyword forms still parse.
+        for src in (
+            "SELECT * FROM t AS x (a)",
+            "SELECT * FROM t AS x (a, b)",
+            "SELECT 1 ORDER BY x INTERPOLATE (a AS b)",
+            "SELECT 1 ORDER BY x INTERPOLATE",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        for src in (
+            "COLUMNS(* REPLACE (a AS b, c AS d))",
+            "COLUMNS(* REPLACE (a AS b))",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_bare_zero_x_prefix_lexes_as_zero_plus_ident(self):
         # `HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+` — the grammar requires
         # at least one hex digit after `0x`. Rust's `lex_number` was

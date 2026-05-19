@@ -656,35 +656,39 @@ impl<'a> Parser<'a> {
             if self.eat_kw(Kw::Interpolate)? {
                 let items = if self.eat(TokenKind::LParen)? {
                     let mut items: Vec<Value> = Vec::new();
-                    if self.peek() != TokenKind::RParen {
-                        loop {
-                            // Parse expr greedily so AS-alias gets
-                            // absorbed when its right operand is a
-                            // valid alias target — matches cpp's
-                            // ALL(*) which prefers the inner
-                            // columnExpr's AS-alias over the outer
-                            // `(AS columnExpr)?` separator.
-                            // `interpolate(a AS 5)` keeps AS for the
-                            // outer because `5` isn't an alias target.
-                            let expr = self.parse_expr_bp(0)?;
-                            let value = if self.eat_kw(Kw::As)? {
-                                Some(self.parse_expr_bp(0)?)
-                            } else {
-                                None
-                            };
-                            let mut interp = serde_json::Map::new();
-                            interp.insert("node".into(), Value::String("InterpolateExpr".into()));
-                            interp.insert("expr".into(), expr);
-                            if let Some(v) = value {
-                                interp.insert("value".into(), v);
-                            }
-                            items.push(Value::Object(interp));
-                            if !self.eat(TokenKind::Comma)? {
-                                break;
-                            }
-                            if self.peek() == TokenKind::RParen {
-                                break;
-                            }
+                    // `interpolateClause: INTERPOLATE (LPAREN interpolateExpr
+                    // (COMMA interpolateExpr)* RPAREN)?` — when parens are
+                    // present, at least one interpolateExpr is required.
+                    if self.peek() == TokenKind::RParen {
+                        return Err(self.err("INTERPOLATE (...) must have at least one item"));
+                    }
+                    loop {
+                        // Parse expr greedily so AS-alias gets
+                        // absorbed when its right operand is a
+                        // valid alias target — matches cpp's
+                        // ALL(*) which prefers the inner
+                        // columnExpr's AS-alias over the outer
+                        // `(AS columnExpr)?` separator.
+                        // `interpolate(a AS 5)` keeps AS for the
+                        // outer because `5` isn't an alias target.
+                        let expr = self.parse_expr_bp(0)?;
+                        let value = if self.eat_kw(Kw::As)? {
+                            Some(self.parse_expr_bp(0)?)
+                        } else {
+                            None
+                        };
+                        let mut interp = serde_json::Map::new();
+                        interp.insert("node".into(), Value::String("InterpolateExpr".into()));
+                        interp.insert("expr".into(), expr);
+                        if let Some(v) = value {
+                            interp.insert("value".into(), v);
+                        }
+                        items.push(Value::Object(interp));
+                        if !self.eat(TokenKind::Comma)? {
+                            break;
+                        }
+                        if self.peek() == TokenKind::RParen {
+                            break;
                         }
                     }
                     self.expect(TokenKind::RParen, ")")?;
