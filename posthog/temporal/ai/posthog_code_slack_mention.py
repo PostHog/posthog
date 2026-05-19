@@ -50,27 +50,29 @@ def _build_posthog_code_task_description(
     initiator's slot in the context block is preserved as a placeholder so the agent
     can still see where the prompt landed chronologically (e.g. mid-discussion vs.
     at the start of a thread).
+
+    `initiator_ts` is how we identify the initiator's slot in the thread. Slack
+    `app_mention` events always carry it; if it's missing, we can't safely pick a
+    single message as the initiator, so we include everything and skip the
+    placeholder (the prompt below the divider still wins).
     """
     prompt = initiator_text.strip() or "Task from Slack"
-    stripped_initiator = initiator_text.strip()
 
     context_entries: list[str] = []
     for msg in thread_messages:
         msg_text = (msg.get("text") or "").strip()
         if not msg_text:
             continue
-        is_initiator = (
-            (initiator_ts and msg.get("ts") == initiator_ts)
-            or (not initiator_ts and stripped_initiator and msg_text == stripped_initiator)
-        )
         username = msg.get("user") or "user"
-        if is_initiator:
+        if initiator_ts and msg.get("ts") == initiator_ts:
             context_entries.append(f"{username}: {_INITIATOR_PLACEHOLDER}")
         else:
             context_entries.append(f"{username}: {msg['text']}")
 
-    # Drop a trailing placeholder — no thread context to anchor it to.
-    while context_entries and context_entries[-1].endswith(_INITIATOR_PLACEHOLDER):
+    # Drop a trailing placeholder — the prompt follows the divider, so the marker is
+    # redundant there. Slack `ts` values are unique per message, so at most one entry
+    # can be a placeholder; a single check is enough.
+    if context_entries and context_entries[-1].endswith(_INITIATOR_PLACEHOLDER):
         context_entries.pop()
 
     if not context_entries:
