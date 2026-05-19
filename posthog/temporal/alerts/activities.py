@@ -61,10 +61,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
 
         # Hourly before daily before weekly/monthly so the cheaper, more
         # time-sensitive checks get workers first when the due batch is large.
+        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(1)),
-            default=Value(2),
+            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(0)),
+            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(1)),
+            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(2)),
+            default=Value(3),
             output_field=IntegerField(),
         )
 

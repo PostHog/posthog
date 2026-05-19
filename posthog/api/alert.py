@@ -6,6 +6,7 @@ from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
+import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -27,6 +28,7 @@ from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY
 from posthog.event_usage import get_request_analytics_properties
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -38,6 +40,40 @@ from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
 from posthog.utils import relative_date_parse
+
+
+def _alerts_15_minute_interval_feature_enabled(request, organization) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY,
+            str(request.user.distinct_id),
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+            only_evaluate_locally=False,
+        )
+    )
+
+
+def _validate_every_15_minutes_interval(
+    *,
+    calculation_interval: str | AlertCalculationInterval | None,
+    request,
+    organization,
+) -> None:
+    if calculation_interval != AlertCalculationInterval.EVERY_15_MINUTES:
+        return
+    if not _alerts_15_minute_interval_feature_enabled(request, organization):
+        raise ValidationError(
+            {"calculation_interval": ["15-minute alert intervals are not available for your organization yet."]}
+        )
+    if not AlertConfiguration.supports_high_frequency_intervals(organization):
+        raise ValidationError(
+            {
+                "calculation_interval": [
+                    "15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on."
+                ]
+            }
+        )
 
 
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
@@ -210,7 +246,7 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -523,6 +559,13 @@ class AlertSerializer(serializers.ModelSerializer):
             validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         except ValueError as e:
             raise ValidationError(str(e))
+
+        organization = self.context["get_organization"]()
+        _validate_every_15_minutes_interval(
+            calculation_interval=calculation_interval,
+            request=self.context["request"],
+            organization=organization,
+        )
 
         # Investigation agent is only supported for detector-based alerts.
         investigation_enabled = attrs.get(

@@ -1057,6 +1057,7 @@ class TestAlertEventProperties(APIBaseTest):
                 "threshold_absolute",
                 {"type": "absolute_value"},
                 None,
+                "daily",
                 {
                     "alert_mode": "threshold",
                     "detector_type": None,
@@ -1069,6 +1070,7 @@ class TestAlertEventProperties(APIBaseTest):
                 "single_detector_no_preprocessing",
                 {"type": "absolute_value"},
                 {"type": "zscore", "threshold": 0.95, "window": 30},
+                "daily",
                 {
                     "alert_mode": "detector",
                     "detector_type": "zscore",
@@ -1081,6 +1083,7 @@ class TestAlertEventProperties(APIBaseTest):
                 "single_detector_with_preprocessing",
                 {"type": "absolute_value"},
                 {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1}},
+                "daily",
                 {
                     "alert_mode": "detector",
                     "detector_type": "zscore",
@@ -1100,6 +1103,7 @@ class TestAlertEventProperties(APIBaseTest):
                         {"type": "mad", "threshold": 0.95, "window": 30},
                     ],
                 },
+                "daily",
                 {
                     "alert_mode": "detector",
                     "detector_type": "ensemble",
@@ -1119,12 +1123,27 @@ class TestAlertEventProperties(APIBaseTest):
                         {"type": "threshold"},
                     ],
                 },
+                "daily",
                 {
                     "alert_mode": "detector",
                     "detector_type": "ensemble",
                     "ensemble_operator": "OR",
                     "ensemble_detector_types": ["iqr", "threshold"],
                     "has_preprocessing": False,
+                },
+            ),
+            (
+                "every_15_minutes_high_frequency",
+                {"type": "absolute_value"},
+                None,
+                "every_15_minutes",
+                {
+                    "alert_mode": "threshold",
+                    "detector_type": None,
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": False,
+                    "is_high_frequency_interval": True,
                 },
             ),
         ]
@@ -1134,18 +1153,20 @@ class TestAlertEventProperties(APIBaseTest):
         _name: str,
         condition: dict,
         detector_config: dict | None,
+        calculation_interval: str,
         expected_detector_fields: dict,
     ) -> None:
         alert = AlertConfiguration(
             name="test alert",
             condition=condition,
             detector_config=detector_config,
-            calculation_interval="daily",
+            calculation_interval=calculation_interval,
         )
         props = alert._get_event_properties()
         assert props["alert_name"] == "test alert"
         assert props["condition_type"] == condition["type"]
-        assert props["calculation_interval"] == "daily"
+        assert props["calculation_interval"] == calculation_interval
+        assert props["is_high_frequency_interval"] == (calculation_interval == "every_15_minutes")
         for key, value in expected_detector_fields.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
