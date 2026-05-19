@@ -15,9 +15,7 @@ import { describe, expect, it } from 'vitest'
 describe('MCP HTTP entry point (Cloudflare Workers)', () => {
     describe('OAuth Protected Resource Metadata (RFC 9728)', () => {
         it('returns metadata advertising scopes_supported for /mcp', async () => {
-            const response = await SELF.fetch(
-                'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp'
-            )
+            const response = await SELF.fetch('https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp')
 
             expect(response.status).toBe(200)
             expect(response.headers.get('content-type')).toContain('application/json')
@@ -30,9 +28,7 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
         })
 
         it('returns metadata for /sse with the same shape', async () => {
-            const response = await SELF.fetch(
-                'https://mcp.posthog.com/.well-known/oauth-protected-resource/sse'
-            )
+            const response = await SELF.fetch('https://mcp.posthog.com/.well-known/oauth-protected-resource/sse')
 
             expect(response.status).toBe(200)
             const body = (await response.json()) as Record<string, unknown>
@@ -64,10 +60,9 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
 
     describe('Authorization server redirects', () => {
         it('redirects /.well-known/oauth-authorization-server to the auth server', async () => {
-            const response = await SELF.fetch(
-                'https://mcp.posthog.com/.well-known/oauth-authorization-server',
-                { redirect: 'manual' }
-            )
+            const response = await SELF.fetch('https://mcp.posthog.com/.well-known/oauth-authorization-server', {
+                redirect: 'manual',
+            })
 
             expect(response.status).toBe(302)
             const location = response.headers.get('location') || ''

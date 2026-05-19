@@ -19733,6 +19733,37 @@ export namespace Schemas {
       Indexer: 'indexer',
     } as const;
 
+    /**
+     * Mirrors `temporal.types.LensSnapshot` for OpenAPI generation.
+     */
+    export interface LensSnapshot {
+      /** Lens name at run time. */
+      name: string;
+      /** Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.
+
+      * `monitor` - Monitor
+      * `classifier` - Classifier
+      * `scorer` - Scorer
+      * `summarizer` - Summarizer
+      * `indexer` - Indexer */
+      lens_type: LensTypeEnum;
+      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
+      lens_version: number;
+      /** Concrete model that ran the observation.
+
+      * `gemini-3-flash` - Gemini 3 Flash
+      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      model: LensModelEnum;
+      /** Concrete provider that ran the observation.
+
+      * `google` - Google */
+      provider: LensProviderEnum;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      lens_config: unknown;
+    }
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -19769,6 +19800,12 @@ export namespace Schemas {
       group_type_mapping: LocalEvaluationResponseGroupTypeMapping;
       /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
       cohorts: LocalEvaluationResponseCohorts;
+    }
+
+    export interface LogsAlertFilters {
+      filterGroup?: PropertyGroupFilter | null;
+      serviceNames?: string[] | null;
+      severityLevels?: LogSeverityLevel[] | null;
     }
 
     /**
@@ -19844,7 +19881,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
@@ -20015,7 +20052,7 @@ export namespace Schemas {
 
     export interface LogsAlertSimulateRequest {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
-      filters: unknown;
+      filters: LogsAlertFilters;
       /**
          * Threshold count to evaluate against.
          * @minimum 1
@@ -22707,24 +22744,18 @@ export namespace Schemas {
       * `succeeded` - Succeeded
       * `failed` - Failed */
       readonly status: ObservationStatusEnum;
-      /** Populated on failure. Includes the malformed model response when validation fails. */
+      /** Populated on failure; includes the malformed model response when validation fails. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
-      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
-      readonly lens_version: number;
-      /** Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations. */
-      readonly lens_config_snapshot: unknown;
-      /** Concrete model that ran the observation. */
-      readonly model_used: string;
-      /** Concrete provider that ran the observation. */
-      readonly provider_used: string;
+      /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
+      readonly lens_snapshot: LensSnapshot;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
       * `on_demand` - On demand */
       readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation. Null for scheduled observations. */
+      /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
       /** @nullable */
       started_at?: string | null;
@@ -27395,7 +27426,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
