@@ -20159,7 +20159,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -20514,7 +20514,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `BACKFILL` - Backfill
+     * * `PENDING` - Pending
+    * `BACKFILL` - Backfill
     * `READY` - Ready
     * `ERROR` - Error
      */
@@ -20522,6 +20523,7 @@ export namespace Schemas {
 
 
     export const MaterializedColumnSlotStateEnum = {
+      Pending: 'PENDING',
       Backfill: 'BACKFILL',
       Ready: 'READY',
       Error: 'ERROR',
@@ -20532,18 +20534,18 @@ export namespace Schemas {
       team: number;
       property_definition: string;
       readonly property_definition_details: PropertyDefinition;
-      property_type: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at: string;
@@ -27551,7 +27553,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -27591,18 +27593,18 @@ export namespace Schemas {
       team?: number;
       property_definition?: string;
       readonly property_definition_details?: PropertyDefinition;
-      property_type?: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index?: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at?: string;
