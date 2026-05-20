@@ -2,6 +2,7 @@
 // and Hono entry points. No imports from `cloudflare:workers` or Node-only modules
 // so this file is safe to import from either runtime.
 
+import { env } from '@/lib/env'
 import type { CloudRegion } from '@/tools/types'
 
 import packageJson from '../../package.json'
@@ -59,11 +60,30 @@ export const MCP_DOCS_URL = 'https://posthog.com/docs/model-context-protocol'
 
 export const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
 
-// Resolve the OAuth authorization server URL given an optional self-hosted override.
-// Each runtime fetches the override from its own env source (CF binding vs process.env)
-// and passes it in.
-export const resolveAuthorizationServerUrl = (customApiBaseUrl: string | undefined): string => {
-    return customApiBaseUrl || OAUTH_PROXY_URL
+export const getCustomApiBaseUrl = (): string | undefined => env.POSTHOG_API_BASE_URL
+
+const CLOUD_HOSTS = new Set(['us.posthog.com', 'eu.posthog.com'])
+
+export const isCloudApi = (): boolean => {
+    const url = getCustomApiBaseUrl()
+    if (!url) {
+        return true
+    }
+    try {
+        const hostname = new URL(url).hostname
+        return CLOUD_HOSTS.has(hostname) || hostname.endsWith('.svc.cluster.local')
+    } catch {
+        return false
+    }
+}
+
+export const isLocalApi = (): boolean => !!getCustomApiBaseUrl()?.includes('localhost')
+
+export const resolveAuthorizationServerUrl = (): string => {
+    if (isCloudApi()) {
+        return OAUTH_PROXY_URL
+    }
+    return getCustomApiBaseUrl()!
 }
 
 // Generated from `posthog/scopes.py` — keep in sync with `hogli build:openapi`.

@@ -182,7 +182,11 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
-        self.cuped_config = get_cuped_config(self.experiment.stats_config, self.metric)
+        self.cuped_config = get_cuped_config(
+            self.experiment.stats_config,
+            self.metric,
+            team_default_enabled=self._team_experiments_config.default_cuped_enabled,
+        )
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None

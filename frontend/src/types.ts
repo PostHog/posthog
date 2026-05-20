@@ -428,6 +428,9 @@ export interface InAppNotification {
     read: boolean
     read_at: string | null
     resource_type: string | null
+    resource_id: string
+    target_type: string
+    target_id: string
     source_url: string
     source_type: string | null
     source_id: string | null
@@ -5049,7 +5052,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     target_type: string
     target_value: string
-    frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null
@@ -5292,6 +5295,7 @@ export interface RoleMemberType {
 export type APIScopeObject =
     | 'action'
     | 'access_control'
+    | 'account'
     | 'activity_log'
     | 'alert'
     | 'annotation'
