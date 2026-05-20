@@ -55,10 +55,13 @@ export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?:
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
-            if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
+            if (
+                options?.asyncFunctions &&
+                Object.prototype.hasOwnProperty.call(options.asyncFunctions, response.asyncFunctionName)
+            ) {
                 const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
                 vmState.stack.push(result)
-            } else if (response.asyncFunctionName in ASYNC_STL) {
+            } else if (Object.prototype.hasOwnProperty.call(ASYNC_STL, response.asyncFunctionName)) {
                 const result = await ASYNC_STL[response.asyncFunctionName].fn(
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
