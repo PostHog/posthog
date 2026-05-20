@@ -689,7 +689,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (runs): Record<string, EvaluationRun> => {
                 const lookup: Record<string, EvaluationRun> = {}
                 for (const run of runs) {
-                    lookup[run.generation_id] = run
+                    if (run.generation_id) {
+                        lookup[run.generation_id] = run
+                    }
                 }
                 return lookup
             },
