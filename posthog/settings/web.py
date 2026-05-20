@@ -414,8 +414,6 @@ SPECTACULAR_SETTINGS = {
         #
         # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
         #   /improving-drf-endpoints  (skill — invoke it for the walkthrough)
-        # Detailed override patterns and the hash-trap explanation live in the skill's
-        # references/viewset-annotations.md.
         #
         # Hash trap — overrides fall into two categories depending on how drf-spectacular
         # hashes them, and using the wrong format silently fails (the override is ignored
