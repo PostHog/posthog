@@ -81,3 +81,59 @@ class SourceBatchStatus(UUIDModel):
                 name="sbs_batch_id_desc_state_idx",
             ),
         ]
+
+
+class SourceBatchDuckgresStatus(UUIDModel):
+    class State(models.TextChoices):
+        EXECUTING = "executing", "executing"
+        SUCCEEDED = "succeeded", "succeeded"
+        WAITING_RETRY = "waiting_retry", "waiting_retry"
+        FAILED = "failed", "failed"
+
+    batch = models.ForeignKey(
+        SourceBatch,
+        on_delete=models.DO_NOTHING,
+        db_constraint=False,
+        related_name="duckgres_statuses",
+    )
+    job_state = models.CharField(max_length=32, choices=State.choices)
+    attempt = models.SmallIntegerField(default=0)
+    exec_time = models.DateTimeField(null=True, blank=True)
+    error_response = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "sourcebatchduckgresstatus"
+        indexes = [
+            models.Index(
+                fields=["batch_id", "-created_at", "-id", "job_state"],
+                name="sbdgs_batch_desc_state_idx",
+            ),
+        ]
+
+
+class SourceBatchDuckgresApply(UUIDModel):
+    team_id = models.BigIntegerField()
+    schema_id = models.CharField(max_length=200)
+    run_uuid = models.CharField(max_length=200)
+    batch_index = models.IntegerField()
+    batch = models.ForeignKey(
+        SourceBatch,
+        on_delete=models.DO_NOTHING,
+        db_constraint=False,
+        related_name="duckgres_applies",
+    )
+    row_count = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "sourcebatchduckgresapply"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "schema_id", "run_uuid", "batch_index"],
+                name="sbdga_unique_batch_apply",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "schema_id", "run_uuid"], name="sbdga_run_idx"),
+        ]
