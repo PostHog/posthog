@@ -1,6 +1,5 @@
-import { RBTree } from 'bintrees'
-
 import { Dayjs } from 'lib/dayjs'
+import { RBTree } from 'lib/utils/vendor/bintrees'
 
 export type TimeTreeComparable = {
     timestamp: Dayjs

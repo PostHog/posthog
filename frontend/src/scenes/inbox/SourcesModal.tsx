@@ -23,6 +23,7 @@ const SIGNAL_SOURCE_REQUIRED_TABLES: Partial<Record<ExternalDataSourceType, stri
     Github: ['issues'],
     Linear: ['issues'],
     Zendesk: ['tickets'],
+    PgAnalyze: ['issues', 'servers'],
 }
 
 export function SourcesModal(): JSX.Element {

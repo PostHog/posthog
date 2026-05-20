@@ -767,9 +767,6 @@ tools:
         bin_script: temporal-recording-rasterizer-worker
         description: Start recording rasterizer Temporal worker (Puppeteer + Chromium)
         hidden: true
-    tool:nodejs:
-        bin_script: nodejs
-        description: Start nodejs with optional restart loop
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
@@ -811,6 +808,18 @@ tools:
         bin_script: clickhouse-metrics-init
         description: Initialize ClickHouse metrics schema (temporary, pre-migration)
         hidden: true
+    clickhouse:multinode:start:
+        cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
+        description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
+        hidden: true
+    clickhouse:multinode:verify:
+        cmd: python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
+        description: Assert that the multinode ClickHouse stack ended up with the expected per-node table layout
+        hidden: true
+    clickhouse:multinode:test:
+        cmd: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
+        description: Boot a per-cluster ClickHouse stack and smoke-test migrations against it
+        hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
@@ -831,24 +840,6 @@ tools:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
         hidden: true
-    posthog:hobby-installer-linux:
-        bin_script: hobby-installer-linux
-        description: Run the hobby-installer installation script for Linux, don't use
-            it on your MacOS development environment
-        hidden: true
-    posthog:hobby-installer:darwin:
-        bin_script: hobby-installer-darwin
-        description: Run the hobby-installer installation script for MacOS
-        hidden: true
-    posthog:hobby-installer:demo:
-        bin_script: hobby-installer-demo
-        description: Run a demo check for the PostHog hobby installation, useful while
-            developing the installation script
-        hidden: true
-    posthog:hobby-installer:development:
-        bin_script: hobby-installer-development
-        description: Run the development version for the hobby-installer deployment
-        hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
         description: Start the MCP server
@@ -856,14 +847,6 @@ tools:
     start:stripe:app:
         bin_script: start-stripe-app
         description: Start the Stripe app dev server (requires Stripe CLI)
-    posthog:hobby:
-        bin_script: posthog-hobby
-        description: 'TODO: add description for posthog-hobby'
-        hidden: true
-    start:custom:
-        bin_script: start-custom
-        description: 'TODO: add description for start-custom'
-        hidden: true
     generate_personhog_proto:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
@@ -871,10 +854,6 @@ tools:
     phrocs:build:
         cmd: cd tools/phrocs && make build
         description: Build the phrocs binary from source
-    phrocs:
-        bin_script: phrocs
-        description: Run phrocs directly with a custom mprocs-format YAML config
-        hidden: true
     ci:wait:for:docker:
         bin_script: ci-wait-for-docker
         description: Launch Docker Compose services in CI and later wait for readiness
