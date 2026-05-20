@@ -115,6 +115,9 @@ tools:
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: false
+    integrations-github-teams-retrieve:
+        operation: integrations_github_teams_retrieve
+        enabled: false
     integrations-google-accessible-accounts-retrieve:
         operation: integrations_google_accessible_accounts_retrieve
         enabled: false

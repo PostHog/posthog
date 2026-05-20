@@ -40,6 +40,10 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Frozen view of the lens at observation-create time; see `temporal.types.LensSnapshot`.",
     )
+    lens_result = models.JSONField(
+        default=dict,
+        help_text="Result data persisted on success (model output, signals count); see `temporal.types.LensResult`.",
+    )
 
     triggered_by = models.CharField(
         max_length=16,

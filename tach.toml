@@ -50,6 +50,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.user_interviews",
 ]
 layer = "modules"
 
@@ -381,6 +382,8 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "posthog",
+    "products.data_warehouse",
+    "products.event_definitions",
 ]
 layer = "modules"
 
@@ -516,7 +519,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|visual_review)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -530,6 +533,15 @@ from = [
     "products.experiments",
 ]
 
+# user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.webhooks.*",
+]
+from = [
+    "products.user_interviews",
+]
+
 # Legacy leaks — core (posthog/ee) imports these internals directly.
 # Each block below should shrink as imports migrate to the facade.
 # These products have had backend:contract-check removed from package.json
@@ -540,6 +552,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
@@ -583,6 +596,16 @@ depends_on = [
 ]
 layer = "modules"
 
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee) still imports these internals directly.
 [[interfaces]]
 expose = [
     "backend\\.models.*",
