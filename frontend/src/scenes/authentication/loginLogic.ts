@@ -108,8 +108,20 @@ export const loginLogic = kea<loginLogicType>([
                     }
 
                     breakpoint()
-                    const response = await api.create<any>('api/login/precheck', { email })
-                    return { status: 'completed', ...response }
+                    try {
+                        const response = await api.create<any>('api/login/precheck', { email })
+                        return { status: 'completed', ...response }
+                    } catch (e) {
+                        // Client-side validation rejections (e.g. malformed email) shouldn't surface
+                        // the default kea-loaders "Precheck failed: ..." toast — they're expected for
+                        // values like a half-typed address blurred away from the field. Keep the loader
+                        // in its neutral "pending" state so the UI stays unchanged.
+                        const status = (e as { status?: number })?.status
+                        if (status !== undefined && status >= 400 && status < 500) {
+                            return { status: 'pending' }
+                        }
+                        throw e
+                    }
                 },
             },
         ],

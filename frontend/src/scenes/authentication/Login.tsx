@@ -203,7 +203,11 @@ export function Login(): JSX.Element {
                                 data-attr="login-email"
                                 placeholder="email@yourcompany.com"
                                 type="email"
-                                onBlur={() => precheck({ email: login.email })}
+                                onBlur={() => {
+                                    if (isEmail(login.email)) {
+                                        precheck({ email: login.email })
+                                    }
+                                }}
                                 onPressEnter={(e) => {
                                     if (isPasswordHidden) {
                                         e.preventDefault() // Don't trigger submission if password field is still hidden
