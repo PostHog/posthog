@@ -326,11 +326,21 @@ async def _generate_patterns_assignments(
         res: RawSessionGroupPatternAssignmentsList | Exception = task.result()
         if isinstance(res, Exception):
             temporalio.activity.logger.warning(
-                f"Patterns assignments generation failed for chunk from sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}",
+                f"A pattern-assignment chunk failed for group of {len(session_ids)} "
+                f"sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}",
                 extra={"user_id": user_id, "signals_type": "session-summaries"},
             )
             continue
         patterns_assignments_list_of_lists.append(res)
+    # Aggregate signal so a partial run is greppable without counting per-chunk warnings.
+    failed_chunk_count = len(session_summaries_chunks_str) - len(patterns_assignments_list_of_lists)
+    if failed_chunk_count and patterns_assignments_list_of_lists:
+        temporalio.activity.logger.warning(
+            f"Pattern assignment partially failed: {failed_chunk_count} of "
+            f"{len(session_summaries_chunks_str)} chunks failed for group of {len(session_ids)} "
+            f"sessions for user {user_id}",
+            extra={"user_id": user_id, "signals_type": "session-summaries"},
+        )
     # Abort only on total chunk failure; partial assignments still produce a useful patterns report.
     if not patterns_assignments_list_of_lists:
         exception_message = (
