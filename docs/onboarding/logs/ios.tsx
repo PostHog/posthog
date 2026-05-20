@@ -17,8 +17,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
         content: (
             <>
                 <Markdown>
-                    Capture a structured log record using the logger facade. Records are batched and shipped to
-                    PostHog's logs product.
+                    Capture a structured log record with `captureLog`. Records are batched and shipped to PostHog's logs
+                    product.
                 </Markdown>
                 <CodeBlock
                     blocks={[
@@ -28,7 +28,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             code: dedent`
                                 import PostHog
 
-                                PostHogSDK.shared.logger.info("Server started", attributes: [
+                                PostHogSDK.shared.captureLog("Server started", level: .info, attributes: [
                                     "server.port": 3000,
                                     "server.env": "production"
                                 ])
