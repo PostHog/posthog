@@ -95,7 +95,6 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                 return
             }
 
-            actions.recordShown(now)
             try {
                 toast.info(<MCPHintToast surfaceKey={surfaceKey} />, {
                     toastId: `mcp-hint-${surfaceKey}-${now}`,
@@ -105,6 +104,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                     hideProgressBar: true,
                     icon: false,
                 })
+                actions.recordShown(now)
                 actions.reportMCPHintShown(surfaceKey)
             } catch (error) {
                 console.warn('[mcpHint] toast render failed', { surfaceKey, error })
