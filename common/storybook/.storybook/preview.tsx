@@ -3,6 +3,8 @@ import '~/styles'
 import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
 
+import '@posthog/tailwind/dist/tailwind.css'
+
 import { apiHostOrigin } from 'lib/utils/apiHost'
 
 import { loadPostHogJS } from '~/loadPostHogJS'
