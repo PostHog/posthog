@@ -1,5 +1,7 @@
 from unittest import TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import AgentMode
 
 from ..user_interview import (
@@ -29,14 +31,23 @@ class TestUserInterviewAgentToolkit(TestCase):
 
     def test_toolkit_has_trajectory_examples(self):
         self.assertIsNotNone(UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES)
-        assert UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES is not None
-        self.assertGreater(len(UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES), 0)
+        self.assertGreater(len(UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES), 0)  # type: ignore[arg-type]
 
-    def test_mode_definitions_use_correct_mode(self):
-        self.assertEqual(user_interview_agent.mode, AgentMode.USER_INTERVIEW)
-        self.assertEqual(subagent_user_interview_agent.mode, AgentMode.USER_INTERVIEW)
-        self.assertEqual(chat_agent_plan_user_interview_agent.mode, AgentMode.USER_INTERVIEW)
+    @parameterized.expand(
+        [
+            ("user_interview_agent", user_interview_agent),
+            ("subagent_user_interview_agent", subagent_user_interview_agent),
+            ("chat_agent_plan_user_interview_agent", chat_agent_plan_user_interview_agent),
+        ]
+    )
+    def test_mode_definition_uses_user_interview_mode(self, _name, definition):
+        self.assertEqual(definition.mode, AgentMode.USER_INTERVIEW)
 
-    def test_subagent_uses_read_only_toolkit(self):
-        self.assertEqual(subagent_user_interview_agent.toolkit_class, ReadOnlyUserInterviewAgentToolkit)
-        self.assertEqual(chat_agent_plan_user_interview_agent.toolkit_class, ReadOnlyUserInterviewAgentToolkit)
+    @parameterized.expand(
+        [
+            ("subagent_user_interview_agent", subagent_user_interview_agent),
+            ("chat_agent_plan_user_interview_agent", chat_agent_plan_user_interview_agent),
+        ]
+    )
+    def test_read_only_variants_use_read_only_toolkit(self, _name, definition):
+        self.assertEqual(definition.toolkit_class, ReadOnlyUserInterviewAgentToolkit)
