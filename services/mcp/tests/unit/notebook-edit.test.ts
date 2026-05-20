@@ -138,25 +138,43 @@ describe('NotebookEditSchema', () => {
 // ---------- editHandler — handler-level smoke test --------------------------
 
 interface MockState {
-    notebookContent: typeof sampleDoc
+    /**
+     * Current "server view" of the notebook. Every GET returns the latest
+     * values. Tests can mutate these between operations to simulate a
+     * concurrent edit landing on the server.
+     */
+    notebookContent: typeof sampleDoc | Record<string, unknown>
     version: number
     saveCalls: Array<{ body: any }>
+    /** GET call counter — useful for tests that want to verify refetch happened. */
+    getCalls: number
+    /**
+     * Optional callback fired AFTER each POST resolves, before the next GET.
+     * Use this to mutate `notebookContent` + `version` to simulate a
+     * concurrent edit having landed in between.
+     */
+    onPost?: (postIndex: number) => void
     saveResponses: Array<{ status: number; body: unknown }>
 }
 
 function createMockContext(state: MockState): Context {
-    const requestMock = vi.fn(async () => ({
-        short_id: 'aBcD1234',
-        content: state.notebookContent,
-        version: state.version,
-        title: 'Original',
-    }))
+    const requestMock = vi.fn(async () => {
+        state.getCalls++
+        return {
+            short_id: 'aBcD1234',
+            content: state.notebookContent,
+            version: state.version,
+            title: 'Original',
+        }
+    })
     const requestRawMock = vi.fn(async (opts: { body: any }) => {
+        const idx = state.saveCalls.length
         state.saveCalls.push({ body: opts.body })
         const response = state.saveResponses.shift()
         if (!response) {
             throw new Error('No queued response for requestRaw call')
         }
+        state.onPost?.(idx)
         return response
     })
     return {
@@ -176,6 +194,7 @@ describe('editHandler', () => {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [
                 {
                     status: 200,
@@ -204,7 +223,7 @@ describe('editHandler', () => {
         }
         expect(result.replacements).toBe(1)
         expect(result.steps_applied).toBe(1)
-        expect(result.rebases).toBe(0)
+        expect(result.conflicts).toBe(0)
         expect(state.saveCalls).toHaveLength(1)
         // The text we sent up should reflect the change.
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('First paragraph EDITED.')
@@ -215,6 +234,7 @@ describe('editHandler', () => {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [],
         }
         const context = createMockContext(state)
@@ -243,6 +263,7 @@ describe('editHandler', () => {
             notebookContent: dupDoc as unknown as typeof sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [],
         }
         const context = createMockContext(state)
@@ -256,7 +277,7 @@ describe('editHandler', () => {
             return
         }
         expect((result.error as { code: string }).code).toBe('ambiguous')
-        expect((result.error as { match_count: number }).match_count).toBe(2)
+        expect((result.error as unknown as { match_count: number }).match_count).toBe(2)
     })
 
     it('replaces every occurrence when replace_all is true', async () => {
@@ -271,6 +292,7 @@ describe('editHandler', () => {
             notebookContent: dupDoc as unknown as typeof sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [
                 {
                     status: 200,
@@ -299,6 +321,7 @@ describe('editHandler', () => {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [],
         }
         const context = createMockContext(state)
@@ -316,10 +339,15 @@ describe('editHandler', () => {
         expect(state.saveCalls).toHaveLength(0)
     })
 
-    it('handles 409 by rebasing and retrying', async () => {
-        // Construct a concurrent step JSON that touches a DIFFERENT block from
-        // our edit so the rebase can succeed.
-        const concurrentNewDoc = {
+    it('handles 409 by refetching and re-running str_replace', async () => {
+        // Simulate: agent reads notebook at version 7, computes edit, POSTs.
+        // Server has moved on to version 8 due to a concurrent edit that
+        // renamed the heading but didn't touch the paragraph we're editing.
+        // Server returns 409. We refetch (now seeing version 8 + the
+        // concurrent rename), re-run str_replace against the new content
+        // (which still contains "First paragraph." — the concurrent edit
+        // didn't touch it), and POST again with version 8.
+        const concurrentEditedDoc = {
             ...sampleDoc,
             content: [
                 { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Renamed' }] },
@@ -328,38 +356,29 @@ describe('editHandler', () => {
                 sampleDoc.content[3],
             ],
         }
-        const oldPmDoc = (() => {
-            const cast = sampleDoc as unknown as Parameters<typeof packDocAttrs>[0]
-            const schema = buildSchemaForDoc(cast)
-            return {
-                doc: PMNode.fromJSON(schema, packDocAttrs(cast) as Parameters<typeof PMNode.fromJSON>[1]),
-                schema,
-            }
-        })()
-        const concurrentPmDoc = PMNode.fromJSON(
-            oldPmDoc.schema,
-            packDocAttrs(concurrentNewDoc as unknown as Parameters<typeof packDocAttrs>[0]) as Parameters<
-                typeof PMNode.fromJSON
-            >[1]
-        )
-        const concurrentDiff = diffDocsToSteps(oldPmDoc.doc, concurrentPmDoc)
-        if (!concurrentDiff.ok || concurrentDiff.steps.length === 0) {
-            throw new Error('precondition failed: concurrent edit should produce one step')
-        }
-        const missedStepJson = concurrentDiff.steps[0]!.toJSON() as Record<string, unknown>
-
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
+            // Simulate the server-side state moving forward to version 8
+            // between our 1st POST (which 409s) and our refetch.
+            onPost: (idx) => {
+                if (idx === 0) {
+                    state.notebookContent = concurrentEditedDoc as unknown as typeof sampleDoc
+                    state.version = 8
+                }
+            },
             saveResponses: [
-                {
-                    status: 409,
-                    body: { steps: [missedStepJson], client_ids: ['other-client'], version: 8 },
-                },
+                { status: 409, body: { code: 'conflict' } },
                 {
                     status: 200,
-                    body: { short_id: 'aBcD1234', content: sampleDoc, version: 9, title: 'x' },
+                    body: {
+                        short_id: 'aBcD1234',
+                        content: concurrentEditedDoc,
+                        version: 9,
+                        title: 'Original',
+                    },
                 },
             ],
         }
@@ -373,9 +392,53 @@ describe('editHandler', () => {
         if (result.isError) {
             throw new Error(`expected ok, got: ${JSON.stringify(result.error)}`)
         }
-        expect(result.rebases).toBe(1)
+        expect(result.conflicts).toBe(1)
+        // 2 GETs (initial + refetch) and 2 POSTs (initial 409 + retry 200).
+        expect(state.getCalls).toBe(2)
         expect(state.saveCalls).toHaveLength(2)
+        // Second POST targets version 8 — the version we refetched.
         expect(state.saveCalls[1]!.body.version).toBe(8)
+        // And carries the renamed heading from the concurrent edit, proving
+        // we computed against the refetched state rather than rebasing locally.
+        expect(JSON.stringify(state.saveCalls[1]!.body.content)).toContain('Renamed')
+    })
+
+    it('on 409, surfaces a clean not_found if the concurrent edit removed the target', async () => {
+        // Simulate: someone else deleted "First paragraph." between our
+        // initial GET and our POST. After 409, refetch sees no match and we
+        // return the agent a structured `not_found` instead of silently
+        // doing nothing or merging anyway.
+        const deletedDoc = {
+            ...sampleDoc,
+            content: [sampleDoc.content[0], sampleDoc.content[2], sampleDoc.content[3]],
+        }
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            onPost: (idx) => {
+                if (idx === 0) {
+                    state.notebookContent = deletedDoc as unknown as typeof sampleDoc
+                    state.version = 8
+                }
+            },
+            saveResponses: [{ status: 409, body: { code: 'conflict' } }],
+        }
+        const context = createMockContext(state)
+        const result = await editHandler(context, {
+            short_id: 'aBcD1234',
+            old_string: '"First paragraph."',
+            new_string: '"First paragraph EDITED."',
+        })
+        expect(result.isError).toBe(true)
+        if (!result.isError) {
+            return
+        }
+        expect((result.error as { code: string }).code).toBe('not_found')
+        // Only the initial POST happened; after 409, refetch reveals not_found
+        // before we attempt a second POST.
+        expect(state.saveCalls).toHaveLength(1)
     })
 
     it('returns stale_buffer on 410', async () => {
@@ -383,6 +446,7 @@ describe('editHandler', () => {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [{ status: 410, body: { code: 'conflict_stale' } }],
         }
         const context = createMockContext(state)
@@ -403,6 +467,7 @@ describe('editHandler', () => {
             notebookContent: null as unknown as typeof sampleDoc,
             version: 7,
             saveCalls: [],
+            getCalls: 0,
             saveResponses: [],
         }
         const context = createMockContext(state)

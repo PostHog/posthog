@@ -1,86 +1,107 @@
 /**
- * Shared "POST collab/save with rebase-and-retry" pipeline. Used by
- * `notebook-edit` today; kept generic so any future notebook editing tool
- * that produces PM steps + a target doc can route through it without
- * duplicating the retry semantics.
+ * Shared "POST collab/save with refetch-on-conflict" pipeline for notebook
+ * editing tools.
  *
- * Once steps + target doc exist, the server interaction is:
- *   - POST steps + resulting content + version
- *   - 200 → done
- *   - 409 → rebase pending steps over the missed range, retry (cap 3)
- *   - 410 → stale_buffer error
+ * Why refetch instead of rebase:
+ *   `prosemirror-collab`'s rebase machinery (`receiveTransaction`, the
+ *   internal `rebaseSteps`) is designed for interactive editors with a
+ *   long-lived `EditorState` carrying unconfirmed in-flight steps. It
+ *   preserves those specific steps across concurrent changes — the right
+ *   model for a user typing characters. Our MCP tools are one-shot: the
+ *   agent provides a semantic intent (e.g. "replace this exact string"),
+ *   not a sequence of operations. The honest behaviour on a 409 is to
+ *   recompute that intent against the new state — if the intent still
+ *   applies, we resend; if it doesn't (e.g. the target string was deleted),
+ *   we surface a structured error so the agent can decide what to do.
+ *
+ *   Tiptap's own docs make the same distinction: their server-side PATCH
+ *   endpoint for "non-interactive clients" deliberately doesn't run the
+ *   collab rebase dance either.
+ *
+ * Server interaction:
+ *   POST → 200 done.
+ *   POST → 410 stale_buffer (server's Redis stream was trimmed; the
+ *           caller's `version` is too far behind to even be expressed as a
+ *           conflict).
+ *   POST → 409 conflict (concurrent edit). We refetch via the caller's
+ *           `recompute` callback (which re-runs the agent's intent against
+ *           the new state) and try again. Capped retries.
  */
-import { type Node as PMNode, type Schema } from 'prosemirror-model'
+import { type Node as PMNode } from 'prosemirror-model'
 import type { Step } from 'prosemirror-transform'
 
 import type { Schemas } from '@/api/generated'
+import { unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context } from '@/tools/types'
 
-import { type RebaseErr, rebaseSteps } from '@/lib/prosemirror/rebase'
-import { unpackDocAttrs } from '@/lib/prosemirror/schema'
-
-export const MAX_REBASE_ATTEMPTS = 3
+export const MAX_CONFLICT_RETRIES = 3
 
 export interface SaveOk {
     ok: true
     notebook: Schemas.Notebook
     steps_applied: number
-    rebases: number
+    /** Number of times we hit 409 and refetched + recomputed before succeeding. */
+    conflicts: number
 }
 
 export interface SaveErr {
     ok: false
     error:
-        | RebaseErr
         | { code: 'stale_buffer'; message: string }
-        | { code: 'rebase_exhausted'; attempts: number; message: string }
+        | { code: 'conflict_exhausted'; attempts: number; message: string }
+        | RecomputeFailure
 }
 
 export type SaveResult = SaveOk | SaveErr
 
-interface CollabSaveBody {
-    client_id: string
+/**
+ * Caller-provided shape: a structured failure that the recompute callback
+ * can surface after re-running the agent's intent against fresh state
+ * (e.g. "the string I was supposed to replace no longer exists").
+ * Marked as `isError` so the handler can return it directly.
+ */
+export interface RecomputeFailure {
+    code: string
+    message: string
+    [key: string]: unknown
+}
+
+export interface ComputedEdit {
+    steps: Step[]
+    /** The doc the steps will produce — POSTed as `content` on collab/save. */
+    newDoc: PMNode
+    /** Server version the steps target (the version the agent's intent was just computed against). */
     version: number
-    steps: Array<Record<string, unknown>>
-    content: Record<string, unknown>
-    text_content: string
-    title?: string
+    /** Optional title rename, threaded into the POST body. */
+    title?: string | undefined
 }
 
 /**
- * Render the plain-text view used by the search index. Mirrors the
- * `editor.getText()` output the frontend sends so search results don't
- * degrade for agent edits.
+ * Result of (re-)running the agent's intent against the current notebook
+ * state. `ok: true` means we have steps to POST. `ok: false` means the
+ * intent is no longer expressible — return the structured error to the
+ * agent.
  */
-export function buildTextContent(doc: PMNode): string {
-    const parts: string[] = []
-    doc.forEach((child) => {
-        if (child.isAtom || (child.content.size === 0 && !child.isTextblock)) {
-            return
-        }
-        const text = child.textBetween(0, child.content.size, '\n', ' ')
-        if (text.length > 0) {
-            parts.push(text)
-        }
-    })
-    return parts.join('\n')
-}
+export type RecomputeResult = { ok: true; edit: ComputedEdit } | { ok: false; error: RecomputeFailure }
 
-type CollabSaveOnceResult =
-    | { status: 'accepted'; notebook: Schemas.Notebook }
-    | {
-          status: 'conflict'
-          missed_steps: Array<{ step: Record<string, unknown>; client_id: string }>
-          server_version: number
-      }
-    | { status: 'stale' }
-
+/**
+ * POST a collab/save once. Returns `{accepted}` / `{conflict}` / `{stale}`
+ * without throwing on application-level non-2xx (auth errors still throw
+ * through `ApiClient.requestRaw`'s existing 401/403 handling).
+ */
 async function postCollabSaveOnce(
     context: Context,
     projectId: string,
     shortId: string,
-    body: CollabSaveBody
-): Promise<CollabSaveOnceResult> {
+    body: {
+        client_id: string
+        version: number
+        steps: Array<Record<string, unknown>>
+        content: Record<string, unknown>
+        text_content: string
+        title?: string
+    }
+): Promise<{ status: 'accepted'; notebook: Schemas.Notebook } | { status: 'conflict' } | { status: 'stale' }> {
     const result = await context.api.requestRaw({
         method: 'POST',
         path: `/api/projects/${encodeURIComponent(projectId)}/notebooks/${encodeURIComponent(shortId)}/collab/save/`,
@@ -91,22 +112,7 @@ async function postCollabSaveOnce(
         return { status: 'accepted', notebook: result.body as Schemas.Notebook }
     }
     if (result.status === 409) {
-        const conflict = (result.body ?? {}) as {
-            steps?: Array<Record<string, unknown>>
-            client_ids?: string[]
-            version?: number
-        }
-        const missed = (conflict.steps ?? []).map((step, i) => ({
-            step,
-            client_id: conflict.client_ids?.[i] ?? '',
-        }))
-        if (conflict.version === undefined) {
-            throw new Error(
-                'collab/save returned 409 without a `version` field. ' +
-                    'This is a backend contract violation; the request cannot be safely retried.'
-            )
-        }
-        return { status: 'conflict', missed_steps: missed, server_version: conflict.version }
+        return { status: 'conflict' }
     }
     if (result.status === 410) {
         return { status: 'stale' }
@@ -120,44 +126,63 @@ async function postCollabSaveOnce(
 }
 
 /**
- * POST a sequence of steps to collab/save, rebasing and retrying on 409 up
- * to `MAX_REBASE_ATTEMPTS` times. The caller owns building the initial
- * steps + doc; this function takes ownership only after that.
+ * Render the plain-text view used by the server's search index. Mirrors
+ * what the frontend's `editor.getText()` produces.
  */
-export async function saveStepsWithRebase(args: {
+function buildTextContent(doc: PMNode): string {
+    const parts: string[] = []
+    doc.forEach((child) => {
+        if (child.isAtom || (child.content.size === 0 && !child.isTextblock)) {
+            return
+        }
+        const text = child.textBetween(0, child.content.size, '\n', ' ')
+        if (text.length > 0) {
+            parts.push(text)
+        }
+    })
+    return parts.join('\n')
+}
+
+/**
+ * POST steps to collab/save. On 409 the `recompute` callback is invoked to
+ * re-run the agent's intent against fresh server state, producing a new
+ * set of steps + target doc + version that we then POST.
+ *
+ * `recompute` is responsible for:
+ *   - GET-ing the latest notebook
+ *   - Re-applying the agent's intent (e.g. str_replace) to the new content
+ *   - Returning the resulting steps + newDoc + version, or a structured
+ *     error if the intent no longer applies (e.g. `not_found`).
+ */
+export async function saveWithConflictRetry(args: {
     context: Context
     projectId: string
     shortId: string
     clientId: string
-    /** Initial doc the agent's pending steps were built against (server head at version). */
-    oldDoc: PMNode
-    /** Schema used to deserialize any missed steps coming back in the 409 body. */
-    schema: Schema
-    /** Initial PM steps to POST. May be mutated through rebase iterations. */
-    pendingSteps: Step[]
-    /** Initial new doc after applying pendingSteps to oldDoc. */
-    newDoc: PMNode
-    /** Server version the initial pending steps target. */
-    version: number
-    /** Optional title rename, threaded into the POST body. */
-    title?: string | undefined
+    /** Initial computed edit. */
+    initial: ComputedEdit
+    /**
+     * Called on 409 to recompute steps against the latest server state.
+     * Receives no args — the callback owns the GET.
+     */
+    recompute: () => Promise<RecomputeResult>
 }): Promise<SaveResult> {
-    let { pendingSteps, newDoc, version } = args
-    let rebases = 0
+    let current = args.initial
+    let conflicts = 0
 
-    for (let attempt = 0; attempt <= MAX_REBASE_ATTEMPTS; attempt++) {
-        const stepsJson = pendingSteps.map((s) => s.toJSON()) as unknown as Array<Record<string, unknown>>
+    for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
+        const stepsJson = current.steps.map((s) => s.toJSON()) as unknown as Array<Record<string, unknown>>
         const unpackedContent = unpackDocAttrs(
-            newDoc.toJSON() as unknown as Parameters<typeof unpackDocAttrs>[0]
+            current.newDoc.toJSON() as unknown as Parameters<typeof unpackDocAttrs>[0]
         ) as unknown as Record<string, unknown>
 
-        const body: CollabSaveBody = {
+        const body = {
             client_id: args.clientId,
-            version,
+            version: current.version,
             steps: stepsJson,
             content: unpackedContent,
-            text_content: buildTextContent(newDoc),
-            ...(args.title !== undefined ? { title: args.title } : {}),
+            text_content: buildTextContent(current.newDoc),
+            ...(current.title !== undefined ? { title: current.title } : {}),
         }
 
         const result = await postCollabSaveOnce(args.context, args.projectId, args.shortId, body)
@@ -166,8 +191,8 @@ export async function saveStepsWithRebase(args: {
             return {
                 ok: true,
                 notebook: result.notebook,
-                steps_applied: pendingSteps.length,
-                rebases,
+                steps_applied: current.steps.length,
+                conflicts,
             }
         }
 
@@ -178,34 +203,46 @@ export async function saveStepsWithRebase(args: {
                     code: 'stale_buffer',
                     message:
                         'The notebook has had many concurrent edits since you last read it, and the server has trimmed its rebase buffer. ' +
-                        'Re-fetch the notebook with `notebooks-retrieve` to get the latest `content` + `version`, then re-issue your edit against the new state.',
+                        'Re-fetch the notebook with `notebooks-retrieve` to get the latest content + version, then re-issue your edit against the new state.',
                 },
             }
         }
 
-        // Conflict — rebase and retry.
-        const rebased = rebaseSteps(pendingSteps, result.missed_steps, args.oldDoc, args.schema, result.server_version)
-        if (!rebased.ok) {
-            return { ok: false, error: rebased }
-        }
-        pendingSteps = rebased.steps
-        newDoc = rebased.finalDoc
-        version = rebased.version
-        rebases++
-
-        if (rebases > MAX_REBASE_ATTEMPTS) {
+        // Conflict — recompute the intent against the new state and try again.
+        conflicts++
+        if (conflicts > MAX_CONFLICT_RETRIES) {
             break
         }
+        const recomputed = await args.recompute()
+        if (!recomputed.ok) {
+            return { ok: false, error: recomputed.error }
+        }
+        if (recomputed.edit.steps.length === 0) {
+            // After the concurrent edit, our intent maps to a no-op (e.g. the
+            // change has already been applied by someone else). Return the
+            // current notebook state — the agent's desired end state was reached.
+            const refetched = await args.context.api.request<Schemas.Notebook>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(args.projectId)}/notebooks/${encodeURIComponent(args.shortId)}/`,
+            })
+            return {
+                ok: true,
+                notebook: refetched,
+                steps_applied: 0,
+                conflicts,
+            }
+        }
+        current = recomputed.edit
     }
 
     return {
         ok: false,
         error: {
-            code: 'rebase_exhausted',
-            attempts: rebases,
+            code: 'conflict_exhausted',
+            attempts: conflicts,
             message:
-                `Rebased ${rebases} times but the notebook keeps changing under us. ` +
-                'The notebook is currently being edited heavily by another user. ' +
+                `Hit ${conflicts} concurrent-edit conflicts in a row. ` +
+                'The notebook is being edited heavily by another user right now. ' +
                 'Re-fetch with `notebooks-retrieve` and retry once activity has settled, or split your edit into smaller changes.',
         },
     }

@@ -2,7 +2,8 @@
  * `notebook-edit` tool.
  *
  * String replacement against the notebook's content JSON, mirroring the
- * shape of Cursor / Anthropic `str_replace_editor` for code files:
+ * shape agents already use for code-file edits (`str_replace_editor` /
+ * Cursor's edit tool):
  *
  *   {
  *     short_id: "...",
@@ -14,9 +15,10 @@
  *
  * Internally the tool operates on `JSON.stringify(content, null, 2)`. The
  * agent constructs `old_string` against that pretty-printed form. After
- * applying the replacement we re-parse the JSON, recompute steps via a
- * top-level block diff (so the broadcast SSE payload stays small), and
- * POST through `saveLoop` which handles rebase-on-409 and stale-on-410.
+ * applying the replacement we re-parse the JSON, compute steps via a
+ * top-level block diff (so the broadcast SSE payload stays small and other
+ * clients' cursors on unaffected blocks are preserved), and POST through
+ * `saveWithConflictRetry` which handles refetch-on-409 and 410 stale.
  *
  * For brand-new notebooks the agent should use `notebooks-create` instead;
  * this tool requires an existing notebook with content to edit.
@@ -27,11 +29,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import { AnalyticsEvent } from '@/lib/analytics'
+import { diffDocsToSteps } from '@/lib/prosemirror/diff'
+import { buildSchemaForDoc, packDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { type DiffErr, diffDocsToSteps } from '@/lib/prosemirror/diff'
-import { saveStepsWithRebase, type SaveErr } from './saveLoop'
-import { buildSchemaForDoc, packDocAttrs } from '@/lib/prosemirror/schema'
+import { type ComputedEdit, type RecomputeFailure, type RecomputeResult, saveWithConflictRetry } from './saveLoop'
 
 /** Indentation used when serializing the notebook content for str_replace. */
 export const JSON_INDENT = 2
@@ -74,19 +76,17 @@ export type NotebookEditResult =
           isError?: false
           notebook: Schemas.Notebook
           steps_applied: number
-          rebases: number
+          /** Number of times we hit 409, refetched, and re-ran str_replace before succeeding. */
+          conflicts: number
           replacements: number
       }
     | {
           ok: false
           isError: true
           error:
-              | SaveErr['error']
-              | DiffErr
-              | { code: 'not_found'; message: string }
-              | { code: 'ambiguous'; match_count: number; message: string }
-              | { code: 'invalid_resulting_json'; message: string; parse_error: string }
-              | { code: 'invalid_resulting_doc'; message: string }
+              | RecomputeFailure
+              | { code: 'stale_buffer'; message: string }
+              | { code: 'conflict_exhausted'; attempts: number; message: string }
               | { code: 'no_content'; message: string }
       }
 
@@ -103,13 +103,33 @@ function countOccurrences(haystack: string, needle: string): number {
     return count
 }
 
-export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
-    const projectId = await context.stateManager.getProjectId()
+interface EditComputation {
+    edit: ComputedEdit
+    replacements: number
+}
 
-    // 1. Fetch current notebook.
+/**
+ * Fetch the notebook and run the agent's str_replace against its content.
+ * Used twice: once for the initial computation, and again as the `recompute`
+ * callback on every 409 conflict so we re-apply the agent's intent against
+ * the latest server state.
+ *
+ * Returns:
+ *   - `{ok: true, edit, replacements}` — we have steps to POST. Steps may be
+ *     empty if the str_replace produced an identical PM tree (rare, but
+ *     e.g. attribute-key reordering inside the serialized JSON).
+ *   - `{ok: false, error}` — the agent's intent no longer applies (target
+ *     not found, ambiguous, broken JSON, broken doc). Surface as-is to the
+ *     agent so it can decide what to do.
+ */
+async function computeEdit(
+    context: Context,
+    projectId: string,
+    params: Params
+): Promise<
+    | { ok: true; computation: EditComputation }
+    | { ok: false; error: RecomputeFailure | { code: 'no_content'; message: string } }
+> {
     const notebook = await context.api.request<Schemas.Notebook>({
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(projectId)}/notebooks/${encodeURIComponent(params.short_id)}/`,
@@ -123,7 +143,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
     ) {
         return {
             ok: false,
-            isError: true,
             error: {
                 code: 'no_content',
                 message:
@@ -140,14 +159,12 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
         )
     }
 
-    // 2. Serialize content + apply str_replace.
     const serialized = JSON.stringify(notebook.content, null, JSON_INDENT)
     const occurrences = countOccurrences(serialized, params.old_string)
 
     if (occurrences === 0) {
         return {
             ok: false,
-            isError: true,
             error: {
                 code: 'not_found',
                 message:
@@ -164,7 +181,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
     if (occurrences > 1 && params.replace_all !== true) {
         return {
             ok: false,
-            isError: true,
             error: {
                 code: 'ambiguous',
                 match_count: occurrences,
@@ -176,19 +192,18 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
         }
     }
 
-    const newSerialized = params.replace_all
-        ? serialized.split(params.old_string).join(params.new_string)
-        : serialized.replace(params.old_string, params.new_string)
+    const newSerialized =
+        params.replace_all === true
+            ? serialized.split(params.old_string).join(params.new_string)
+            : serialized.replace(params.old_string, params.new_string)
     const replacements = params.replace_all === true ? occurrences : 1
 
-    // 3. Parse the result back into a PM doc.
     let newContent: unknown
     try {
         newContent = JSON.parse(newSerialized)
     } catch (e) {
         return {
             ok: false,
-            isError: true,
             error: {
                 code: 'invalid_resulting_json',
                 message:
@@ -203,7 +218,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
     if (newContent === null || typeof newContent !== 'object') {
         return {
             ok: false,
-            isError: true,
             error: {
                 code: 'invalid_resulting_doc',
                 message:
@@ -215,10 +229,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
 
     const rawContent = notebook.content as unknown as Parameters<typeof packDocAttrs>[0]
     const newContentObj = newContent as Parameters<typeof packDocAttrs>[0]
-
-    // 4. Build schema and parse both docs. We discover types from the UNION of
-    //    old + new content so a replacement that adds a new node type still
-    //    parses cleanly without us having to enumerate it.
     const schema = buildSchemaForDoc([rawContent, newContentObj])
 
     let oldDoc: PMNode
@@ -237,7 +247,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
     } catch (e) {
         return {
             ok: false,
-            isError: true,
             error: {
                 code: 'invalid_resulting_doc',
                 message:
@@ -248,36 +257,70 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
         }
     }
 
-    // 5. Diff old vs new at the top-block level → ReplaceStep(s).
     const diff = diffDocsToSteps(oldDoc, newDoc)
     if (!diff.ok) {
-        return { ok: false, isError: true, error: diff }
+        return { ok: false, error: { code: diff.code, message: diff.message } }
     }
 
-    if (diff.steps.length === 0) {
-        // String change rebuilt to the same PM tree (e.g. the agent replaced
-        // a piece of pretty-printing whitespace inside an attrs object that
-        // round-trips identically). Treat as a no-op.
-        return {
-            ok: true,
-            notebook,
-            steps_applied: 0,
-            rebases: 0,
+    return {
+        ok: true,
+        computation: {
+            edit: {
+                steps: diff.steps,
+                newDoc,
+                version: notebook.version,
+            },
             replacements,
+        },
+    }
+}
+
+export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
+    const projectId = await context.stateManager.getProjectId()
+
+    const initial = await computeEdit(context, projectId, params)
+    if (!initial.ok) {
+        if (initial.error.code === 'no_content') {
+            return { ok: false, isError: true, error: initial.error }
         }
+        return { ok: false, isError: true, error: initial.error as RecomputeFailure }
     }
 
-    // 6. POST via the shared rebase loop.
-    const result = await saveStepsWithRebase({
+    let replacements = initial.computation.replacements
+
+    if (initial.computation.edit.steps.length === 0) {
+        // The str_replace produced an identical PM tree (e.g. the agent edited
+        // whitespace inside an attrs object that round-trips the same). Treat
+        // as a no-op so the agent gets a clear signal that nothing changed.
+        const notebook = await context.api.request<Schemas.Notebook>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(projectId)}/notebooks/${encodeURIComponent(params.short_id)}/`,
+        })
+        return { ok: true, notebook, steps_applied: 0, conflicts: 0, replacements }
+    }
+
+    const recompute = async (): Promise<RecomputeResult> => {
+        const recomputed = await computeEdit(context, projectId, params)
+        if (!recomputed.ok) {
+            return { ok: false, error: recomputed.error as RecomputeFailure }
+        }
+        // Track how many physical replacements landed in the final attempt
+        // so the agent gets an accurate count when replace_all=true and the
+        // post-conflict match count differs from the original.
+        replacements = recomputed.computation.replacements
+        return { ok: true, edit: recomputed.computation.edit }
+    }
+
+    const result = await saveWithConflictRetry({
         context,
         projectId,
         shortId: params.short_id,
         clientId: uuidv4(),
-        oldDoc,
-        schema,
-        pendingSteps: diff.steps,
-        newDoc,
-        version: notebook.version,
+        initial: initial.computation.edit,
+        recompute,
     })
 
     if (!result.ok) {
@@ -287,7 +330,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
     void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
         tool: 'notebook-edit',
         steps_count: result.steps_applied,
-        rebases: result.rebases,
+        conflicts: result.conflicts,
         replacements,
     })
 
@@ -295,7 +338,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, NotebookEditResult
         ok: true,
         notebook: result.notebook,
         steps_applied: result.steps_applied,
-        rebases: result.rebases,
+        conflicts: result.conflicts,
         replacements,
     }
 }

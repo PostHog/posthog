@@ -1,34 +1,27 @@
 /**
- * Direct tests for the shared notebooks editing primitives — the dynamic
- * ProseMirror schema and the Mapping-based step rebaser. These two modules
- * are used by `notebook-edit` (and would be used by any future tool that
- * routes through `collab/save`), so it's worth pinning their behaviour
- * independently of the tool's end-to-end flow.
+ * Direct tests for the generic ProseMirror primitives in `lib/prosemirror/`.
+ * These modules know nothing about MCP, notebooks, or any specific product —
+ * they're pure functions over ProseMirror documents. Worth pinning their
+ * behaviour independently of any caller.
  */
 import { Node as PMNode } from 'prosemirror-model'
 import { describe, expect, it } from 'vitest'
 
 import { diffDocsToSteps } from '@/lib/prosemirror/diff'
-import { rebaseSteps } from '@/lib/prosemirror/rebase'
 import { buildSchemaForDoc, packDocAttrs, unpackDocAttrs } from '@/lib/prosemirror/schema'
 
 const sampleDoc = {
     type: 'doc',
     content: [
-        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'My notebook' }] },
+        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'My doc' }] },
         { type: 'paragraph', content: [{ type: 'text', text: 'First paragraph.' }] },
         { type: 'paragraph', content: [{ type: 'text', text: 'Second paragraph.' }] },
-        { type: 'ph-recording', attrs: { id: 'sess-123' } },
+        { type: 'custom-widget', attrs: { id: 'sess-123' } },
         { type: 'paragraph', content: [{ type: 'text', text: 'Trailing paragraph.' }] },
     ],
 }
 
 type DocJson = Parameters<typeof packDocAttrs>[0]
-type DocSchema = ReturnType<typeof buildSchemaForDoc>
-
-function buildOn(schema: DocSchema, json: unknown): PMNode {
-    return PMNode.fromJSON(schema, packDocAttrs(json as DocJson) as Parameters<typeof PMNode.fromJSON>[1])
-}
 
 function buildDoc(json: unknown): {
     doc: PMNode
@@ -47,19 +40,19 @@ describe('buildSchemaForDoc', () => {
         expect(schema.nodes.paragraph).toBeTruthy()
         expect(schema.nodes.heading).toBeTruthy()
         expect(schema.nodes.text).toBeTruthy()
-        expect(schema.nodes['ph-recording']).toBeTruthy()
+        expect(schema.nodes['custom-widget']).toBeTruthy()
     })
 
-    it('round-trips a notebook doc through pack → fromJSON → toJSON → unpack', () => {
+    it('round-trips a doc through pack → fromJSON → toJSON → unpack', () => {
         const { doc } = buildDoc(sampleDoc)
         const roundtripped = unpackDocAttrs(doc.toJSON() as Parameters<typeof unpackDocAttrs>[0])
         expect(roundtripped).toEqual(sampleDoc)
     })
 
     it('handles documents with unknown custom node types without hardcoded lists', () => {
-        // The whole point of the dynamic schema: new ph-* widgets added in
-        // the frontend don't require any MCP change. We round-trip an
-        // invented widget here to prove the schema discovers it.
+        // The whole point of the dynamic schema: a new widget type added in the
+        // frontend (or anywhere else) doesn't require any change here. We
+        // round-trip an invented widget to prove the schema discovers it.
         const exotic = {
             type: 'doc',
             content: [
@@ -76,9 +69,9 @@ describe('buildSchemaForDoc', () => {
     })
 
     it('builds a single schema covering the union of multiple root docs', () => {
-        // The str-replace tool may produce a `newDoc` that introduces a node
-        // type not present in the original. Passing both roots ensures the
-        // resulting schema can parse either.
+        // Callers that need to parse two related docs (e.g. an "old" and a
+        // "new" version for diffing) can pass both — the resulting schema
+        // covers every node type appearing in either.
         const oldDoc = {
             type: 'doc',
             content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a' }] }],
@@ -95,85 +88,85 @@ describe('buildSchemaForDoc', () => {
     })
 })
 
-describe('rebaseSteps', () => {
-    it('rebases a non-overlapping pending step over missed steps', () => {
-        // All three docs share one schema: any step built against any of them
-        // must be applicable against any of the others. This mirrors what the
-        // real handler does (one schema for the whole tool invocation).
-        const pendingNew = {
+describe('diffDocsToSteps', () => {
+    function buildPair(oldJson: unknown, newJson: unknown): { oldDoc: PMNode; newDoc: PMNode } {
+        // Both docs share one schema so steps built against newDoc apply to oldDoc.
+        const a = oldJson as DocJson
+        const b = newJson as DocJson
+        const schema = buildSchemaForDoc([a, b])
+        return {
+            oldDoc: PMNode.fromJSON(schema, packDocAttrs(a) as Parameters<typeof PMNode.fromJSON>[1]),
+            newDoc: PMNode.fromJSON(schema, packDocAttrs(b) as Parameters<typeof PMNode.fromJSON>[1]),
+        }
+    }
+
+    it('produces zero steps for identical docs', () => {
+        const { oldDoc, newDoc } = buildPair(sampleDoc, sampleDoc)
+        const result = diffDocsToSteps(oldDoc, newDoc)
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+            expect(result.steps).toHaveLength(0)
+        }
+    })
+
+    it('produces a single ReplaceStep covering one changed block', () => {
+        const newJson = {
             ...sampleDoc,
             content: [
                 sampleDoc.content[0],
-                sampleDoc.content[1],
-                sampleDoc.content[2],
-                sampleDoc.content[3],
-                { type: 'paragraph', content: [{ type: 'text', text: 'Local edit.' }] },
-            ],
-        }
-        const concurrentNew = {
-            ...sampleDoc,
-            content: [
-                { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Renamed' }] },
-                sampleDoc.content[1],
+                { type: 'paragraph', content: [{ type: 'text', text: 'First paragraph CHANGED.' }] },
                 sampleDoc.content[2],
                 sampleDoc.content[3],
                 sampleDoc.content[4],
             ],
         }
-        const schema = buildSchemaForDoc([sampleDoc as DocJson, pendingNew as DocJson, concurrentNew as DocJson])
-        const baseDoc = buildOn(schema, sampleDoc)
-
-        const pendingDiff = diffDocsToSteps(baseDoc, buildOn(schema, pendingNew))
-        const concurrentDiff = diffDocsToSteps(baseDoc, buildOn(schema, concurrentNew))
-        if (!pendingDiff.ok || !concurrentDiff.ok) {
-            throw new Error('precondition: both diffs should succeed')
-        }
-        const missedJson = concurrentDiff.steps.map((s) => ({ step: s.toJSON() as Record<string, unknown> }))
-
-        const rebased = rebaseSteps(pendingDiff.steps, missedJson, baseDoc, schema, 1)
-        expect(rebased.ok).toBe(true)
-        if (!rebased.ok) {
+        const { oldDoc, newDoc } = buildPair(sampleDoc, newJson)
+        const result = diffDocsToSteps(oldDoc, newDoc)
+        expect(result.ok).toBe(true)
+        if (!result.ok) {
             return
         }
-        const out = unpackDocAttrs(
-            rebased.finalDoc.toJSON() as Parameters<typeof unpackDocAttrs>[0]
-        ) as typeof sampleDoc
-        // Both edits visible after rebase.
-        expect((out.content[0] as { content: [{ text: string }] }).content[0]!.text).toBe('Renamed')
-        expect((out.content[4] as { content: [{ text: string }] }).content[0]!.text).toBe('Local edit.')
+        expect(result.steps).toHaveLength(1)
+        // The step's range should cover only the second block.
+        const headingSize = oldDoc.maybeChild(0)!.nodeSize
+        const paragraph1Size = oldDoc.maybeChild(1)!.nodeSize
+        const stepJson = result.steps[0]!.toJSON() as { from: number; to: number }
+        expect(stepJson.from).toBe(headingSize)
+        expect(stepJson.to).toBe(headingSize + paragraph1Size)
     })
 
-    it('does not crash on a concurrent edit that deleted our target range', () => {
-        const pendingNew = {
+    it('handles pure insertion (new block between existing ones)', () => {
+        const newJson = {
             ...sampleDoc,
             content: [
                 sampleDoc.content[0],
                 sampleDoc.content[1],
+                { type: 'paragraph', content: [{ type: 'text', text: 'Inserted.' }] },
                 sampleDoc.content[2],
                 sampleDoc.content[3],
-                { type: 'paragraph', content: [{ type: 'text', text: 'Local edit.' }] },
+                sampleDoc.content[4],
             ],
         }
-        // Concurrent edit deletes the same trailing paragraph we're trying to replace.
-        const concurrentNew = {
+        const { oldDoc, newDoc } = buildPair(sampleDoc, newJson)
+        const result = diffDocsToSteps(oldDoc, newDoc)
+        expect(result.ok).toBe(true)
+        if (!result.ok) {
+            return
+        }
+        expect(result.steps).toHaveLength(1)
+    })
+
+    it('handles pure deletion (removing a block)', () => {
+        const newJson = {
             ...sampleDoc,
-            content: [sampleDoc.content[0], sampleDoc.content[1], sampleDoc.content[2], sampleDoc.content[3]],
+            content: [sampleDoc.content[0], sampleDoc.content[2], sampleDoc.content[3], sampleDoc.content[4]],
         }
-        const schema = buildSchemaForDoc([sampleDoc as DocJson, pendingNew as DocJson, concurrentNew as DocJson])
-        const baseDoc = buildOn(schema, sampleDoc)
-
-        const pendingDiff = diffDocsToSteps(baseDoc, buildOn(schema, pendingNew))
-        const concurrentDiff = diffDocsToSteps(baseDoc, buildOn(schema, concurrentNew))
-        if (!pendingDiff.ok || !concurrentDiff.ok) {
-            throw new Error('precondition: both diffs should succeed')
+        const { oldDoc, newDoc } = buildPair(sampleDoc, newJson)
+        const result = diffDocsToSteps(oldDoc, newDoc)
+        expect(result.ok).toBe(true)
+        if (!result.ok) {
+            return
         }
-        const missedJson = concurrentDiff.steps.map((s) => ({ step: s.toJSON() as Record<string, unknown> }))
-
-        const rebased = rebaseSteps(pendingDiff.steps, missedJson, baseDoc, schema, 1)
-        // PM may successfully rebase a ReplaceStep over a deletion in some
-        // cases (mapping to an empty range) — we accept either step_dropped,
-        // apply_failed, or a successful rebase that ends up as a no-op. The
-        // contract under test is: we do not crash.
-        expect(['step_dropped', 'apply_failed', undefined]).toContain(rebased.ok ? undefined : rebased.code)
+        expect(result.steps).toHaveLength(1)
     })
 })
