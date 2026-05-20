@@ -710,20 +710,13 @@ class TestResolverFactoryInjection(BaseTest):
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
         context.database = Database.create_for(team_id=context.team_id, modifiers=context.modifiers, team=context.team)
 
-        # First resolver seeds the anchor; second resolver reads it. Both must see the same value.
+        # Factory seeds one anchor and hands the same value to every resolver it produces.
         r1 = factory(context, "hogql", None)
         r2 = factory(context, "hogql", None)
         assert isinstance(r1, BoundedResolver)
         assert isinstance(r2, BoundedResolver)
-        assert r1.deadline_anchor is r2.deadline_anchor
-        assert r1.deadline_anchor == [None]
-
-        r1.visit(parse_select("select * from events"))
         assert r1.deadline_anchor is not None
-        assert r2.deadline_anchor is not None
-        assert r1.deadline_anchor[0] is not None
-        # second resolver inherits the anchor set by the first
-        assert r2.deadline_anchor[0] == r1.deadline_anchor[0]
+        assert r2.deadline_anchor == r1.deadline_anchor
 
     def test_factory_threaded_through_resolve_lazy_tables(self):
         """Lazy-table resolution invokes the factory on subqueries it builds — depth bound applies.

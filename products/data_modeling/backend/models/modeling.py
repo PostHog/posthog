@@ -137,14 +137,15 @@ class BoundedResolver(Resolver):
     (`DAG_RESOLUTION_*`) are emitted from the outermost `visit()` invocation, so
     every construction-then-visit usage gets a single counter increment.
 
-    `deadline_anchor` is an optional single-element list that lets multiple
+    `deadline_anchor` is an optional monotonic timestamp that lets multiple
     BoundedResolver instances share a deadline clock. `prepare_ast_for_printing`
     invokes nested resolve_types/resolve_lazy_tables calls each of which builds
     a fresh BoundedResolver via the factory — without a shared anchor, each
     instance would get its own deadline_seconds budget and the bound would
-    compound. The factory in `bounded_resolver_factory_for_view` allocates one
+    compound. The factory in `bounded_resolver_factory_for_view` seeds one
     anchor and passes it to every resolver it produces, so the deadline binds
-    end-to-end across the whole query.
+    end-to-end across the whole query. When omitted, the resolver falls back
+    to its own `start_time`, so standalone construction still works.
     """
 
     def __init__(
@@ -154,7 +155,7 @@ class BoundedResolver(Resolver):
         max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
         deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
         enforce_bounds: bool = True,
-        deadline_anchor: list[float | None] | None = None,
+        deadline_anchor: float | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -176,12 +177,9 @@ class BoundedResolver(Resolver):
             self._check_deadline()
             return super().visit(node)
 
-        # outermost call owns deadline seeding and metric emission
+        # outermost call owns metric emission
         start_time = time.monotonic()
         self.start_time = start_time
-        # first resolver from a shared factory seeds the deadline clock
-        if self.deadline_anchor is not None and self.deadline_anchor[0] is None:
-            self.deadline_anchor[0] = start_time
         self._check_deadline()
         status: str = "ok"
         try:
@@ -203,7 +201,7 @@ class BoundedResolver(Resolver):
     def _check_deadline(self) -> None:
         if self.deadline_seconds is None:
             return
-        anchor = self.deadline_anchor[0] if self.deadline_anchor is not None else self.start_time
+        anchor = self.deadline_anchor if self.deadline_anchor is not None else self.start_time
         if anchor is None:
             return
         elapsed = time.monotonic() - anchor
@@ -250,6 +248,7 @@ class BoundedResolver(Resolver):
 def bounded_resolver_factory_for_view(
     view_name: str | None,
     *,
+    deadline_anchor: float | None = None,
     max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
     deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     enforce_bounds: bool = True,
@@ -265,10 +264,11 @@ def bounded_resolver_factory_for_view(
     mid-transform also resolve through BoundedResolver. All resolvers produced
     by one factory call share a `deadline_anchor`, so `deadline_seconds` is the
     total wall-clock budget for the whole `prepare_ast_for_printing` pass, not
-    a per-call budget.
+    a per-call budget. Callers may pass an explicit `deadline_anchor` to anchor
+    the clock to an earlier event (e.g. a test fixture); when omitted the
+    factory seeds it with the current monotonic time.
     """
-    # shared across every resolver this factory hands out — seeded by the first one to visit()
-    deadline_anchor: list[float | None] = [None]
+    anchor = deadline_anchor if deadline_anchor is not None else time.monotonic()
 
     def factory(
         context: HogQLContext,
@@ -283,7 +283,7 @@ def bounded_resolver_factory_for_view(
             max_view_depth=max_view_depth,
             deadline_seconds=deadline_seconds,
             enforce_bounds=enforce_bounds,
-            deadline_anchor=deadline_anchor,
+            deadline_anchor=anchor,
         )
 
     return factory
