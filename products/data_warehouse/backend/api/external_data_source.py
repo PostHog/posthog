@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -530,6 +531,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             representation["job_inputs"] = {}
             return representation
 
+        # Custom source stores the entire RESTAPIConfig in a single secret-marked
+        # field; dropping it wholesale would leave the configuration tab unable
+        # to hydrate the visual builder. Surface the manifest with only the auth
+        # credential values redacted so the form structure round-trips.
+        if source_type_model == ExternalDataSourceType.CUSTOM and isinstance(job_inputs.get("manifest_json"), str):
+            from posthog.temporal.data_imports.sources.custom.manifest_validators import redact_manifest_secrets
+
+            try:
+                manifest = json.loads(job_inputs["manifest_json"])
+            except (json.JSONDecodeError, TypeError):
+                representation["job_inputs"] = {}
+                return representation
+            representation["job_inputs"] = {"manifest_json": json.dumps(redact_manifest_secrets(manifest))}
+            return representation
+
         # Normalize SSH tunnel legacy format before stripping
         if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
             tunnel = job_inputs["ssh_tunnel"]
@@ -663,6 +679,34 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         for key in sensitive_fields:
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
+
+        # Custom source stores its credentials inside the manifest JSON, so the
+        # generic sensitive-field carry-over above doesn't reach them. Merge
+        # incoming manifest with the previously stored one and carry over any
+        # auth credential whose value was sent back blank (i.e. the user did
+        # not re-enter it).
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            from posthog.temporal.data_imports.sources.custom.manifest_validators import SECRET_AUTH_KEYS
+
+            incoming_manifest_raw = incoming_job_inputs.get("manifest_json")
+            existing_manifest_raw = existing_job_inputs.get("manifest_json")
+            if isinstance(incoming_manifest_raw, str) and isinstance(existing_manifest_raw, str):
+                try:
+                    incoming_manifest = json.loads(incoming_manifest_raw)
+                    existing_manifest = json.loads(existing_manifest_raw)
+                except json.JSONDecodeError:
+                    incoming_manifest = None
+                    existing_manifest = None
+                if isinstance(incoming_manifest, dict) and isinstance(existing_manifest, dict):
+                    incoming_auth = (incoming_manifest.get("client") or {}).get("auth") or {}
+                    existing_auth = (existing_manifest.get("client") or {}).get("auth") or {}
+                    if isinstance(incoming_auth, dict) and isinstance(existing_auth, dict):
+                        for key in SECRET_AUTH_KEYS:
+                            if existing_auth.get(key) and not incoming_auth.get(key):
+                                incoming_auth[key] = existing_auth[key]
+                        if incoming_manifest.get("client") is not None:
+                            incoming_manifest["client"]["auth"] = incoming_auth
+                            new_job_inputs["manifest_json"] = json.dumps(incoming_manifest)
 
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")

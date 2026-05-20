@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.custom.manifest_validators import (
     ManifestValidationError,
+    redact_manifest_secrets,
     validate_manifest,
     validate_manifest_urls,
 )
@@ -173,3 +174,39 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert "401" in (err or "")
+
+
+class TestRedactManifestSecrets(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("bearer", {"type": "bearer", "token": "secret"}, {"type": "bearer", "token": ""}),
+            (
+                "api_key",
+                {"type": "api_key", "api_key": "sk_test", "name": "Authorization", "location": "header"},
+                {"type": "api_key", "api_key": "", "name": "Authorization", "location": "header"},
+            ),
+            (
+                "http_basic",
+                {"type": "http_basic", "username": "alice", "password": "hunter2"},
+                {"type": "http_basic", "username": "alice", "password": ""},
+            ),
+        ]
+    )
+    def test_blanks_only_credential_leaves(self, _name, auth, expected_auth):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = auth
+        redacted = redact_manifest_secrets(manifest)
+        assert redacted["client"]["auth"] == expected_auth
+        # Non-credential fields are preserved verbatim.
+        assert redacted["client"]["base_url"] == manifest["client"]["base_url"]
+        assert redacted["resources"] == manifest["resources"]
+
+    def test_is_a_no_op_when_no_auth_block(self):
+        manifest = {"client": {"base_url": "https://x"}, "resources": [{"name": "r", "endpoint": {"path": "/r"}}]}
+        assert redact_manifest_secrets(manifest) == manifest
+
+    def test_does_not_mutate_input(self):
+        manifest = _minimal_manifest()
+        original_token = manifest["client"]["auth"]["token"]
+        redact_manifest_secrets(manifest)
+        assert manifest["client"]["auth"]["token"] == original_token

@@ -107,3 +107,32 @@ def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     if is_cloud() and parsed.scheme != "https":
         return False, f"URL {url!r} must use https:// on PostHog Cloud"
     return is_http_host_safe(parsed.hostname, team_id)
+
+
+SECRET_AUTH_KEYS = ("token", "api_key", "password")
+
+
+def redact_manifest_secrets(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the manifest with auth credential values blanked.
+
+    The whole manifest cannot be returned as-is to the client (it can contain
+    bearer tokens, API keys, basic-auth passwords), but the structure itself
+    is needed by the configuration UI to re-render the visual builder for an
+    existing source. So we blank only the credential leaf values and keep
+    everything else verbatim. The user re-enters the secret on save.
+    """
+    if not isinstance(manifest, dict):
+        return manifest
+    client = manifest.get("client")
+    if not isinstance(client, dict):
+        return manifest
+    auth = client.get("auth")
+    if not isinstance(auth, dict):
+        return manifest
+
+    redacted_auth = {**auth}
+    for key in SECRET_AUTH_KEYS:
+        if redacted_auth.get(key):
+            redacted_auth[key] = ""
+
+    return {**manifest, "client": {**client, "auth": redacted_auth}}
