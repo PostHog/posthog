@@ -343,6 +343,46 @@ impl<'a> Parser<'a> {
                 ) {
                     return self.parse_ident_lead();
                 }
+                // `not <kw-infix> <rhs>`: cpp's ALL(*) prefers
+                // `Field([not]) <kw-infix> <rhs>` over `Not(Field([kw]))`
+                // when the infix has a valid trailing RHS. `not like 'a'`
+                // → `Compare(Field(not), "like", 'a')`, but `not like`
+                // alone → `Not(Field(like))`. Probe the post-keyword
+                // token to decide. Applies to LIKE / ILIKE / BETWEEN
+                // (which take an expression on the right) and IS
+                // (which takes NULL / NOT NULL / DISTINCT FROM).
+                if matches!(
+                    self.peek_next(),
+                    TokenKind::Keyword(Kw::Like | Kw::Ilike | Kw::Between)
+                ) {
+                    let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+                    if let Ok(after) = probe.next_token() {
+                        if !matches!(
+                            after.kind,
+                            TokenKind::Eof
+                                | TokenKind::Comma
+                                | TokenKind::RParen
+                                | TokenKind::RBracket
+                                | TokenKind::RBrace
+                                | TokenKind::Semicolon
+                        ) {
+                            return self.parse_ident_lead();
+                        }
+                    }
+                }
+                if matches!(self.peek_next(), TokenKind::Keyword(Kw::Is)) {
+                    let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+                    if let Ok(after) = probe.next_token() {
+                        if matches!(
+                            after.kind,
+                            TokenKind::Keyword(Kw::Null)
+                                | TokenKind::Keyword(Kw::Not)
+                                | TokenKind::Keyword(Kw::Distinct)
+                        ) {
+                            return self.parse_ident_lead();
+                        }
+                    }
+                }
                 // `not * <rhs>`: cpp picks unary-NOT when `* <rhs>` is a
                 // valid columnExpr (i.e. `*` is a complete primary
                 // Field('*') and what follows is a postfix op, infix op,

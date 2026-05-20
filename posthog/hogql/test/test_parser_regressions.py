@@ -1879,6 +1879,39 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_not_with_keyword_infix_treats_not_as_field(self):
+        # cpp's ALL(*) prefers `Field([not]) <kw-infix> <rhs>` over
+        # `Not(Field([kw]))` when the infix has a valid trailing RHS.
+        # `NOT LIKE 'a'` → `Compare(Field(not), "like", 'a')`; but
+        # `not like` alone → `Not(Field(like))`. Same disambiguation
+        # for LIKE / ILIKE / BETWEEN and the IS [NOT] NULL / IS
+        # DISTINCT FROM shape. Rust used to unconditionally treat
+        # `NOT <kw>` as the unary form and choke on the trailing rhs.
+        cases = (
+            "NOT BETWEEN 1 AND 2",
+            "NOT LIKE 'a'",
+            "NOT IS NULL",
+            "NOT ILIKE 'a'",
+            "NOT IS NOT NULL",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guards: the unary-NOT shapes still work when the trailing
+        # rhs is a complete columnExpr (no kw-infix gap).
+        for src in (
+            "NOT x",
+            "not like",  # no rhs → unary NOT on Field(like)
+            "not in (1,2)",  # IN takes a paren-list, parses as Not(Call(in))
+            "NOT IN (1)",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_multi_join_with_stacked_on_using_clauses(self):
         # cpp's left-recursive `joinExpr: joinExpr JOIN joinExpr
         # joinConstraintClause?` parses `a JOIN b JOIN c ON1 ON2`
