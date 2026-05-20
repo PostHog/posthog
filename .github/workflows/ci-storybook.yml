@@ -206,6 +206,8 @@ jobs:
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
                   VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
+                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   RUN_ID=$(vr run create \
                     --type storybook \
