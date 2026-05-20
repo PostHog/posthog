@@ -36,7 +36,7 @@ def _parse_lookback_days(value: Any, fallback: int = DEFAULT_CUPED_LOOKBACK_DAYS
     return days
 
 
-def _resolve_lookback_days(experiment_value: Any, team_default: int | None) -> int:
+def _resolve_lookback_days(experiment_value: Any, team_default: Any) -> int:
     """Resolve lookback days using precedence: experiment value > team default > hardcoded default.
 
     Invalid values at either level fall through to the next level rather than failing.
