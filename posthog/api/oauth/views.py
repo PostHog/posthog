@@ -434,7 +434,7 @@ class OAuthValidator(OAuth2Validator):
         # memoized on the oauthlib request.
         cached = getattr(request, "_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
         if cached is not _IMPERSONATOR_CACHE_UNSET:
-            return cached  # type: ignore[return-value]
+            return cached
 
         resolved: int | None = None
         if request.decoded_body:

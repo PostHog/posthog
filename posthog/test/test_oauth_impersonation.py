@@ -84,7 +84,7 @@ class TestImpersonationOAuthRevocation(BaseTest):
 
         request = RequestFactory().get("/")
         request.session = SessionStore()
-        request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(admin.pk)
+        request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(admin.pk))
         request.user = target
 
         with patch("posthog.helpers.impersonation.is_impersonated_session", return_value=True):
@@ -192,7 +192,7 @@ class TestImpersonatorIdResolution(BaseTest):
 
         request = RequestFactory().get("/")
         request.session = SessionStore()
-        request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(admin.pk)
+        request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(admin.pk))
         if read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
         request.user = target
