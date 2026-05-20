@@ -2784,6 +2784,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_order_expr_list(&mut self) -> Result<Vec<Value>, ParseError> {
         let mut out = Vec::new();
         loop {
+            let order_start = self.peek0.start;
             let expr = self.parse_expr_bp(0)?;
             let order = if self.eat_kw(Kw::Ascending)? {
                 "ASC"
@@ -2842,7 +2843,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            out.push(emit::order_expr(expr, order, with_fill));
+            out.push(self.wrap_pos(emit::order_expr(expr, order, with_fill), order_start));
             if !self.eat(TokenKind::Comma)? {
                 break;
             }

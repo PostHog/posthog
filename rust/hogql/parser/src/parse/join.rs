@@ -440,6 +440,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_join_constraint_opt(&mut self) -> Result<Option<Value>, ParseError> {
+        let cons_start = self.peek0.start;
         if self.eat_kw(Kw::On)? {
             let expr = self.parse_expr_bp(0)?;
             // cpp's `joinConstraintClause: ON columnExprList` greedily
@@ -468,9 +469,10 @@ impl<'a> Parser<'a> {
                     end,
                 ));
             }
-            return Ok(Some(
+            return Ok(Some(self.wrap_pos(
                 json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "ON"}),
-            ));
+                cons_start,
+            )));
         }
         if self.eat_kw(Kw::Using)? {
             // The grammar `joinConstraintClause` admits two USING shapes:
@@ -493,9 +495,10 @@ impl<'a> Parser<'a> {
             } else {
                 emit::tuple_(exprs)
             };
-            return Ok(Some(
+            return Ok(Some(self.wrap_pos(
                 json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "USING"}),
-            ));
+                cons_start,
+            )));
         }
         Ok(None)
     }
@@ -704,6 +707,7 @@ impl<'a> Parser<'a> {
         // syntax), `{placeholder}`, `VALUES (...)`, `(joinExpr)`
         // (per the grammar's `JoinExprParens` rule — e.g. `FROM (t FINAL)`),
         // or HogQLX (`<Tag ...>`).
+        let tab_start = self.peek0.start;
         if self.peek_starts_hogqlx_tag() {
             return self.parse_hogqlx_tag_element();
         }
@@ -778,11 +782,14 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen, ")")?;
             // Encode as a Field with a sibling "table_args" object so the
             // wrapping JoinExpr in parse_table_atom can pull it out.
-            return Ok(json!({
-                "node": "Field",
-                "chain": [name],
-                "__rust_table_args": args,
-            }));
+            return Ok(self.wrap_pos(
+                json!({
+                    "node": "Field",
+                    "chain": [name],
+                    "__rust_table_args": args,
+                }),
+                tab_start,
+            ));
         }
         // Field chain.
         let mut chain: Vec<Value> = vec![Value::String(name)];
@@ -804,7 +811,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Ok(emit::field(chain))
+        Ok(self.wrap_pos(emit::field(chain), tab_start))
     }
 
     /// `parse_table_expr` arm: TableExprSubquery, `LPAREN selectSetStmt RPAREN`.
@@ -869,6 +876,7 @@ impl<'a> Parser<'a> {
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Sample)) {
             return Ok(None);
         }
+        let sample_start = self.peek0.start;
         self.bump()?;
         let sample_value = self.parse_ratio_expr()?;
         // `PERCENT` would be the `%` token; tolerate but ignore its
@@ -912,7 +920,7 @@ impl<'a> Parser<'a> {
         if let Some(o) = offset_value {
             obj.insert("offset_value".into(), o);
         }
-        Ok(Some(Value::Object(obj)))
+        Ok(Some(self.wrap_pos(Value::Object(obj), sample_start)))
     }
 
     /// After a SAMPLE clause has consumed its value and (optional)
@@ -969,6 +977,7 @@ impl<'a> Parser<'a> {
     /// would leave the `.` stranded. Detect Number-then-bare-Dot and
     /// upgrade to a float Constant in-place.
     fn consume_ratio_value(&mut self) -> Result<Value, ParseError> {
+        let val_start = self.peek0.start;
         // cpp grammar: `ratioExpr: placeholder | numberLiteral
         // (SLASH numberLiteral)?`. The numerator/denominator side is
         // strictly a `numberLiteral` — not a generic columnExpr. The
@@ -1024,7 +1033,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Ok(val)
+        Ok(self.wrap_pos(val, val_start))
     }
 
     fn parse_ratio_expr(&mut self) -> Result<Value, ParseError> {
@@ -1036,6 +1045,7 @@ impl<'a> Parser<'a> {
         // Placeholder directly (cpp's `VISIT(RatioExpr)` short-circuits
         // and skips the RatioExpr wrapper); the numberLiteral branch
         // wraps in RatioExpr.
+        let ratio_start = self.peek0.start;
         if self.peek() == TokenKind::LBrace {
             return self.parse_brace_dict_or_placeholder();
         }
@@ -1051,7 +1061,7 @@ impl<'a> Parser<'a> {
         if let Some(r) = right {
             obj.insert("right".into(), r);
         }
-        Ok(Value::Object(obj))
+        Ok(self.wrap_pos(Value::Object(obj), ratio_start))
     }
 
     /// `<table> PIVOT (aggregates pivotColumnList (GROUP BY exprList)?)`
@@ -1064,6 +1074,7 @@ impl<'a> Parser<'a> {
     fn try_consume_pivot_unpivot(&mut self, mut table: Value) -> Result<Value, ParseError> {
         loop {
             if matches!(self.peek(), TokenKind::Keyword(Kw::Pivot)) {
+                let pivot_start = self.peek0.start;
                 self.bump()?;
                 self.expect(TokenKind::LParen, "(")?;
                 let aggregates = self.parse_expr_list_until_terminators_at_for_or_rparen()?;
@@ -1133,10 +1144,11 @@ impl<'a> Parser<'a> {
                 if let Some(g) = group_by {
                     obj.insert("group_by".into(), Value::Array(g));
                 }
-                table = Value::Object(obj);
+                table = self.wrap_pos(Value::Object(obj), pivot_start);
                 continue;
             }
             if matches!(self.peek(), TokenKind::Keyword(Kw::Unpivot)) {
+                let unpivot_start = self.peek0.start;
                 self.bump()?;
                 let include_nulls = matches!(self.peek(), TokenKind::Keyword(Kw::Include))
                     && self.peek_next() == TokenKind::Keyword(Kw::Nulls);
@@ -1195,7 +1207,7 @@ impl<'a> Parser<'a> {
                 // omit the field entirely. Emit unconditionally to
                 // match the JSON shape.
                 obj.insert("include_nulls".into(), Value::Bool(include_nulls));
-                table = Value::Object(obj);
+                table = self.wrap_pos(Value::Object(obj), unpivot_start);
                 continue;
             }
             return Ok(table);
@@ -1224,11 +1236,12 @@ impl<'a> Parser<'a> {
     /// is bounded by `FOR` instead — never an infix operator — so it
     /// needs no stop.
     fn parse_expr_tuple_or_single(&mut self, in_separated: bool) -> Result<Value, ParseError> {
+        let op_start = self.peek0.start;
         if self.peek() == TokenKind::LParen && self.paren_group_followed_by_for_or_in() {
             self.bump()?;
             let exprs = self.parse_expr_list_until_paren()?;
             self.expect(TokenKind::RParen, ")")?;
-            return Ok(emit::tuple_(exprs));
+            return Ok(self.wrap_pos(emit::tuple_(exprs), op_start));
         }
         let stop = if in_separated {
             self.find_pivot_in_separator()
@@ -1251,7 +1264,7 @@ impl<'a> Parser<'a> {
             {
                 let t = self.bump()?;
                 let name = identifier_text(self.text(t), t.kind);
-                return Ok(emit::field(vec![Value::String(name)]));
+                return Ok(self.wrap_pos(emit::field(vec![Value::String(name)]), op_start));
             }
         }
         let prev = std::mem::replace(&mut self.pivot_in_stop, stop);

@@ -56,10 +56,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_declaration(&mut self) -> Result<Value, ParseError> {
-        if self.peek() == TokenKind::Keyword(Kw::Let) {
-            return self.parse_var_decl();
-        }
-        self.parse_statement()
+        let decl_start = self.peek0.start;
+        let result = if self.peek() == TokenKind::Keyword(Kw::Let) {
+            self.parse_var_decl()?
+        } else {
+            self.parse_statement()?
+        };
+        Ok(self.wrap_pos(result, decl_start))
     }
 
     /// Parse a statement-level expression — a `varAssignment` target
@@ -148,6 +151,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Value, ParseError> {
+        let stmt_start = self.peek0.start;
+        let result = self.parse_statement_inner()?;
+        Ok(self.wrap_pos(result, stmt_start))
+    }
+
+    fn parse_statement_inner(&mut self) -> Result<Value, ParseError> {
         match self.peek() {
             TokenKind::Keyword(Kw::Return) => self.parse_return_stmt(),
             TokenKind::Keyword(Kw::Throw) => self.parse_throw_stmt(),
@@ -456,13 +465,20 @@ impl<'a> Parser<'a> {
         // otherwise be absorbed by `parse_ident_lead` into a
         // `NamedArgument` rather than a `VariableAssignment`.
         if self.peek_is_bare_assignment_lead() {
+            let id_start = self.peek0.start;
+            let id_end = self.peek0.end;
             let id = self.bump()?;
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
             let right = self.parse_stmt_rhs_expr()?;
+            let left = self.wrap_pos_to(
+                json!({"node": "Field", "chain": [name]}),
+                id_start,
+                id_end,
+            );
             return Ok(json!({
                 "node": "VariableAssignment",
-                "left": json!({"node": "Field", "chain": [name]}),
+                "left": left,
                 "right": right,
             }));
         }
@@ -688,6 +704,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_block(&mut self) -> Result<Value, ParseError> {
+        let block_start = self.peek0.start;
         self.expect(TokenKind::LBrace, "{")?;
         let mut declarations: Vec<Value> = Vec::new();
         while !matches!(self.peek(), TokenKind::RBrace | TokenKind::Eof) {
@@ -698,10 +715,13 @@ impl<'a> Parser<'a> {
             declarations.push(self.parse_declaration()?);
         }
         self.expect(TokenKind::RBrace, "}")?;
-        Ok(json!({
-            "node": "Block",
-            "declarations": declarations,
-        }))
+        Ok(self.wrap_pos(
+            json!({
+                "node": "Block",
+                "declarations": declarations,
+            }),
+            block_start,
+        ))
     }
 
     /// Does the cursor sit on a bare `<ident> :=` — a single
@@ -739,6 +759,8 @@ impl<'a> Parser<'a> {
     /// see the ColonEquals.
     fn parse_expr_or_assignment_stmt(&mut self) -> Result<Value, ParseError> {
         if self.peek_is_bare_assignment_lead() {
+            let id_start = self.peek0.start;
+            let id_end = self.peek0.end;
             let id = self.bump()?;
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
@@ -764,9 +786,14 @@ impl<'a> Parser<'a> {
             // expression)? SEMICOLON?`) — consume the optional trailing
             // `;` so `if (c) a := b ; else d` sees the `else`.
             let _ = self.eat(TokenKind::Semicolon)?;
+            let left = self.wrap_pos_to(
+                json!({"node": "Field", "chain": [name]}),
+                id_start,
+                id_end,
+            );
             return Ok(json!({
                 "node": "VariableAssignment",
-                "left": json!({"node": "Field", "chain": [name]}),
+                "left": left,
                 "right": right,
             }));
         }
