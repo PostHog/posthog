@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import { editHandler, JSON_INDENT, NotebookEditSchema } from '@/tools/notebooks/edit'
 import type { Context } from '@/tools/types'
 
@@ -48,29 +49,37 @@ interface MockState {
     version: number
     saveCalls: Array<{ body: any }>
     getCalls: number
-    saveResponses: Array<{ status: number; body: unknown }>
+    /**
+     * Queued POST responses. Each entry is either a successful body (returned
+     * as-is) or an error to throw (e.g. PostHogApiError for 409/410).
+     */
+    saveResponses: Array<{ ok: true; body: unknown } | { ok: false; error: Error }>
 }
 
 function createMockContext(state: MockState): Context {
-    const requestMock = vi.fn(async () => {
-        state.getCalls++
-        return {
-            short_id: 'aBcD1234',
-            content: state.notebookContent,
-            version: state.version,
-            title: 'Original',
+    const requestMock = vi.fn(async (opts: { method: string; body?: any }) => {
+        if (opts.method === 'GET') {
+            state.getCalls++
+            return {
+                short_id: 'aBcD1234',
+                content: state.notebookContent,
+                version: state.version,
+                title: 'Original',
+            }
         }
-    })
-    const requestRawMock = vi.fn(async (opts: { body: any }) => {
+        // POST → collab/save
         state.saveCalls.push({ body: opts.body })
         const response = state.saveResponses.shift()
         if (!response) {
-            throw new Error('No queued response for requestRaw call')
+            throw new Error('No queued response for save call')
         }
-        return response
+        if (!response.ok) {
+            throw response.error
+        }
+        return response.body
     })
     return {
-        api: { request: requestMock, requestRaw: requestRawMock } as any,
+        api: { request: requestMock } as any,
         stateManager: { getProjectId: vi.fn().mockResolvedValue('42') } as any,
         env: {} as any,
         sessionManager: {} as any,
@@ -93,7 +102,7 @@ describe('editHandler', () => {
             version: 7,
             saveCalls: [],
             getCalls: 0,
-            saveResponses: [{ status: 200, body: updatedNotebook }],
+            saveResponses: [{ ok: true, body: updatedNotebook }],
         }
         const context = createMockContext(state)
 
@@ -169,7 +178,7 @@ describe('editHandler', () => {
             version: 7,
             saveCalls: [],
             getCalls: 0,
-            saveResponses: [{ status: 200, body: updated }],
+            saveResponses: [{ ok: true, body: updated }],
         }
         const context = createMockContext(state)
         const result = await editHandler(context, {
@@ -202,41 +211,37 @@ describe('editHandler', () => {
         expect(state.saveCalls).toHaveLength(0)
     })
 
-    it('on 409, refetches and surfaces the latest content in the error message', async () => {
-        const concurrentEditedDoc = {
-            ...sampleDoc,
-            content: [
-                { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Renamed by someone else' }] },
-                sampleDoc.content[1],
-                sampleDoc.content[2],
-                sampleDoc.content[3],
-            ],
-        }
+    it('lets server errors (e.g. 409 conflict) propagate verbatim for handleToolError to format', async () => {
+        // The Django collab/save handler returns a 409 body that already
+        // contains the latest version + the rebased steps the agent needs to
+        // retry. We rely on PostHogApiError carrying status + body through to
+        // handleToolError, which surfaces them to the agent — no bespoke
+        // refetch / re-render in the tool itself.
+        const conflictBody = JSON.stringify({
+            code: 'conflict',
+            version: 8,
+            steps: [{ stepType: 'replace', from: 0, to: 5 }],
+            client_ids: ['someone-else'],
+        })
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
             getCalls: 0,
-            saveResponses: [{ status: 409, body: { code: 'conflict' } }],
+            saveResponses: [
+                {
+                    ok: false,
+                    error: new PostHogApiError({
+                        status: 409,
+                        statusText: 'Conflict',
+                        body: conflictBody,
+                        url: 'http://test/api/projects/42/notebooks/aBcD1234/collab/save/',
+                        method: 'POST',
+                    }),
+                },
+            ],
         }
         const context = createMockContext(state)
-
-        // Simulate concurrent edit having landed: after our 1st GET + 1st POST,
-        // the next GET (post-409 refetch) sees the new content.
-        state.notebookContent = sampleDoc
-        const requestMock = context.api.request as any
-        requestMock.mockImplementationOnce(async () => ({
-            short_id: 'aBcD1234',
-            content: sampleDoc,
-            version: 7,
-            title: 'Original',
-        }))
-        requestMock.mockImplementationOnce(async () => ({
-            short_id: 'aBcD1234',
-            content: concurrentEditedDoc,
-            version: 8,
-            title: 'Original',
-        }))
 
         await expect(
             editHandler(context, {
@@ -244,26 +249,14 @@ describe('editHandler', () => {
                 old_string: '"First paragraph."',
                 new_string: '"First paragraph EDITED."',
             })
-        ).rejects.toThrow(/modified by someone else.*Renamed by someone else/s)
-        expect(state.saveCalls).toHaveLength(1) // POST once, then 409 → throw (no retry)
-    })
-
-    it('on 410, throws with a "refetch and re-apply" message', async () => {
-        const state: MockState = {
-            notebookContent: sampleDoc,
-            version: 7,
-            saveCalls: [],
-            getCalls: 0,
-            saveResponses: [{ status: 410, body: { code: 'conflict_stale' } }],
-        }
-        const context = createMockContext(state)
-        await expect(
-            editHandler(context, {
-                short_id: 'aBcD1234',
-                old_string: '"First paragraph."',
-                new_string: '"updated"',
-            })
-        ).rejects.toThrow(/edited extensively.*notebooks-retrieve.*re-apply your edit/s)
+        ).rejects.toMatchObject({
+            name: 'PostHogApiError',
+            status: 409,
+            body: conflictBody,
+        })
+        // POST attempted exactly once — no client-side retry, no extra GET.
+        expect(state.saveCalls).toHaveLength(1)
+        expect(state.getCalls).toBe(1)
     })
 
     it('throws when the notebook has no editable content', async () => {

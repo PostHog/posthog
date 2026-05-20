@@ -1,23 +1,29 @@
 /**
  * `notebook-edit` tool.
  *
- * String replacement against the notebook's content JSON, same shape as
- * code-file edit tools (str_replace_editor / Cursor's edit tool):
- *
- *   { short_id, old_string, new_string, replace_all? }
+ * Substring-replacement editor against the notebook's content JSON. The
+ * caller supplies `{ short_id, old_string, new_string, replace_all? }`; the
+ * tool finds `old_string` in the notebook's serialized content and replaces
+ * it with `new_string`. The chosen serialization is
+ * `JSON.stringify(content, null, 2)` (2-space indent), so callers can match
+ * against pretty-printed JSON keys, attribute values, and inline text.
  *
  * Pipeline:
  *   1. GET notebook → current content + version
- *   2. JSON.stringify(content, null, 2) → run str_replace → JSON.parse
- *   3. Parse old + new content into PM via a dynamic schema covering both
+ *   2. Serialize content with 2-space indent, run the substring replacement,
+ *      and parse the result back to JSON
+ *   3. Parse old and new content into ProseMirror via a dynamic schema
+ *      covering both documents
  *   4. Build one ReplaceStep via Transform.replaceWith — PM's idiomatic way
  *      to express "make this doc become that one"
  *   5. POST to /collab/save so the edit streams live to other connected
  *      clients over SSE
  *
- * On 409 (concurrent edit) we refetch and surface the latest content in the
- * error so the agent can re-apply without an extra read. Auto-retry/rebase
- * lands in a follow-up PR.
+ * Server errors (409 concurrent edit, 410 stale buffer, etc.) flow through
+ * `context.api.request` → PostHogApiError → `handleToolError`, which surfaces
+ * the URL, status, and Django response body verbatim to the agent. The
+ * 409 body already includes the latest version + rebased steps from the
+ * server, which the agent can use to retry without an extra read.
  */
 import { Node as PMNode } from 'prosemirror-model'
 import { Transform } from 'prosemirror-transform'
@@ -28,7 +34,11 @@ import type { Schemas } from '@/api/generated'
 import { buildSchemaForDoc, packDocAttrs, unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
-/** Indentation used when serializing the notebook content for str_replace. */
+/**
+ * Indent (in spaces) used when serializing the notebook content before the
+ * substring replacement. Exposed so tests can assert that the description
+ * shown to the agent matches what the tool actually serializes.
+ */
 export const JSON_INDENT = 2
 
 export const NotebookEditSchema = z
@@ -113,7 +123,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         throw new Error(`Notebook ${params.short_id} has no numeric version — required for optimistic concurrency.`)
     }
 
-    // 2. Serialize + str_replace.
+    // 2. Serialize the content and apply the substring replacement.
     const serialized = JSON.stringify(notebook.content, null, JSON_INDENT)
     const occurrences = countOccurrences(serialized, params.old_string)
 
@@ -183,11 +193,13 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         return notebook
     }
 
-    // 5. POST to collab/save. ApiClient.requestRaw already throws on 401 and
-    //    PostHogPermissionError on 403 — auth/scope errors get nicely
-    //    formatted by handleToolError without us doing anything special.
+    // 5. POST to collab/save. Non-2xx responses (including 409 concurrent
+    //    edit and 410 stale buffer) are thrown as PostHogApiError by
+    //    `request()` and surfaced verbatim by `handleToolError` — the agent
+    //    sees the URL, status, and the Django response body (which for 409
+    //    already includes the latest version + rebased steps).
     const unpackedContent = unpackDocAttrs(newDoc.toJSON() as Parameters<typeof unpackDocAttrs>[0])
-    const result = await context.api.requestRaw({
+    return await context.api.request<Schemas.Notebook>({
         method: 'POST',
         path: `${notebookPath}collab/save/`,
         body: {
@@ -198,34 +210,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
             text_content: buildTextContent(newDoc),
         },
     })
-
-    if (result.status === 200) {
-        return result.body as Schemas.Notebook
-    }
-
-    if (result.status === 409) {
-        // Concurrent edit landed between our GET and our POST. Refetch and
-        // surface the latest content in the error so the agent can re-apply
-        // its edit against fresh state without an extra read tool call.
-        const fresh = await context.api.request<Schemas.Notebook>({ method: 'GET', path: notebookPath })
-        throw new Error(
-            'The notebook was modified by someone else between when you loaded it and when you tried to save. ' +
-                'Re-apply your edit against the latest version below.\n\n' +
-                `Latest version: ${fresh.version}\n` +
-                `Latest content:\n${JSON.stringify(fresh.content, null, JSON_INDENT)}`
-        )
-    }
-
-    if (result.status === 410) {
-        throw new Error(
-            'The notebook has been edited extensively since you loaded it, and the server can no longer ' +
-                'compute a clean conflict resolution. ' +
-                'Call `notebooks-retrieve` to get the latest version, then re-apply your edit.'
-        )
-    }
-
-    const bodyText = typeof result.body === 'string' ? result.body : JSON.stringify(result.body)
-    throw new Error(`collab/save returned unexpected status ${result.status}: ${bodyText}`)
 }
 
 const tool = (): ToolBase<typeof NotebookEditSchema, Schemas.Notebook> => ({
