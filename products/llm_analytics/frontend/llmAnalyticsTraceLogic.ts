@@ -357,7 +357,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 return [
                     {
                         key: 'LLMAnalytics',
-                        name: 'LLM analytics',
+                        name: 'AI observability',
                         path: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
                         iconType: 'llm_analytics',
                     },

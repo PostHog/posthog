@@ -94,7 +94,7 @@ capabilities:
         docker_profiles: [opensearch]
 
     llm_analytics_sentiment:
-        description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
+        description: 'Sentiment classification model for AI observability (installs torch, optimum ~2GB)'
         requires: [temporal_workflows]
         docker_profiles: []
         uv_groups: [sentiment]

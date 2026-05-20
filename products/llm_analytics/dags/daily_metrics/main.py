@@ -1,5 +1,5 @@
 """
-Daily aggregation of LLMA (LLM Analytics) metrics.
+Daily aggregation of LLMA (AI observability) metrics.
 
 Aggregates AI event counts from the events table into a daily metrics table
 for efficient querying and cost analysis.

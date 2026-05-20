@@ -93,7 +93,7 @@
             "intents": ["live_debugger"]
         },
         {
-            "path": "LLM analytics",
+            "path": "AI observability",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_analytics",

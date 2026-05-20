@@ -1,6 +1,6 @@
 # Sentiment classification
 
-On-demand sentiment analysis for LLM Analytics traces.
+On-demand sentiment analysis for AI observability traces.
 Classifies user messages from `$ai_generation` events using an ONNX model
 (`cardiffnlp/twitter-roberta-base-sentiment-latest`).
 

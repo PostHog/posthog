@@ -244,7 +244,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 return [
                     {
                         key: 'llm_analytics',
-                        name: 'LLM Analytics',
+                        name: 'AI observability',
                         iconType: 'llm_analytics',
                     },
                 ]

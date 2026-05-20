@@ -242,7 +242,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @llma_track_latency("llma_sentiment_create")
     @monitor(feature=None, endpoint="llma_sentiment_create", method="POST")
@@ -320,7 +320,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @action(detail=False, methods=["post"], url_path="generations")
     @llma_track_latency("llma_sentiment_generations")

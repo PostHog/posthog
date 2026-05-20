@@ -86,7 +86,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     // gets a generic "Install" title rather than tying it to whichever product
     // happens to be the dedup survivor (which would mislead users picking PA + WA +
     // SR into thinking the step only installs Product Analytics, etc.).
-    // Product-specific install steps (LLM Analytics, Workflows, Logs) keep their
+    // Product-specific install steps (AI observability, Workflows, Logs) keep their
     // product-titled label since they really are product-specific.
     const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
     const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'

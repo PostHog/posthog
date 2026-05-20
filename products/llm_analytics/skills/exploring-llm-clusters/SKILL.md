@@ -1,11 +1,11 @@
 ---
 name: exploring-llm-clusters
-description: 'Investigate LLM analytics clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
+description: 'Investigate AI observability clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
 ---
 
 # Exploring LLM clusters
 
-Use this skill when investigating LLM analytics clusters —
+Use this skill when investigating AI observability clusters —
 understanding what patterns exist in your AI/LLM traffic,
 comparing cluster behavior, and drilling into individual clusters.
 

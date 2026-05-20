@@ -67,7 +67,7 @@ The decision flow:
 
 Additional signals that a skill is the right answer even when tool prompts are already solid:
 
-- **Complex inputs or outputs.** LLM analytics, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
+- **Complex inputs or outputs.** AI observability, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
 - **The guidance naturally splits into entry point plus references.**
   SQL skills are the canonical example — a top-level workflow with optional schemas, query patterns, and function indexes loaded on demand. If your guidance has that shape, structure it as a skill with `references/`.
 
@@ -194,7 +194,7 @@ description: >
 
 ```yaml
 # Too vague – agents can't determine when to use it
-description: 'Helps with LLM analytics'
+description: 'Helps with AI observability'
 
 # Too broad – an umbrella for everything isn't a skill
 description: 'Everything about PostHog AI features'

@@ -123,10 +123,10 @@
         }
     },
     "evaluations-get": {
-        "description": "List LLM analytics evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
-        "category": "LLM analytics",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "category": "AI observability",
         "feature": "llm_analytics",
-        "summary": "List LLM analytics evaluations.",
+        "summary": "List AI observability evaluations.",
         "title": "List evaluations",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
@@ -138,8 +138,8 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific LLM analytics evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
-        "category": "LLM analytics",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
         "title": "Get evaluation",
@@ -153,8 +153,8 @@
         }
     },
     "evaluation-create": {
-        "description": "Create a new LLM analytics evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
-        "category": "LLM analytics",
+        "description": "Create a new AI observability evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create a new evaluation.",
         "title": "Create evaluation",
@@ -168,8 +168,8 @@
         }
     },
     "evaluation-update": {
-        "description": "Update an existing LLM analytics evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
-        "category": "LLM analytics",
+        "description": "Update an existing AI observability evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update an evaluation.",
         "title": "Update evaluation",
@@ -183,8 +183,8 @@
         }
     },
     "evaluation-delete": {
-        "description": "Delete an LLM analytics evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
-        "category": "LLM analytics",
+        "description": "Delete an AI observability evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete an evaluation.",
         "title": "Delete evaluation",
@@ -199,7 +199,7 @@
     },
     "evaluation-run": {
         "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Run an evaluation on a specific event.",
         "title": "Run evaluation",
@@ -214,7 +214,7 @@
     },
     "evaluation-test-hog": {
         "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Dry-run Hog evaluation code against sample events.",
         "title": "Test Hog evaluation",
@@ -229,7 +229,7 @@
     },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",

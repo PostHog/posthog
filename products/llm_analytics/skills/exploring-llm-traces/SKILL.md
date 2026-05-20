@@ -49,7 +49,7 @@ If none are present but the URL has a `timestamp` query parameter, use that time
 This handles exact session links whose UI timestamp may be offset from the stored event timestamps while keeping the query bounded.
 If the URL has neither explicit dates nor `timestamp`, use a safe default like `{"date_from": "-7d"}`.
 
-For exact trace and session URLs, skip schema discovery for the standard `$ai_*` fields used below. These are LLM analytics built-ins, not project-specific custom properties.
+For exact trace and session URLs, skip schema discovery for the standard `$ai_*` fields used below. These are AI observability built-ins, not project-specific custom properties.
 
 ### Step 2 — Fetch trace data
 
@@ -165,7 +165,7 @@ Every project instruments different custom properties. For open-ended searches a
 `posthog:read-data-schema` first to discover what properties and values actually exist in the project's
 data before constructing filters.
 
-The exception is exact LLM analytics trace/session URLs: use the built-in `$ai_trace_id` / `$ai_session_id`
+The exception is exact AI observability trace/session URLs: use the built-in `$ai_trace_id` / `$ai_session_id`
 fields directly and skip schema discovery.
 
 ### Discovering the schema first

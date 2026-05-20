@@ -18,7 +18,7 @@ it's simpler and doesn't need a sandbox.
 | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
 | Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)        |
 | Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)        |
-| LLM analytics summarizing a funnel, generating a natural-language insight title                 | LLM gateway via `get_llm_client()` |
+| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client()` |
 | Not sure                                                                                        | Ask in `#team-posthog-ai`          |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.

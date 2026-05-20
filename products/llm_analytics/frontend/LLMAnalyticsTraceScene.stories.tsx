@@ -21,7 +21,7 @@ const getEffectiveQueryKind = (req: {
 }): string | undefined => req.body?.query?.source?.kind ?? req.body?.query?.kind
 
 const meta: Meta<LLMAnalyticsTraceSceneProps> = {
-    title: 'Scenes-App/LLM Analytics/Trace',
+    title: 'Scenes-App/AI observability/Trace',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

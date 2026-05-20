@@ -1705,7 +1705,7 @@ describe('llmPlaygroundLogic', () => {
             // entry and fires a `$pageview` on every setup. If `urlToAction` re-entered the
             // setup path (e.g. because multiple keyed logic instances were mounted), each
             // iteration pushed another history entry, producing thousands of pageviews per
-            // minute on the LLM Analytics playground. Switching to `replace` keeps history
+            // minute on the AI observability playground. Switching to `replace` keeps history
             // bounded so a single missed dedup cannot snowball.
             useMocks({
                 get: {

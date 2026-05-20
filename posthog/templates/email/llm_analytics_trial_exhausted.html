@@ -1,10 +1,10 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block preheader %}Your trial evaluations for LLM analytics have been used up{% endblock %}
+{% block preheader %}Your trial evaluations for AI observability have been used up{% endblock %}
 {% block heading %}Your trial evaluations have been used up{% endblock %}
 {% block section %}
 {% if affected_evals %}
 <p>
-    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics. The following evaluations have been disabled:
+    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for AI observability. The following evaluations have been disabled:
 </p>
 <ul>
     {% for eval_name in affected_evals %}<li>{{ eval_name }}</li>{% endfor %}
@@ -12,11 +12,11 @@
 </ul>
 {% else %}
 <p>
-    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics. Evaluations using trial credits have been disabled.
+    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for AI observability. Evaluations using trial credits have been disabled.
 </p>
 {% endif %}
 <p>
-    To continue running evaluations, add your own provider API key in the <a href="{% absolute_uri settings_url %}">LLM analytics settings</a>. Once added, you can re-enable your evaluations.
+    To continue running evaluations, add your own provider API key in the <a href="{% absolute_uri settings_url %}">AI observability settings</a>. Once added, you can re-enable your evaluations.
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri settings_url %}">Add your API key</a>

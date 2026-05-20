@@ -1,5 +1,5 @@
 """
-Prometheus metrics for LLM Analytics API endpoints.
+Prometheus metrics for AI observability API endpoints.
 
 This module provides latency histograms and helper decorators for tracking
 API endpoint performance. These metrics complement the basic request/error
@@ -62,7 +62,7 @@ LLMA_REQUEST_LATENCY_BUCKETS = [
 
 LLMA_REQUEST_LATENCY = Histogram(
     "llma_request_duration_seconds",
-    "LLM Analytics API request latency in seconds",
+    "AI observability API request latency in seconds",
     labelnames=["endpoint"],
     buckets=LLMA_REQUEST_LATENCY_BUCKETS,
 )

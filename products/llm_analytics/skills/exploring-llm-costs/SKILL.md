@@ -139,7 +139,7 @@ versions for the same provider. To avoid rot:
   added.
 - For anything not covered here (new cost categories, changes to
   pricing lookup, provider additions), run `posthog:docs-search` for
-  "calculating costs" or "llm analytics" first rather than trusting a
+  "calculating costs" or "AI observability" first rather than trusting a
   hardcoded rule in this file.
 - If you find this skill contradicting the UI, trust the UI and flag
   the skill for an update.

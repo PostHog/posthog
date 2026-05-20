@@ -170,12 +170,12 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         socialProof: 'Used by 160K+ teams',
     },
     [ProductKey.LLM_ANALYTICS]: {
-        name: 'LLM Analytics',
-        description: 'Monitor LLM usage, costs, and quality',
+        name: 'AI observability',
+        description: 'Monitor AI usage, costs, and quality',
         userCentricDescription: 'Keep your AI costs down and quality up',
         capabilities: ['Cost tracking per model', 'Latency & error monitoring', 'Prompt & response evaluation'],
         valueProps: [
-            { title: 'Cost tracking per model', problem: 'See which LLM calls are burning your budget' },
+            { title: 'Cost tracking per model', problem: 'See which AI calls are burning your budget' },
             { title: 'Latency monitoring', problem: 'Find slow prompts before users complain' },
             { title: 'Prompt evaluation', problem: 'Compare prompt versions with real data' },
         ],

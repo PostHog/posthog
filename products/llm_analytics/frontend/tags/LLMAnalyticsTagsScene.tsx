@@ -287,7 +287,7 @@ export function LLMAnalyticsTagsScene({ tabId }: { tabId?: string }): JSX.Elemen
         <SceneContent>
             <SceneTitleSection
                 name="Tags"
-                description="Set up taggers to automatically add custom tags to your LLM generations."
+                description="Set up taggers to automatically add custom tags to your AI generations."
                 resourceType={{ type: 'llm_tags' }}
                 actions={
                     <AccessControlAction

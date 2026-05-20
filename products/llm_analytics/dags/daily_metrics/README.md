@@ -34,7 +34,7 @@ GROUP BY ...
 The following CTEs are automatically provided:
 
 - `llma_events`: AI events pre-filtered to teams with AI activity
-- `llma_pageview_events`: Pageview events pre-filtered to teams viewing LLM analytics pages
+- `llma_pageview_events`: Pageview events pre-filtered to teams viewing AI observability pages
 
 This two-step filtering (first find teams, then filter events) allows ClickHouse to
 use the sorting key (team_id, timestamp) efficiently.
@@ -119,7 +119,7 @@ Defined in `sql/pageview_counts.sql`:
 - `pageviews_datasets`: Pageviews on /llm-analytics/datasets
 - `pageviews_evaluations`: Pageviews on /llm-analytics/evaluations
 
-Tracks $pageview events on LLM Analytics pages. URL patterns are mapped to page types via config.pageview_mappings.
+Tracks $pageview events on AI observability pages. URL patterns are mapped to page types via config.pageview_mappings.
 
 ### Error Detection
 

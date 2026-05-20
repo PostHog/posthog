@@ -410,7 +410,7 @@ Constraints
   the SDK surface evolves.
 
 Reference docs
-- LLM analytics overview:        https://posthog.com/docs/llm-analytics
+- AI observability overview:     https://posthog.com/docs/llm-analytics
 - Prompt management:             https://posthog.com/docs/llm-analytics/prompt-management
 - Feature flag payloads:         https://posthog.com/docs/feature-flags/payloads
 - Experiments:                   https://posthog.com/docs/experiments

@@ -18,7 +18,7 @@ export function LLMAnalyticsClustersScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Clusters"
-                description="Discover patterns and clusters in your LLM usage."
+                description="Discover patterns and clusters in your AI usage."
                 resourceType={{ type: 'llm_clusters' }}
             />
             <ClustersView />

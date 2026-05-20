@@ -17,7 +17,7 @@ import { TestAccountFilterSwitch } from './TestAccountFiltersSwitch'
 // — clicking the gear icon next to "Filter out internal and test users" used to
 // open the PostHog AI (Max) side panel instead of Settings on any scene whose
 // `SIDE_PANEL_CONTEXT_KEY` selector did not declare a `settings_section`
-// (experiments, SQL editor, LLM analytics, hog functions, etc.).
+// (experiments, SQL editor, AI observability, hog functions, etc.).
 describe('TestAccountFilterSwitch — gear icon opens Settings, not the AI side panel', () => {
     beforeEach(() => {
         initKeaTests()

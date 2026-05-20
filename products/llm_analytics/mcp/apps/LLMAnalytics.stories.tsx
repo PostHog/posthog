@@ -5,7 +5,7 @@ import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { LLMCostsView, type LLMCostsData } from './index'
 
 const meta: Meta = {
-    title: 'MCP Apps/LLM Analytics',
+    title: 'MCP Apps/AI observability',
     decorators: [McpThemeDecorator],
     parameters: {
         testOptions: {

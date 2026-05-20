@@ -77,12 +77,12 @@ describe('Tool Filtering - Features', () => {
         },
         {
             features: ['llm_analytics'],
-            description: 'LLM analytics tools (underscore)',
+            description: 'AI observability tools (underscore)',
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {
             features: ['llm-analytics'],
-            description: 'LLM analytics tools (hyphen, normalized)',
+            description: 'AI observability tools (hyphen, normalized)',
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {

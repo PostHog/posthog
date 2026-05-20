@@ -108,7 +108,7 @@ def mock_events_data():
                 "$ai_error": "",
             },
         },
-        # Team 1: Pageviews on LLM Analytics
+        # Team 1: Pageviews on AI observability
         {
             "timestamp": base_time,
             "team_id": 1,

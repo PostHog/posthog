@@ -1,4 +1,4 @@
-"""Type definitions for LLM analytics summarization."""
+"""Type definitions for AI observability summarization."""
 
 from enum import StrEnum
 

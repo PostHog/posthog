@@ -326,7 +326,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 - Get recommendations for improving response quality
 - Review patterns across many evaluation runs at once
         """,
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @llma_track_latency("llma_evaluation_summary")
     @monitor(feature=None, endpoint="llma_evaluation_summary", method="POST")

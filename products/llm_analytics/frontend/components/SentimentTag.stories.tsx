@@ -10,7 +10,7 @@ import {
 } from './SentimentTag'
 
 const meta: Meta = {
-    title: 'Scenes-App/LLM Analytics/Sentiment',
+    title: 'Scenes-App/AI observability/Sentiment',
 }
 export default meta
 

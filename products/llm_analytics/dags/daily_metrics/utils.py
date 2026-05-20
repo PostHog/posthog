@@ -31,7 +31,7 @@ def get_llma_events_cte(metric_date: str) -> str:
 
     Provides:
     - llma_events: AI events filtered to teams with AI activity
-    - llma_pageview_events: Pageview events filtered to teams viewing LLM analytics pages
+    - llma_pageview_events: Pageview events filtered to teams viewing AI observability pages
     """
     event_types_sql = ", ".join(f"'{et}'" for et in config.ai_event_types)
     url_patterns_sql = " OR ".join(

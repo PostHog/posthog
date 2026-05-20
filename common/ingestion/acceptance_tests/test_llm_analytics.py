@@ -1,4 +1,4 @@
-"""LLM Analytics capture tests - tests multipart blob upload and S3 storage."""
+"""AI observability capture tests - tests multipart blob upload and S3 storage."""
 
 import os
 import re
@@ -247,7 +247,7 @@ def assert_parts_order_and_details(response_data, expected_parts):
 
 @pytest.mark.usefixtures("shared_org_project")
 class TestLLMAnalytics:
-    """Test LLM Analytics capture flow with multipart requests and S3 storage."""
+    """Test AI observability capture flow with multipart requests and S3 storage."""
 
     # ============================================================================
     # PHASE 1: HTTP ENDPOINT

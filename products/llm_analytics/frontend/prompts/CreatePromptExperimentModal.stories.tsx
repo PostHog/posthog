@@ -64,7 +64,7 @@ const MOCK_TEMPLATES = [
 
 type Story = StoryObj<typeof CreatePromptExperimentModal>
 const meta: Meta<typeof CreatePromptExperimentModal> = {
-    title: 'LLM Analytics/Create prompt experiment modal',
+    title: 'AI observability/Create prompt experiment modal',
     component: CreatePromptExperimentModal,
     parameters: {
         layout: 'fullscreen',

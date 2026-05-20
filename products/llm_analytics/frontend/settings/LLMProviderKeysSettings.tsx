@@ -132,7 +132,7 @@ function KeyValidationStatus({
         <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
             <li>Your key will be encrypted and stored securely</li>
             <li>You pay {LLM_PROVIDER_LABELS[provider]} directly for model usage</li>
-            <li>Each evaluation counts as an LLM analytics event</li>
+            <li>Each evaluation counts as an AI observability event</li>
         </ul>
     )
 
@@ -891,13 +891,13 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     {restrictionReason ? (
                                         <>
-                                            Only project admins can add API keys for LLM analytics.
+                                            Only project admins can add API keys for AI observability.
                                             <br />
                                             Ask a project admin to add a key for evaluations and the playground.
                                         </>
                                     ) : (
                                         <>
-                                            Add your API key for LLM analytics features with your own account.
+                                            Add your API key for AI observability features with your own account.
                                             <br />
                                             Used for evaluations and the playground.
                                         </>

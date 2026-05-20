@@ -11,7 +11,7 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-// LLM Analytics
+// AI observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
@@ -73,7 +73,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'query-validate': queryValidate,
     'hogql-schema': hogqlSchema,
 
-    // LLM Analytics
+    // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
 
     // Search

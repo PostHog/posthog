@@ -1,4 +1,4 @@
-# LLM analytics event and property reference
+# AI observability event and property reference
 
 ## Event types
 

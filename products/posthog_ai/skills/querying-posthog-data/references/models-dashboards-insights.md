@@ -26,7 +26,7 @@ Column | Type | Nullable | Description
 ### Important Notes
 
 - The default manager excludes soft-deleted dashboards (`deleted=True`)
-- `creation_mode='unlisted'` dashboards are hidden from general lists (used for product dashboards like LLM Analytics)
+- `creation_mode='unlisted'` dashboards are hidden from general lists (used for product dashboards like AI observability)
 - Use `filters` to store dashboard-level date ranges and property filters
 
 ---

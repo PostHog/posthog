@@ -1,4 +1,4 @@
-"""Configuration constants for LLM analytics summarization."""
+"""Configuration constants for AI observability summarization."""
 
 from .models import OpenAIModel, SummarizationMode
 

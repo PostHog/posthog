@@ -35,10 +35,10 @@ export function LLMAnalyticsSetupPrompt({
 function IngestionStatusCheck({ className, thing }: { className?: string; thing: Thing }): JSX.Element {
     return (
         <ProductIntroduction
-            productName="LLM analytics"
+            productName="AI observability"
             thingName={`LLM ${thing}`}
             titleOverride={`No LLM ${thing} events have been detected!`}
-            description="To use the LLM Analytics product, please instrument your LLM calls with the PostHog SDK."
+            description="To use AI observability, please instrument your LLM calls with the PostHog SDK."
             isEmpty={true}
             productKey={ProductKey.LLM_ANALYTICS}
             className={className}

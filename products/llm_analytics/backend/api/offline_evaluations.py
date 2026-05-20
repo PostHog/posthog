@@ -139,7 +139,7 @@ class LLMAnalyticsOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.Gen
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @action(detail=False, methods=["post"], url_path="experiment_items")
     @llma_track_latency("llma_offline_evaluations_experiment_items")

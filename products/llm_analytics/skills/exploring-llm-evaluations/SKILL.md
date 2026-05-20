@@ -1,7 +1,7 @@
 ---
 name: exploring-llm-evaluations
 description: >
-  Investigate LLM analytics evaluations of both types — `hog` (deterministic
+  Investigate AI observability evaluations of both types — `hog` (deterministic
   code-based) and `llm_judge` (LLM-prompt-based). Find existing evaluations,
   inspect their configuration, run them against specific generations, query
   individual pass/fail results, and generate AI-powered summaries of patterns

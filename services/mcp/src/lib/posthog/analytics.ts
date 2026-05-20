@@ -68,7 +68,7 @@ export type IdentityProvider = {
     getMcpMode: () => Promise<string | undefined>
     // PostHog-side session UUID. Resolved from the wrapper-app `?sessionId=`
     // query hint via `SessionManager.getSessionUuid()` and used as `$session_id`
-    // / `$ai_session_id` to drive Session Replay and LLM Analytics grouping.
+    // / `$ai_session_id` to drive Session Replay and AI observability grouping.
     // Only set when a wrapping consumer app supplied the hint.
     getSessionUuid: () => Promise<string | undefined>
     // Streamable-HTTP transport session id from the inbound `Mcp-Session-Id`
