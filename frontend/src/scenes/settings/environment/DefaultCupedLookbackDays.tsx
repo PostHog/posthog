@@ -26,18 +26,27 @@ export function DefaultCupedLookbackDays(): JSX.Element {
         setLocalValue(displayValue)
     }, [displayValue])
 
-    const isInvalid =
-        localValue === undefined ||
-        !Number.isFinite(localValue) ||
-        localValue < MIN_LOOKBACK_DAYS ||
-        localValue > MAX_LOOKBACK_DAYS
+    const isOutOfRange =
+        localValue !== undefined &&
+        Number.isFinite(localValue) &&
+        (localValue < MIN_LOOKBACK_DAYS || localValue > MAX_LOOKBACK_DAYS)
+    const isNonFinite = localValue !== undefined && !Number.isFinite(localValue)
+    const showDanger = isOutOfRange || isNonFinite
 
     const commit = (): void => {
-        if (isInvalid) {
+        if (showDanger) {
             setLocalValue(displayValue)
             return
         }
-        const rounded = Math.round(localValue as number)
+        if (localValue === undefined) {
+            if (savedValue === null) {
+                setLocalValue(displayValue)
+                return
+            }
+            updateExperimentsConfig({ default_cuped_lookback_days: null })
+            return
+        }
+        const rounded = Math.round(localValue)
         if (rounded === savedValue) {
             return
         }
@@ -53,7 +62,7 @@ export function DefaultCupedLookbackDays(): JSX.Element {
             onChange={(value) => setLocalValue(value)}
             onBlur={commit}
             onPressEnter={commit}
-            status={isInvalid ? 'danger' : 'default'}
+            status={showDanger ? 'danger' : 'default'}
             disabled={!!restrictionReason || experimentsConfigLoading}
             className="w-32"
         />
