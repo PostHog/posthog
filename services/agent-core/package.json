@@ -22,9 +22,11 @@
     "dependencies": {
         "@aws-sdk/client-s3": "^3.658.1",
         "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
+        "dotenv": "^16.4.7",
         "fernet-nodejs": "^1.0.6",
         "ioredis": "^4.27.6",
         "luxon": "^3.4.4",
+        "node-rdkafka": "^3.6.1",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
         "prom-client": "^14.2.0",

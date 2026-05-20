@@ -8,14 +8,6 @@ export interface ResolverOptions {
     maxEntries?: number
     /** Suffix used to strip the slug out of an inbound `*.agents.posthog.com` host. */
     domainSuffix: string
-    /**
-     * Dev-only escape hatch. When provided, lookups try this in-memory map first
-     * (keyed by `app:<applicationId>` AND by `domain:<host>`) before hitting Postgres.
-     * Lets the local stack run against a canned revision without needing an actual
-     * agent_stack_agentapplication row. Loaded once from `AGENT_DEV_REVISIONS_PATH`
-     * in `index.ts`.
-     */
-    localRevisions?: Map<string, ResolvedRevision>
 }
 
 /**
@@ -36,20 +28,12 @@ export class RevisionResolver {
     }
 
     async resolveDomain(domain: string): Promise<ResolvedRevision | null> {
-        const local = this.options.localRevisions?.get(`domain:${domain}`)
-        if (local) {
-            return local
-        }
         return this.lookup(`domain:${domain}`, () =>
             this.options.repository.resolveByDomain(domain, this.options.domainSuffix)
         )
     }
 
     async resolveApplication(applicationId: string): Promise<ResolvedRevision | null> {
-        const local = this.options.localRevisions?.get(`app:${applicationId}`)
-        if (local) {
-            return local
-        }
         return this.lookup(`app:${applicationId}`, () => this.options.repository.resolveById(applicationId))
     }
 
@@ -59,12 +43,6 @@ export class RevisionResolver {
      * key matches the inbound Host header.
      */
     async resolveSlug(slug: string): Promise<ResolvedRevision | null> {
-        const local =
-            this.options.localRevisions?.get(`slug:${slug}`) ??
-            this.options.localRevisions?.get(`domain:${slug}${this.options.domainSuffix}`)
-        if (local) {
-            return local
-        }
         return this.lookup(`slug:${slug}`, () => this.options.repository.resolveBySlug(slug))
     }
 
@@ -93,7 +71,7 @@ export class RevisionResolver {
             }
             return resolved
         } catch (err) {
-            logger.error('RevisionResolver lookup failed', { key, error: String(err) })
+            logger.error({ err, key }, 'RevisionResolver lookup failed')
             throw err
         }
     }

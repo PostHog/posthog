@@ -1,10 +1,12 @@
 import {
     DequeuedSessionJob,
+    LogProducer,
     SessionBus,
     SessionEvent,
-    SessionLogStore,
+    SessionLogger,
     SessionQueueWorker,
     WorkerConfig,
+    createSessionLogger,
     logger,
 } from '@posthog/agent-core'
 
@@ -16,11 +18,7 @@ import { ToolContext } from './tools/types'
 export interface RunnerWorkerConfig extends WorkerConfig {
     executor: SessionExecutor
     bus: SessionBus
-    /** Optional — when set, terminal envelopes (`turn_started`, `turn_completed`,
-     *  `session_completed`, `session_failed`) are also persisted for the UI's
-     *  live-tail endpoint. The executor handles the in-turn events itself via
-     *  the bridge. */
-    logStore?: SessionLogStore
+    logProducer: LogProducer
     /** Lookup that returns the per-application secrets dictionary. Hooked to the internal-API client in prod. */
     loadSecrets: (applicationId: string | null) => Promise<Record<string, string>>
     /** Optional turn-level heartbeat interval. Defaults to 5s. */
@@ -35,7 +33,7 @@ export class RunnerWorker {
     private readonly queue: SessionQueueWorker
     private readonly executor: SessionExecutor
     private readonly bus: SessionBus
-    private readonly logStore: SessionLogStore | undefined
+    private readonly logProducer: LogProducer
     private readonly loadSecrets: RunnerWorkerConfig['loadSecrets']
     private readonly heartbeatIntervalMs: number
 
@@ -50,7 +48,7 @@ export class RunnerWorker {
         })
         this.executor = config.executor
         this.bus = config.bus
-        this.logStore = config.logStore
+        this.logProducer = config.logProducer
         this.loadSecrets = config.loadSecrets
         this.heartbeatIntervalMs = config.heartbeatIntervalMs ?? 5_000
     }
@@ -78,12 +76,19 @@ export class RunnerWorker {
             })
         }, this.heartbeatIntervalMs)
 
+        const sessionLogger: SessionLogger = createSessionLogger({
+            teamId: job.teamId,
+            applicationId: job.applicationId,
+            sessionId: job.id,
+            producer: this.logProducer,
+        })
+
         try {
             const state = deserializeState(job.state)
             const newInputs = state.pendingInputs.slice()
             state.pendingInputs = []
 
-            await this.publish(job.id, { type: 'turn_started', at: new Date().toISOString() })
+            await this.publish(job.id, sessionLogger, { type: 'turn_started', at: new Date().toISOString() })
 
             const secrets = await this.loadSecrets(job.applicationId)
             const ctx: ToolContext = {
@@ -106,13 +111,13 @@ export class RunnerWorker {
                 },
             })
 
-            await this.publish(job.id, { type: 'turn_completed', at: new Date().toISOString() })
+            await this.publish(job.id, sessionLogger, { type: 'turn_completed', at: new Date().toISOString() })
 
             switch (outcome.kind) {
                 case 'completed':
                     state.messages.push(outcome.message)
                     state.turnCount += 1
-                    await this.publish(job.id, {
+                    await this.publish(job.id, sessionLogger, {
                         type: 'session_completed',
                         at: new Date().toISOString(),
                         output: outcome.output,
@@ -120,7 +125,7 @@ export class RunnerWorker {
                     await job.ack()
                     return
                 case 'failed':
-                    await this.publish(job.id, {
+                    await this.publish(job.id, sessionLogger, {
                         type: 'session_failed',
                         at: new Date().toISOString(),
                         error: outcome.error,
@@ -130,14 +135,14 @@ export class RunnerWorker {
                 case 'tool_call': {
                     state.messages.push(outcome.message)
                     state.turnCount += 1
-                    await this.publish(job.id, {
+                    await this.publish(job.id, sessionLogger, {
                         type: 'tool_call',
                         tool: outcome.call.id,
                         at: new Date().toISOString(),
                         args: outcome.call.args,
                     })
                     const result = await this.runToolCall(outcome.call, ctx)
-                    await this.publish(job.id, {
+                    await this.publish(job.id, sessionLogger, {
                         type: 'tool_result',
                         tool: outcome.call.id,
                         at: new Date().toISOString(),
@@ -168,16 +173,16 @@ export class RunnerWorker {
                     return
             }
         } catch (err) {
-            logger.error('runner job processing failed', { sessionId: job.id, error: String(err) })
-            await this.publish(job.id, {
+            logger.error({ err, sessionId: job.id }, 'runner job processing failed')
+            await this.publish(job.id, sessionLogger, {
                 type: 'session_failed',
                 at: new Date().toISOString(),
-                error: String(err),
+                error: err instanceof Error ? err.message : String(err),
             })
             try {
                 await job.fail()
             } catch (failErr) {
-                logger.error('runner job fail() failed', { sessionId: job.id, error: String(failErr) })
+                logger.error({ err: failErr, sessionId: job.id }, 'runner job fail() failed')
             }
         } finally {
             clearInterval(heartbeat)
@@ -188,20 +193,13 @@ export class RunnerWorker {
         return executeTool({ id: call.id, args: call.args }, ctx)
     }
 
-    private async publish(sessionId: string, event: SessionEvent): Promise<void> {
+    private async publish(sessionId: string, sessionLogger: SessionLogger, event: SessionEvent): Promise<void> {
         try {
             await this.bus.publishEvent(sessionId, event)
         } catch (err) {
             logger.error('runner publish failed', { sessionId, error: String(err) })
         }
-        // Persist for the UI's tail. Best-effort.
-        if (this.logStore) {
-            try {
-                await this.logStore.append(sessionId, { kind: 'event', ...event })
-            } catch (err) {
-                logger.warn('runner log-store append failed', { sessionId, error: String(err) })
-            }
-        }
+        sessionLogger.appendEvent(event)
     }
 }
 

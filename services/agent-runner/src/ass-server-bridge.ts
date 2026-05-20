@@ -1,6 +1,6 @@
 import { SessionRegistry } from '@repo/ass-server/sse'
 
-import { SessionBus, SessionEvent, SessionLogStore, logger } from '@posthog/agent-core'
+import { SessionBus, SessionEvent, SessionLogger, logger } from '@posthog/agent-core'
 
 /**
  * Bridges ass-server's in-process event sink onto PostHog's SessionBus.
@@ -32,35 +32,23 @@ export class BusBridgingRegistry extends SessionRegistry {
     constructor(
         private readonly bus: SessionBus,
         private readonly busSessionId: string,
-        /** Optional log buffer — when present, every mapped SessionEvent is
-         *  also persisted for the UI's live tail / replay. */
-        private readonly logStore?: SessionLogStore
+        private readonly sessionLogger: SessionLogger
     ) {
         super()
     }
 
     override emit(_id: string, event: string, data: unknown): void {
         const at = new Date().toISOString()
-        const mapped = this.mapEvent(event, data, at)
-        if (mapped) {
-            void this.bus.publishEvent(this.busSessionId, mapped).catch((err) => {
+        const mapped = this.mapEvents(event, data, at)
+        for (const out of mapped) {
+            void this.bus.publishEvent(this.busSessionId, out).catch((err) => {
                 logger.error('runner bridge publish failed', {
                     sessionId: this.busSessionId,
                     event,
                     error: String(err),
                 })
             })
-            // Persist for the UI's session-log endpoint. Best-effort —
-            // failure here shouldn't break the run.
-            if (this.logStore) {
-                void this.logStore.append(this.busSessionId, { kind: 'event', ...mapped }).catch((err) => {
-                    logger.warn('runner bridge log append failed', {
-                        sessionId: this.busSessionId,
-                        event,
-                        error: String(err),
-                    })
-                })
-            }
+            this.sessionLogger.appendEvent(out)
         }
         // Track terminal signals regardless of whether we forwarded them.
         if (event === 'error') {
@@ -77,28 +65,70 @@ export class BusBridgingRegistry extends SessionRegistry {
         // and confuse SSE listeners.
     }
 
-    private mapEvent(event: string, data: unknown, at: string): SessionEvent | null {
+    /**
+     * One ass-server event can become *zero or more* SessionBus events. Most
+     * importantly, an `assistant_message` from the SDK arrives as an array of
+     * content blocks (text + tool_use + thinking, mixed). We fan those out
+     * into one `message`-per-text-block plus one `tool_call`-per-tool_use,
+     * dropping signed thinking blocks (not for humans). Without the fan-out
+     * the listener would see a JSON-stringified block array in `content`.
+     */
+    private mapEvents(event: string, data: unknown, at: string): SessionEvent[] {
         switch (event) {
-            case 'assistant_message': {
-                const d = data as { content: unknown }
-                return {
-                    type: 'message',
-                    role: 'assistant',
-                    at,
-                    content: typeof d?.content === 'string' ? d.content : JSON.stringify(d?.content ?? ''),
-                }
-            }
+            case 'assistant_message':
+                return this.fanAssistantMessage(data, at)
             case 'tool_call': {
                 const d = data as { tool?: string; summary?: unknown }
-                return {
-                    type: 'tool_call',
-                    at,
-                    tool: d?.tool ?? 'unknown',
-                    args: d?.summary,
-                }
+                return [
+                    {
+                        type: 'tool_call',
+                        at,
+                        tool: d?.tool ?? 'unknown',
+                        args: d?.summary,
+                    },
+                ]
             }
             default:
-                return null
+                return []
         }
+    }
+
+    private fanAssistantMessage(data: unknown, at: string): SessionEvent[] {
+        const d = data as { content?: unknown }
+        let content: unknown = d?.content
+        // Defensive: if an older upstream double-encoded the block array,
+        // recover by parsing once.
+        if (typeof content === 'string' && content.startsWith('[')) {
+            try {
+                content = JSON.parse(content)
+            } catch {
+                /* fall through to plain-string handling */
+            }
+        }
+        if (Array.isArray(content)) {
+            const out: SessionEvent[] = []
+            for (const part of content) {
+                if (!part || typeof part !== 'object') {
+                    continue
+                }
+                const block = part as Record<string, unknown>
+                if (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
+                    out.push({ type: 'message', role: 'assistant', at, content: block.text })
+                } else if (block.type === 'tool_use') {
+                    out.push({
+                        type: 'tool_call',
+                        at,
+                        tool: typeof block.name === 'string' ? block.name : 'unknown',
+                        args: block.input,
+                    })
+                }
+                // thinking / redacted_thinking: silently dropped
+            }
+            return out
+        }
+        if (typeof content === 'string' && content.length > 0) {
+            return [{ type: 'message', role: 'assistant', at, content }]
+        }
+        return []
     }
 }

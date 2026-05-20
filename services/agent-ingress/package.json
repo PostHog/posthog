@@ -17,7 +17,7 @@
         "format:check": "prettier --check .",
         "test": "jest --runInBand --forceExit",
         "start": "node dist/index.js",
-        "start:dev": "tsx watch --include '../agent-core/dist/**' src/index.ts"
+        "start:dev": "tsx watch --include '../agent-core/dist/**' --include '../../../agent-stack/packages/ass-server/dist/**' src/index.ts"
     },
     "dependencies": {
         "@posthog/agent-core": "workspace:*",

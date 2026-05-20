@@ -227,11 +227,6 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
-            AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
-            POSTHOG_DATABASE_URL=${POSTHOG_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog} \
-            ENCRYPTION_SALT_KEYS=${ENCRYPTION_SALT_KEYS:-00beef0000beef0000beef0000beef00} \
-            REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
-            AGENT_DEV_REVISIONS_PATH=${AGENT_DEV_REVISIONS_PATH:-$PWD/services/agent-ingress/dev/revisions.json} \
             PORT=${AGENT_INGRESS_PORT:-3030} \
             pnpm --filter @posthog/agent-ingress start:dev
         capability: agent_runtime
@@ -244,10 +239,6 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
-            AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
-            POSTHOG_DATABASE_URL=${POSTHOG_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog} \
-            ENCRYPTION_SALT_KEYS=${ENCRYPTION_SALT_KEYS:-00beef0000beef0000beef0000beef00} \
-            REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
             pnpm --filter @posthog/agent-runner start:dev
         capability: agent_runtime
         ready_pattern: 'agent-runner started'
@@ -259,9 +250,6 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
-            AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
-            AGENT_INTERNAL_API_SHARED_KEY=${AGENT_INTERNAL_API_SHARED_KEY:-dev-shared-key} \
-            REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
             PORT=${AGENT_JANITOR_PORT:-3031} \
             pnpm --filter @posthog/agent-janitor start:dev
         capability: agent_runtime

@@ -1,30 +1,31 @@
 import { z } from 'zod'
 
+import { AGENT_DEV_DEFAULTS, devDefault } from '@posthog/agent-core'
+
 const ConfigSchema = z.object({
-    /** agent-runtime queue DB (where session jobs live). */
     queueDbUrl: z.string().min(1),
     queueName: z.string().default('default'),
-    /** Main posthog Postgres — for reading agent_stack_* rows + decrypting secrets. */
     posthogDbUrl: z.string().min(1),
-    /**
-     * Same comma-separated key list Django uses for `EncryptedTextField`. The runner is
-     * the only process that decrypts; ingress never touches secrets.
-     */
     encryptionSaltKeys: z.string().min(1),
     redisUrl: z.string().optional(),
-    /** Anthropic API key — wired into the real SDK executor once it lands. */
-    anthropicApiKey: z.string().optional(),
+    kafkaBrokers: z.string().min(1),
+    kafkaLogEntriesTopic: z.string().default('log_entries'),
+    anthropicApiKey: z.string().min(1, {
+        message: 'ANTHROPIC_API_KEY is required (set it in your shell or repo-root .env)',
+    }),
 })
 
 export type RunnerConfig = z.infer<typeof ConfigSchema>
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
     return ConfigSchema.parse({
-        queueDbUrl: env.AGENT_RUNTIME_QUEUE_DATABASE_URL,
+        queueDbUrl: devDefault(env.AGENT_RUNTIME_QUEUE_DATABASE_URL, AGENT_DEV_DEFAULTS.agentRuntimeQueueDatabaseUrl),
         queueName: env.AGENT_RUNNER_QUEUE_NAME,
-        posthogDbUrl: env.POSTHOG_DATABASE_URL,
-        encryptionSaltKeys: env.ENCRYPTION_SALT_KEYS,
-        redisUrl: env.REDIS_URL,
+        posthogDbUrl: devDefault(env.POSTHOG_DATABASE_URL, AGENT_DEV_DEFAULTS.posthogDatabaseUrl),
+        encryptionSaltKeys: devDefault(env.ENCRYPTION_SALT_KEYS, AGENT_DEV_DEFAULTS.encryptionSaltKeys),
+        redisUrl: devDefault(env.REDIS_URL, AGENT_DEV_DEFAULTS.redisUrl),
+        kafkaBrokers: devDefault(env.KAFKA_HOSTS, AGENT_DEV_DEFAULTS.kafkaHosts),
+        kafkaLogEntriesTopic: env.KAFKA_LOG_ENTRIES_TOPIC,
         anthropicApiKey: env.ANTHROPIC_API_KEY,
     })
 }

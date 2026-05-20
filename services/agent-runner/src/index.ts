@@ -3,13 +3,12 @@ import {
     BundleStore,
     EncryptedFields,
     InMemorySessionBus,
-    NullSessionLogStore,
+    KafkaLogProducer,
     PosthogDbClient,
     RedisSessionBus,
-    RedisSessionLogStore,
     SessionBus,
-    SessionLogStore,
     bundleStoreConfigFromEnv,
+    loadDevEnv,
     logger,
 } from '@posthog/agent-core'
 
@@ -17,8 +16,16 @@ import { AssServerExecutor } from './ass-server-executor'
 import { loadConfig } from './config'
 import { RunnerWorker } from './worker'
 
+loadDevEnv()
+
 async function main(): Promise<void> {
+    logger.info('agent-runner booting', { node: process.version, pid: process.pid })
     const config = loadConfig()
+    logger.info('agent-runner config loaded', {
+        queueName: config.queueName,
+        kafkaTopic: config.kafkaLogEntriesTopic,
+        hasRedis: Boolean(config.redisUrl),
+    })
 
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
@@ -30,29 +37,25 @@ async function main(): Promise<void> {
         logger.warn('REDIS_URL not set; using in-memory bus (single-process only — not safe for production)')
     }
 
-    // HACK: per-session log buffer for the management UI. See
-    // `agent-core/src/session-logs/`. Real implementation will be loki/clickhouse.
-    const logStore: SessionLogStore = config.redisUrl
-        ? new RedisSessionLogStore({ url: config.redisUrl })
-        : new NullSessionLogStore()
-    if (config.redisUrl) {
-        logger.info('agent-runner session log buffer wired (Redis)', { redisUrl: config.redisUrl })
-    } else {
-        logger.warn('agent-runner session log buffer DISABLED (no REDIS_URL — UI tail will be empty)')
-    }
+    logger.info('connecting log producer', { brokers: config.kafkaBrokers, topic: config.kafkaLogEntriesTopic })
+    const logProducer = new KafkaLogProducer({
+        brokers: config.kafkaBrokers,
+        topic: config.kafkaLogEntriesTopic,
+        name: 'agent-runner-logs',
+    })
+    await logProducer.connect()
+    logger.info('log producer connected')
 
-    // Reads OBJECT_STORAGE_* env vars (defaults match Django's local MinIO config),
-    // so a dev stack with `bin/start` already has a usable bundle store.
     const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
 
-    const executor = new AssServerExecutor({ bundleStore, repository, bus, logStore })
+    const executor = new AssServerExecutor({ bundleStore, repository, bus, logProducer })
 
     const worker = new RunnerWorker({
         pool: { dbUrl: config.queueDbUrl },
         queueName: config.queueName,
         executor,
         bus,
-        logStore,
+        logProducer,
         loadSecrets: async (applicationId) => {
             if (!applicationId) {
                 return {}
@@ -64,13 +67,13 @@ async function main(): Promise<void> {
     })
 
     await worker.start()
-    logger.info('agent-runner started', { queueName: config.queueName })
+    logger.info('agent-runner started', { queueName: config.queueName, kafkaTopic: config.kafkaLogEntriesTopic })
 
     const shutdown = async (signal: string): Promise<void> => {
         logger.info('agent-runner shutting down', { signal })
         await worker.stop()
         await bus.disconnect()
-        await logStore.disconnect()
+        await logProducer.disconnect()
         await posthogDb.disconnect()
         bundleStore.destroy()
         process.exit(0)
@@ -80,7 +83,9 @@ async function main(): Promise<void> {
     process.on('SIGINT', () => void shutdown('SIGINT'))
 }
 
-main().catch((err) => {
-    logger.error('agent-runner fatal', { error: String(err) })
+main().catch((err: unknown) => {
+    // Pass the Error instance under `err` (or `error`) so pino's serializer
+    // expands message + stack + nested causes — `String(err)` loses all of it.
+    logger.error({ err }, 'agent-runner fatal')
     process.exit(1)
 })

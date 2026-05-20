@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { InMemorySessionBus, SessionEvent } from '@posthog/agent-core'
+import { FakeLogProducer, InMemorySessionBus, SessionEvent } from '@posthog/agent-core'
 
 import { ExecutorTurnOutput, SessionExecutor } from './executor'
 import { deserializeState, serializeState } from './state'
@@ -105,6 +105,7 @@ describe('RunnerWorker.processJob', () => {
             ]),
             bus,
             loadSecrets: async () => ({}),
+            logProducer: new FakeLogProducer(),
             heartbeatIntervalMs: 1_000_000,
         })
 
@@ -126,6 +127,7 @@ describe('RunnerWorker.processJob', () => {
             executor: scriptedExecutor([{ kind: 'failed', error: 'boom' }]),
             bus,
             loadSecrets: async () => ({}),
+            logProducer: new FakeLogProducer(),
             heartbeatIntervalMs: 1_000_000,
         })
         const { record, job } = makeJob('s-fail', {})
@@ -155,6 +157,7 @@ describe('RunnerWorker.processJob', () => {
             ]),
             bus,
             loadSecrets: async () => ({}),
+            logProducer: new FakeLogProducer(),
             heartbeatIntervalMs: 1_000_000,
         })
         const { record, job } = makeJob('s-tool', {})
@@ -186,6 +189,7 @@ describe('RunnerWorker.processJob', () => {
             ]),
             bus,
             loadSecrets: async () => ({}),
+            logProducer: new FakeLogProducer(),
             heartbeatIntervalMs: 1_000_000,
         })
         const { record, job } = makeJob('s-wait', {})
@@ -221,6 +225,7 @@ describe('RunnerWorker.processJob', () => {
             },
             bus,
             loadSecrets: async () => ({}),
+            logProducer: new FakeLogProducer(),
             heartbeatIntervalMs: 1_000_000,
         })
 

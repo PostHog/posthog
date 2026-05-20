@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import requests as http_requests
 from django_filters.rest_framework import DjangoFilterBackend
@@ -17,8 +19,12 @@ from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
+from posthog.api.log_entries import fetch_log_entries
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 
 from . import deploys
 from .models import AgentApplication, AgentApplicationRevision
@@ -34,6 +40,8 @@ from .serializers import (
     StartDeployResponseSerializer,
     UpdateEnvRequestSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @extend_schema(tags=["agent_stack"])
@@ -354,20 +362,48 @@ class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
 
     @action(detail=True, methods=["get"], url_path="logs")
     def logs(self, request: Request, pk: str, **kwargs) -> Response:
-        """HACK — return the per-session log buffer (assistant messages, tool
-        calls, raw runner output) as a flat JSON list. The UI polls this.
-        Backed by a 1h Redis buffer in the janitor — replaced once loki /
-        clickhouse is wired.
+        """Read per-session logs from ClickHouse `log_entries` (`log_source='agent_session'`).
+
+        Poll-friendly: pass `?after=<iso-timestamp>` to get only entries newer
+        than the previous batch. `next_after` in the response is the timestamp
+        of the newest entry returned — feed it back as `?after=` next poll.
         """
+        app_id = self._resolve_app_id()
         try:
-            upstream = http_requests.get(
-                self._janitor_url(f"/internal/sessions/{pk}/logs"),
-                headers=self._janitor_headers(),
-                timeout=10,
+            after = parse_datetime(request.query_params.get("after")) if request.query_params.get("after") else None
+        except ValueError:
+            return Response({"detail": "invalid `after` timestamp"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 200)), 500))
+        except (TypeError, ValueError):
+            limit = 200
+
+        try:
+            # `sync_execute` requires query attribution. No agent-specific
+            # ProductKey exists yet — borrow PIPELINE_DESTINATIONS to match
+            # the existing log_entries.py default. Replace once an
+            # AGENT_STACK key lands in the schema.
+            tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
+            rows = fetch_log_entries(
+                team_id=self.team_id,
+                log_source="agent_session",
+                log_source_id=app_id,
+                instance_id=pk,
+                after=after,
+                limit=limit,
             )
-        except http_requests.ConnectionError:
+        except Exception as exc:
+            logger.exception(
+                "agent_stack.session_logs query failed",
+                extra={"application_id": app_id, "session_id": pk, "team_id": self.team_id},
+            )
             return Response(
-                {"detail": "agent-janitor service is not reachable"},
+                {"detail": f"log query failed: {exc!s}", "type": type(exc).__name__},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response(upstream.json(), status=upstream.status_code)
+        # Rows come back DESC by timestamp; flip to oldest-first for the UI.
+        entries = [
+            {"timestamp": r.timestamp.isoformat(), "level": r.level, "message": r.message} for r in reversed(rows)
+        ]
+        next_after = rows[0].timestamp.isoformat() if rows else None
+        return Response({"entries": entries, "next_after": next_after})

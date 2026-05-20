@@ -4,9 +4,10 @@ import { runSession } from '@repo/ass-server/session-runner'
 import {
     ApplicationsRepository,
     BundleStore,
+    LogProducer,
     ResolvedRevision,
     SessionBus,
-    SessionLogStore,
+    createSessionLogger,
     extractBundleToTempDir,
     logger,
 } from '@posthog/agent-core'
@@ -18,9 +19,7 @@ export interface AssServerExecutorOptions {
     bundleStore: BundleStore
     repository: ApplicationsRepository
     bus: SessionBus
-    /** Optional — when set, every bus event + raw runner log line is persisted
-     *  for the UI's live-tail endpoint (`/internal/sessions/:id/logs`). */
-    logStore?: SessionLogStore
+    logProducer: LogProducer
 }
 
 /**
@@ -97,7 +96,7 @@ export class AssServerExecutor implements SessionExecutor {
 
     private async runWithBundle(
         input: ExecutorTurnInput,
-        revision: ResolvedRevision,
+        _revision: ResolvedRevision,
         bundleDir: string
     ): Promise<ExecutorTurnOutput> {
         // Deployed bundles are single-agent (one `.ass.yaml` per tarball, produced
@@ -106,10 +105,30 @@ export class AssServerExecutor implements SessionExecutor {
         const { project, agent } = await loadCompiledAgent(bundleDir)
 
         const triggerPayload = input.state.initialInput ?? null
-        const bridge = new BusBridgingRegistry(this.options.bus, input.job.sessionId, this.options.logStore)
-        const logStore = this.options.logStore
         const sessionId = input.job.sessionId
+        const sessionLogger = createSessionLogger({
+            teamId: input.job.teamId,
+            applicationId: input.job.applicationId,
+            sessionId,
+            producer: this.options.logProducer,
+        })
+        const bridge = new BusBridgingRegistry(this.options.bus, sessionId, sessionLogger)
 
+        // `env` is the dict ass-server hands to user tools when resolving
+        // their declared `secrets:` list — keep it scoped to the app's
+        // decrypted env ONLY. Runner-process credentials (ANTHROPIC_API_KEY,
+        // ENCRYPTION_SALT_KEYS, DB URLs) must never be reachable from here.
+        // The Claude Agent SDK reads ANTHROPIC_API_KEY from process.env on
+        // its own (child-process inheritance) — separate path, separate
+        // trust boundary.
+        logger.info(
+            {
+                sessionId,
+                processHasAnthropicKey: Boolean(process.env.ANTHROPIC_API_KEY),
+                appSecretKeys: Object.keys(input.job.secrets),
+            },
+            'invoking runSession'
+        )
         const handle = runSession({
             project,
             agent,
@@ -118,19 +137,8 @@ export class AssServerExecutor implements SessionExecutor {
             triggerPayload,
             env: input.job.secrets,
             onLog: (line: string) => {
-                logger.debug('runSession', { sessionId, line })
-                // Also persist the raw SDK runner log line for the UI tail.
-                // Best-effort — drop failures so the run isn't impacted.
-                if (logStore) {
-                    void logStore
-                        .append(sessionId, {
-                            kind: 'log',
-                            level: 'debug',
-                            at: new Date().toISOString(),
-                            message: line,
-                        })
-                        .catch(() => {})
-                }
+                logger.debug({ sessionId, line }, 'runSession')
+                sessionLogger.appendLog({ level: 'INFO', message: line })
             },
         })
         await handle.done

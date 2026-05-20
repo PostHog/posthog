@@ -1,22 +1,12 @@
 import express, { Express } from 'ultimate-express'
 
-import {
-    SessionLogStore,
-    SessionQuery,
-    collectDefaults,
-    logger,
-    metricsContentType,
-    metricsText,
-} from '@posthog/agent-core'
+import { SessionQuery, collectDefaults, logger, metricsContentType, metricsText } from '@posthog/agent-core'
 
 import { requireInternalKey } from './auth'
-import { registerSessionLogsRoutes } from './routes/logs'
 import { registerSessionsRoutes } from './routes/sessions'
 
 export interface JanitorServerDeps {
     query: SessionQuery
-    /** Optional — when present, exposes `/internal/sessions/:id/logs` SSE. */
-    logStore?: SessionLogStore
     /** Required for `/internal/*` routes. Routes refuse traffic when undefined. */
     internalApiSharedKey: string | undefined
 }
@@ -40,12 +30,8 @@ export function buildServer(deps: JanitorServerDeps): Express {
         res.send(await metricsText())
     })
 
-    // Path-prefix middleware: any request under /internal/* runs through the shared-key check.
     app.use('/internal', requireInternalKey({ sharedKey: deps.internalApiSharedKey }))
     registerSessionsRoutes(app, { query: deps.query })
-    if (deps.logStore) {
-        registerSessionLogsRoutes(app, { logStore: deps.logStore })
-    }
 
     return app
 }

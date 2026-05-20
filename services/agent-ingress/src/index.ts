@@ -1,20 +1,20 @@
-import { readFileSync } from 'node:fs'
-
 import {
     ApplicationsRepository,
     EncryptedFields,
     InMemorySessionBus,
     PosthogDbClient,
     RedisSessionBus,
-    ResolvedRevision,
     SessionBus,
     SessionQueueManager,
+    loadDevEnv,
     logger,
 } from '@posthog/agent-core'
 
 import { loadConfig } from './config'
 import { RevisionResolver } from './resolver'
 import { buildServer } from './server'
+
+loadDevEnv()
 
 async function main(): Promise<void> {
     const config = loadConfig()
@@ -23,18 +23,13 @@ async function main(): Promise<void> {
     await queue.connect()
 
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
-    // Ingress needs the decryptor too — slack_event triggers fetch their
-    // signing secret (and the ack_reaction's bot token) from the app's
-    // encrypted_env at request time via `repository.decryptEnv`.
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const repository = new ApplicationsRepository({ db: posthogDb, encryption })
 
-    const localRevisions = loadLocalRevisions(process.env.AGENT_DEV_REVISIONS_PATH, config.domainSuffix)
     const resolver = new RevisionResolver({
         repository,
         ttlMs: config.resolverTtlMs,
         domainSuffix: config.domainSuffix,
-        localRevisions,
     })
 
     const bus: SessionBus = config.redisUrl ? new RedisSessionBus({ url: config.redisUrl }) : new InMemorySessionBus()
@@ -53,7 +48,7 @@ async function main(): Promise<void> {
     })
 
     const server = app.listen(config.port, () => {
-        logger.info('agent-ingress listening with', {
+        logger.info('agent-ingress listening', {
             port: config.port,
             routingMode: config.routingMode,
             domainSuffix: config.routingMode === 'domain' ? config.domainSuffix : undefined,
@@ -73,32 +68,7 @@ async function main(): Promise<void> {
     process.on('SIGINT', () => void shutdown('SIGINT'))
 }
 
-/**
- * Dev-only fixture loader. Reads a JSON file shaped as `ResolvedRevision[]` and
- * returns a Map keyed by `app:<applicationId>` and `domain:<applicationSlug><suffix>`.
- * Lets the local stack run against canned revisions without inserting Django rows.
- */
-function loadLocalRevisions(path: string | undefined, domainSuffix: string): Map<string, ResolvedRevision> | undefined {
-    if (!path) {
-        return undefined
-    }
-    const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown
-    if (!Array.isArray(raw)) {
-        throw new Error(`AGENT_DEV_REVISIONS_PATH=${path} must contain a JSON array of ResolvedRevision`)
-    }
-    const map = new Map<string, ResolvedRevision>()
-    for (const entry of raw) {
-        const revision = entry as ResolvedRevision
-        map.set(`app:${revision.applicationId}`, revision)
-        map.set(`domain:${revision.applicationSlug}${domainSuffix}`, revision)
-        // Also key by bare slug so path-mode resolves against the same fixture.
-        map.set(`slug:${revision.applicationSlug}`, revision)
-    }
-    logger.warn('agent-ingress using AGENT_DEV_REVISIONS_PATH fixture — dev only', { path, count: map.size / 2 })
-    return map
-}
-
-main().catch((err) => {
-    logger.error('agent-ingress fatal', { error: String(err) })
+main().catch((err: unknown) => {
+    logger.error({ err }, 'agent-ingress fatal')
     process.exit(1)
 })
