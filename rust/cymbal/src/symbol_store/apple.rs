@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::io::{Cursor, Read};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use serde::Deserialize;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};
@@ -48,17 +49,17 @@ pub enum AppleRef {}
 #[async_trait]
 impl Fetcher for AppleProvider {
     type Ref = AppleRef;
-    type Fetched = Vec<u8>;
+    type Fetched = Bytes;
     type Err = ResolveError;
 
-    async fn fetch(&self, _: i32, _: AppleRef) -> Result<Vec<u8>, Self::Err> {
+    async fn fetch(&self, _: i32, _: AppleRef) -> Result<Bytes, Self::Err> {
         unreachable!("AppleRef is impossible to construct, so cannot be passed")
     }
 }
 
 #[async_trait]
 impl Parser for AppleProvider {
-    type Source = Vec<u8>;
+    type Source = Bytes;
     type Set = ParsedAppleSymbols;
     type Err = ResolveError;
 
@@ -67,11 +68,11 @@ impl Parser for AppleProvider {
         // fall back to raw ZIP for backward compatibility with existing uploads.
         // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
         let (zip_data, decompressed_bytes) =
-            match read_symbol_data_with_byte_count::<AppleDsym>(source.clone()) {
+            match read_symbol_data_with_byte_count::<AppleDsym>(&source) {
                 Ok((dsym, bytes)) => (dsym.data, bytes),
                 Err(_) => {
                     let len = source.len();
-                    (source, len)
+                    (source.to_vec(), len)
                 }
             };
         ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, HermesMap};
 
 use crate::{
@@ -24,23 +25,23 @@ pub struct HermesMapProvider {}
 #[async_trait]
 impl Fetcher for HermesMapProvider {
     type Ref = HermesRef;
-    type Fetched = Vec<u8>;
+    type Fetched = Bytes;
     type Err = ResolveError;
 
-    async fn fetch(&self, _: i32, _: HermesRef) -> Result<Vec<u8>, Self::Err> {
+    async fn fetch(&self, _: i32, _: HermesRef) -> Result<Bytes, Self::Err> {
         unreachable!("HermesRef is impossible to construct, so cannot be passed")
     }
 }
 
 #[async_trait]
 impl Parser for HermesMapProvider {
-    type Source = Vec<u8>;
+    type Source = Bytes;
     type Set = ParsedHermesMap;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Vec<u8>) -> Result<ParsedHermesMap, Self::Err> {
+    async fn parse(&self, source: Bytes) -> Result<ParsedHermesMap, Self::Err> {
         let (map, decompressed_bytes): (HermesMap, usize) =
-            read_symbol_data_with_byte_count(source).map_err(HermesError::DataError)?;
+            read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
         Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)
     }
 }

@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use metrics::counter;
 use sqlx::PgPool;
 use tracing::error;
@@ -41,7 +42,7 @@ pub enum OrChunkId<R> {
 }
 
 pub enum SymbolSetLoadResult {
-    Data(Vec<u8>),
+    Data(Bytes),
     Missing,
     Failed(String),
     MissingStoragePtr(String),
@@ -97,7 +98,7 @@ pub async fn load_symbol_set_data(
 #[async_trait]
 impl<P> Fetcher for ChunkIdFetcher<P>
 where
-    P: Fetcher<Fetched = Vec<u8>>,
+    P: Fetcher<Fetched = Bytes>,
     P::Ref: Send,
     P::Err: From<UnhandledError> + From<FrameError>,
 {
@@ -156,7 +157,7 @@ where
 #[async_trait]
 impl<P> Parser for ChunkIdFetcher<P>
 where
-    P: Parser<Source = Vec<u8>>,
+    P: Parser<Source = Bytes>,
     P::Set: Send,
 {
     type Source = P::Source;
@@ -235,6 +236,7 @@ mod test {
     use std::sync::Arc;
 
     use async_trait::async_trait;
+    use bytes::Bytes;
     use chrono::Utc;
     use common_types::ClickHouseEvent;
     use mockall::predicate;
@@ -330,7 +332,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 
@@ -371,7 +373,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 
 use sha2::{Digest, Sha512};
@@ -61,12 +62,13 @@ pub struct SymbolSetRecord {
     pub last_used: Option<DateTime<Utc>>,
 }
 
-// This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer
+// This is the "intermediate" symbol set data. Rather than a simple `Bytes`, the saving layer
 // has to return this from calls to `fetch`, and accept it in calls to `parse`, so that it can
 // pass the information necessary to store the underlying data between the fetch and parse stages,
-// (to avoid saving data we can't parse)
+// (to avoid saving data we can't parse). The payload is held as `Bytes` so it can be cheaply
+// cloned (refcount bump) when the parse and save paths both need a reference.
 pub struct Saveable {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub storage_ptr: Option<String>, // This is None if we still need to save this data
     pub team_id: i32,
     pub set_ref: String,
@@ -93,7 +95,7 @@ impl<F> Saving<F> {
         &self,
         team_id: i32,
         set_ref: String,
-        data: Vec<u8>,
+        data: Bytes,
     ) -> Result<String, UnhandledError> {
         info!("Saving symbol set data for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
@@ -170,7 +172,7 @@ impl<F> Saving<F> {
 #[async_trait]
 impl<F> Fetcher for Saving<F>
 where
-    F: Fetcher<Fetched = Vec<u8>, Err = ResolveError>,
+    F: Fetcher<Fetched = Bytes, Err = ResolveError>,
     F::Ref: ToString + Send,
 {
     type Ref = F::Ref;
@@ -257,7 +259,7 @@ where
 #[async_trait]
 impl<F> Parser for Saving<F>
 where
-    F: Parser<Source = Vec<u8>, Err = ResolveError>,
+    F: Parser<Source = Bytes, Err = ResolveError>,
     F::Set: Send,
 {
     type Source = Saveable;
@@ -265,23 +267,37 @@ where
     type Err = F::Err;
 
     async fn parse(&self, data: Saveable) -> Result<Self::Set, Self::Err> {
-        match self.inner.parse(data.data.clone()).await {
+        let Saveable {
+            data: bytes,
+            storage_ptr,
+            team_id,
+            set_ref,
+        } = data;
+
+        // On the loaded-from-S3 path we never need to save the bytes back, so we hand them
+        // straight to the parser by move. On the fresh-fetch path we keep a refcounted handle
+        // so we can save after a successful parse — cloning `Bytes` is just a refcount bump.
+        let bytes_to_save = if storage_ptr.is_none() {
+            Some(bytes.clone())
+        } else {
+            None
+        };
+
+        match self.inner.parse(bytes).await {
             Ok(s) => {
-                info!("Parsed symbol set data for {}", data.set_ref);
-                if data.storage_ptr.is_none() {
-                    // We only save the data if we fetched it from the underlying fetcher
-                    self.save_data(data.team_id, data.set_ref, data.data)
-                        .await?;
+                info!("Parsed symbol set data for {}", set_ref);
+                if let Some(bytes_to_save) = bytes_to_save {
+                    self.save_data(team_id, set_ref, bytes_to_save).await?;
                 }
-                return Ok(s);
+                Ok(s)
             }
             Err(ResolveError::ResolutionError(e)) => {
-                info!("Failed to parse symbol set data for {}", data.set_ref);
-                // We save the no-data case here, to prevent us from fetching again for day
-                self.save_no_data(data.team_id, data.set_ref, &e).await?;
-                return Err(ResolveError::ResolutionError(e));
+                info!("Failed to parse symbol set data for {}", set_ref);
+                // We save the no-data case here, to prevent us from fetching again for a day
+                self.save_no_data(team_id, set_ref, &e).await?;
+                Err(ResolveError::ResolutionError(e))
             }
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
         }
     }
 }
@@ -396,6 +412,7 @@ impl SymbolSetRecord {
 mod test {
     use std::sync::Arc;
 
+    use bytes::Bytes;
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
@@ -480,7 +497,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::eq(get_symbol_data_bytes()), // We won't assert on the contents written
+                predicate::eq(Bytes::from(get_symbol_data_bytes())), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -491,7 +508,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(Bytes::from(get_symbol_data_bytes()))));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

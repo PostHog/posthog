@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use aws_sdk_s3::{error::SdkError, primitives::ByteStream, Client as S3Client, Error as S3Error};
+use bytes::Bytes;
 #[cfg(test)]
 use mockall::automock;
 use tracing::error;
@@ -12,8 +13,8 @@ use crate::{
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BlobClient: Send + Sync {
-    async fn get(&self, bucket: &str, key: &str) -> Result<Option<Vec<u8>>, UnhandledError>;
-    async fn put(&self, bucket: &str, key: &str, data: Vec<u8>) -> Result<(), UnhandledError>;
+    async fn get(&self, bucket: &str, key: &str) -> Result<Option<Bytes>, UnhandledError>;
+    async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError>;
     async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError>;
 }
 
@@ -33,7 +34,7 @@ impl S3Impl {
 #[async_trait]
 impl BlobClient for S3Impl {
     #[allow(dead_code)]
-    async fn get(&self, bucket: &str, key: &str) -> Result<Option<Vec<u8>>, UnhandledError> {
+    async fn get(&self, bucket: &str, key: &str) -> Result<Option<Bytes>, UnhandledError> {
         let start = common_metrics::timing_guard(S3_FETCH, &[]);
         let res = self.inner.get_object().bucket(bucket).key(key).send().await;
 
@@ -41,7 +42,7 @@ impl BlobClient for S3Impl {
             Ok(res) => {
                 let data = res.body.collect().await?;
                 start.label("outcome", "success").fin();
-                Ok(Some(data.to_vec()))
+                Ok(Some(data.into_bytes()))
             }
             // If this is a file not found error, return None
             Err(SdkError::ServiceError(err)) if err.err().is_no_such_key() => {
@@ -58,7 +59,7 @@ impl BlobClient for S3Impl {
     }
 
     #[allow(dead_code)]
-    async fn put(&self, bucket: &str, key: &str, data: Vec<u8>) -> Result<(), UnhandledError> {
+    async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError> {
         let start = common_metrics::timing_guard(S3_PUT, &[]);
         let res = self
             .inner

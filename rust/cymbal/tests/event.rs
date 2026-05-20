@@ -257,7 +257,7 @@ fn load_static_event(filename: &str) -> AnyEvent {
 }
 
 // Helper to load sourcemap from static files
-fn get_sourcemap(chunk_id: &str) -> Result<Option<Vec<u8>>, UnhandledError> {
+fn get_sourcemap(chunk_id: &str) -> Result<Option<bytes::Bytes>, UnhandledError> {
     let Ok(minified_source) = fs::read_to_string(format!("tests/static/sourcemaps/{chunk_id}.js"))
     else {
         return Ok(None);
@@ -274,7 +274,7 @@ fn get_sourcemap(chunk_id: &str) -> Result<Option<Vec<u8>>, UnhandledError> {
     })
     .map_err(|e| UnhandledError::Other(e.to_string()))?;
 
-    Ok(Some(symbol_data))
+    Ok(Some(bytes::Bytes::from(symbol_data)))
 }
 
 // Helper to insert symbol set records in the database
