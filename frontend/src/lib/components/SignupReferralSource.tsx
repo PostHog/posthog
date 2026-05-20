@@ -68,6 +68,9 @@ const AI_REFERRAL_PATTERNS = [
     'chat',
     'vibe ?coding',
     'mcp',
+    // Non-English equivalents
+    'ia', // Spanish, Italian, Portuguese, French abbreviation for AI
+    'ki', // German abbreviation (Künstliche Intelligenz)
 ]
 const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
 

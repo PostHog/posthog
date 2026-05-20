@@ -13,6 +13,7 @@ use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
+use crate::v0_request::DataType;
 use tracing::Level;
 
 use crate::router;
@@ -269,6 +270,14 @@ async fn apply_restrictions(
             continue;
         }
 
+        // v1 hasn't classified events into `DataType` yet, so derive the
+        // pipeline directly from the event name. `historical_migration` is
+        // irrelevant for pipeline lookup — `AnalyticsMain` and
+        // `AnalyticsHistorical` both map to `Pipeline::Analytics`.
+        let Some(pipeline) = DataType::from_event_name(&event.event.event, false).pipeline() else {
+            continue;
+        };
+
         let event_ctx = EventContext {
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
@@ -277,7 +286,7 @@ async fn apply_restrictions(
             now_ts,
         };
 
-        let applied = service.get_restrictions(token, &event_ctx).await;
+        let applied = service.get_restrictions(token, &event_ctx, pipeline).await;
 
         if applied.should_drop() {
             event.result = EventResult::Drop;
@@ -371,9 +380,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::config::CaptureMode;
     use crate::event_restrictions::{
-        Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+        Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
     use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
@@ -823,9 +831,9 @@ mod tests {
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(token.to_string(), restrictions);
+        manager.insert_restrictions(Pipeline::Analytics, token, restrictions);
         service.update(manager).await;
         service
     }
@@ -833,7 +841,7 @@ mod tests {
     #[tokio::test]
     async fn restrictions_no_restrictions_passthrough() {
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
 
         let mut events = vec![wrapped_event("$pageview", "user-1")];
@@ -1629,7 +1637,7 @@ mod tests {
 
         // Stage 2: restrictions (no rules → passthrough, still iterates).
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
         let now_ts = Utc::now().timestamp();
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;

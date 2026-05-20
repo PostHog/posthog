@@ -1,0 +1,293 @@
+// Inline-editable affordances on the hosted survey canvas. The canvas should
+// feel like editing text in place — no input chrome, just the rendered text
+// with a cursor when active.
+.HostedSurveyCanvasStage {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-height: min(85dvh, 900px);
+    overflow: hidden;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    // Desktop preview frame fills the stage so the question content can
+    // breathe inside a real viewport, not a tight 520px card.
+    .PostHogHostedSurvey.HostedSurveyPreviewFrame {
+        border: none;
+        border-radius: 0;
+    }
+
+    .PostHogHostedSurvey.HostedSurveyPreviewFrame:not(.HostedSurveyPreviewFrame--mobile) {
+        flex: 1;
+        min-height: 0;
+        padding: clamp(2rem, 5dvh, 4rem) clamp(1.5rem, 4vw, 2.5rem);
+    }
+
+    // Mobile preview replicates the real `@media (max-width: 640px)` rules
+    // from hosted-survey.css. Because the canvas runs in a desktop browser,
+    // those media-query rules never fire on their own — we have to mimic them
+    // here so the mobile preview accurately reflects what respondents see on
+    // a phone.
+    .HostedSurveyPreviewFrame--mobile {
+        // 1. Submit button stretches to full width on phone-sized screens.
+        .form-submit {
+            width: 100%;
+            min-width: 0;
+        }
+
+        // 2. Keyboard hints are hidden on touch devices (the base CSS only
+        // reveals them under `hover: hover` + `pointer: fine`).
+        .survey-keyhint {
+            display: none;
+        }
+
+        // 3. Titles compress slightly on phones.
+        .survey-question,
+        .thank-you-message-header {
+            font-size: 1.5rem;
+        }
+    }
+
+    // Display elements (h1.survey-question, p.survey-question-description,
+    // span.form-submit, etc.) keep their natural styling — we ONLY add an edit
+    // affordance. No font/padding/background/border-radius reset on these so
+    // the rendered look (e.g. .form-submit's rounded pill) stays intact.
+    .inline-editable {
+        cursor: text;
+        transition:
+            background-color 120ms ease,
+            box-shadow 120ms ease;
+    }
+
+    // Placeholder style helps distinguish "no content yet" from a real value
+    // for prose-like elements (title, description). Excluded on .form-submit
+    // so the empty submit button doesn't fade or italicize.
+    .inline-editable--placeholder:not(.form-submit) {
+        font-style: italic;
+        opacity: 0.55;
+    }
+
+    .inline-editable--invalid {
+        text-decoration: underline wavy var(--danger);
+        text-underline-offset: 4px;
+    }
+
+    // Focus indicator — outline ring sits 2px outside the rendered shape so
+    // it never masks the element's own background (e.g. submit button pill).
+    .inline-editable:focus,
+    .inline-editable:focus-visible {
+        outline: 2px solid var(--accent, rgb(17 17 17 / 28%));
+        outline-offset: 2px;
+    }
+
+    // Inline display contexts (choice text + ":" suffix, submit button) need
+    // width: auto. Block contexts (title, description) want width: 100%.
+    span.inline-editable {
+        display: inline-block;
+    }
+
+    .response-choice .inline-editable {
+        width: auto;
+    }
+
+    // The submit button uses a <span class="form-submit inline-editable"> in
+    // display mode. Make it center its text the way <button> does so the pill
+    // looks like a real button and not a left-aligned padded label.
+    span.form-submit.inline-editable {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    // Hover affordance for prose elements only — never alter the rendered
+    // background of pill-styled elements.
+    @media (hover: hover) {
+        .inline-editable:not(.form-submit):hover:not(:focus) {
+            background-color: rgb(17 17 17 / 4%);
+            border-radius: 3px;
+            box-shadow: 0 0 0 2px rgb(17 17 17 / 4%);
+        }
+    }
+}
+
+// Editing-mode chrome reset for inputs/textareas. Deliberately lives OUTSIDE
+// the .HostedSurveyCanvasStage block so it has class-only specificity (0,1,1).
+// Any `.PostHogHostedSurvey .form-submit` / `.PostHogHostedSurvey .survey-
+// question` rule at (0,2,0) then wins for font-size, font-weight, color, etc.
+// Result: clicking in swaps the rendered element for an input that visually
+// matches it — same font size, weight, color, and padding context.
+input.inline-editable,
+textarea.inline-editable {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+
+    // The base .PostHogHostedSurvey textarea forces min-height: 8rem for the
+    // respondent open-text input — undo here or every click on the title
+    // blows up into a giant box.
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+
+    // Font properties inherit from the rendered class. .survey-question /
+    // .form-submit etc. provide explicit values at higher specificity that
+    // win over these — so the input matches its display element's font.
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    appearance: none;
+    cursor: text;
+    resize: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    outline: none;
+    box-shadow: none;
+
+    /* stylelint-disable-next-line property-no-unknown */
+    field-sizing: content;
+}
+
+textarea.inline-editable {
+    height: auto;
+    overflow: hidden;
+}
+
+// Wrapper that anchors the canvas + settings layout. Stretches both children
+// to the same row height so canvas, settings panel, and flow rail share an
+// aligned baseline at the top and bottom.
+.HostedSurveyCanvasLayout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+
+    @media (min-width: 1024px) {
+        grid-template-columns: minmax(0, 1fr) 320px;
+    }
+
+    @media (min-width: 1440px) {
+        grid-template-columns: minmax(0, 1fr) 360px;
+    }
+}
+
+// Choice rows on the canvas — always-visible delete + drag handle so the
+// affordances are discoverable without hover hunting.
+.HostedSurveyCanvasChoice {
+    position: relative;
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+    width: 100%;
+
+    &--dragging {
+        opacity: 0.5;
+    }
+
+    // The label is the survey-styled pill — flex-fill the row while keeping
+    // grip and delete buttons at fixed widths beside it.
+    & > label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    // Wrap the editable choice text + the optional ":" suffix so the colon
+    // sits flush against the text, not separated by the .response-choice
+    // flex gap.
+    &__label {
+        display: inline-flex;
+        gap: 0;
+        align-items: baseline;
+        min-width: 0;
+    }
+
+    &__grip {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        align-self: center;
+        justify-content: center;
+        width: 1.5rem;
+        color: var(--text-secondary);
+        cursor: grab;
+        opacity: 0.85;
+        transition:
+            opacity 120ms ease,
+            color 120ms ease;
+
+        &:hover,
+        &:focus-visible {
+            opacity: 1;
+        }
+
+        &:active {
+            cursor: grabbing;
+        }
+
+        &--locked {
+            cursor: not-allowed;
+            opacity: 0.3;
+        }
+    }
+
+    // Plain-button trash so we don't fight LemonButton's internal cascade —
+    // 32x32 outlined square with a clear red hover state.
+    &__delete {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        align-self: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        font-size: 1rem;
+        color: var(--text-secondary, #6b6b6b);
+        cursor: pointer;
+        background: transparent;
+        border: 1px solid var(--border-bold, rgb(17 17 17 / 18%));
+        border-radius: 6px;
+        transition:
+            background-color 120ms ease,
+            border-color 120ms ease,
+            color 120ms ease;
+
+        &:hover:not(:disabled) {
+            color: #b62a1d;
+            background: rgb(192 57 43 / 10%);
+            border-color: rgb(192 57 43 / 60%);
+        }
+
+        &:disabled {
+            cursor: not-allowed;
+            opacity: 0.4;
+        }
+    }
+}
+
+.HostedSurveyCanvasAddChoice {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    background: transparent;
+    border: 1px dashed var(--border-bold, rgb(17 17 17 / 18%));
+    border-radius: 6px;
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease;
+
+    &:hover {
+        color: var(--text-primary);
+        background: var(--surface-tertiary);
+        border-color: var(--accent);
+    }
+}
