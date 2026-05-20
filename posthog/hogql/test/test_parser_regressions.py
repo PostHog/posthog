@@ -809,6 +809,79 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_bare_asterisk_replace_only_inside_parens(self):
+        # `ColumnExprAsterisk` (grammar line 289) admits ONLY an optional
+        # trailing EXCLUDE on a bare `*`. `REPLACE` after `*` is valid
+        # exclusively inside the paren-wrapped forms `(* REPLACE (…))`,
+        # `(* EXCLUDE (…) REPLACE (…))`, and the `COLUMNS(* … REPLACE …)`
+        # family. cpp rejects bare-`*` REPLACE at the top level; rust
+        # was accepting it via the universal columns-decorator parse.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid_select = ("SELECT * REPLACE (b AS a) FROM t",)
+        for src in invalid_select:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_expr("* REPLACE (a AS b)", backend="rust-json")
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_expr("* REPLACE (a AS b)", backend="cpp-json")
+        # Paren-wrapped form (and `EXCLUDE` decoration alone) still parse.
+        for src in (
+            "(* REPLACE (1 AS event))",
+            "(* EXCLUDE (a) REPLACE (b AS c))",
+            "* EXCLUDE (a)",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_filter_clause_invalid_before_within_group(self):
+        # `ColumnExprFunctionWithinGroup` (grammar line 234) is
+        # `identifier LPAREN columnExprList? RPAREN withinGroupClause`
+        # — no FILTER slot. cpp rejects
+        # `f(args) FILTER (WHERE ...) WITHIN GROUP (...)`; rust was
+        # silently dropping the FILTER expression.
+        from posthog.hogql.errors import BaseHogQLError
+
+        for src in (
+            "median(x) FILTER (WHERE z) WITHIN GROUP (ORDER BY y)",
+            "quantile(x) FILTER (WHERE z > 0) WITHIN GROUP (ORDER BY y)",
+        ):
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # WITHIN GROUP alone still parses.
+        oracle = clear_locations(parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_expr("median(x) WITHIN GROUP (ORDER BY y)", backend=backend))
+            self.assertEqual(got, oracle, msg=backend)
+
+    def test_window_function_args_no_distinct_no_inline_order_by(self):
+        # `ColumnExprWinFunction` (grammar line 235) takes a plain
+        # `columnExprList` — no DISTINCT, no in-args ORDER BY. cpp
+        # rejects `foo(DISTINCT a) OVER ()` and `foo(a ORDER BY b)
+        # OVER ()`; rust was accepting and silently dropping the
+        # DISTINCT / ORDER BY.
+        from posthog.hogql.errors import BaseHogQLError
+
+        for src in (
+            "foo(a ORDER BY b) OVER ()",
+            "foo(DISTINCT a) OVER ()",
+            "foo(DISTINCT a ORDER BY b) OVER ()",
+        ):
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # Plain forms still parse.
+        for src in ("foo(a) OVER ()", "foo(DISTINCT a)", "foo(a ORDER BY b)"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_unary_plus_only_on_numeric_literal(self):
         # `numberLiteral` grammar (line 380) makes `+` a sign prefix on
         # number / INF / NAN — not a general unary operator. cpp rejects

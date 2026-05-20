@@ -1341,7 +1341,23 @@ impl<'a> Parser<'a> {
             let inner = self.parse_columns_expr()?;
             return Ok(emit::spread_expr(inner));
         }
+        // `ColumnExprAsterisk` (grammar line 289) admits ONLY an
+        // optional trailing EXCLUDE on a bare `*`. `REPLACE` after `*`
+        // is valid only inside the paren-wrapped forms (lines 220-225)
+        // — `(* REPLACE (…))`, `(* EXCLUDE (…) REPLACE (…))`, and the
+        // `COLUMNS(* … REPLACE …)` family. We detect the paren-wrapped
+        // case by looking at what follows the REPLACE-list's closing
+        // `)`: if it's `)` we're inside a wrapping paren (cpp's
+        // ColumnExprColumnsReplace alt); anything else means the bare-
+        // `*` REPLACE attempted at top level, which cpp rejects.
+        let cp_before_decorators = self.checkpoint();
         let (exclude, replace) = self.parse_columns_decorators()?;
+        if replace.is_some() && self.peek() != TokenKind::RParen {
+            self.restore(cp_before_decorators)?;
+            return Err(self.err(
+                "REPLACE after a bare `*` is only valid inside `(* REPLACE …)` / `COLUMNS(* REPLACE …)`",
+            ));
+        }
         if exclude.is_none() && replace.is_none() {
             Ok(emit::field(vec![Value::String("*".into())]))
         } else {
@@ -2228,6 +2244,21 @@ impl<'a> Parser<'a> {
             // Optional `FILTER (WHERE …)` between the args and OVER.
             let filter_expr_for_window = self.parse_optional_filter()?;
             if matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
+                // `ColumnExprWinFunction` (grammar line 235) takes a
+                // plain `columnExprList` — NO DISTINCT, NO in-arg
+                // ORDER BY. cpp rejects `foo(DISTINCT a) OVER ()` /
+                // `foo(a ORDER BY b) OVER ()`. Surface the divergence
+                // instead of silently dropping the DISTINCT / ORDER BY.
+                if first_distinct {
+                    return Err(self.err(
+                        "DISTINCT in window-function args — ColumnExprWinFunction takes a plain columnExprList",
+                    ));
+                }
+                if first_order_by.is_some() {
+                    return Err(self.err(
+                        "ORDER BY inside window-function args — ColumnExprWinFunction takes a plain columnExprList",
+                    ));
+                }
                 self.bump()?;
                 let mut obj = serde_json::Map::new();
                 obj.insert("node".into(), Value::String("WindowFunction".into()));
@@ -2268,13 +2299,20 @@ impl<'a> Parser<'a> {
             }
 
             // `name(params) WITHIN GROUP (ORDER BY ... [INTERPOLATE (...)])`.
-            // The grammar's `orderByClause` admits a trailing
-            // `interpolateClause`, but the cpp visitor's
-            // `visitColumnExprFunctionWithinGroup` discards it
-            // (`within_group, _interpolate = …`). Mirror the discard.
+            // The grammar's `ColumnExprFunctionWithinGroup` (line 234)
+            // is `identifier LPAREN columnExprList? RPAREN
+            // withinGroupClause` — NO FILTER slot. cpp rejects
+            // `f(args) FILTER (WHERE …) WITHIN GROUP (…)`. If the
+            // `parse_optional_filter` above ate a FILTER we have to
+            // surface the divergence instead of silently dropping it.
             if matches!(self.peek(), TokenKind::Keyword(Kw::Within))
                 && self.peek_next() == TokenKind::Keyword(Kw::Group)
             {
+                if filter_expr_for_window.is_some() {
+                    return Err(self.err(
+                        "FILTER (WHERE ...) is not valid before WITHIN GROUP — the grammar's ColumnExprFunctionWithinGroup has no FILTER slot",
+                    ));
+                }
                 self.bump()?;
                 self.bump()?;
                 self.expect(TokenKind::LParen, "(")?;
