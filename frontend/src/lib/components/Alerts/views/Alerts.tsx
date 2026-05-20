@@ -147,6 +147,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                             'Actions' in the sidebar and click 'Alerts'
                         </span>
                     }
+                    mcpSurfaceKey="alerts.create"
                 />
             )}
 

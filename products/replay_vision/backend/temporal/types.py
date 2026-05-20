@@ -104,16 +104,42 @@ class EventTable(BaseModel, frozen=True):
                 raise ValueError(f"rows[{index}] has {len(row)} values but columns has {column_count}")
         return self
 
+    def as_dicts(self) -> list[dict[str, Any]]:
+        """Zip columns and rows into per-event dicts for prompt-template rendering."""
+        return [dict(zip(self.columns, row)) for row in self.rows]
+
+
+class SessionMetadata(BaseModel, frozen=True):
+    """Session-level context exposed to the LLM prompt."""
+
+    start_time: dt.datetime
+    end_time: dt.datetime
+    duration_seconds: float
+    # ClickHouse derives these from `sum(active_milliseconds)/1000`, so they're floats in practice (e.g. 30.5s).
+    active_seconds: float | None = None
+    inactive_seconds: float | None = None
+    click_count: int | None = None
+    keypress_count: int | None = None
+    mouse_activity_count: int | None = None
+    start_url: str | None = None
+    console_error_count: int | None = None
+    events_truncated: bool = False
+
+    def as_prompt_dict(self) -> dict[str, Any]:
+        """Drop unset (None) fields so the prompt isn't padded with `null`s."""
+        return self.model_dump(mode="json", exclude_none=True)
+
 
 class LensLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 
     session_id: str
     team_id: int
-    session_start_time: dt.datetime
-    session_end_time: dt.datetime
-    duration_seconds: float
     events: EventTable
+    # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
+    url_mapping: dict[str, str] = Field(default_factory=dict)
+    window_mapping: dict[str, str] = Field(default_factory=dict)
+    metadata: SessionMetadata
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):

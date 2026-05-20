@@ -381,6 +381,8 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "posthog",
+    "products.data_warehouse",
+    "products.event_definitions",
 ]
 layer = "modules"
 

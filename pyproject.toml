@@ -221,7 +221,7 @@ dev = [
     "grpcio-tools~=1.71.0",
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",
-    "mypy~=1.19.1",
+    "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
     "ty==0.0.29",
     # openapi-spec-validator needed for prance as a validation backend
