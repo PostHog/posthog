@@ -687,12 +687,10 @@ class LazyComputationExecutor:
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
 
-        had_ready_at_start = False
-        initial_state_captured = False
+        had_ready_at_start: bool | None = None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            did_work = jobs_created > 0 or bool(waited_job_ids)
-            if not did_work:
+            if jobs_created == 0 and not waited_job_ids:
                 cache_state = "hit"
             elif had_ready_at_start:
                 cache_state = "partial_hit"
@@ -734,9 +732,8 @@ class LazyComputationExecutor:
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
 
-                if not initial_state_captured:
+                if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
-                    initial_state_captured = True
 
                 # Step 3: Insert missing ranges
                 did_work = False
