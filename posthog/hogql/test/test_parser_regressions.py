@@ -809,6 +809,38 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_return_expr_prefix_shortened_when_assignment_follows(self):
+        # `returnStmt: RETURN columnExpr? SEMICOLON?` — the columnExpr is
+        # optional. When the full following expression would strand a
+        # `:=`, cpp's ANTLR ALL(*) backtracks to the shortest expression
+        # PREFIX that leaves the rest parseable as the next statement.
+        # The shortenings cpp prefers:
+        #
+        #   `return * columns(…) := X` → expr = Field(['*']); the
+        #     `columns(…) := X` is a VarAssignment with the columns
+        #     call as its lvalue.
+        #   `return columns(…) := X` → expr = Field(['columns']); the
+        #     parens become a parenthesised columnExpr that takes `:=`.
+        #
+        # Rust's prior lookahead bailed all the way to a bare return,
+        # producing a divergent AST shape.
+        cases = (
+            "fn f() { return * columns('a') := columns('b') }",
+            "fn f() { return columns('a') := columns('b') }",
+            "fn f() { return * x := y }",
+            "fn f() { return *x := y }",
+            # Guard cases that should *not* shorten:
+            "fn f() { return X := Y }",       # NamedArgument inside return
+            "fn f() { return a.b := c }",     # No valid prefix; bare return
+            "fn f() { return * }",            # Bare asterisk
+            "fn f() { return *columns('a') }",  # No `:=`; full SpreadExpr
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_interpolate_as_lambda_value(self):
         # `interpolateExpr: columnExpr (AS columnExpr)?` — both sides
         # are full `columnExpr`s, so the AS-value may be a lambda

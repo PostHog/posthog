@@ -29,6 +29,7 @@
 use serde_json::{json, Value};
 
 use super::{identifier_text, kw_valid_as_identifier, Parser};
+use crate::emit;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
@@ -192,13 +193,46 @@ impl<'a> Parser<'a> {
             let cp = self.checkpoint();
             match self.parse_stmt_rhs_expr() {
                 Ok(_) if self.peek() == TokenKind::ColonEquals => {
-                    // `return <expr> := …` — taking the expression
-                    // would strand the `:=`. cpp's ALL(*) makes the
-                    // `return` bare so `<expr> := …` opens the next
-                    // statement (a varAssignment). The `:=` LHS is any
-                    // expression — cpp does no target validation.
+                    // `return <expr> := …` — taking the full expression
+                    // would strand the `:=`. cpp's ALL(*) backtracks to
+                    // the shortest expr PREFIX that leaves the rest
+                    // parseable as a statement. The common shortenings:
+                    //
+                    //  - `return * columns(…) := …` → expr is just `*`
+                    //    (Field(['*'])); the `columns(…) := …` becomes
+                    //    a varAssignment whose lvalue is the `columns`
+                    //    call. cpp would also take this for `return *X
+                    //    := Y` where X is any single token.
+                    //  - `return columns(…) := …` → expr is `columns`
+                    //    (Field(['columns'])); the `(…) := …` becomes
+                    //    a varAssignment whose lvalue is the
+                    //    parenthesised inner.
+                    //  - Otherwise (e.g. `return a.b := c`) no
+                    //    valid shortening exists; fall back to bare
+                    //    return so `a.b := c` opens the next stmt.
                     self.restore(cp)?;
-                    obj.insert("expr".into(), Value::Null);
+                    if self.peek() == TokenKind::Asterisk {
+                        self.bump()?;
+                        obj.insert(
+                            "expr".into(),
+                            emit::field(vec![Value::String("*".into())]),
+                        );
+                    } else if matches!(
+                        self.peek(),
+                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+                    ) && self.peek_next() == TokenKind::LParen
+                    {
+                        // `IDENT(...) := X` shortens to Field([IDENT]).
+                        // Guard on `(` after the ident so we don't
+                        // accidentally consume an unrelated IDENT that
+                        // wouldn't have parsed as a SpreadColumns /
+                        // call form.
+                        let t = self.bump()?;
+                        let name = identifier_text(self.text(t), t.kind);
+                        obj.insert("expr".into(), emit::field(vec![Value::String(name)]));
+                    } else {
+                        obj.insert("expr".into(), Value::Null);
+                    }
                 }
                 Ok(expr) => {
                     obj.insert("expr".into(), expr);
