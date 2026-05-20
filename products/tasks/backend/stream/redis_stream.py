@@ -297,9 +297,9 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(sequence_key, completed_key)
-                    last_sequence_raw = await self._redis_client.get(sequence_key)
+                    last_sequence_raw = await pipe.get(sequence_key)
                     last_sequence = _normalize_redis_int(last_sequence_raw)
-                    if await self._redis_client.exists(completed_key):
+                    if await pipe.exists(completed_key):
                         raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
 
                     if sequence <= last_sequence:
@@ -362,7 +362,7 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(completed_key)
-                    if await self._redis_client.exists(completed_key):
+                    if await pipe.exists(completed_key):
                         return
 
                     pipe.multi()
@@ -401,9 +401,9 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(sequence_key, completed_key)
-                    last_sequence_raw = await self._redis_client.get(sequence_key)
+                    last_sequence_raw = await pipe.get(sequence_key)
                     last_sequence = _normalize_redis_int(last_sequence_raw)
-                    if await self._redis_client.exists(completed_key):
+                    if await pipe.exists(completed_key):
                         return
 
                     if last_sequence != final_sequence:
