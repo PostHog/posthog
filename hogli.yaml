@@ -13,6 +13,23 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+    # Environment loaded into every hogli invocation. Generic dotenv-style
+    # mechanism (like just/mise/task); secrets resolution is delegated to a
+    # configurable wrap binary (op/doppler/vault/…), not baked into hogli core.
+    env:
+        # Loaded in order; earlier files win for duplicate keys; shell env always wins.
+        files:
+            - .env.development
+            - .env.services
+        # Optional: when .env.local contains the marker substring AND the wrap
+        # binary is on PATH, hogli re-execs the whole invocation under it. If
+        # the wrap binary is missing, hogli loads .env.local directly with
+        # marker-matching lines skipped (so 'op://…' literals never leak as
+        # garbage env values that break downstream services with cryptic 401s).
+        secrets:
+            file: .env.local
+            marker: 'op://'
+            wrap: [op, run, --env-file, '{file}', --]
     telemetry:
         # Write-only project token for PostHog's internal hogli project.
         # It cannot read data; safe to commit. Standalone hogli users get a blank
