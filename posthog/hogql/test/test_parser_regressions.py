@@ -16,6 +16,7 @@ ratio check intermittently. Running each backend once here avoids that.
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import (
     ExposedHogQLError,
     SyntaxError as HogQLSyntaxError,
@@ -23,7 +24,7 @@ from posthog.hogql.errors import (
 from posthog.hogql.parser import parse_expr, parse_program, parse_select
 from posthog.hogql.visitor import clear_locations
 
-_BACKENDS = ("cpp-json", "rust-json", "python")
+_BACKENDS: tuple[HogQLParserBackend, ...] = ("cpp-json", "rust-json", "python")
 
 # The eight Hog-statement keywords. They head a `statement` and are
 # omitted from the grammar's `keyword` rule, so they are not valid
