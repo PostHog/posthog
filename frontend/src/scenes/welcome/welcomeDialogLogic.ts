@@ -148,6 +148,10 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
         setWelcomeDataError: (error: boolean) => ({ error }),
+        // Set when the welcome endpoint returns a 403 because the user still has to complete
+        // mandatory 2FA setup. Suppresses the dialog (and its retries) without flashing the
+        // generic "Try again" banner, which would otherwise compete with the 2FA setup modal.
+        markTwoFactorSetupRequired: true,
         // Bumped when another tab writes to localStorage (dismisses) so the current tab's
         // shouldShowDialog selector re-evaluates without needing a full page navigation.
         acknowledgeStorageChange: true,
@@ -192,6 +196,16 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 resetForOrgChange: () => false,
             },
         ],
+        // Sticky for the lifetime of the logic mount — flipped back off by `resetForOrgChange`
+        // (org switch) or `loadWelcomeData` (manual retry after 2FA setup completes).
+        twoFactorSetupRequired: [
+            false,
+            {
+                markTwoFactorSetupRequired: () => true,
+                loadWelcomeData: () => false,
+                resetForOrgChange: () => false,
+            },
+        ],
         // A monotonically-incrementing counter that shouldShowDialog depends on so cross-tab
         // localStorage changes trigger a re-computation of the selector.
         storageTick: [
@@ -215,6 +229,18 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                             typeof error === 'object' && error !== null && 'status' in error
                                 ? (error as { status?: unknown }).status
                                 : undefined
+                        const code =
+                            typeof error === 'object' && error !== null && 'code' in error
+                                ? (error as { code?: unknown }).code
+                                : undefined
+                        // Newly-invited users in `enforce_2fa` orgs hit a 403 here before they've
+                        // had a chance to set up 2FA. The global apiStatusLogic is already opening
+                        // the 2FA setup modal in response — suppress the dialog (and its retries)
+                        // so it doesn't race the setup flow with a misleading "Try again" banner.
+                        if (status === 403 && code === 'two_factor_setup_required') {
+                            actions.markTwoFactorSetupRequired()
+                            return EMPTY_PAYLOAD
+                        }
                         console.warn('Failed to load welcome data', error)
                         actions.setWelcomeDataError(true)
                         // Surface in PostHog so fleet-level error rate is observable; console.warn
@@ -238,12 +264,35 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             (s) => [s.welcomeData, s.user],
             (data, user): string => data.organization_name || user?.organization?.name || '',
         ],
+        // Best-effort pre-emptive check: when the org enforces 2FA but the user hasn't completed
+        // setup, the welcome endpoint will 403 — avoid even firing the request. We can't perfectly
+        // replicate the backend's full check (SSO bypass, session enforcement date, has-passkeys
+        // ledger) on the frontend, so the `two_factor_setup_required` response-code handler in the
+        // loader is the authoritative fallback.
+        isPendingTwoFactorSetup: [
+            (s) => [s.user],
+            (user): boolean => {
+                if (!user || user.organization?.enforce_2fa !== true) {
+                    return false
+                }
+                if (user.is_2fa_enabled) {
+                    return false
+                }
+                if (user.passkeys_enabled_for_2fa) {
+                    return false
+                }
+                return true
+            },
+        ],
         // Only open for invitees (not the org creator) who haven't already dismissed it.
         // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
         shouldShowDialog: [
-            (s) => [s.user, s.locallyClosed, s.storageTick],
-            (user, locallyClosed): boolean => {
+            (s) => [s.user, s.locallyClosed, s.storageTick, s.twoFactorSetupRequired, s.isPendingTwoFactorSetup],
+            (user, locallyClosed, _storageTick, twoFactorSetupRequired, isPendingTwoFactorSetup): boolean => {
                 if (!user || user.is_organization_first_user !== false) {
+                    return false
+                }
+                if (twoFactorSetupRequired || isPendingTwoFactorSetup) {
                     return false
                 }
                 const orgId = user.organization?.id
@@ -314,6 +363,15 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
         shouldShowDialog: (shouldShow: boolean) => {
             if (shouldShow && !values.hasLoadedOnce && !values.welcomeDataLoading) {
+                actions.loadWelcomeData()
+            }
+        },
+        // When the user completes 2FA setup, `userLogic` refetches and `is_2fa_enabled` flips true,
+        // so `isPendingTwoFactorSetup` transitions false. Retry the load — the previous attempt was
+        // suppressed (either pre-emptively or by the 403 handler) and `hasLoadedOnce` is sticky, so
+        // the `shouldShowDialog` subscription alone wouldn't re-fire the fetch.
+        isPendingTwoFactorSetup: (next, previous) => {
+            if (previous === true && next === false && !values.welcomeDataLoading) {
                 actions.loadWelcomeData()
             }
         },
