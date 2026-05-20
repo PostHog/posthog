@@ -53,10 +53,11 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
             <div className="flex-[3]">
                 <LemonSlider
                     value={displayValue}
-                    onChange={restrictionReason ? undefined : handleChange}
+                    onChange={handleChange}
                     min={1}
                     max={100}
                     step={1}
+                    disabledReason={restrictionReason || (experimentsConfigLoading ? 'Loading...' : undefined)}
                 />
             </div>
             <div className="flex-1 flex items-center gap-1">
