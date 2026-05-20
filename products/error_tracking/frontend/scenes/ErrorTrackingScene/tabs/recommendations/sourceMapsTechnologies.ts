@@ -38,7 +38,7 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
 Detect the bundler/framework from package.json and apply the matching integration from PostHog's docs:
 
 - Next.js → install \`@posthog/nextjs-config\`, wrap \`next.config\` with \`withPostHogConfig\`.
-- Nuxt → install \`@posthog/cli\`, add a \`close\` hook in \`nuxt.config\` that runs \`posthog-cli sourcemap inject\` + \`posthog-cli sourcemap upload\` against \`.output\`.
+- Nuxt → check the \`nuxt\` version in \`package.json\` first. On Nuxt 3.7+ use the dedicated \`@posthog/nuxt\` module (register in \`modules\`, set \`sourcemap.client = 'hidden'\`, set \`nitro.rollupConfig.output.sourcemapExcludeSources = false\`, configure \`posthogConfig.sourcemaps\`). On Nuxt 3.6 and below the module isn't available — install \`@posthog/cli\` and add a \`close\` hook in \`nuxt.config\` that runs \`posthog-cli sourcemap inject\` + \`posthog-cli sourcemap upload\` against \`.output\`.
 - Vite / Rollup → install \`@posthog/rollup-plugin\` and add it to the plugins array.
 - Webpack → install \`@posthog/webpack-plugin\` and add it to the plugins array.
 - React Native (Expo 50+) → install \`@posthog/cli\`, wire \`posthog-react-native/metro\`, add the Expo plugin in \`app.json\`, and apply the gradle / Xcode build phase tweaks.
@@ -107,7 +107,60 @@ const nuxtPrompt = ({ host, projectId }: { host: string; projectId: number | str
     trim(`
 Set up PostHog source map uploads for my Nuxt app.
 
-Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything or invoking CLIs. The \`npm\` commands below are placeholders; translate them (\`pnpm add\` / \`pnpm dlx\`, \`yarn add\`, \`bun add\` / \`bunx\`, \`npx\`, etc.) accordingly. Prefer adding \`@posthog/cli\` as a devDependency over a global install — the build hooks just need it on PATH or via \`npx\`.
+First, detect the Nuxt version from \`package.json\` (\`dependencies\` or \`devDependencies\`, key \`nuxt\` — or \`nuxt3\` on very old setups). The strategy depends on it:
+
+- Nuxt 3.7 and above → use the dedicated \`@posthog/nuxt\` module (recommended; one config block in \`nuxt.config\`, no manual CLI hooks).
+- Nuxt 3.6 and below → the module isn't supported. Fall back to wiring \`@posthog/cli\` into a \`close\` hook in \`nuxt.config\`.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything or invoking CLIs. The \`npm\` commands below are placeholders; translate them (\`pnpm add\`, \`yarn add\`, \`bun add\`, \`npx\` / \`pnpm dlx\` / \`bunx\`, etc.) accordingly.
+
+== Path A — Nuxt 3.7+ (\`@posthog/nuxt\` module) ==
+
+1. Install the module:
+
+    npm install @posthog/nuxt
+
+2. Update \`nuxt.config.ts\` (merge with existing config — don't overwrite unrelated keys). If a public project token is already wired up elsewhere in the project, reuse it for \`publicKey\` instead of the placeholder:
+
+    export default defineNuxtConfig({
+      modules: ['@posthog/nuxt'],
+      sourcemap: {
+        client: 'hidden',
+      },
+      nitro: {
+        rollupConfig: {
+          output: {
+            sourcemapExcludeSources: false,
+          },
+        },
+      },
+      posthogConfig: {
+        publicKey: '<ph_project_token>',
+        host: '${host}',
+        clientConfig: {
+          capture_exceptions: true,
+        },
+        serverConfig: {
+          enableExceptionAutocapture: true,
+        },
+        sourcemaps: {
+          enabled: true,
+          project: '${projectId}',
+          personalApiKey: process.env.POSTHOG_CLI_API_KEY,
+          releaseName: 'my-application',
+          releaseVersion: '1.0.0',
+        },
+      },
+    })
+
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host and project ID are hardcoded above, don't introduce env vars for them):
+   - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
+
+4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config before defaulting to \`nuxt build\`.
+
+5. Read the build output: the \`@posthog/nuxt\` module should log lines about uploading source maps to PostHog. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before continuing.
+
+== Path B — Nuxt 3.6 and below (\`@posthog/cli\` close hook) ==
 
 1. Install the CLI:
 
@@ -127,7 +180,7 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       },
     })
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host is passed as a CLI flag above, don't introduce a host env var):
+3. Env vars available to the build terminal (host is passed as a CLI flag above, don't introduce a host env var):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
    - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
 
@@ -135,9 +188,11 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
 
 5. Read the build output: the \`posthog-cli sourcemap inject\` / \`upload\` commands should log lines about injecting + uploading source maps. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits from the CLI, stop and surface them to me before continuing.
 
-6. After that, ask me whether to add a "Throw test error" button to a page in the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to trigger one error against the new build and confirm the stack trace symbolicates back to my Vue/TS source in PostHog.
+== After upload works (both paths) ==
 
-Docs: https://posthog.com/docs/error-tracking/upload-source-maps/nuxt
+Ask me whether to add a "Throw test error" button to a page in the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to trigger one error against the new build and confirm the stack trace symbolicates back to my Vue/TS source in PostHog.
+
+Docs: https://posthog.com/docs/error-tracking/installation/nuxt
 `)
 
 const vitePrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
@@ -406,7 +461,7 @@ export const SOURCE_MAPS_TECHNOLOGIES: Technology[] = [
         key: 'nuxt',
         name: 'Nuxt',
         image: nuxtImage,
-        docsLink: 'https://posthog.com/docs/error-tracking/upload-source-maps/nuxt',
+        docsLink: 'https://posthog.com/docs/error-tracking/installation/nuxt',
         envVars: CLI_ENV,
         buildPrompt: nuxtPrompt,
     },
