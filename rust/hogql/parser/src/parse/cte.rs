@@ -79,6 +79,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_with_expr(&mut self) -> Result<Value, ParseError> {
+        let cte_start = self.peek0.start;
         // The grammar's `identifier` rule accepts plain IDENTIFIERs,
         // QUOTED_IDENTIFIERs, and (most) reserved keywords — see
         // HogQLParser.g4's `identifier` and `keyword` rules — so we
@@ -163,7 +164,8 @@ impl<'a> Parser<'a> {
                     nxt = probe.next_token().ok();
                 }
                 if matches!(nxt.as_ref().map(|t| t.kind), Some(TokenKind::LParen)) {
-                    return self.parse_with_expr_subquery();
+                    let sub = self.parse_with_expr_subquery()?;
+                    return Ok(self.wrap_pos(sub, cte_start));
                 }
             }
         }
@@ -191,7 +193,10 @@ impl<'a> Parser<'a> {
                 )));
             }
         };
-        Ok(json!({"node": "CTE", "name": name, "expr": expr, "cte_type": "column"}))
+        Ok(self.wrap_pos(
+            json!({"node": "CTE", "name": name, "expr": expr, "cte_type": "column"}),
+            cte_start,
+        ))
     }
 
     fn parse_with_expr_subquery(&mut self) -> Result<Value, ParseError> {

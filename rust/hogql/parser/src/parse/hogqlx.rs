@@ -71,6 +71,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_hogqlx_tag_element_inner(&mut self) -> Result<Value, ParseError> {
+        let tag_start = self.peek0.start;
         self.expect(TokenKind::Lt, "<")?;
         let kind = self.parse_hogqlx_identifier("tag name")?;
         let mut attributes: Vec<Value> = Vec::new();
@@ -78,11 +79,14 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 TokenKind::SlashGt => {
                     self.bump()?;
-                    return Ok(json!({
-                        "node": "HogQLXTag",
-                        "kind": kind,
-                        "attributes": attributes,
-                    }));
+                    return Ok(self.wrap_pos(
+                        json!({
+                            "node": "HogQLXTag",
+                            "kind": kind,
+                            "attributes": attributes,
+                        }),
+                        tag_start,
+                    ));
                 }
                 TokenKind::Gt => {
                     self.bump()?;
@@ -112,11 +116,14 @@ impl<'a> Parser<'a> {
                             "value": children,
                         }));
                     }
-                    return Ok(json!({
-                        "node": "HogQLXTag",
-                        "kind": kind,
-                        "attributes": attributes,
-                    }));
+                    return Ok(self.wrap_pos(
+                        json!({
+                            "node": "HogQLXTag",
+                            "kind": kind,
+                            "attributes": attributes,
+                        }),
+                        tag_start,
+                    ));
                 }
                 TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
                     attributes.push(self.parse_hogqlx_attribute()?);

@@ -192,10 +192,14 @@ impl<'a> Parser<'a> {
         // shape (PivotExpr's `table` is the bare Field). When the
         // JoinExpr carries an alias / final / sample / column_aliases,
         // keep it as is since that decoration belongs *inside* the PIVOT.
+        // `start` / `end` are position metadata, not grammar decoration —
+        // exclude from the decoration probe.
         let pivot_input = if joined_any {
             left
         } else if let Some(obj) = left.as_object() {
-            let has_decorations = obj.keys().any(|k| k != "node" && k != "table");
+            let has_decorations = obj
+                .keys()
+                .any(|k| !matches!(k.as_str(), "node" | "table" | "start" | "end"));
             if has_decorations {
                 left
             } else {
