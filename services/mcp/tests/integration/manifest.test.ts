@@ -1,37 +1,16 @@
-import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 
-import { CONTEXT_MILL_URL } from '@/resources/index'
-import { loadContextMillManifest } from '@/resources/manifest-loader'
+import { fetchContextMillResources, loadManifestFromArchive } from '@/resources/internals'
 
 describe('Context-Mill Manifest Integration', () => {
     it('should fetch, unzip, and validate the manifest from GitHub releases', async () => {
-        // Fetch the resources ZIP
-        const response = await fetch(CONTEXT_MILL_URL)
-        expect(response.ok).toBe(true)
-
-        // Unzip the archive
-        const arrayBuffer = await response.arrayBuffer()
-        const uint8Array = new Uint8Array(arrayBuffer)
-        const archive = unzipSync(uint8Array)
+        const archive = await fetchContextMillResources()
 
         // Verify archive is not empty
         expect(Object.keys(archive).length).toBeGreaterThan(0)
 
-        // Verify manifest.json exists
-        const manifestData = archive['manifest.json']
-        expect(manifestData).toBeTruthy()
-        if (!manifestData) {
-            throw new Error('manifest.json not found in archive')
-        }
-
-        // Verify manifest is valid JSON
-        const manifestJson = strFromU8(manifestData)
-        const manifest = JSON.parse(manifestJson)
-        expect(manifest).toBeTruthy()
-
-        // Validate manifest structure using our loader (throws if invalid)
-        const validatedManifest = loadContextMillManifest(manifest)
+        // Verify manifest.json exists and validates
+        const validatedManifest = loadManifestFromArchive(archive)
 
         // Verify expected structure
         expect(validatedManifest.version).toBe('1.0')
@@ -51,5 +30,5 @@ describe('Context-Mill Manifest Integration', () => {
                 expect(archive[entry.file]).toBeTruthy()
             }
         }
-    }, 30000) // 30 second timeout for network request
+    }, 30000)
 })
