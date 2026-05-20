@@ -186,11 +186,11 @@ def create_organization_with_team(
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
-    # Add advanced permissions feature for password-protected sharing
+    # Add access control feature for password-protected sharing
     organization.available_product_features = [
         {
-            "key": AvailableFeature.ADVANCED_PERMISSIONS,
-            "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            "key": AvailableFeature.ACCESS_CONTROL,
+            "name": AvailableFeature.ACCESS_CONTROL,
         }
     ]
     organization.save()

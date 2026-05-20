@@ -173,7 +173,7 @@ export function Chart<Meta = unknown>({
                 axisOrientation,
                 labelToCoord,
             }),
-        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord]
+        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current]
     )
 
     useChartDraw({

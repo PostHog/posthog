@@ -1,4 +1,84 @@
 {
+    "accounts-create": {
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account",
+        "title": "Create account",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-destroy": {
+        "description": "Permanently delete a Customer Analytics account by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account",
+        "title": "Delete account",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-list": {
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List accounts",
+        "title": "List accounts",
+        "required_scopes": ["account:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-partial-update": {
+        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account",
+        "title": "Update account",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-retrieve": {
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account",
+        "title": "Get account",
+        "required_scopes": ["account:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "action-create": {
         "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
         "category": "Actions",
@@ -1671,7 +1751,7 @@
         }
     },
     "experiment-ship-variant": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the feature flag for 100% of users and cannot be undone via the API. Even when the user has asked you to ship a specific variant, ask them to confirm with the variant key and target experiment before invoking this tool.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the linked feature flag and cannot be undone via the API. Two release modes — confirm which one the user wants before invoking:\n\n- Default (release_to_everyone=false): updates only the variant distribution so the selected variant gets 100%. Existing release conditions and per-user variant overrides on the flag are preserved untouched — the variant is served only to users who already match them.\n\n- release_to_everyone=true: in addition to flipping the variant distribution, prepends a catch-all release condition that rolls the variant out to 100% of users. This OVERRIDES any existing release conditions and per-user variant overrides on the flag. Only use this when the user explicitly wants to release beyond the experiment's existing population.\n\nEven when the user has asked you to ship a specific variant, ask them to confirm with the variant key, target experiment, and release mode before invoking this tool.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Ship experiment variant",
@@ -2141,6 +2221,21 @@
         "feature": "flags",
         "summary": "Get feature flag evaluation reasons",
         "title": "Get feature flag evaluation reasons",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-my-flags-retrieve": {
+        "description": "List all feature flags in the current project along with their evaluated value for the authenticated user (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON object to evaluate group-based flags.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get my evaluated feature flags",
+        "title": "Get my evaluated feature flags",
         "required_scopes": ["feature_flag:read"],
         "new_mcp": true,
         "annotations": {

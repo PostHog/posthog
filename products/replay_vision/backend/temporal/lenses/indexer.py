@@ -9,6 +9,7 @@ from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLe
 
 
 class IndexerOutput(BaseLensOutput, frozen=True):
+    lens_type: Literal[LensType.INDEXER] = LensType.INDEXER
     summary: str = Field(description="One-sentence summary of what happened in the session.")
     user_type: str = Field(description="One-sentence characterization of the user (role, intent, behavior).")
     outcome: str = Field(description="One-sentence summary of how the session ended.")

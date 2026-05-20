@@ -13,6 +13,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
+import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -586,6 +587,14 @@ class TestIsPartitionedTable:
             for stmt in setup_ddl:
                 dj_cursor.execute(stmt)
             assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
+
+
+class TestPartitionedTableChunkSizing:
+    """Incremental reads use per-child partition queries; no parent FETCH chunk cap."""
+
+    def test_no_partitioned_fetch_cap_exported(self) -> None:
+        assert not hasattr(partitioned_tables_pkg, "PARTITIONED_TABLE_MAX_CHUNK_SIZE")
+        assert "PARTITIONED_TABLE_MAX_CHUNK_SIZE" not in partitioned_tables_pkg.__all__
 
 
 class TestGetEstimatedRowCountForPartitionedTable:

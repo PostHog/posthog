@@ -47,3 +47,9 @@ export const aiOtelOlderSpecEventsCounter = new Counter({
     help: 'Outcome of decoding the older OTel GenAI span-events `events` attribute',
     labelNames: ['outcome'],
 })
+
+export const aiOtelSystemInstructionsCounter = new Counter({
+    name: 'llma_ai_otel_system_instructions_total',
+    help: 'Outcome of promoting `gen_ai.system_instructions` into a leading $ai_input system message',
+    labelNames: ['outcome'],
+})

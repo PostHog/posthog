@@ -93,11 +93,16 @@ def _generate_resource_attribute_filters(
         converted_exprs.append(converted_expr)
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
+    # For positive filters we want resources that match ALL filters (arrayAll), then keep them via IN.
+    # For negative filters we want to exclude resources that match ANY of the inverted filters
+    # (arrayExists), then drop them via NOT IN — otherwise multiple negatives would only exclude
+    # resources that match every one of them, instead of any one of them.
+    array_fn = "arrayExists" if is_negative_filter else "arrayAll"
 
     # this query fetches all resource fingerprints that match at least one resource attribute filter
-    # then does a secondary filter for those that match every filter
+    # then does a secondary filter for those that match every filter (positive) or any filter (negative)
     # this sounds over complicated but it's because each row in the table is a single attribute - so we need to first group
-    # them to collapse the rows into a single row per resource fingerprint, _then_ check every filter is met
+    # them to collapse the rows into a single row per resource fingerprint, _then_ check the per-filter match counts
     return parse_expr(
         f"""
         (resource_fingerprint) {IN_}
@@ -110,7 +115,7 @@ def _generate_resource_attribute_filters(
                 AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
                 AND {{resource_attribute_filters}} AND {{existing_filters}}
             GROUP BY resource_fingerprint
-            HAVING arrayAll(x -> x > 0, sumForEach({{ops}}))
+            HAVING {array_fn}(x -> x > 0, sumForEach({{ops}}))
         )
     """,
         placeholders={

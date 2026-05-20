@@ -1,5 +1,67 @@
 # Logs
 
+## `logs` (data plane)
+
+OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_distributed`.
+
+**Prefer the typed tool when it fits:** `posthog:query-logs` for filtered list queries (with the encoded discovery → narrow → count → drill-down workflow). Reach for HogQL when you need cross-signal joins (with `posthog.trace_spans` or `posthog.metrics` by `trace_id`) or aggregations the typed tool doesn't expose.
+
+**Namespacing:** `logs` and `log_attributes` are registered at the HogQL root level — reference them as bare names. (Asymmetric with `posthog.trace_spans` and `posthog.metrics`, which require the `posthog.` namespace prefix.)
+
+### Columns
+
+| Column                  | Type                                | Description                                                                                        |
+| ----------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `uuid`                  | String                              | Row UUID                                                                                           |
+| `team_id`               | Int32                               | Team this log belongs to                                                                           |
+| `trace_id`              | String                              | OTel trace ID (24-char base64-encoded 16 bytes). `'AAAAAAAAAAAAAAAAAAAAAA=='` when unset, not null |
+| `span_id`               | String                              | OTel span ID (12-char base64-encoded 8 bytes). `'AAAAAAAAAAA='` when unset                         |
+| `body`                  | String                              | Log message. Also exposed as `message`                                                             |
+| `severity_text`         | LowCardinality(String)              | `trace`, `debug`, `info`, `warn`, `error`, `fatal`                                                 |
+| `severity_number`       | Int32                               | OTel severity number (lower = less severe)                                                         |
+| `level`                 | LowCardinality(String)              | Alias for `severity_text`                                                                          |
+| `service_name`          | LowCardinality(String)              | Emitting service                                                                                   |
+| `attributes`            | Map(String, String)                 | Log-level attributes (e.g. `http.method`, `error.type`)                                            |
+| `resource_attributes`   | Map(LowCardinality(String), String) | Resource-level attributes (k8s labels, deployment info)                                            |
+| `resource_fingerprint`  | UInt64                              | Hash of `resource_attributes`                                                                      |
+| `instrumentation_scope` | String                              | Instrumentation library                                                                            |
+| `event_name`            | String                              | OTel event name (often empty)                                                                      |
+| `time_bucket`           | DateTime                            | `toStartOfDay(timestamp)`                                                                          |
+| `timestamp`             | DateTime64(9)                       | Log time                                                                                           |
+| `observed_timestamp`    | DateTime64(9)                       | Ingest time                                                                                        |
+
+### Sort key
+
+`(team_id, service_name, toUnixTimestamp(timestamp))`. Queries that filter on `service_name` + a time window are very efficient. **Never query without a `service_name` filter and a time window** — unfiltered queries can scan terabytes. `resource_attributes` is a Map column outside the sort key, so a `resource_attributes` filter alone does **not** prune granules the way `service_name` does and is no substitute for it.
+
+### Important notes
+
+- **`trace_id` and `span_id` are base64-encoded bytes**, not hex. The displayed hex form (e.g. `21EDB3A025A9ECD32ADF3E5D7548A4F4`) comes from the API layer via `hex(tryBase64Decode(trace_id))`. Raw HogQL queries see the 24-character base64 form (e.g. `21EDB3A025A9ECD32ADF3E5D7548A4F4` becomes `Ie2zoCWp7NMq3z5ddUik9A==`).
+- **Unset `trace_id` is `'AAAAAAAAAAAAAAAAAAAAAA=='`** (16 zero bytes encoded), not the hex zero-padded form. Use `trace_id != 'AAAAAAAAAAAAAAAAAAAAAA=='` to find logs with trace context. Or use the explicit decode: `tryBase64Decode(trace_id) != unhex('00000000000000000000000000000000')`.
+- **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
+- **Prefer `severity_text` over `severity_number` / `level`** for human-readable filters.
+- Cross-signal joins by `trace_id` work against `posthog.trace_spans` (both store base64) and `posthog.metrics` _once exemplar extraction is wired up in ingestion_ — see the metrics reference for the current state.
+- User HogQL queries on `logs` are capped at 50 GB read per query.
+
+## `log_attributes`
+
+AggregatingMergeTree rollup of log attribute values, partitioned by service and 10-minute bucket. Same pattern as `trace_attributes` / `metric_attributes`.
+
+| Column                 | Type                                 | Description                                  |
+| ---------------------- | ------------------------------------ | -------------------------------------------- |
+| `team_id`              | Int32                                | Team                                         |
+| `time_bucket`          | DateTime64(0)                        | 10-minute bucket                             |
+| `service_name`         | LowCardinality(String)               | Emitting service                             |
+| `resource_fingerprint` | UInt64                               | Resource identity hash                       |
+| `attribute_key`        | LowCardinality(String)               | Attribute name                               |
+| `attribute_value`      | String                               | Attribute value                              |
+| `attribute_type`       | LowCardinality(String)               | `log` or `resource`                          |
+| `attribute_count`      | SimpleAggregateFunction(sum, UInt64) | Number of logs where this attribute appeared |
+
+Prefer `posthog:logs-attributes-list` / `posthog:logs-attribute-values-list` over querying this table directly — they handle the aggregation correctly.
+
+---
+
 ## LogsView (`system.logs_views`)
 
 Saved log views — named filter configurations that users create to quickly access frequently-used log queries.
@@ -82,6 +144,52 @@ Alerts that monitor log volume and notify users when thresholds are breached. Us
 ---
 
 ## Common Query Patterns
+
+### Data plane (`logs`)
+
+**Top-10 noisiest services by error log volume in the last hour:**
+
+```sql
+SELECT service_name, count() AS errors
+FROM logs
+WHERE severity_text IN ('error', 'fatal')
+  AND timestamp >= now() - INTERVAL 1 HOUR
+GROUP BY service_name
+ORDER BY errors DESC
+LIMIT 10
+```
+
+**Logs in a specific trace** (input the hex form; convert internally):
+
+```sql
+SELECT timestamp, severity_text, service_name, body
+FROM logs
+WHERE trace_id = base64Encode(unhex('<hex_trace_id>'))
+ORDER BY timestamp
+```
+
+If you already have the trace_id in base64 form (e.g. selected directly from the table), compare it as-is:
+
+```sql
+SELECT timestamp, severity_text, service_name, body
+FROM logs
+WHERE trace_id = 'Ie2zoCWp7NMq3z5ddUik9A=='
+ORDER BY timestamp
+```
+
+**Logs matching a body substring on a service in a time window:**
+
+```sql
+SELECT timestamp, severity_text, body
+FROM logs
+WHERE service_name = 'api-gateway'
+  AND timestamp >= now() - INTERVAL 6 HOUR
+  AND body ILIKE '%connection refused%'
+ORDER BY timestamp DESC
+LIMIT 100
+```
+
+### Control plane
 
 **List all saved log views:**
 
