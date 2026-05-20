@@ -50,6 +50,7 @@ def _render_template(template: str, product_name: str, *, separate_db: bool) -> 
     pascal_name = "".join(word.capitalize() for word in product_name.split("_"))
     return template.format(
         product=product_name,
+        product_kebab=product_name.replace("_", "-"),
         Product=pascal_name,
         **_team_scope_template_vars(separate_db=separate_db),
     )
