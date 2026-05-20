@@ -167,6 +167,8 @@ class TestCreateExperimentTool(APIBaseTest):
             "has_description": False,
             "variant_count": 2,
             "created_at": ANY,
+            "conclusion": None,
+            "has_conclusion_comment": False,
             "creation_mode": "new",
             "source": EventSource.POSTHOG_AI,
         }

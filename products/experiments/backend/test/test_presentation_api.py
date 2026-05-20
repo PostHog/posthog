@@ -262,6 +262,8 @@ class TestExperimentCRUD(APILicensedTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": ANY,
+                "conclusion": None,
+                "has_conclusion_comment": False,
                 "creation_mode": "new",
             },
         )
@@ -3475,6 +3477,8 @@ class TestExperimentCRUD(APILicensedTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": ANY,
+                "conclusion": None,
+                "has_conclusion_comment": False,
                 "creation_mode": expected_mode,
                 "allow_unknown_events": True,
             },
