@@ -8,11 +8,8 @@ from posthog.clickhouse.property_values import (
     PROPERTY_VALUES_MV_SQL,
 )
 
-# Kafka engine tables don't support ALTER ADD COLUMN cleanly, so we drop and
-# recreate the MV + Kafka engine table together. Consumer offsets live in
-# Kafka (in the consumer group) so the new Kafka table picks up where the old
-# one left off. Brief gap in consumption between drop and create; messages
-# queue in Kafka.
+# Kafka engine tables don't support ALTER ADD COLUMN, so we drop and recreate
+# the MV + Kafka engine table together.
 
 if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
     _ROLES = [NodeRole.AUX]
