@@ -3790,10 +3790,22 @@ impl<'a> Parser<'a> {
                 let part = self.bump()?;
                 match part.kind {
                     TokenKind::Number => {
-                        let n: i64 = self.text(part).parse().map_err(|_| {
+                        // cpp's lexer matches `0123` as OCTAL_PREFIX_LITERAL,
+                        // not DECIMAL_LITERAL — so a leading-zero multi-digit
+                        // index is grammatically rejected at the tuple-access
+                        // alt. Rust's lexer collapses both forms into one
+                        // `Number` token and used to silently re-parse it as
+                        // decimal (`a.0123` → TupleAccess(a, 123)).
+                        let text = self.text(part);
+                        if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
+                            return Err(self.err(format!(
+                                "expected decimal integer after '.', got {text:?}"
+                            )));
+                        }
+                        let n: i64 = text.parse().map_err(|_| {
                             self.err(format!(
                                 "expected integer after '.', got {:?}",
-                                self.text(part)
+                                text
                             ))
                         })?;
                         Ok(emit::tuple_access(lhs, n, false))
@@ -3839,10 +3851,18 @@ impl<'a> Parser<'a> {
                 let part = self.bump()?;
                 match part.kind {
                     TokenKind::Number => {
-                        let n: i64 = self.text(part).parse().map_err(|_| {
+                        // Same OCTAL_PREFIX_LITERAL vs DECIMAL_LITERAL
+                        // split as the regular `.<N>` branch above.
+                        let text = self.text(part);
+                        if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
+                            return Err(self.err(format!(
+                                "expected decimal integer after '?.', got {text:?}"
+                            )));
+                        }
+                        let n: i64 = text.parse().map_err(|_| {
                             self.err(format!(
                                 "expected integer after '?.', got {:?}",
-                                self.text(part)
+                                text
                             ))
                         })?;
                         Ok(emit::tuple_access(lhs, n, true))

@@ -1789,6 +1789,31 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_tuple_access_rejects_leading_zero_index(self):
+        # cpp's lexer routes `0123` through `OCTAL_PREFIX_LITERAL`, not
+        # `DECIMAL_LITERAL`, so the postfix `.<DECIMAL_LITERAL>` tuple
+        # access alt grammar-rejects it. Rust's single `Number` token
+        # used to silently re-parse the leading-zero text as decimal
+        # and emit `TupleAccess(a, 123)` for `a.0123`.
+        for src in (
+            "a.0123",
+            "a.01",
+            "a.000123",
+            "a?.0123",
+            "a?.01",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="rust-json")
+        # Guards: single-zero, multi-digit-non-leading-zero, and the
+        # repeated float-style chain still parse.
+        for src in ("a.0", "a.1", "a.999", "a.1.5", "a.0.5", "a?.0", "a?.1"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_with_cte_admits_primary_form_keywords_as_name(self):
         # cpp's `withExpr: identifier AS LPAREN selectSetStmt RPAREN`
         # admits any keyword in the grammar's `keyword` rule as the CTE
