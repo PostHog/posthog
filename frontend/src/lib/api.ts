@@ -5486,6 +5486,7 @@ const api = {
                 | 'sync_frequency'
                 | 'sync_time_of_day'
                 | 'cdc_table_mode'
+                | 'enabled_columns'
             >[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
@@ -7022,6 +7023,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
+            }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
             }
         }
 

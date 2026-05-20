@@ -64,7 +64,12 @@ class TestSingleSessionSummary(BaseTest):
         self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
         self.assertEqual(
             summary.run_metadata,
-            {"model_used": "gpt-4", "visual_confirmation": False, "visual_confirmation_results": None},
+            {
+                "model_used": "gpt-4",
+                "visual_confirmation": False,
+                "visual_confirmation_results": None,
+                "failed_sessions": [],
+            },
         )
         self.assertEqual(summary.created_by, self.user)
         self.assertEqual(summary.team_id, self.team.id)
