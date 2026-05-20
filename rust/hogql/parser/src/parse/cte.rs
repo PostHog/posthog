@@ -11,7 +11,7 @@
 
 use serde_json::{json, Value};
 
-use super::{identifier_text, kw_acts_as_ident_in_primary, Parser, BP_ALIAS};
+use super::{identifier_text, kw_acts_as_ident_in_primary, kw_valid_as_identifier, Parser, BP_ALIAS};
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
@@ -126,8 +126,27 @@ impl<'a> Parser<'a> {
         // swallowed by the Pratt-level Alias operator.
         let expr = self.parse_expr_bp(BP_ALIAS + 1)?;
         self.expect_kw(Kw::As, "AS")?;
+        // `withExpr: columnExpr AS identifier` — the post-AS token must
+        // be a valid identifier (`IDENTIFIER | QUOTED_IDENTIFIER |
+        // interval | keyword`), NOT an arbitrary token. Without this
+        // check rust accepted `WITH a AS 1` with name="1" (raw token
+        // text) and `WITH ... AS 'foo'` with name="'foo'" (quotes
+        // preserved).
         let id = self.bump()?;
-        let name = identifier_text(self.text(id), id.kind);
+        let name = match id.kind {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(id), id.kind)
+            }
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                identifier_text(self.text(id), id.kind)
+            }
+            _ => {
+                return Err(self.err(format!(
+                    "expected identifier after AS in CTE, got {:?}",
+                    id.kind
+                )));
+            }
+        };
         Ok(json!({"node": "CTE", "name": name, "expr": expr, "cte_type": "column"}))
     }
 

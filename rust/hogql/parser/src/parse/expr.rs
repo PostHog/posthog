@@ -186,6 +186,12 @@ impl<'a> Parser<'a> {
                 Ok(emit::arith(emit::constant(Value::from(0)), "-", rhs))
             }
             TokenKind::Plus => {
+                // `+` is only a sign on a `numberLiteral` per grammar
+                // (`(PLUS | DASH)? (floatingLiteral | … | INF |
+                // NAN_SQL)`). There is no general unary-plus rule on
+                // columnExpr, so `+a`, `+f(x)`, `+(a)` etc. should all
+                // reject — only the numeric / INF / NAN forms below are
+                // valid.
                 match self.peek_next() {
                     TokenKind::Number => {
                         self.bump()?;
@@ -197,6 +203,7 @@ impl<'a> Parser<'a> {
                         if let Some(num) = self.consume_signed_dot_float(false)? {
                             return Ok(num);
                         }
+                        return Err(self.err("unary `+` only applies to a number literal"));
                     }
                     TokenKind::Keyword(Kw::Inf) => {
                         // cpp 1.3.45 strips a leading `+` before the
@@ -211,10 +218,10 @@ impl<'a> Parser<'a> {
                         self.bump()?;
                         return Ok(emit::constant_special_number("NaN"));
                     }
-                    _ => {}
+                    _ => {
+                        return Err(self.err("unary `+` only applies to a number literal"));
+                    }
                 }
-                self.bump()?;
-                self.parse_expr_bp(BP_UNARY_MINUS)
             }
             TokenKind::Keyword(Kw::Not) => {
                 // `NOT <X>` competes between three grammar rules:

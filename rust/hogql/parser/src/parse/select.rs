@@ -805,8 +805,15 @@ impl<'a> Parser<'a> {
             Tail::None
         };
 
-        // Trailing `WITH TIES` after the compact comma form.
-        if !with_ties && self.peek_kw2(Kw::With, Kw::Ties) {
+        // Trailing `WITH TIES` after the compact comma form. The
+        // verbose form (`LIMIT n WITH TIES OFFSET m`) puts WITH TIES
+        // BEFORE OFFSET, so a trailing WITH TIES is only valid after
+        // the compact form (Tail::Comma). `LIMIT n OFFSET m WITH TIES`
+        // doesn't match either grammar alt — cpp rejects.
+        if !with_ties
+            && matches!(tail, Tail::None | Tail::Comma(_))
+            && self.peek_kw2(Kw::With, Kw::Ties)
+        {
             self.bump()?;
             self.bump()?;
             with_ties = true;

@@ -809,6 +809,77 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_unary_plus_only_on_numeric_literal(self):
+        # `numberLiteral` grammar (line 380) makes `+` a sign prefix on
+        # number / INF / NAN — not a general unary operator. cpp rejects
+        # `+a`, `+f(x)`, `+(a)`, etc.; rust was bumping the `+` as a
+        # no-op prefix and returning the RHS unchanged.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = ("+a", "+(a)", "+(+a)", "+f(x)")
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # Numeric / INF / NAN forms still parse identically.
+        for src in ("+1", "+1.5", "+inf", "+nan"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                # NaN comparison is identity-only; pin parsing-success and
+                # node-type rather than full equality.
+                self.assertIsNotNone(got, msg=f"{backend}: {src!r}")
+                if src not in ("+nan",):
+                    self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_column_cte_requires_identifier_after_as(self):
+        # `withExpr: columnExpr AS identifier` — the post-AS token must
+        # be a valid identifier (incl. allowed keywords), not a number
+        # / string / parenthesised group. cpp rejects; rust was using
+        # the raw token text as the CTE name (e.g. `name='1'` for a
+        # `WITH a AS 1` CTE).
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "WITH a AS 1 SELECT a",
+            "WITH 1 + 1 AS 1 SELECT 1",
+            "WITH 1 + 1 AS 'foo' SELECT 'foo'",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Identifier names continue to work.
+        oracle = clear_locations(parse_select("WITH a AS b SELECT b", backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_select("WITH a AS b SELECT b", backend=backend))
+            self.assertEqual(got, oracle, msg=f"{backend}")
+
+    def test_limit_offset_with_ties_must_precede_offset(self):
+        # `limitAndOffsetClause` has two alternatives:
+        #   compact: `LIMIT n PERCENT? (COMMA n)? (WITH TIES)?`
+        #   verbose: `LIMIT n PERCENT? (WITH TIES)? OFFSET n`
+        # `LIMIT n OFFSET m WITH TIES` doesn't match either — WITH TIES
+        # must precede OFFSET in the verbose form. cpp rejects; rust
+        # was accepting because `parse_limit_clauses` checked for WITH
+        # TIES after both the Comma and Offset tails.
+        from posthog.hogql.errors import BaseHogQLError
+
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_select("SELECT a FROM t LIMIT 1 OFFSET 2 WITH TIES", backend="rust-json")
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_select("SELECT a FROM t LIMIT 1 OFFSET 2 WITH TIES", backend="cpp-json")
+        # Both valid forms still parse.
+        for src in (
+            "SELECT a FROM t LIMIT 1 WITH TIES OFFSET 2",
+            "SELECT a FROM t LIMIT 1, 2 WITH TIES",
+            "SELECT a FROM t LIMIT 1 WITH TIES",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_pivot_in_separator_extends_via_postfix_call(self):
         # `pivotColumn: columnExprTupleOrSingle IN LPAREN columnExprList
         # RPAREN`. The LHS columnExprTupleOrSingle is a full columnExpr,
