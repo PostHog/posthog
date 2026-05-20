@@ -186,7 +186,10 @@ pub fn placeholder(expr: Value) -> Value {
 }
 
 pub fn named_argument(name: &str, value: Value) -> Value {
-    json!({"node": "NamedArgument", "name": name, "value": value})
+    // cpp's `ColumnExprNamedArg` visitor omits `addPositionInfo`, so
+    // NamedArgument is always position-less. `no_pos` reserves the
+    // `start`/`end` keys so the outer pratt-loop wrap leaves it bare.
+    no_pos(json!({"node": "NamedArgument", "name": name, "value": value}))
 }
 
 pub fn ignore_nulls(expr: Value) -> Value {
@@ -267,6 +270,20 @@ pub fn with_pos(mut value: Value, start: Value, end: Value) -> Value {
             obj.insert("start".into(), start);
             obj.insert("end".into(), end);
         }
+    }
+    value
+}
+
+/// Mark a node as position-less so that downstream `with_pos` calls leave
+/// it bare. Pre-inserts explicit `null` `start` / `end` keys, which `with_pos`
+/// treats the same as "already positioned" via its `contains_key` check.
+/// Mirrors cpp visitors that emit a node without `addPositionInfo(json, ctx)` —
+/// the cpp `Json` then never gets `start` / `end` and the Python AST shows
+/// the dataclass defaults (`None`). Examples: `ColumnExprNamedArg` (NamedArgument).
+pub fn no_pos(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("start".into(), Value::Null);
+        obj.insert("end".into(), Value::Null);
     }
     value
 }

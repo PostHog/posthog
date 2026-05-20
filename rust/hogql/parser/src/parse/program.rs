@@ -775,7 +775,7 @@ impl<'a> Parser<'a> {
                 let _ = self.eat(TokenKind::Semicolon)?;
                 return Ok(json!({
                     "node": "VariableAssignment",
-                    "left": json!({"node": "NamedArgument", "name": name, "value": right}),
+                    "left": emit::named_argument(&name, right),
                     "right": outer_right,
                 }));
             }

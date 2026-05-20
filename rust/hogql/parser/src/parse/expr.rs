@@ -2325,7 +2325,11 @@ impl<'a> Parser<'a> {
             // wrapping the whole NamedArgument node. Matches cpp's
             // `name := <columnExpr>` where columnExpr admits AS.
             let value = self.parse_expr_bp(BP_ALIAS)?;
-            return Ok(json!({"node": "NamedArgument", "name": name, "value": value}));
+            // cpp's `ColumnExprNamedArg` visitor emits the node without
+            // `addPositionInfo`, so NamedArgument has no `start`/`end`.
+            // Mark via `no_pos` so the outer `parse_expr_bp` pratt-loop
+            // wrap leaves it bare.
+            return Ok(emit::named_argument(&name, value));
         }
 
         // Statement-RHS guard: `f (x) := y` is `f` (an exprStmt) then
