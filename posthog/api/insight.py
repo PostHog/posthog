@@ -625,7 +625,9 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+                DashboardTile.objects.create(
+                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                )
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",

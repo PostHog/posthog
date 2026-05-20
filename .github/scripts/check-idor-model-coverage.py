@@ -290,7 +290,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ConversationCheckpointBlob",  # via ConversationCheckpoint
         "ConversationCheckpointWrite",  # via ConversationCheckpoint
         "DashboardPrivilege",  # via Dashboard
-        "DashboardTile",  # via Dashboard
         "Element",  # via Event/ElementGroup
         "ErrorTrackingExternalReference",  # via ErrorTrackingIssue
         "ErrorTrackingIssueCohort",  # via ErrorTrackingIssue
