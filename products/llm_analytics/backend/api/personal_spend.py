@@ -342,7 +342,7 @@ def _fetch_summary(
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
-        FROM ai_events
+        FROM posthog.ai_events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
     )
@@ -378,7 +378,7 @@ def _fetch_by_product(
             properties.ai_product AS product,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
-        FROM ai_events
+        FROM posthog.ai_events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         GROUP BY product
         ORDER BY cost_usd DESC
@@ -426,7 +426,7 @@ def _fetch_by_tool(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
-        FROM ai_events
+        FROM posthog.ai_events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
@@ -475,7 +475,7 @@ def _fetch_by_model(
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
             sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
-        FROM ai_events
+        FROM posthog.ai_events
         WHERE {event_in}
             AND {product_filter}
             AND {email_filter}
@@ -525,7 +525,7 @@ def _fetch_top_traces(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             min(timestamp) AS started_at
-        FROM ai_events
+        FROM posthog.ai_events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
