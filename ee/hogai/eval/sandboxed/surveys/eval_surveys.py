@@ -51,7 +51,6 @@ def _survey_case(
     )
 
 
-@pytest.mark.django_db
 async def eval_surveys(
     sandboxed_demo_data: Any,
     pytestconfig: pytest.Config,
