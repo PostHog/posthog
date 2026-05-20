@@ -133,18 +133,34 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
 
-const FLAG_CHANGE_VERB_PHRASE =
-    "{event.properties.activity == 'created' ? 'created' " +
-    ": event.properties.activity == 'deleted' ? 'deleted' " +
-    ": event.properties.activity == 'restored' ? 'restored' " +
-    ": event.properties.detail.changes[1].field == 'active' ? (event.properties.detail.changes[1].after == 'true' ? 'enabled' : 'disabled') " +
-    ": event.properties.detail.changes[1].field == 'filters' ? (" +
-    "event.properties.detail.changes[1].after.multivariate != null ? 'updated variant rollout for' " +
-    ": length(ifNull(event.properties.detail.changes[1].after.groups, [])) > length(ifNull(event.properties.detail.changes[1].before.groups, [])) ? 'added a release condition to' " +
-    ": length(ifNull(event.properties.detail.changes[1].after.groups, [])) < length(ifNull(event.properties.detail.changes[1].before.groups, [])) ? 'removed a release condition from' " +
-    ": 'updated release conditions on'" +
-    ') ' +
-    ": 'updated'}"
+function buildFlagChangeVerbPhrase(): string {
+    const activity = 'event.properties.activity'
+    const change = 'event.properties.detail.changes[1]'
+    const afterGroups = `length(ifNull(${change}.after.groups, []))`
+    const beforeGroups = `length(ifNull(${change}.before.groups, []))`
+
+    const activeFieldVerb = `${change}.after == 'true' ? 'enabled' : 'disabled'`
+
+    const filtersFieldVerb = [
+        `${change}.after.multivariate != null ? 'updated variant rollout for'`,
+        `${afterGroups} > ${beforeGroups} ? 'added a release condition to'`,
+        `${afterGroups} < ${beforeGroups} ? 'removed a release condition from'`,
+        `'updated release conditions on'`,
+    ].join(' : ')
+
+    const verbPhrase = [
+        `${activity} == 'created' ? 'created'`,
+        `${activity} == 'deleted' ? 'deleted'`,
+        `${activity} == 'restored' ? 'restored'`,
+        `${change}.field == 'active' ? (${activeFieldVerb})`,
+        `${change}.field == 'filters' ? (${filtersFieldVerb})`,
+        `'updated'`,
+    ].join(' : ')
+
+    return `{${verbPhrase}}`
+}
+
+const FLAG_CHANGE_VERB_PHRASE = buildFlagChangeVerbPhrase()
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'survey-response': [
