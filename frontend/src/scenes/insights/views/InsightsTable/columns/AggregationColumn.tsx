@@ -84,9 +84,9 @@ export function getAggregatedValue(
         }
         return value
     } else if (aggregation === 'average') {
-        return average(item.data)
+        return item.data?.length ? average(item.data) : undefined
     } else if (aggregation === 'median') {
-        return median(item.data)
+        return item.data?.length ? median(item.data) : undefined
     }
     return undefined
 }
