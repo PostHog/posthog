@@ -6,7 +6,7 @@ import { StepDefinition } from '../steps'
 export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    const installSteps = getReactNativeStepsPA(ctx)
+    const installSteps = getReactNativeStepsPA(ctx, { minVersion: '4.44.0' })
 
     const sendLogStep: StepDefinition = {
         title: 'Send a log',
