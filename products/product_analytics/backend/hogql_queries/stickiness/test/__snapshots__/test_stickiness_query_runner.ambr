@@ -257,6 +257,48 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestStickinessQueryRunner.test_stickiness_data_warehouse
+  '''
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT e.id AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.created, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery/posthog_test_test_table_stickiness/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+              WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestStickinessQueryRunner.test_stickiness_runs
   '''
   SELECT groupArray(num_actors) AS counts,
