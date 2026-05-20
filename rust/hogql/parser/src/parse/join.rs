@@ -370,37 +370,18 @@ impl<'a> Parser<'a> {
     fn parse_table_atom(&mut self) -> Result<Value, ParseError> {
         let mut table_expr = self.parse_table_expr()?;
         // `(joinExpr)` per the grammar's `JoinExprParens` returns an
-        // already-wrapped JoinExpr (or chain). FINAL / sample don't
-        // apply at this level (they're inside the parens), but cpp's
-        // `VISIT(TableExprAlias)` injects the outer alias straight onto
-        // the existing JoinExpr — `(a JOIN b) AS x` lands `alias: "x"`
-        // on the root JoinExpr of the chain. Mirror that.
+        // already-wrapped JoinExpr (or chain). The grammar:
+        //   joinExpr: ... | LPAREN joinExpr RPAREN  # JoinExprParens
+        //   tableExpr: ... | tableExpr (alias | AS identifier) columnAliases?
+        //                                           # TableExprAlias
+        // `TableExprAlias` requires a `tableExpr` head — `LPAREN
+        // joinExpr RPAREN` is a `joinExpr`, NOT a `tableExpr`, so an
+        // alias / FINAL / SAMPLE / columnAliases CANNOT bind after the
+        // closing paren. cpp rejects `(t) AS x`, `(t JOIN b ON x) AS y`,
+        // `(t) FINAL`, etc. Return the JoinExpr unchanged and let the
+        // caller surface any post-paren tokens as trailing-input errors.
         let already_join_expr = table_expr.get("node").and_then(Value::as_str) == Some("JoinExpr");
         if already_join_expr {
-            // Reached here only via the JoinExprParens arm of
-            // `parse_table_expr` (`LPAREN joinExpr RPAREN`). cpp's grammar
-            // doesn't admit trailing FINAL / SAMPLE on JoinExprParens —
-            // those fall through to the SELECT-level silent-drop. The
-            // TableExprSubquery arm (which DOES allow trailing FINAL /
-            // SAMPLE, e.g. `({x}) sample 0.5`) returns a non-JoinExpr
-            // (Placeholder / SelectQuery / SelectSetQuery) and lands in
-            // the bottom branch below.
-            //
-            // Alias still attaches here — `(a JOIN b) AS x` is cpp's
-            // accepted shape even though the strict grammar reads it
-            // through a separate TableExprAlias rule.
-            let (alias, column_aliases) = self.consume_table_alias_chain()?;
-            if let Some(obj) = table_expr.as_object_mut() {
-                if let Some(a) = alias {
-                    obj.insert("alias".into(), Value::String(a));
-                }
-                if let Some(ca) = column_aliases {
-                    obj.insert(
-                        "column_aliases".into(),
-                        Value::Array(ca.into_iter().map(Value::String).collect()),
-                    );
-                }
-            }
             return Ok(table_expr);
         }
         // parse_table_expr signals table-function args via a sentinel key

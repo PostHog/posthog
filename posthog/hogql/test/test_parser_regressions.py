@@ -809,6 +809,41 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_join_expr_parens_does_not_take_outer_alias(self):
+        # Grammar:
+        #   joinExpr  : ... | LPAREN joinExpr RPAREN  # JoinExprParens
+        #   tableExpr : ... | tableExpr (alias | AS identifier) columnAliases?
+        #                                            # TableExprAlias
+        # `TableExprAlias` requires a `tableExpr` head — `LPAREN joinExpr
+        # RPAREN` is a `joinExpr`, not a `tableExpr`. cpp rejects the
+        # alias / FINAL / SAMPLE after the closing paren; rust was
+        # attaching the alias onto the inner JoinExpr.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "SELECT 1 FROM (t) AS x",
+            "SELECT 1 FROM (t) x",
+            "SELECT 1 FROM ((t)) AS x",
+            "SELECT 1 FROM (t JOIN b ON x) AS y",
+            "SELECT 1 FROM (t) FINAL",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Guards: subquery and non-parenthesised aliases still parse.
+        valid = (
+            "SELECT 1 FROM t",
+            "SELECT 1 FROM t AS x",
+            "SELECT 1 FROM (SELECT 1)",
+            "SELECT 1 FROM (SELECT 1) AS x",
+        )
+        for src in valid:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_string_literal_unknown_backslash_escapes_rejected(self):
         # `ESCAPE_CHAR_COMMON` (`HogQLLexer.common.g4:145`) is a closed
         # set: `\b \f \r \n \t \0 \a \v \\ \xNN`, plus `\'` (escape
