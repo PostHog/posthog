@@ -239,6 +239,14 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             user = user_match.user
             if user.current_team_id is None or user.current_organization_id is None:
                 return Response({"error": "User has no current team"}, status=404)
+            # Personal integrations should not keep granting a token to a user who has
+            # been disabled or removed from the organization that the token would scope to.
+            if not user.is_active:
+                return Response({"error": "User is not active"}, status=404)
+            if not OrganizationMembership.objects.filter(
+                user=user, organization_id=user.current_organization_id
+            ).exists():
+                return Response({"error": "User is not a member of the current organization"}, status=404)
             access_token = _mint_task_token(user, user.current_team_id, cache_key)
             if access_token is None:
                 return Response({"error": "Could not mint access token for integration"}, status=503)

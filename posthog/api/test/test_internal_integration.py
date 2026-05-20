@@ -178,6 +178,7 @@ class TestInternalIntegrationLookupUser:
             current_team=self.team,
             current_organization=self.organization,
         )
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.user_integration = UserIntegration.objects.create(
             user=self.user,
             kind="github",
