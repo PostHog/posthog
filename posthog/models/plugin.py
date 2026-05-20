@@ -275,7 +275,7 @@ class PluginAttachment(models.Model):
     contents = models.BinaryField()
 
     def parse_contents(self) -> str | None:
-        contents: bytes | None = self.contents
+        contents: bytes | None = bytes(self.contents) if self.contents else None
         if not contents:
             return None
 
@@ -350,7 +350,8 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            archive = bytes(plugin.archive) if plugin.archive else None
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
 
