@@ -460,6 +460,206 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         assert default_etag is None
 
 
+class TestHyperCacheSecondaryCache(BaseTest):
+    """Test the secondary_cache_alias dual-write path used during cluster migrations."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-test-cache",
+            },
+        }
+    )
+    def test_dual_writes_value_to_both_caches(self):
+        """Writes go to both the primary cache_alias and the secondary_cache_alias."""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+
+        team_id = self.team.id
+        hc.set_cache_value(team_id, self.sample_data)
+
+        cache_key = hc.get_cache_key(team_id)
+        primary_value = caches["flags_dedicated"].get(cache_key)
+        secondary_value = caches["default"].get(cache_key)
+
+        # Both caches hold the identical serialized payload (sort_keys=True ensures
+        # byte-for-byte equality, which keeps ETags consistent across both caches).
+        assert primary_value == json.dumps(self.sample_data, sort_keys=True)
+        assert secondary_value == primary_value
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-etag-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-etag-test-cache",
+            },
+        }
+    )
+    def test_dual_writes_etag_to_both_caches(self):
+        """When enable_etag=True, ETag keys are dual-written alongside the data."""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+            enable_etag=True,
+        )
+
+        team_id = self.team.id
+        hc.set_cache_value(team_id, self.sample_data)
+
+        etag_key = hc.get_etag_key(team_id)
+        primary_etag = caches["flags_dedicated"].get(etag_key)
+        secondary_etag = caches["default"].get(etag_key)
+
+        assert primary_etag is not None
+        assert primary_etag == secondary_etag
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-missing-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-missing-test-cache",
+            },
+        }
+    )
+    def test_dual_writes_missing_sentinel_to_both_caches(self):
+        """The __missing__ sentinel is dual-written too, so secondary reflects misses."""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return HyperCacheStoreMissing()
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+
+        team_id = self.team.id
+        hc.set_cache_value(team_id, HyperCacheStoreMissing())
+
+        cache_key = hc.get_cache_key(team_id)
+        assert caches["flags_dedicated"].get(cache_key) == "__missing__"
+        assert caches["default"].get(cache_key) == "__missing__"
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-failure-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-failure-test-cache",
+            },
+        }
+    )
+    def test_secondary_failure_does_not_block_primary(self):
+        """A broken secondary cache must not raise — primary write stays authoritative."""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+
+        team_id = self.team.id
+
+        # Replace the secondary client with one that raises on every write op.
+        broken = Mock()
+        broken.set.side_effect = RuntimeError("secondary down")
+        broken.set_many.side_effect = RuntimeError("secondary down")
+        broken.delete.side_effect = RuntimeError("secondary down")
+        hc.secondary_cache_client = broken
+
+        # Must not raise.
+        hc.set_cache_value(team_id, self.sample_data)
+
+        # Primary cache still got the write.
+        cache_key = hc.get_cache_key(team_id)
+        primary_value = caches["flags_dedicated"].get(cache_key)
+        assert primary_value == json.dumps(self.sample_data, sort_keys=True)
+
+        # The broken secondary received the write attempt.
+        broken.set.assert_called()
+
+    def test_unknown_secondary_alias_falls_back_to_no_op(self):
+        """A secondary_cache_alias not in settings.CACHES is silently ignored."""
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            secondary_cache_alias="does_not_exist",
+        )
+
+        assert hc.secondary_cache_client is None
+
+        # set_cache_value should still work via the primary (default) cache.
+        team_id = self.team.id
+        cache.clear()
+        hc.set_cache_value(team_id, self.sample_data)
+        cache_key = hc.get_cache_key(team_id)
+        assert cache.get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
+
+
 class TestHyperCacheBatchGetFromCache(BaseTest):
     """Tests for batch_get_from_cache() method using MGET optimization."""
 
