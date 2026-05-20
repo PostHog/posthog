@@ -103,7 +103,41 @@ impl<'a> Parser<'a> {
         obj.insert("node".into(), Value::String("VariableDeclaration".into()));
         obj.insert("name".into(), Value::String(name));
         if self.eat(TokenKind::ColonEquals)? {
-            obj.insert("expr".into(), self.parse_stmt_rhs_expr()?);
+            let cp = self.checkpoint();
+            let expr = self.parse_stmt_rhs_expr()?;
+            // cpp's varDecl grammar (`LET ident (':=' expression)?`)
+            // has no place for a trailing `:=` after the expression.
+            // When one follows, cpp's ANTLR ALL(*) shortens the
+            // expression to the shortest prefix (the leading single
+            // token) that leaves the trailing `:=` as the START of a
+            // *new* statement's varAssignment lvalue. `let x := y *
+            // (z) := 3` → `let x := y` + `*(z) := 3`. Rust used to
+            // greedy-parse the full `y * (z)` and then choke on the
+            // dangling `:=`.
+            if self.peek() == TokenKind::ColonEquals {
+                // Shorten to the leading primary form. cpp's ALL(*)
+                // does the equivalent: take the shortest columnExpr
+                // prefix (typically just one primary — a single token
+                // for ident/number/string/`*`, or a paren-wrapped
+                // group unwrapped to its inner) that leaves the
+                // trailing `:=` and its rhs as a separate statement.
+                // `parse_prefix` handles all primary shapes cleanly.
+                self.restore(cp)?;
+                match self.parse_prefix() {
+                    Ok(primary) => {
+                        obj.insert("expr".into(), primary);
+                    }
+                    Err(_) => {
+                        // Re-parse and accept the full greedy result —
+                        // we'll error at the next statement boundary
+                        // the same way the original code did.
+                        self.restore(cp)?;
+                        obj.insert("expr".into(), self.parse_stmt_rhs_expr()?);
+                    }
+                }
+            } else {
+                obj.insert("expr".into(), expr);
+            }
         }
         let _ = self.eat(TokenKind::Semicolon)?;
         Ok(Value::Object(obj))

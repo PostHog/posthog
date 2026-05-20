@@ -1879,6 +1879,39 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_let_decl_shortens_rhs_when_trailing_colon_equals(self):
+        # cpp's varDecl grammar (`LET ident (':=' expression)?`) has
+        # no place for a trailing `:=` after the expression. When one
+        # follows, cpp's ANTLR ALL(*) shortens the expression to the
+        # leading PRIMARY form (single token / paren-unwrapped primary)
+        # so the trailing `:=` and its rhs become a separate statement.
+        # Rust used to greedy-parse the full expression and choke on
+        # the dangling `:=`.
+        cases = (
+            "let x := 1 * 2 := 3",
+            "let x := y * (z) := 3",
+            "let x := (1) * (2) := 3",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: the ident-chain `let x := y * z := 1` is absorbed
+        # via the NamedArgument path inside parse_ident_lead and keeps
+        # the full rhs.
+        for src in (
+            "let x := y",
+            "let x := 1 + 2",
+            "let x := y * z",
+            "let x := y * z := 1",
+            "let x := y * z := 1;",
+        ):
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_bare_assignment_lead_chains_through_second_colon_equals(self):
         # `IDENT := <rhs> := <outer_rhs>` — cpp's grammar resolves the
         # *second* `:=` as the statement-level varAssignment, with the
