@@ -2,7 +2,7 @@
 
 The `info` command may return the full schema (for simple tools) or a top-level summary with drill-down hints (for complex tools). Look for `hint` fields in the response.
 
-If `info` returned a summary (fields have `hint` values), you MUST call `schema <tool_name> <field_name>` for each field you need to populate BEFORE constructing that field's value in a `call` command.
+If `info` returned a summary (fields have `hint` values), call `schema <tool_name> <field_name>` for each field you need to populate BEFORE constructing that field's value in a `call` command.
 
 If `schema` also returns a summary (because the field is too large), drill deeper using dot-notation: `schema <tool> <field>.<subfield>`.
 
