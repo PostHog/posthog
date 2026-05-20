@@ -18,6 +18,8 @@ unrelated cases don't drag the rollup down.
   replacement?
 * ``DrilledIntoSchema`` — did the agent drill into every named field
   via ``schema <tool> <field>`` before the final ``call``?
+* ``RetrievedSchemaPath`` — did the agent successfully retrieve an exact
+  nested schema path via ``schema <tool> <path>``?
 * ``PreferredSearchOverTools`` — did the agent prefer ``search`` over
   the bare ``tools`` listing for discovery?
 * ``InfoBeforeCall`` — was every successful call to the target tool
@@ -40,6 +42,7 @@ __all__ = [
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
+    "RetrievedSchemaPath",
     "UsedJsonOutputFormat",
     "VerifiedEventBeforeQuery",
 ]
@@ -282,6 +285,89 @@ class DrilledIntoSchema(Scorer):
             name=self._name(),
             score=1.0,
             metadata={"tool": tool, "drilled_fields": sorted(drilled)},
+        )
+
+
+class RetrievedSchemaPath(Scorer):
+    """Binary: did the agent successfully retrieve an exact nested schema path?
+
+    ``expected = {"retrieved_schema_path":
+        {"tool": "query-trends", "path": "series.properties"}}``
+
+    Looks for a raw ``exec`` call whose ``command`` is exactly
+    ``schema <tool> <path>``. Score 1.0 only when that call succeeded, 0.0
+    when the path was attempted but failed or a different schema path was
+    used, and ``None`` for malformed specs.
+    """
+
+    def _name(self) -> str:
+        return "retrieved_schema_path"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        spec = _read_spec(expected, self._name())
+        if not spec:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        tool = spec.get("tool")
+        path = spec.get("path")
+        if not isinstance(tool, str) or not tool:
+            return Score(name=self._name(), score=None, metadata={"reason": "Missing 'tool' on spec"})
+        if not isinstance(path, str) or not path:
+            return Score(name=self._name(), score=None, metadata={"reason": "Missing 'path' on spec"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        schema_attempts: list[dict[str, object]] = []
+        for call in parser.get_tool_calls():
+            head, rest = _exec_command_head(call)
+            if head != "schema":
+                continue
+            schema_tool, _, field_path = rest.partition(" ")
+            schema_tool = schema_tool.strip()
+            field_path = field_path.strip()
+            schema_attempts.append(
+                {
+                    "tool": schema_tool,
+                    "path": field_path,
+                    "is_error": call.is_error,
+                    "call_id": call.call_id,
+                }
+            )
+            if schema_tool != tool or field_path != path:
+                continue
+            if call.is_error:
+                return Score(
+                    name=self._name(),
+                    score=0.0,
+                    metadata={
+                        "reason": "Exact schema path was attempted but failed",
+                        "tool": tool,
+                        "path": path,
+                        "call_id": call.call_id,
+                    },
+                )
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={"tool": tool, "path": path, "call_id": call.call_id},
+            )
+
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "Exact schema path was not retrieved",
+                "tool": tool,
+                "path": path,
+                "schema_attempts": schema_attempts,
+            },
         )
 
 

@@ -464,10 +464,12 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     user-to-server tokens, fetch installation token, create/update ``UserIntegration``.
     """
 
+    user = cast(User, request.user)
+
     posthog_code_flow = False
 
     def _error(reason: str) -> HttpResponseRedirect:
-        logger.warning("github_link: redirecting with error", reason=reason, user_id=request.user.id)
+        logger.warning("github_link: redirecting with error", reason=reason, user_id=user.id)
         if posthog_code_flow:
             q = urlencode({"provider": "github", "error": reason})
             return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{q}")
@@ -479,7 +481,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             "github_link: GitHub returned error on callback",
             error=github_error,
             description=request.GET.get("error_description"),
-            user_id=request.user.id,
+            user_id=user.id,
         )
         if _posthog_code_flow_from_state_query(request):
             posthog_code_flow = True
@@ -499,7 +501,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     # Validate state
     cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"
     state_payload = cache.get(cache_key)
-    if not state_payload or state_payload.get("user_id") != request.user.id:
+    if not state_payload or state_payload.get("user_id") != user.id:
         return _error("invalid_state")
     if state_payload.get("connect_from") == "posthog_code":
         posthog_code_flow = True
@@ -519,7 +521,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         # Do not require ``current_team`` to match: OAuth completes in a browser
         # session whose active team may differ from the app that started the flow.
         if not Integration.objects.filter(
-            kind="github", integration_id=installation_id, team__in=request.user.teams.all()
+            kind="github", integration_id=installation_id, team__in=user.teams.all()
         ).exists():
             return _error("invalid_installation")
         installation_ids = [installation_id]
@@ -535,7 +537,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         if not isinstance(team_oauth_team_id, int):
             return _error("invalid_state")
         # Confirm the user still has access to the team they started this flow from.
-        if not request.user.teams.filter(id=team_oauth_team_id).exists():
+        if not user.teams.filter(id=team_oauth_team_id).exists():
             return _error("invalid_team")
         installation_ids = [installation_id]
     elif oauth_discover_flow:
@@ -561,7 +563,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             return _error("installation_fetch_failed")
         if not installation_ids:
             return _redirect_to_github_app_install(
-                request.user,
+                user,
                 "posthog_code" if posthog_code_flow else cast(str | None, state_payload.get("connect_from")),
             )
 
@@ -585,7 +587,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
                 logger.warning(
                     "github_link: installation ownership check failed",
                     installation_id=installation_id,
-                    user_id=request.user.id,
+                    user_id=user.id,
                     exc_info=True,
                 )
                 return _error("installation_verify_failed")
@@ -593,7 +595,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
                 logger.warning(
                     "github_link: user does not have access to installation",
                     installation_id=installation_id,
-                    user_id=request.user.id,
+                    user_id=user.id,
                 )
                 return _error("installation_not_authorized")
 
@@ -616,7 +618,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             return _error("installation_token_failed")
 
         user_github_integration_from_installation(
-            request.user,
+            user,
             GitHubInstallationAccess(
                 installation_id=installation_id,
                 installation_info=installation_info,
@@ -634,7 +636,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         # works whether or not another team in the org has already linked this install.
         try:
             team_integration = GitHubIntegration.integration_from_installation_id(
-                installation_id, team_oauth_team_id, cast(User, request.user)
+                installation_id, team_oauth_team_id, user
             )
         except Exception:
             logger.warning(

@@ -10,6 +10,7 @@ export type Lifecycle = { shuttingDown: boolean }
 export type App = {
     app: Hono
     lifecycle: Lifecycle
+    warmup: () => Promise<void>
 }
 
 export function createApp(redis: RedisWithPing): App {
@@ -35,5 +36,10 @@ export function createApp(redis: RedisWithPing): App {
     app.all('/mcp/*', streamable.fetch)
 
     app.all('*', (c) => c.notFound())
-    return { app, lifecycle }
+
+    return {
+        app,
+        lifecycle,
+        warmup: () => streamable.warmup(),
+    }
 }

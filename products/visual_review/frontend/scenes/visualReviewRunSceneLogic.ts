@@ -48,10 +48,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveSnapshotSuccess: true,
         approveSnapshotFailure: true,
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
-        quarantineSnapshot: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+        quarantineSnapshot: (
+            reason: string,
+            identifiers: string[],
+            expiresAt: string | null,
+            sourceRunId: string | null = null
+        ) => ({
             reason,
             identifiers,
             expiresAt,
+            sourceRunId,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
@@ -369,11 +375,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
             const { run } = values
             if (!run) {
                 return
             }
+            // Default to the current run when the caller didn't supply a source
+            // (the diff viewer doesn't have one for new quarantines). Extending
+            // an existing quarantine passes through the prior source so the
+            // "what was wrong" link survives across renewals.
+            const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
                     identifiers.map((identifier) =>
@@ -381,6 +392,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                             identifier,
                             reason,
                             expires_at: expiresAt,
+                            source_run_id: effectiveSourceRunId,
                         })
                     )
                 )

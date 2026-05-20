@@ -183,6 +183,12 @@ class EvaluationSerializer(serializers.ModelSerializer):
     def _validate_re_enable(self, data: dict) -> None:
         has_byok = self._has_byok_key(data)
         status_reason = getattr(self.instance, "status_reason", None)
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        # Hog evals run deterministic bytecode server-side: they never call an LLM provider,
+        # never consume trial quota, and never need a BYOK key. The trial-limit / model-allowlist /
+        # provider-key-deleted gates below all assume an LLM-judge call path, so skip them entirely.
+        if evaluation_type == "hog":
+            return
 
         # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
         if status_reason == "trial_limit_reached" or not status_reason:
