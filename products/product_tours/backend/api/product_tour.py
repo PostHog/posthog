@@ -229,7 +229,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         # For partial updates (PATCH), fall back to the instance's existing
         # linked_flag_id when the field wasn't included in the request.

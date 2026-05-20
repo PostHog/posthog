@@ -20,7 +20,7 @@ from posthog.models.property.property import Property
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.queries.base import properties_to_Q, sanitize_property_key
 
-from .feature_flag import FeatureFlag
+from .models.feature_flag import FeatureFlag
 
 READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
 

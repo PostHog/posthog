@@ -5,7 +5,7 @@ import structlog
 
 from posthog.date_util import thirty_days_ago
 
-from .feature_flag import FeatureFlag
+from .models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 

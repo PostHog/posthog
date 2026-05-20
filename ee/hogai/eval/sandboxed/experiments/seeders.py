@@ -41,9 +41,8 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
     *running* experiment — the canonical scenario the
     ``configuring-experiment-rollout`` skill exists to handle.
     """
-    from posthog.models import FeatureFlag
-
     from products.experiments.backend.models.experiment import Experiment
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
     user_id = context.user_id

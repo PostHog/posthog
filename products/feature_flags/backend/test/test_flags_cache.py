@@ -22,10 +22,10 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models import FeatureFlag, Team
+from posthog.models import Team
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from posthog.models.feature_flag.flags_cache import (
+
+from products.feature_flags.backend.flags_cache import (
     _compute_flag_dependencies,
     _extract_cohort_ids_from_flag_filters,
     _extract_direct_dependency_ids,
@@ -40,6 +40,8 @@ from posthog.models.feature_flag.flags_cache import (
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -1122,7 +1124,7 @@ class TestCacheStats(BaseTest):
     @patch("posthog.storage.hypercache_manager.get_client")
     def test_get_cache_stats_basic(self, mock_get_client):
         """Test basic cache stats gathering with Redis pipelining."""
-        from posthog.models.feature_flag.flags_cache import get_cache_stats
+        from products.feature_flags.backend.flags_cache import get_cache_stats
 
         # Mock Redis client with pipelining support
         mock_redis = MagicMock()
@@ -1175,7 +1177,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
     @patch("posthog.storage.cache_expiry_manager.time")
     def test_returns_teams_with_expiring_ttl(self, mock_time, mock_get_client):
         """Teams with expiration timestamp < threshold should be returned."""
-        from posthog.models.feature_flag.flags_cache import (
+        from products.feature_flags.backend.flags_cache import (
             FLAGS_CACHE_EXPIRY_SORTED_SET,
             get_teams_with_expiring_flags_caches,
         )
@@ -1217,7 +1219,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
     @patch("posthog.storage.cache_expiry_manager.time")
     def test_skips_teams_with_fresh_ttl(self, mock_time, mock_get_client):
         """Teams with expiration timestamp > threshold should not be returned."""
-        from posthog.models.feature_flag.flags_cache import get_teams_with_expiring_flags_caches
+        from products.feature_flags.backend.flags_cache import get_teams_with_expiring_flags_caches
 
         # Mock Redis sorted set returning empty (no teams expiring soon)
         mock_time.time.return_value = 1000000
@@ -1233,7 +1235,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_returns_empty_when_no_expiring_caches(self, mock_get_client):
         """Should return empty list when sorted set is empty."""
-        from posthog.models.feature_flag.flags_cache import get_teams_with_expiring_flags_caches
+        from products.feature_flags.backend.flags_cache import get_teams_with_expiring_flags_caches
 
         # Mock Redis to return empty sorted set
         mock_redis = MagicMock()
@@ -1251,7 +1253,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         This is a regression test for a bug where cache_expiry_manager was using
         the default Redis database (0) instead of the dedicated flags cache database (1).
         """
-        from posthog.models.feature_flag.flags_cache import (
+        from products.feature_flags.backend.flags_cache import (
             FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
             get_teams_with_expiring_caches,
         )
@@ -1274,7 +1276,7 @@ class TestBatchOperations(BaseTest):
     @patch("posthog.models.feature_flag.flags_cache.refresh_expiring_caches")
     def test_refresh_expiring_caches(self, mock_refresh):
         """Test refreshing expiring caches calls generic function."""
-        from posthog.models.feature_flag.flags_cache import (
+        from products.feature_flags.backend.flags_cache import (
             FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
             refresh_expiring_flags_caches,
         )
@@ -1293,7 +1295,10 @@ class TestBatchOperations(BaseTest):
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_cleanup_stale_expiry_tracking(self, mock_get_client):
         """Test cleaning up stale expiry tracking entries."""
-        from posthog.models.feature_flag.flags_cache import FLAGS_CACHE_EXPIRY_SORTED_SET, cleanup_stale_expiry_tracking
+        from products.feature_flags.backend.flags_cache import (
+            FLAGS_CACHE_EXPIRY_SORTED_SET,
+            cleanup_stale_expiry_tracking,
+        )
 
         team1 = self.team
         # Create a team that will be deleted
@@ -1326,11 +1331,12 @@ class TestBatchOperations(BaseTest):
     @patch("posthog.storage.hypercache.time")
     def test_warm_without_stagger_tracks_expiry_with_default_ttl(self, mock_time, mock_get_client):
         """Test that expiry tracking happens even when stagger_ttl=False (uses batch path)."""
-        from posthog.models.feature_flag.flags_cache import (
+        from posthog.storage.hypercache_manager import warm_caches
+
+        from products.feature_flags.backend.flags_cache import (
             FLAGS_CACHE_EXPIRY_SORTED_SET,
             FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
         )
-        from posthog.storage.hypercache_manager import warm_caches
 
         # Create a flag so batch loading succeeds
         FeatureFlag.objects.create(
@@ -1811,7 +1817,7 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        from posthog.models.feature_flag.flags_cache import clear_flags_cache
+        from products.feature_flags.backend.flags_cache import clear_flags_cache
 
         # Clear any cache from previous tests
         clear_flags_cache(self.team, kinds=["redis", "s3"])
@@ -1841,7 +1847,7 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        from posthog.models.feature_flag.flags_cache import update_flags_cache
+        from products.feature_flags.backend.flags_cache import update_flags_cache
 
         # Create a real flag
         flag = FeatureFlag.objects.create(
@@ -1867,8 +1873,11 @@ class TestManagementCommands(BaseTest):
 
     def test_verify_cache_detects_evaluation_context_rename(self):
         """Test that verification detects when an evaluation context is renamed."""
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -1925,7 +1934,7 @@ class TestManagementCommands(BaseTest):
         cache must be ignored (otherwise a benign serializer field removal
         rewrites every team's cache), but a key the DB has and the cache
         doesn't is a real divergence and must still be flagged."""
-        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import update_flags_cache, verify_team_flags
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -1951,7 +1960,7 @@ class TestManagementCommands(BaseTest):
 
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""
-        from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import clear_flags_cache, verify_team_flags
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -1970,7 +1979,7 @@ class TestManagementCommands(BaseTest):
         self.assertIn("flags", result["db_data"])
 
     def test_verify_detects_missing_evaluation_metadata(self):
-        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import update_flags_cache, verify_team_flags
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -1999,7 +2008,7 @@ class TestManagementCommands(BaseTest):
         """Without an etag, the Rust in-memory cache bypasses every request via
         the etag_missing branch. The verifier must surface this as a counted
         mismatch so the regression class cannot recur silently."""
-        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import update_flags_cache, verify_team_flags
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -2027,7 +2036,7 @@ class TestManagementCommands(BaseTest):
         drifted cached flags, MISSING_ETAG is reported, not DATA_MISMATCH. The
         repair path writes db_data back and corrects both, so this is purely
         about which signal surfaces first."""
-        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import update_flags_cache, verify_team_flags
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -2056,7 +2065,7 @@ class TestManagementCommands(BaseTest):
         teams every 30 minutes — exactly the load this PR is trying to reduce."""
         from unittest.mock import patch
 
-        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+        from products.feature_flags.backend.flags_cache import update_flags_cache, verify_team_flags
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -2141,7 +2150,7 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        from posthog.models.feature_flag.flags_cache import update_flags_cache
+        from products.feature_flags.backend.flags_cache import update_flags_cache
 
         # Create a real flag
         FeatureFlag.objects.create(
@@ -2168,7 +2177,7 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        from posthog.models.feature_flag.flags_cache import clear_flags_cache
+        from products.feature_flags.backend.flags_cache import clear_flags_cache
 
         # Delete any existing flags for this team from previous tests
         FeatureFlag.objects.filter(team=self.team).delete()
@@ -2222,7 +2231,7 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        from posthog.models.feature_flag.flags_cache import FLAGS_HYPERCACHE_MANAGEMENT_CONFIG
+        from products.feature_flags.backend.flags_cache import FLAGS_HYPERCACHE_MANAGEMENT_CONFIG
 
         # Create a flag for the team
         FeatureFlag.objects.create(

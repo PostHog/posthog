@@ -58,34 +58,13 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.models import FeatureFlag, Team
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies
-from posthog.models.evaluation_context import normalize_context_name
-from posthog.models.feature_flag import (
-    FeatureFlagDashboards,
-    get_user_blast_radius,
-    set_feature_flags_for_team_in_cache,
-)
-from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker
-from posthog.models.feature_flag.flag_validation import check_flag_evaluation_query_is_ok
-from posthog.models.feature_flag.local_evaluation import (
-    DATABASE_FOR_LOCAL_EVALUATION,
-    _get_flag_properties_from_filters,
-    get_flags_response_if_none_match,
-)
-from posthog.models.feature_flag.types import PropertyFilterType
-from posthog.models.feature_flag.version_history import (
-    VersionHistoryIncomplete,
-    VersionNotFound,
-    reconstruct_flag_at_timestamp,
-    reconstruct_flag_at_version,
-)
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
@@ -102,6 +81,28 @@ from posthog.views import format_bytes
 
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
+from products.feature_flags.backend.flag_validation import check_flag_evaluation_query_is_ok
+from products.feature_flags.backend.local_evaluation import (
+    DATABASE_FOR_LOCAL_EVALUATION,
+    _get_flag_properties_from_filters,
+    get_flags_response_if_none_match,
+)
+from products.feature_flags.backend.models.evaluation_context import normalize_context_name
+from products.feature_flags.backend.models.feature_flag import (
+    FeatureFlag,
+    FeatureFlagDashboards,
+    set_feature_flags_for_team_in_cache,
+)
+from products.feature_flags.backend.types import PropertyFilterType
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
+from products.feature_flags.backend.version_history import (
+    VersionHistoryIncomplete,
+    VersionNotFound,
+    reconstruct_flag_at_timestamp,
+    reconstruct_flag_at_version,
+)
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -562,7 +563,10 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
         if not self._is_evaluation_contexts_feature_enabled():
             return
 
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
 
         seen: set[str] = set()
         deduped_names: list[str] = []
@@ -2282,7 +2286,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             ):
                 return [ec.evaluation_context.name for ec in feature_flag.flag_evaluation_contexts.all()]
 
-            from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+            from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
             return list(
                 FeatureFlagEvaluationContext.objects.filter(feature_flag=feature_flag)
@@ -2354,7 +2358,7 @@ class FeatureFlagViewSet(
     def safely_get_queryset(self, queryset) -> QuerySet:
         from django.db.models import Exists, OuterRef
 
-        from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+        from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
         # Always prefetch experiment_set since it's used in both list and retrieve
         queryset = queryset.prefetch_related(
@@ -2850,10 +2854,11 @@ class FeatureFlagViewSet(
         from django.utils import timezone
 
         from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
-        from posthog.models.feature_flag.feature_flag import set_feature_flags_for_team_in_cache
         from posthog.rbac.user_access_control import access_level_satisfied_for_resource
         from posthog.tasks.feature_flags import update_team_flags_cache, update_team_service_flags_cache
         from posthog.tasks.remote_config import update_team_remote_config
+
+        from products.feature_flags.backend.models.feature_flag import set_feature_flags_for_team_in_cache
 
         filters = request.data.get("filters", {})
         explicit_ids = request.data.get("ids", [])

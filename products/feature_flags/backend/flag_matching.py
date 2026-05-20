@@ -36,7 +36,7 @@ from posthog.models.utils import execute_with_timeout
 from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 
-from .feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+from .models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
 logger = structlog.get_logger(__name__)
 

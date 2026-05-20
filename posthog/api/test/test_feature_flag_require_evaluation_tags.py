@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag
-from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestFeatureFlagRequireEvaluationTags(APIBaseTest):

@@ -57,7 +57,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
     linked_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -65,7 +65,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_linked_flag",
     )
     targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -83,7 +83,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -91,7 +91,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_internal_targeting_flag",
     )
     internal_response_sampling_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

@@ -18,11 +18,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.exceptions import generate_exception_response
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .models import EarlyAccessFeature
 

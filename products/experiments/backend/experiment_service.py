@@ -26,8 +26,6 @@ from posthog.hogql_queries.experiments.experiment_metric_fingerprint import comp
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
 from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -44,6 +42,8 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,

@@ -4,7 +4,8 @@ from typing import Any
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class VersionNotFound(Exception):

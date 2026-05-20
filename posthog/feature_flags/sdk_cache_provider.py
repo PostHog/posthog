@@ -35,7 +35,7 @@ class HyperCacheFlagProvider:
         calls skip the import entirely.
         """
         if self._hypercache is None:
-            from posthog.models.feature_flag.local_evaluation import flag_definitions_hypercache
+            from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 
             self._hypercache = flag_definitions_hypercache
         return self._hypercache

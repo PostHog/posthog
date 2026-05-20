@@ -859,7 +859,7 @@ def sync_insight_caching_state(
 
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from posthog.models.feature_flag.flag_analytics import (
+    from products.feature_flags.backend.flag_analytics import (
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
@@ -874,7 +874,7 @@ def calculate_decide_usage() -> None:
 def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
+    from products.feature_flags.backend.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -1338,7 +1338,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     from django.core.cache import cache
 
     from posthog.clickhouse.client import sync_execute
-    from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
     LOCK_KEY = "posthog:feature_flag_last_called_sync:lock"

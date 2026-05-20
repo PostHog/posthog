@@ -6,8 +6,9 @@ from parameterized import parameterized
 
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
-from posthog.models.feature_flag.flag_validation import _exclude_realtime_backfilled_cohort_properties
 from posthog.models.property.property import Property
+
+from products.feature_flags.backend.flag_validation import _exclude_realtime_backfilled_cohort_properties
 
 BEHAVIORAL_FILTERS = {
     "properties": {

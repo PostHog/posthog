@@ -7,8 +7,13 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feature_flag.local_evaluation import (
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.project import Project
+from posthog.models.tag import Tag
+from posthog.models.team.team import Team
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     _extract_cohort_ids_from_filters,
@@ -24,12 +29,7 @@ from posthog.models.feature_flag.local_evaluation import (
     update_flag_definitions_cache,
     verify_team_flag_definitions,
 )
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.project import Project
-from posthog.models.tag import Tag
-from posthog.models.team.team import Team
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 
@@ -217,7 +217,10 @@ class TestLocalEvaluationSignals(BaseTest):
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
         """Creating a FeatureFlagEvaluationContext fires the cache update signal."""
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -239,7 +242,10 @@ class TestLocalEvaluationSignals(BaseTest):
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_association_delete(self, mock_task):
         """Deleting a FeatureFlagEvaluationContext fires the cache update signal."""
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -263,7 +269,7 @@ class TestLocalEvaluationSignals(BaseTest):
 
         New contexts can't be referenced by any flags yet, so invalidation is a no-op.
         """
-        from posthog.models.evaluation_context import EvaluationContext
+        from products.feature_flags.backend.models.evaluation_context import EvaluationContext
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -285,7 +291,10 @@ class TestLocalEvaluationSignals(BaseTest):
 
         Flags referencing the context need to pick up the new name.
         """
-        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
 
         flag = FeatureFlag.objects.create(
             team=self.team,

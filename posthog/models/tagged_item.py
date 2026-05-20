@@ -71,7 +71,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     feature_flag = models.ForeignKey(
-        "FeatureFlag",
+        "feature_flags.FeatureFlag",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

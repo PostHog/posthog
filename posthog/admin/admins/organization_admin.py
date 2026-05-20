@@ -36,7 +36,11 @@ BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
         "team_id",
         "Error Tracking Fingerprints",
     ),
-    ("posthog.models.feature_flag.feature_flag.FeatureFlagHashKeyOverride", "team_id", "Feature Flag Overrides"),
+    (
+        "products.feature_flags.backend.models.feature_flag.FeatureFlagHashKeyOverride",
+        "team_id",
+        "Feature Flag Overrides",
+    ),
     ("posthog.models.group.group.Group", "team_id", "Groups"),
     ("posthog.models.group_type_mapping.GroupTypeMapping", "team_id", "Group Type Mappings"),
     ("posthog.models.person.Person", "team_id", "Persons"),

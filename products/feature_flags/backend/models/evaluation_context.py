@@ -30,6 +30,7 @@ class EvaluationContext(UUIDModel):
 
     class Meta:
         unique_together = [["team", "name"]]
+        db_table = "posthog_evaluationcontext"
 
     def __str__(self) -> str:
         return f"{self.team_id}:{self.name}"
@@ -44,15 +45,16 @@ class FeatureFlagEvaluationContext(UUIDModel):
     """
 
     feature_flag = models.ForeignKey(
-        "posthog.FeatureFlag", on_delete=models.CASCADE, related_name="flag_evaluation_contexts"
+        "feature_flags.FeatureFlag", on_delete=models.CASCADE, related_name="flag_evaluation_contexts"
     )
     evaluation_context = models.ForeignKey(
-        "posthog.EvaluationContext", on_delete=models.CASCADE, related_name="feature_flags"
+        "feature_flags.EvaluationContext", on_delete=models.CASCADE, related_name="feature_flags"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = [["feature_flag", "evaluation_context"]]
+        db_table = "posthog_featureflagevaluationcontext"
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.evaluation_context.name}"
@@ -65,12 +67,13 @@ class TeamDefaultEvaluationContext(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="default_evaluation_context_set")
     evaluation_context = models.ForeignKey(
-        "posthog.EvaluationContext", on_delete=models.CASCADE, related_name="team_defaults"
+        "feature_flags.EvaluationContext", on_delete=models.CASCADE, related_name="team_defaults"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = [["team", "evaluation_context"]]
+        db_table = "posthog_teamdefaultevaluationcontext"
 
     def __str__(self) -> str:
         return f"{self.team.name} - {self.evaluation_context.name}"

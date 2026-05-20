@@ -14,8 +14,9 @@ import mimesis.random
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDT, uuid7
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .models import Effect, SimPerson, SimServerClient
 

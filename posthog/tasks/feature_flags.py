@@ -8,22 +8,23 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feature_flag.flags_cache import (
+from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
+from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
+
+from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     get_cache_stats,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
-from posthog.models.feature_flag.local_evaluation import (
+from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     update_flag_caches,
 )
-from posthog.models.team import Team
-from posthog.scoping_audit import skip_team_scope_audit
-from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
-from posthog.tasks.utils import CeleryQueue, PushGatewayTask
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 

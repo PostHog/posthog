@@ -7,11 +7,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Action, Cohort, FeatureFlag, Insight
+from posthog.models import Action, Cohort, Insight
 from posthog.models.insight import InsightViewed
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager

@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.models import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestFeatureFlagManager(BaseTest):

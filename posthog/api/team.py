@@ -42,7 +42,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
@@ -89,6 +88,11 @@ from posthog.utils import (
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    TeamDefaultEvaluationContext,
+    normalize_context_name,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 tracer = trace.get_tracer(__name__)

@@ -7,7 +7,9 @@ from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.api.scheduled_change import ScheduledChangeSerializer
-from posthog.models import FeatureFlag, ScheduledChange
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 
 class TestScheduledChange(APIBaseTest):

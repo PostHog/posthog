@@ -5,7 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import FeatureFlag
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class FlagValueQuerySerializer(serializers.Serializer):

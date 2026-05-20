@@ -20,8 +20,9 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from posthog.models import FeatureFlag
 from posthog.test.test_journeys import journeys_for
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(IN_UNIT_TESTING=True)

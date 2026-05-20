@@ -47,7 +47,6 @@ from django.db.models import Count
 
 from posthog.constants import FlagRequestType
 from posthog.models import GroupTypeMapping
-from posthog.models.feature_flag import FeatureFlag
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
@@ -87,6 +86,7 @@ from posthog.tasks.usage_report import (
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 # ---- Postgres ORM / API helpers ---------------------------------------------

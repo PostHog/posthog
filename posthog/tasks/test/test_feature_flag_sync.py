@@ -9,8 +9,9 @@ from django.test import override_settings
 from django.utils import timezone as tz
 
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes
-from posthog.models import FeatureFlag
 from posthog.tasks.tasks import sync_feature_flag_last_called
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def mock_redis_client() -> Mock:

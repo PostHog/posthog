@@ -51,15 +51,16 @@ class ScheduledChange(RootTeamMixin, models.Model):
     # UTC-wall-clock interpretation to avoid retroactively shifting any live schedule.
     timezone = models.CharField(max_length=240, null=True, blank=True)
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["scheduled_at", "executed_at"]),
         ]
+        db_table = "posthog_scheduledchange"
 
     @property
     def formatted_failure_reason(self) -> str:

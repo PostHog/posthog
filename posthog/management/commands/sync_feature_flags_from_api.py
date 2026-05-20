@@ -5,8 +5,10 @@ from django.core.management.base import BaseCommand
 
 import requests
 
-from posthog.models import FeatureFlag, Project, User
+from posthog.models import Project, User
 from posthog.ph_client import PH_US_API_KEY
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def sync_feature_flags_from_api(

@@ -6,7 +6,8 @@ from django.db import transaction
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.approvals.actions.base import BaseAction
 from posthog.approvals.exceptions import ApplyFailed, PreconditionFailed
-from posthog.models import FeatureFlag
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:

@@ -17,10 +17,9 @@ from rest_framework.test import APIRequestFactory
 from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.models import FeatureFlag, Team
+from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -33,6 +32,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it

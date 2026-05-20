@@ -13,7 +13,6 @@ from rest_framework import serializers
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
@@ -27,6 +26,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 

@@ -25,9 +25,8 @@ from posthog.schema import (
     MaxExperimentVariantResultFrequentist,
 )
 
-from posthog.models import FeatureFlag
-
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

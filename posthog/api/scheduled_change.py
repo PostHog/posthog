@@ -8,7 +8,8 @@ from rest_framework import serializers, viewsets
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ScheduledChange
+
+from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):
@@ -186,8 +187,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         """Raise ValidationError unless the request user can edit the target record."""
         if model_name != "FeatureFlag" or not record_id:
             return
-
-        from posthog.models import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         try:
             feature_flag = FeatureFlag.objects.get(id=record_id, team_id=team_id)
