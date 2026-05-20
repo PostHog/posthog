@@ -153,7 +153,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
     } = useActions(oauthAuthorizeLogic)
 
-    const { isReadOnly: isImpersonationReadOnly } = useValues(impersonationNoticeLogic)
+    const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
@@ -256,12 +256,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                     </p>
                 </div>
 
-                {isImpersonationReadOnly && (
+                {isImpersonated && (
                     <div className="flex items-center gap-2 p-3 mb-4 bg-danger-highlight border border-danger rounded text-sm">
                         <IconWarning className="text-warning shrink-0" />
                         <span>
                             <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in this session
-                            will be downgraded to read-only scopes and revoked when impersonation ends.
+                            are short-lived and will be revoked when impersonation ends
+                            {isImpersonationReadOnly ? ', and write scopes will be downgraded to read-only' : ''}.
                         </span>
                     </div>
                 )}

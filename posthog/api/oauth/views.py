@@ -66,6 +66,10 @@ CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
     }
 )
 
+# Sentinel for the per-request impersonator_id cache so None (no impersonator) is
+# distinguishable from "not resolved yet".
+_IMPERSONATOR_CACHE_UNSET: object = object()
+
 
 def get_region_info() -> dict | None:
     """Return region metadata if running on PostHog Cloud US/EU, else None."""
@@ -404,7 +408,7 @@ class OAuthValidator(OAuth2Validator):
             impersonated_by_id=access_token.impersonated_by_id if access_token else None,
         )
 
-    def _get_impersonator_id(self, request, refresh_token: OAuthRefreshToken | None = None) -> int | None:
+    def _get_impersonator_id(self, request, refresh_token: OAuthRefreshToken | None = None):
         """Resolve the impersonator (staff user) that should be tagged on a newly-minted token.
 
         Priority:
@@ -424,17 +428,26 @@ class OAuthValidator(OAuth2Validator):
             return refresh_token.impersonated_by_id
 
         # Code-exchange path: look up the grant via the `code` body param (same pattern
-        # as `_get_scoped_teams_and_organizations`).
+        # as `_get_scoped_teams_and_organizations`). `save_bearer_token` triggers up to
+        # three calls per code exchange (`_get_token_expires_in`,
+        # `_should_skip_refresh_token`, `_create_access_token`), so the grant lookup is
+        # memoized on the oauthlib request.
+        cached = getattr(request, "_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
+        if cached is not _IMPERSONATOR_CACHE_UNSET:
+            return cached  # type: ignore[return-value]
+
+        resolved: int | None = None
         if request.decoded_body:
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:
                     grant = OAuthGrant.objects.only("impersonated_by_id").get(code=code)
-                    return grant.impersonated_by_id
+                    resolved = grant.impersonated_by_id
             except OAuthGrant.DoesNotExist:
                 pass
 
-        return None
+        request._posthog_impersonator_id = resolved
+        return resolved
 
     def _get_scoped_teams_and_organizations(
         self,
@@ -596,9 +609,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     user=request.user, application=application, expires__gt=timezone.now()
                 ).all()
 
-                downgraded_scopes = scope_str.split() if is_read_only_impersonation(request) else scopes
+                # `scope_str` already reflects the read-only downgrade applied above (when
+                # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
-                    if token.allow_scopes(downgraded_scopes):
+                    if token.allow_scopes(scope_str.split()):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )

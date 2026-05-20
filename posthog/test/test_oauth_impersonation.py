@@ -14,7 +14,10 @@ from django.test import RequestFactory
 from django.utils import timezone
 
 from loginas import settings as la_settings
+from parameterized import parameterized
 
+from posthog.api.oauth.views import _impersonator_id_for_request
+from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
 from posthog.models import OAuthApplication, User
 from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthRefreshToken
 
@@ -98,7 +101,10 @@ class TestImpersonationOAuthRevocation(BaseTest):
 class TestImpersonationOAuthTokenIssuance(APIBaseTest):
     """Code-exchange flow: tokens minted from an impersonation-tagged grant must be
     short-lived and refresh-less, so they expire at the impersonation idle timeout
-    even when the staff user never explicitly logs out."""
+    even when the staff user never explicitly logs out. The 30min cap + refresh
+    suppression key off the grant's `impersonated_by_id` alone, which is set during
+    `/oauth/authorize` for both read-only and read-write impersonation — so this
+    test implicitly covers both modes."""
 
     def test_code_exchange_caps_expiry_and_suppresses_refresh_for_impersonation_grants(self) -> None:
         admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
@@ -163,3 +169,40 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
         access_token = OAuthAccessToken.objects.get(token=body["access_token"])
         self.assertEqual(access_token.impersonated_by_id, admin.pk)
         self.assertFalse(OAuthRefreshToken.objects.filter(application=app, user=self.user).exists())
+
+
+class TestImpersonatorIdResolution(BaseTest):
+    """The 30min cap, refresh suppression, and revocation-on-logout protections key off
+    the impersonator stamp set by `_impersonator_id_for_request` during `/oauth/authorize`.
+    That stamp must be set for *any* impersonation session — read-only or read-write —
+    so write-mode impersonation gets the same gating as read-only (only the scope
+    downgrade is read-only-specific)."""
+
+    @parameterized.expand(
+        [
+            ("read_only", True),
+            ("read_write", False),
+        ]
+    )
+    def test_impersonator_id_set_for_both_impersonation_modes(self, _name: str, read_only: bool) -> None:
+        admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
+        admin.is_staff = True
+        admin.save()
+        target = User.objects.create_user(email="customer@example.com", password="x", first_name="C")
+
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(admin.pk)
+        if read_only:
+            request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
+        request.user = target
+
+        self.assertEqual(_impersonator_id_for_request(request), admin.pk)
+
+    def test_impersonator_id_none_when_not_impersonating(self) -> None:
+        target = User.objects.create_user(email="customer@example.com", password="x", first_name="C")
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        request.user = target
+
+        self.assertIsNone(_impersonator_id_for_request(request))
