@@ -116,6 +116,13 @@ jobs:
                   target: ${{ matrix.target }}
                   manylinux: ${{ matrix.manylinux || 'auto' }}
                   args: --release --out dist --manifest-path rust/hogql/parser/Cargo.toml
+              env:
+                  # Override `rust/.cargo/config.toml`'s `-fuse-ld=lld` (a flox-dev
+                  # optimization that assumes lld is on PATH — GitHub Actions runners
+                  # don't ship it). Empty RUSTFLAGS overrides the file-level config
+                  # per Cargo's precedence rules; the workspace's `tokio_unstable`
+                  # cfg isn't reachable from this crate's dep graph.
+                  RUSTFLAGS: ''
 
             - name: Build sdist (linux x86_64 only)
               if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64'
@@ -123,6 +130,8 @@ jobs:
               with:
                   command: sdist
                   args: --out dist --manifest-path rust/hogql/parser/Cargo.toml
+              env:
+                  RUSTFLAGS: ''
 
             - name: Upload artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
