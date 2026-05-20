@@ -604,6 +604,11 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
     ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
     SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
+
+    The socket path is double-quoted because 1Password's macOS agent lives
+    under ``~/Library/Group Containers/...`` -- an unquoted space makes
+    ``ssh`` reject the config with "extra arguments at end of line" and
+    breaks every SSH-backed git op until the user hand-edits the file.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
@@ -611,7 +616,7 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
         args += ["--coder-binary-path", str(managed)]
     args += ["--ssh-option", "ForwardAgent yes"]
     if identity_agent_socket:
-        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
+        args += ["--ssh-option", f'IdentityAgent "{identity_agent_socket}"']
     return args
 
 

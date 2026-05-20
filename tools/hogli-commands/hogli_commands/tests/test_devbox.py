@@ -2308,6 +2308,25 @@ class TestResolveLocalIdentityAgent:
         assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
 
 
+class TestConfigSshArgs:
+    """Test the `coder config-ssh` argument builder.
+
+    OpenSSH tokenizes on whitespace, so an unquoted ``IdentityAgent`` path
+    that contains a space (e.g. 1Password's ``Group Containers``) makes the
+    whole config unparseable and breaks every SSH-backed git op. Pin the
+    quoting so a regression here trips a unit test instead of a user.
+    """
+
+    def test_identity_agent_socket_is_double_quoted(self) -> None:
+        args = coder._config_ssh_args(identity_agent_socket="/Users/p/Library/Group Containers/2BUA.../t/agent.sock")
+        assert "--ssh-option" in args
+        assert 'IdentityAgent "/Users/p/Library/Group Containers/2BUA.../t/agent.sock"' in args
+
+    def test_no_identity_agent_option_when_socket_is_none(self) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=None)
+        assert not any(a.startswith("IdentityAgent") for a in args)
+
+
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.
 
