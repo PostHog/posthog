@@ -467,6 +467,16 @@ class TestHyperCacheSecondaryCache(BaseTest):
     def sample_data(self) -> dict:
         return {"key": "value", "nested": {"data": "test"}}
 
+    @parameterized.expand(
+        [
+            # (name, enable_etag, input_kind, key_kind)
+            # input_kind: "sample" passes self.sample_data; "missing" passes HyperCacheStoreMissing()
+            # key_kind: which key on the HyperCache to assert against ("cache_key" or "etag_key")
+            ("data_payload", False, "sample", "cache_key"),
+            ("etag_alongside_data", True, "sample", "etag_key"),
+            ("missing_sentinel", False, "missing", "cache_key"),
+        ]
+    )
     @override_settings(
         CACHES={
             "default": {
@@ -479,15 +489,17 @@ class TestHyperCacheSecondaryCache(BaseTest):
             },
         }
     )
-    def test_dual_writes_value_to_both_caches(self):
-        """Writes go to both the primary cache_alias and the secondary_cache_alias."""
+    def test_dual_writes_to_both_caches(self, _name, enable_etag, input_kind, key_kind):
+        """Every write branch in _set_cache_value_redis is mirrored to the secondary cache."""
         from django.core.cache import caches
 
         caches["default"].clear()
         caches["flags_dedicated"].clear()
 
+        data: dict | HyperCacheStoreMissing = self.sample_data if input_kind == "sample" else HyperCacheStoreMissing()
+
         def load_fn(team):
-            return self.sample_data
+            return data
 
         hc = HyperCache(
             namespace="test",
@@ -495,97 +507,29 @@ class TestHyperCacheSecondaryCache(BaseTest):
             load_fn=load_fn,
             cache_alias="flags_dedicated",
             secondary_cache_alias="default",
+            enable_etag=enable_etag,
         )
 
         team_id = self.team.id
-        hc.set_cache_value(team_id, self.sample_data)
+        hc.set_cache_value(team_id, data)
 
-        cache_key = hc.get_cache_key(team_id)
-        primary_value = caches["flags_dedicated"].get(cache_key)
-        secondary_value = caches["default"].get(cache_key)
+        target_key = hc.get_etag_key(team_id) if key_kind == "etag_key" else hc.get_cache_key(team_id)
+        primary_value = caches["flags_dedicated"].get(target_key)
+        secondary_value = caches["default"].get(target_key)
 
-        # Both caches hold the identical serialized payload (sort_keys=True ensures
-        # byte-for-byte equality, which keeps ETags consistent across both caches).
-        assert primary_value == json.dumps(self.sample_data, sort_keys=True)
-        assert secondary_value == primary_value
+        # Both caches must hold the same value. sort_keys=True ensures byte-for-byte
+        # equality of the serialized payload, which also keeps ETags consistent.
+        assert primary_value is not None
+        assert primary_value == secondary_value
 
-    @override_settings(
-        CACHES={
-            "default": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                "LOCATION": "default-secondary-etag-test-cache",
-            },
-            "flags_dedicated": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                "LOCATION": "flags-dedicated-secondary-etag-test-cache",
-            },
-        }
-    )
-    def test_dual_writes_etag_to_both_caches(self):
-        """When enable_etag=True, ETag keys are dual-written alongside the data."""
-        from django.core.cache import caches
-
-        caches["default"].clear()
-        caches["flags_dedicated"].clear()
-
-        def load_fn(team):
-            return self.sample_data
-
-        hc = HyperCache(
-            namespace="test",
-            value="value",
-            load_fn=load_fn,
-            cache_alias="flags_dedicated",
-            secondary_cache_alias="default",
-            enable_etag=True,
-        )
-
-        team_id = self.team.id
-        hc.set_cache_value(team_id, self.sample_data)
-
-        etag_key = hc.get_etag_key(team_id)
-        primary_etag = caches["flags_dedicated"].get(etag_key)
-        secondary_etag = caches["default"].get(etag_key)
-
-        assert primary_etag is not None
-        assert primary_etag == secondary_etag
-
-    @override_settings(
-        CACHES={
-            "default": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                "LOCATION": "default-secondary-missing-test-cache",
-            },
-            "flags_dedicated": {
-                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                "LOCATION": "flags-dedicated-secondary-missing-test-cache",
-            },
-        }
-    )
-    def test_dual_writes_missing_sentinel_to_both_caches(self):
-        """The __missing__ sentinel is dual-written too, so secondary reflects misses."""
-        from django.core.cache import caches
-
-        caches["default"].clear()
-        caches["flags_dedicated"].clear()
-
-        def load_fn(team):
-            return HyperCacheStoreMissing()
-
-        hc = HyperCache(
-            namespace="test",
-            value="value",
-            load_fn=load_fn,
-            cache_alias="flags_dedicated",
-            secondary_cache_alias="default",
-        )
-
-        team_id = self.team.id
-        hc.set_cache_value(team_id, HyperCacheStoreMissing())
-
-        cache_key = hc.get_cache_key(team_id)
-        assert caches["flags_dedicated"].get(cache_key) == "__missing__"
-        assert caches["default"].get(cache_key) == "__missing__"
+        # Branch-specific shape check on the dual-written value.
+        if input_kind == "missing":
+            assert primary_value == "__missing__"
+        elif key_kind == "etag_key":
+            # 16-char hex hash from HyperCache._compute_etag.
+            assert isinstance(primary_value, str) and len(primary_value) == 16
+        else:
+            assert primary_value == json.dumps(self.sample_data, sort_keys=True)
 
     @override_settings(
         CACHES={
