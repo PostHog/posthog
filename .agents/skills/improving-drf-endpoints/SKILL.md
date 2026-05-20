@@ -51,13 +51,11 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` are reused across many components. If your new `ChoiceField` (or `SerializerMethodField` returning an Enum) uses one of these and the choices differ from existing usages, drf-spectacular renames it to something like `Format5eaEnum` and `--fail-on-warn` fails CI. Prevent it: pick a more specific field name **or** add an entry to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` proactively so the generated enum has a stable, semantic name. The override format depends on the field kind — see the hash-trap note in [viewset-annotations.md](references/viewset-annotations.md#enum_name_overrides--fixing-enum-naming-warnings)
+6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
 7. **Read vs write serializers are separate** when input shape differs from output
 8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 
 See [serializer-fields.md](references/serializer-fields.md) for patterns and examples.
-
-After adding or changing any `ChoiceField` / `SerializerMethodField`-with-enum, run `python manage.py find_enum_collisions` locally before pushing — it catches a new collision and prints the exact override to paste into `ENUM_NAME_OVERRIDES`, so you don't discover the failure on CI.
 
 ### Viewset and action annotations
 
