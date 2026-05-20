@@ -87,6 +87,7 @@ RUN apt-get update && \
     "ca-certificates" \
     "wget" \
     "gnupg" \
+    "unzip" \
     && \
     mkdir -p /etc/apt/keyrings && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
@@ -122,7 +123,8 @@ RUN apt-get update && \
 
 # Install chrome-headless-shell via @puppeteer/browsers CLI.
 # This provides the minimal Chrome binary that supports HeadlessExperimental.
-RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+# NOTE: Version is pinned to avoid upstream breakage. Bump periodically for security patches.
+RUN npx --yes @puppeteer/browsers install chrome-headless-shell@148.0.7778.178 \
     --path /opt/chrome-headless-shell && \
     ln -s "$(find /opt/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" /usr/local/bin/chrome-headless-shell
 

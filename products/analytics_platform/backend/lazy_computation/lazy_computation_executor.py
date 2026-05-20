@@ -28,7 +28,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
+from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -67,9 +67,10 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
 # the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
 # preventing stale reads from hitting a replica that hasn't received the data yet.
-# Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
-# ClickHouse setup and we want them to remain fast and deterministic).
-PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+# Disabled in tests AND local dev (DEBUG) — both run against a single-node ClickHouse
+# where `insert_quorum=auto` waits 600s for an acknowledgement that never comes (the local
+# replica writes immediately but ClickHouse still blocks on the quorum protocol).
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 
 
 def _get_insert_settings(team_id: int) -> dict:

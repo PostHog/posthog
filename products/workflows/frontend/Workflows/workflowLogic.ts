@@ -8,6 +8,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -662,6 +663,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 lemonToast.success('Workflow saved')
+
+                if (props.id === 'new') {
+                    tryShowMCPHint('workflows.create')
+                }
 
                 if (props.id === 'new' && originalWorkflow.id) {
                     router.actions.replace(
