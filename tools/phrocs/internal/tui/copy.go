@@ -31,16 +31,12 @@ func (m *Model) applyCopyStyle() {
 
 	lo := min(m.copyAnchor, cursor)
 	hi := max(m.copyAnchor, cursor)
-	// TrueColor RGB rather than ANSI black — Zed's terminal maps ANSI 0
-	// to the same value as the default terminal background, making the
-	// selection invisible.
-	selBg := selectionBg(m.isDark)
 	m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
 		if idx == cursor {
 			return copyModeStyle
 		}
 		if idx >= lo && idx <= hi {
-			return lipgloss.NewStyle().Background(selBg)
+			return lipgloss.NewStyle().Background(selectionBg(m.isDark))
 		}
 		return lipgloss.NewStyle()
 	}
