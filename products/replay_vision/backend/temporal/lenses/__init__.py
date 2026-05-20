@@ -22,13 +22,7 @@ _LENS_ADAPTER: TypeAdapter[AnyLens] = TypeAdapter(AnyLens)
 
 
 def validate_lens_config(*, lens_config: Any, lens_type: LensType, emits_signals: bool = False) -> AnyLens:
-    """Validate `lens_config` against the per-`lens_type` Pydantic schema.
-
-    Raises `ValueError` if `lens_config` isn't a dict, or `pydantic.ValidationError`
-    on a type-specific schema failure. Callers in activity/workflow contexts wrap
-    these as `ApplicationError(non_retryable=True)`; callers in DRF contexts wrap
-    them as `serializers.ValidationError`.
-    """
+    """Validate `lens_config` against the per-`lens_type` Pydantic schema; raises `ValueError` or `pydantic.ValidationError`."""
     if not isinstance(lens_config, dict):
         raise ValueError(f"lens_config must be a JSON object, got {type(lens_config).__name__}")
     # Spread `lens_config` first so the trusted top-level columns override anything that leaked into the JSON.
