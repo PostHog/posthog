@@ -110,15 +110,17 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
 
     return (
         <div className="relative" onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            <HeartHog
-                width="100"
-                height="100"
-                className={clsx(
-                    hogPositionClass,
-                    isHovering === true && `${hogPositionClass}--peek`,
-                    isHovering === false && `${hogPositionClass}--hide`
-                )}
-            />
+            {!cardDisabled && (
+                <HeartHog
+                    width="100"
+                    height="100"
+                    className={clsx(
+                        hogPositionClass,
+                        isHovering === true && `${hogPositionClass}--peek`,
+                        isHovering === false && `${hogPositionClass}--hide`
+                    )}
+                />
+            )}
             <div
                 role="button"
                 tabIndex={0}
