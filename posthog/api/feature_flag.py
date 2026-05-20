@@ -15,6 +15,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
@@ -106,6 +107,11 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
+# Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
+# *after* Django applies `disable_existing_loggers: True`. Using `__name__` here
+# results in a disabled logger because `posthog.api.feature_flag` is loaded during
+# Django startup. Remove this logger together with the helper once the scope is enforced.
+scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -158,18 +164,16 @@ def warn_if_missing_feature_flag_write_scope(
     if "*" in scopes or "feature_flag:write" in scopes:
         return
 
-    logger.warning(
+    scope_audit_logger.warning(
         "feature_flag_write_via_other_scope",
-        extra={
-            "action": action,
-            "team_id": team_id,
-            "feature_flag_id": feature_flag_id,
-            "scopes": scopes,
-            "auth_kind": auth_kind,
-            "auth_id": auth_id,
-            "auth_label": auth_label,
-            "user_id": getattr(getattr(request, "user", None), "id", None),
-        },
+        action=action,
+        team_id=team_id,
+        feature_flag_id=feature_flag_id,
+        scopes=scopes,
+        auth_kind=auth_kind,
+        auth_id=auth_id,
+        auth_label=auth_label,
+        user_id=getattr(getattr(request, "user", None), "id", None),
     )
 
 
