@@ -108,8 +108,6 @@ def proxy_github_webhook_to_hognipotent(body: str, headers: dict[str, str]) -> N
     import requests
 
     try:
-        requests.post(
-            settings.HOGNIPOTENT_WEBHOOK_URL, data=body.encode("latin-1"), headers=headers, timeout=10
-        )
+        requests.post(settings.HOGNIPOTENT_WEBHOOK_URL, data=body.encode("latin-1"), headers=headers, timeout=10)
     except Exception as e:
         logger.warning("hognipotent_webhook_proxy_failed", error=str(e))
