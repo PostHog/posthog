@@ -547,6 +547,129 @@ class TestSurveyAnalysisTool(BaseTest):
         assert 'Question: "Empty question"' in formatted
         assert "Responses: (none)" in formatted
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_last_n_days_constrains_window(self):
+        from datetime import timedelta
+
+        from unittest.mock import patch
+
+        import django.utils.timezone
+
+        with patch(
+            "products.surveys.backend.max_tools.fetch_responses", return_value=["Recent feedback"]
+        ) as mock_fetch:
+            survey = await sync_to_async(Survey.objects.create)(
+                team=self.team,
+                name="Recent Survey",
+                type="popover",
+                questions=[{"type": "open", "question": "Thoughts?", "id": "q1"}],
+                created_by=self.user,
+                start_date=django.utils.timezone.now() - timedelta(days=400),
+            )
+            tool = self._setup_tool()
+
+            before = django.utils.timezone.now()
+            content, artifact = await tool._arun_impl(survey_id=str(survey.id), last_n_days=2)
+            after = django.utils.timezone.now()
+
+            mock_fetch.assert_called_once()
+            kwargs = mock_fetch.call_args.kwargs
+            start = kwargs["start_date"]
+            end = kwargs["end_date"]
+
+            assert before - timedelta(days=2) <= start <= after - timedelta(days=2)
+            assert before <= end <= after
+
+            assert "Date window applied" in content
+            assert "date_from" in artifact
+            assert "date_to" in artifact
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_explicit_date_range(self):
+        from unittest.mock import patch
+
+        with patch("products.surveys.backend.max_tools.fetch_responses", return_value=["May response"]) as mock_fetch:
+            survey = await sync_to_async(Survey.objects.create)(
+                team=self.team,
+                name="Date Range Survey",
+                type="popover",
+                questions=[{"type": "open", "question": "Thoughts?", "id": "q1"}],
+                created_by=self.user,
+            )
+            tool = self._setup_tool()
+
+            content, artifact = await tool._arun_impl(
+                survey_id=str(survey.id),
+                date_from="2026-05-04",
+                date_to="2026-05-11",
+            )
+
+            assert mock_fetch.call_count == 1
+            kwargs = mock_fetch.call_args.kwargs
+            start = kwargs["start_date"]
+            end = kwargs["end_date"]
+            assert start.year == 2026 and start.month == 5 and start.day == 4
+            assert end.year == 2026 and end.month == 5 and end.day == 11
+
+            assert artifact["date_from"].startswith("2026-05-04")
+            assert artifact["date_to"].startswith("2026-05-11")
+            assert "Date window applied" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_invalid_date_returns_error(self):
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Bad Date Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Thoughts?", "id": "q1"}],
+            created_by=self.user,
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), date_from="not-a-date")
+
+        assert "Invalid date filter" in content
+        assert artifact["error"] == "invalid_date_filter"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_invalid_last_n_days_returns_error(self):
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Bad N Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Thoughts?", "id": "q1"}],
+            created_by=self.user,
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), last_n_days=0)
+
+        assert artifact["error"] == "invalid_date_filter"
+        assert "positive" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_date_from_after_date_to_returns_error(self):
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Inverted Range Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Thoughts?", "id": "q1"}],
+            created_by=self.user,
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id), date_from="2026-05-10", date_to="2026-05-01"
+        )
+
+        assert artifact["error"] == "invalid_date_filter"
+        assert "earlier" in content
+
 
 class TestEditSurveyTool(BaseTest):
     def setUp(self):

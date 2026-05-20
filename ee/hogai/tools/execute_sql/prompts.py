@@ -61,6 +61,17 @@ JOIN persons p ON e.person_id = p.id
 WHERE e.event IN (SELECT event FROM events WHERE ...)
 ```
 
+# Relative time constraints
+When the user asks for data over a relative window like "last N days", "past 24 hours", "this week", "today", or "since yesterday":
+- ALWAYS express the cutoff using a SQL time function (`now()`, `today()`) combined with an `INTERVAL`, so the boundary is computed at query time. Do NOT compute the literal date yourself and embed it as a string — that's how off-by-N-day errors happen when the assistant's notion of "today" drifts from the project clock.
+- "Last N days" (rolling window ending now) → `timestamp >= now() - INTERVAL N DAY`
+- "Last N days" (whole calendar days, excluding today) → `timestamp >= today() - INTERVAL N DAY AND timestamp < today()`
+- "Past 24 hours" / "last 24h" → `timestamp >= now() - INTERVAL 24 HOUR`
+- "This week" (ISO week starting Monday) → `timestamp >= toStartOfWeek(now(), 1)`
+- "Today" → `timestamp >= toStartOfDay(now())`
+- "Yesterday" → `timestamp >= toStartOfDay(now() - INTERVAL 1 DAY) AND timestamp < toStartOfDay(now())`
+- If — and only if — the user pinned a specific calendar boundary ("from May 1 to May 10", "before 2026-04-01"), use that literal date. Otherwise prefer the dynamic form above.
+
 # Other constraints
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>
@@ -161,4 +172,6 @@ The current SQL editor query node, if available, is:
 When `current_query_node.source.filters` exists, those filters are applied through `{filters}` placeholders in `current_query_node.source.query`.
 For notebook SQL editor nodes, the query is usually a `DataVisualizationNode` with `source.kind = "HogQLQuery"`.
 If the user asks to change "last 90 days", "test accounts", or property filters and the query contains `{filters}`, update the tool's `filters` argument instead of editing the SQL text.
+
+Reminder: for any "last N days" / "past N hours" / "this week" style window, use `now() - INTERVAL N <UNIT>` (or `today() - INTERVAL N DAY`) directly in the SQL. Do not compute the cutoff as a literal date string from "today" — the project clock is the source of truth and should be evaluated at query time. The current project datetime is shown in the system prompt above; use it only as a sanity check on what "today" is, not as a value to interpolate into the query.
 """.strip()

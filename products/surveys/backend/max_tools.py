@@ -2,11 +2,12 @@
 MaxTool for AI-powered survey creation and analysis.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from textwrap import dedent
 from typing import Any, Literal
 
 import django.utils.timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
@@ -562,12 +563,75 @@ class EditSurveyTool(MaxTool):
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}
 
 
+def _parse_user_supplied_datetime(value: str, *, field_name: str) -> datetime:
+    """Parse an ISO 8601 datetime or date string into a timezone-aware datetime.
+
+    Naive inputs are interpreted in the current Django timezone so they line up with how
+    survey timestamps are stored.
+    """
+    parsed = parse_datetime(value)
+    if parsed is None:
+        date_only = parse_date(value)
+        if date_only is None:
+            raise ValueError(f"'{field_name}' must be an ISO 8601 date or datetime; got '{value}'")
+        parsed = datetime.combine(date_only, datetime.min.time())
+    if django.utils.timezone.is_naive(parsed):
+        parsed = django.utils.timezone.make_aware(parsed, timezone=django.utils.timezone.get_current_timezone())
+    return parsed
+
+
+def _resolve_date_window(
+    date_from: str | None,
+    date_to: str | None,
+    last_n_days: int | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Resolve the requested date window into (start, end) datetimes (or None for defaults).
+
+    `last_n_days` takes precedence over explicit `date_from`/`date_to`. Returning None for a
+    bound means "fall back to the survey's default" inside `_fetch_survey_responses`.
+    """
+    if last_n_days is not None:
+        if last_n_days <= 0:
+            raise ValueError(f"'last_n_days' must be a positive integer; got {last_n_days}")
+        end = django.utils.timezone.now()
+        return end - timedelta(days=last_n_days), end
+
+    start = _parse_user_supplied_datetime(date_from, field_name="date_from") if date_from else None
+    end = _parse_user_supplied_datetime(date_to, field_name="date_to") if date_to else None
+    if start is not None and end is not None and start > end:
+        raise ValueError("'date_from' must be earlier than or equal to 'date_to'")
+    return start, end
+
+
 class SurveyAnalysisArgs(BaseModel):
     """Retrieve survey responses for analysis."""
 
     survey_id: str | None = Field(
         default=None,
         description="UUID of the survey to analyze. If not provided, uses survey from current context.",
+    )
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Earliest response timestamp to include, inclusive. Accepts an ISO 8601 datetime "
+            "(e.g. '2026-05-18T00:00:00Z') or a date (e.g. '2026-05-18'). "
+            "If omitted, defaults to the survey's start_date (or created_at)."
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=(
+            "Latest response timestamp to include, inclusive. Accepts an ISO 8601 datetime "
+            "(e.g. '2026-05-20T23:59:59Z') or a date (e.g. '2026-05-20'). "
+            "If omitted, defaults to the survey's end_date (or now)."
+        ),
+    )
+    last_n_days: int | None = Field(
+        default=None,
+        description=(
+            "Convenience window: only include responses from the last N days, ending at now. "
+            "Takes precedence over date_from/date_to when set. Must be a positive integer."
+        ),
     )
 
 
@@ -583,6 +647,13 @@ class SurveyAnalysisTool(MaxTool):
 
         # Finding the Survey
         If you don't have a survey_id, first use the search tool with kind="surveys" to find it.
+
+        # Date filtering
+        When the user constrains the analysis to a time window ("last two days", "this week",
+        "since launch", "responses from May 1 to May 10"), pass the window as arguments:
+        - `last_n_days` for relative windows like "the last 7 days" — preferred for relative phrasing
+        - `date_from` / `date_to` for explicit start/end timestamps (ISO 8601 date or datetime)
+        When no window is given, the tool defaults to the survey's full collection window.
 
         # What this tool returns
         Returns the raw open-ended responses from the survey which you should then analyze
@@ -619,14 +690,24 @@ class SurveyAnalysisTool(MaxTool):
 
         return "\n".join(formatted_sections)
 
-    async def _fetch_survey_responses(self, survey: Survey) -> list[SurveyAnalysisQuestionGroup]:
+    async def _fetch_survey_responses(
+        self,
+        survey: Survey,
+        start_date_override: datetime | None = None,
+        end_date_override: datetime | None = None,
+    ) -> list[SurveyAnalysisQuestionGroup]:
         """Fetch open-ended responses for a survey from the database."""
         questions = survey.questions or []
         question_groups: list[SurveyAnalysisQuestionGroup] = []
 
         # Use survey start_date or created_at as the start, and now as the end
-        start_date = survey.start_date or survey.created_at or (django.utils.timezone.now() - timedelta(days=365))
-        end_date = survey.end_date or django.utils.timezone.now()
+        start_date = (
+            start_date_override
+            or survey.start_date
+            or survey.created_at
+            or (django.utils.timezone.now() - timedelta(days=365))
+        )
+        end_date = end_date_override or survey.end_date or django.utils.timezone.now()
 
         for idx, question in enumerate(questions):
             q_type = question.get("type", "")
@@ -669,7 +750,13 @@ class SurveyAnalysisTool(MaxTool):
 
         return question_groups
 
-    async def _arun_impl(self, survey_id: str | None = None) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(
+        self,
+        survey_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        last_n_days: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         """
         Retrieve survey responses for the main agent to analyze.
         Returns the formatted responses so the agent can extract themes, sentiment, and insights.
@@ -688,6 +775,14 @@ class SurveyAnalysisTool(MaxTool):
                     },
                 )
 
+            try:
+                start_override, end_override = _resolve_date_window(date_from, date_to, last_n_days)
+            except ValueError as e:
+                return f"Invalid date filter: {e}", {
+                    "error": "invalid_date_filter",
+                    "details": str(e),
+                }
+
             # Fetch the survey from database
             try:
                 survey = await sync_to_async(Survey.objects.get)(id=effective_survey_id, team=self._team)
@@ -700,7 +795,9 @@ class SurveyAnalysisTool(MaxTool):
             survey_name = survey.name
 
             # Fetch responses directly from database
-            responses = await self._fetch_survey_responses(survey)
+            responses = await self._fetch_survey_responses(
+                survey, start_date_override=start_override, end_date_override=end_override
+            )
 
             if not responses:
                 return (
@@ -723,9 +820,17 @@ class SurveyAnalysisTool(MaxTool):
 
             formatted_data = self._format_responses_for_analysis(responses)
 
+            window_line = ""
+            if start_override is not None or end_override is not None:
+                window_line = (
+                    f"\nDate window applied: "
+                    f"{start_override.isoformat() if start_override else 'survey start'} to "
+                    f"{end_override.isoformat() if end_override else 'now'}"
+                )
+
             message = dedent(f"""
                 Survey: "{survey_name}"
-                Total open-ended responses: {total_response_count}
+                Total open-ended responses: {total_response_count}{window_line}
 
                 {formatted_data}
 
@@ -736,11 +841,16 @@ class SurveyAnalysisTool(MaxTool):
                 4. Specific recommendations based on the feedback
             """).strip()
 
-            return message, {
+            artifact: dict[str, Any] = {
                 "survey_id": str(survey.id),
                 "survey_name": survey_name,
                 "response_count": total_response_count,
             }
+            if start_override is not None:
+                artifact["date_from"] = start_override.isoformat()
+            if end_override is not None:
+                artifact["date_to"] = end_override.isoformat()
+            return message, artifact
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
