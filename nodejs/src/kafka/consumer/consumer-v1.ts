@@ -37,6 +37,7 @@ import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
 import { getKafkaConfigFromEnv } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
+import type { PartitionLifecycleCallback } from './consumer-v2'
 import {
     consumedBatchBackgroundDuration,
     consumedBatchBackpressureDuration,
@@ -111,6 +112,16 @@ export type KafkaConsumerConfig = {
     autoCommit?: boolean
     enablePartitionEof?: boolean
     waitForBackgroundTasksOnRebalance?: boolean
+    /**
+     * Fired when partitions are revoked. Under v1 this is **fire-and-forget** — the
+     * rebalance does NOT block on the returned promise, so the callback may still be
+     * running when the new owner picks up the partition. Local in-memory cleanup is
+     * safe (the new owner has its own state); cross-process side effects are not
+     * guaranteed to happen before reassignment.
+     * KafkaConsumerV2 awaits this callback between drain and unassign — see its
+     * type definition for the stronger guarantees v2 provides.
+     */
+    onPartitionsRevoked?: PartitionLifecycleCallback
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -408,6 +419,19 @@ export class KafkaConsumer {
                     partition: tp.partition,
                 })),
             })
+
+            // Fire-and-forget application callback. Unlike v2, v1 does NOT block the
+            // rebalance on this — librdkafka's rebalance_cb is synchronous, and v1's
+            // existing structure can't await without restructuring the whole handler.
+            // Rejections surface in the next tick to avoid silent failure.
+            if (this.config.onPartitionsRevoked) {
+                this.config.onPartitionsRevoked(assignments).catch((error) => {
+                    logger.error('🔁', 'kafka_consumer_on_partitions_revoked_failed', {
+                        error: String(error),
+                    })
+                    captureException(error)
+                })
+            }
 
             // Handle background task coordination asynchronously
             if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {

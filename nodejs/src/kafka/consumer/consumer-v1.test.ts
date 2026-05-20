@@ -424,6 +424,29 @@ describe('consumer', () => {
             ])
         })
 
+        it('fires onPartitionsRevoked with the revoked partitions on REVOKE', async () => {
+            const onPartitionsRevoked = jest.fn().mockResolvedValue(undefined)
+            const consumerWithCallback = new KafkaConsumer({
+                groupId: 'test-group-revoked',
+                topic: 'test-topic',
+                onPartitionsRevoked,
+            })
+
+            consumerWithCallback.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+                { topic: 'test-topic', partition: 1 },
+            ])
+
+            // Fire-and-forget — callback runs but the rebalance does NOT await it.
+            await delay(1)
+            expect(onPartitionsRevoked).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0 },
+                { topic: 'test-topic', partition: 1 },
+            ])
+
+            await consumerWithCallback.disconnect()
+        })
+
         it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
             defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = false
             // Create a consumer with feature disabled

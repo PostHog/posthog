@@ -34,7 +34,6 @@ const triggerablePromise = <T = void>(): { promise: Promise<T>; resolve: (value?
 const makeIngesterStub = (overrides: {
     shouldFlush: boolean | jest.Mock
     flushImpl?: () => Promise<void>
-    useConsumerV2?: boolean
 }): {
     ingester: SessionRecordingIngester
     mocks: {
@@ -67,7 +66,6 @@ const makeIngesterStub = (overrides: {
         sessionBatchManager: mocks.sessionBatchManager,
         kafkaConsumer: mocks.kafkaConsumer,
         sessionReplayPipeline: mocks.sessionReplayPipeline,
-        useConsumerV2: overrides.useConsumerV2 ?? false,
     })
 
     return { ingester, mocks }
@@ -132,53 +130,12 @@ describe('SessionRecordingIngester.processBatchMessages', () => {
     })
 })
 
-describe('SessionRecordingIngester.handleEachBatch (v1 path)', () => {
-    it('awaits the backgroundTask before returning (v1 consumer compatibility)', async () => {
-        const flushGate = triggerablePromise()
-        const { ingester } = makeIngesterStub({
-            shouldFlush: true,
-            flushImpl: () => flushGate.promise,
-            useConsumerV2: false,
-        })
-
-        let handleEachBatchResolved = false
-        const handlePromise = ingester.handleEachBatch([createMessage()]).then(() => {
-            handleEachBatchResolved = true
-        })
-
-        await delay(5)
-        // The flush is still in flight — handleEachBatch must not have returned yet.
-        expect(handleEachBatchResolved).toBe(false)
-
-        flushGate.resolve()
-        await handlePromise
-        expect(handleEachBatchResolved).toBe(true)
-    })
-
-    it('returns undefined under v1 (consumer ignores the return value)', async () => {
-        const { ingester } = makeIngesterStub({ shouldFlush: true, useConsumerV2: false })
-
-        const returnValue = await ingester.handleEachBatch([createMessage()])
-
-        expect(returnValue).toBeUndefined()
-    })
-
-    it('returns without waiting when no flush was needed', async () => {
-        const { ingester, mocks } = makeIngesterStub({ shouldFlush: false, useConsumerV2: false })
-
-        await ingester.handleEachBatch([createMessage()])
-
-        expect(mocks.sessionBatchManager.flush).not.toHaveBeenCalled()
-    })
-})
-
-describe('SessionRecordingIngester.handleEachBatch (v2 path)', () => {
-    it('returns { backgroundTask } without awaiting it — v2 owns the await + commit gating', async () => {
+describe('SessionRecordingIngester.handleEachBatch', () => {
+    it('returns { backgroundTask } without awaiting it — the consumer owns the await + commit gating', async () => {
         const flushGate = triggerablePromise()
         const { ingester, mocks } = makeIngesterStub({
             shouldFlush: true,
             flushImpl: () => flushGate.promise,
-            useConsumerV2: true,
         })
 
         const returnValue = await ingester.handleEachBatch([createMessage()])
@@ -203,7 +160,7 @@ describe('SessionRecordingIngester.handleEachBatch (v2 path)', () => {
     })
 
     it('returns undefined when no flush was needed', async () => {
-        const { ingester, mocks } = makeIngesterStub({ shouldFlush: false, useConsumerV2: true })
+        const { ingester, mocks } = makeIngesterStub({ shouldFlush: false })
 
         const returnValue = await ingester.handleEachBatch([createMessage()])
 

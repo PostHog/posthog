@@ -84,15 +84,6 @@ export type SessionRecordingConfig = {
     // Kafka consumer config
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
     INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
-
-    /**
-     * When true, the ingester uses KafkaConsumerV2 (with partition lifecycle callbacks
-     * and the unified backgroundTask contract) instead of the legacy v1 KafkaConsumer.
-     *
-     * Default false. Flip per environment once v2 has soaked. The v1 path will be
-     * removed after the flip is fully rolled out.
-     */
-    SESSION_RECORDING_CONSUMER_V2_ENABLED: boolean
 }
 
 export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig {
@@ -156,8 +147,6 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         // Kafka consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,
-
-        SESSION_RECORDING_CONSUMER_V2_ENABLED: false,
     }
 }
 

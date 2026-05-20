@@ -220,6 +220,17 @@ export class KafkaConsumerV2 {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
 
+    /**
+     * Exists solely for `KafkaConsumerInterface` conformance. v2 drives heartbeats
+     * automatically from its consume loop, so application calls are a no-op.
+     *
+     * TODO: remove once v1 is decommissioned and heartbeat() is dropped from the
+     * interface.
+     */
+    public heartbeat(): void {
+        // intentional no-op
+    }
+
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
         // Manual offset path used by SessionRecording. Storing offsets after the consumer
         // has revoked the partitions is harmless — librdkafka will reject the store internally.
