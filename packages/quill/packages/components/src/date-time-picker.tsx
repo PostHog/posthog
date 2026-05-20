@@ -19,7 +19,7 @@ import {
 import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { Day, useCalendar } from './use-calendar'
@@ -253,11 +253,13 @@ function Calendar({
                         </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                        {monthOptions.map(({ key, year, month }) => (
-                            <SelectItem key={key} value={key} disabled={key === siblingKey}>
-                                {MONTH_NAMES[month]} {year}
-                            </SelectItem>
-                        ))}
+                        <SelectGroup>
+                            {monthOptions.map(({ key, year, month }) => (
+                                <SelectItem key={key} value={key} disabled={key === siblingKey}>
+                                    {MONTH_NAMES[month]} {year}
+                                </SelectItem>
+                            ))}
+                        </SelectGroup>
                     </SelectContent>
                 </Select>
                 <Button
