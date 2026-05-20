@@ -2,12 +2,12 @@ import base64
 import hashlib
 from datetime import timedelta
 from typing import Optional, cast
-from unittest.mock import patch
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -1050,10 +1050,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response2.json()["error"], "invalid_grant")
 
     def test_token_endpoint_returns_invalid_grant_when_access_token_lookup_misses(self):
-        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
-        token_data = {**self.base_token_body, "code": code}
+        token_data = {**self.base_token_body, "code": "does_not_matter"}
 
         with patch(
             "oauth2_provider.views.base.TokenView.post",
