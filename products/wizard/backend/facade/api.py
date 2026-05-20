@@ -24,5 +24,9 @@ def get_latest(team_id: int, workflow_id: str, skill_id: str) -> WizardSessionDT
     return sessions.get_latest_session(team_id, workflow_id, skill_id)
 
 
-def list_for_team(team_id: int) -> list[WizardSessionDTO]:
-    return sessions.list_sessions(team_id)
+def list_for_team(
+    team_id: int,
+    workflow_id: str | None = None,
+    skill_id: str | None = None,
+) -> list[WizardSessionDTO]:
+    return sessions.list_sessions(team_id, workflow_id=workflow_id, skill_id=skill_id)
