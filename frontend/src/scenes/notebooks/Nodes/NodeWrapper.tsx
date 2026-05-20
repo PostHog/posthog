@@ -72,7 +72,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeIds, containerSize, notebook, mode, isShared } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook, mode, isShared, shortId, isLocalOnly } =
+        useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -164,7 +165,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         }
     }
 
-    const parsedHref = typeof href === 'function' ? href(attributes) : href
+    const rawHref = typeof href === 'function' ? href(attributes) : href
+    // When opening an insight from a notebook, mark the source so the insight's back button
+    // returns to the notebook instead of falling back to the Product analytics insights list.
+    const parsedHref =
+        rawHref && shortId && !isLocalOnly && rawHref.startsWith('/insights/')
+            ? `${rawHref}${rawHref.includes('#') ? '&' : '#'}sceneSource=notebook&sceneSourceId=${encodeURIComponent(shortId)}`
+            : rawHref
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)

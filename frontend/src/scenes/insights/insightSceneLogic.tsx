@@ -102,7 +102,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             tileFiltersOverride: TileFilters | undefined,
             dashboardId: DashboardType['id'] | undefined,
             dashboardName: DashboardType['name'] | undefined,
-            sceneSource: InsightSceneSource | null
+            sceneSource: InsightSceneSource | null,
+            sceneSourceId: string | null
         ) => ({
             insightId,
             insightMode,
@@ -114,6 +115,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             variablesOverride,
             tileFiltersOverride,
             sceneSource,
+            sceneSourceId,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -143,6 +145,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             null as null | InsightSceneSource,
             {
                 setSceneState: (_, { sceneSource }) => sceneSource ?? null,
+            },
+        ],
+        sceneSourceId: [
+            null as null | string,
+            {
+                setSceneState: (_, { sceneSourceId }) => sceneSourceId ?? null,
             },
         ],
         itemId: [
@@ -266,8 +274,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.dashboardName,
                 (_, props: InsightSceneLogicProps) => props.tabId,
                 s.sceneSource,
+                s.sceneSourceId,
             ],
-            (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
+            (
+                insightLogicRef,
+                insight,
+                insightQuery,
+                dashboardId,
+                dashboardName,
+                tabId,
+                sceneSource,
+                sceneSourceId
+            ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
                     ...(dashboardId !== null
@@ -307,12 +325,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                             path: urls.endpoints(),
                                             iconType: 'endpoints' as FileSystemIconType,
                                         }
-                                      : {
-                                            key: Scene.SavedInsights,
-                                            name: 'Product analytics',
-                                            path: urls.savedInsights(),
-                                            iconType: 'product_analytics' as FileSystemIconType,
-                                        },
+                                      : sceneSource === 'notebook' && sceneSourceId
+                                        ? {
+                                              key: [Scene.Notebook, sceneSourceId] as [Scene, string],
+                                              name: 'Notebook',
+                                              path: urls.notebook(sceneSourceId),
+                                              iconType: 'notebook' as FileSystemIconType,
+                                          }
+                                        : {
+                                              key: Scene.SavedInsights,
+                                              name: 'Product analytics',
+                                              path: urls.savedInsights(),
+                                              iconType: 'product_analytics' as FileSystemIconType,
+                                          },
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
@@ -467,7 +492,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
-            { insight: insightType, q, sceneSource }, // hash params
+            { insight: insightType, q, sceneSource, sceneSourceId }, // hash params
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
@@ -537,6 +562,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightMode !== values.insightMode ||
                 (itemId ?? null) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
+                (sceneSourceId ?? null) !== values.sceneSourceId ||
                 alertChanged ||
                 !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
                 !objectsEqual(filtersOverride ?? null, values.filtersOverride) ||
@@ -557,7 +583,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         : tileFiltersOverride,
                     dashboard,
                     dashboardName,
-                    sceneSource
+                    sceneSource,
+                    sceneSourceId ?? null
                 )
             }
 

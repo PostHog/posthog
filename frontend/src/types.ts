@@ -2796,7 +2796,7 @@ export type BreakdownType =
 export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
-export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
+export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints' | 'notebook'
 
 export enum InsightType {
     TRENDS = 'TRENDS',

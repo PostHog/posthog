@@ -339,6 +339,23 @@ describe('insightSceneLogic', () => {
         }
     )
 
+    it('sets a notebook breadcrumb when opened from a notebook via hash params', async () => {
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        const notebookShortId = 'nb-abc123'
+        router.actions.push(`${urls.insightView(Insight42)}#sceneSource=notebook&sceneSourceId=${notebookShortId}`)
+        await expectLogic(logic).toMatchValues({
+            insightId: Insight42,
+            sceneSource: 'notebook',
+            sceneSourceId: notebookShortId,
+        })
+
+        const notebookBreadcrumb = logic.values.breadcrumbs[logic.values.breadcrumbs.length - 2]
+        expect(notebookBreadcrumb.name).toEqual('Notebook')
+        expect(notebookBreadcrumb.path).toEqual(urls.notebook(notebookShortId))
+    })
+
     it('does not reload insight when only the URL hash changes', async () => {
         const insightApiCall = jest
             .fn()
