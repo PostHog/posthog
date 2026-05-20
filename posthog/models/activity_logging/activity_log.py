@@ -458,7 +458,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "external_tables",
         "last_run_at",
         "latest_error",
-        "sync_frequency_interval",
         "deleted_name",
     ],
     "Endpoint": [
