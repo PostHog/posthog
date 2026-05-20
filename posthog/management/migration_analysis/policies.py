@@ -110,6 +110,9 @@ class AtomicFalsePolicy(MigrationPolicy):
     CONCURRENT_OP_TYPES = {
         "AddIndexConcurrently",
         "RemoveIndexConcurrently",
+        # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
+        "CreateIndexConcurrently",
+        "DropIndexConcurrently",
     }
 
     def check_operation(self, op) -> list[str]:
@@ -270,16 +273,36 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
 
     DJANGO_CONCURRENT_OPS = {"AddIndexConcurrently", "RemoveIndexConcurrently"}
 
+    # The PostHog helpers in posthog/migration_helpers/concurrent_index.py
+    # encode the idempotency guarantees this policy enforces (indisvalid
+    # recovery + IF [NOT] EXISTS + timeout disabling), so they are exempt
+    # from the static SQL check. They inherit from RunSQL but their class
+    # name is not "RunSQL", so they fall through `_check_single_operation`
+    # naturally; the whitelist below is explicit so a future refactor of
+    # the check doesn't accidentally start flagging them.
+    POSTHOG_SAFE_HELPER_OPS = {"CreateIndexConcurrently", "DropIndexConcurrently"}
+
     GUIDANCE = (
-        "Use RunSQL wrapped in SeparateDatabaseAndState instead:\n"
+        "Use posthog.migration_helpers.CreateIndexConcurrently (or DropIndexConcurrently),\n"
+        "wrapped in SeparateDatabaseAndState so Django model state still tracks the index:\n"
+        "\n"
+        "    from posthog.migration_helpers import CreateIndexConcurrently\n"
+        "\n"
         "    migrations.SeparateDatabaseAndState(\n"
         "        state_operations=[migrations.AddIndex(...)],\n"
-        "        database_operations=[migrations.RunSQL(\n"
-        '            sql="SET lock_timeout = 0; '
-        'CREATE INDEX CONCURRENTLY IF NOT EXISTS my_idx ON my_table (col);",\n'
-        '            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS my_idx;",\n'
+        "        database_operations=[CreateIndexConcurrently(\n"
+        '            index_name="my_idx",\n'
+        '            table_name="my_table",\n'
+        '            columns="(col)",\n'
         "        )],\n"
         "    )\n"
+        "\n"
+        "The helper disables lock_timeout and statement_timeout, drops any invalid leftover\n"
+        "index (recovering from a prior interrupted build), then runs CREATE INDEX\n"
+        "CONCURRENTLY IF NOT EXISTS. Raw RunSQL with `SET lock_timeout = 0;\n"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is still accepted as a fallback for\n"
+        "exotic cases, but the helper is the recommended form.\n"
+        "\n"
         "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#adding-indexes"
     )
 
@@ -315,6 +338,12 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
 
     def _check_single_operation(self, op) -> list[str]:
         op_type = op.__class__.__name__
+
+        if op_type in self.POSTHOG_SAFE_HELPER_OPS:
+            # The helpers handle indisvalid recovery + IF [NOT] EXISTS +
+            # timeout disabling internally. Trust the type, skip the SQL
+            # check (which would false-positive on the helper's display SQL).
+            return []
 
         if op_type in self.DJANGO_CONCURRENT_OPS:
             return [

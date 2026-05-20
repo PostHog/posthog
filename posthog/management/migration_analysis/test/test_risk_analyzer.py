@@ -1832,6 +1832,29 @@ class TestAtomicFalsePolicy:
         # Product app should trigger policy checks - atomic=False without CONCURRENTLY warns
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
+    @parameterized.expand(["CreateIndexConcurrently", "DropIndexConcurrently"])
+    def test_posthog_helpers_recognized_as_concurrent(self, op_name):
+        """The PostHog helpers must register as concurrent ops in
+        CONCURRENT_OP_TYPES, otherwise atomic=False migrations using them
+        would trip the `atomic=False without CONCURRENTLY` warning.
+        """
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Plain MagicMock (no spec=) — spec= on a Django operation class
+        # would cause `__class__.__name__ = ...` to mutate the real class
+        # name globally and bleed across tests.
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "t" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
 
 class TestConcurrentIndexIdempotencyPolicy:
     """ConcurrentIndexIdempotencyPolicy blocks non-idempotent concurrent index ops.
@@ -2016,3 +2039,28 @@ class TestConcurrentIndexIdempotencyPolicy:
         op = create_mock_operation(migrations.RunSQL, sql=sql)
         risk = self._analyze([op])
         assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("CreateIndexConcurrently",),
+            ("DropIndexConcurrently",),
+        ]
+    )
+    def test_posthog_helper_ops_pass_through(self, op_name):
+        """The PostHog migration helpers encode the idempotency guarantee internally
+        (indisvalid recovery + IF [NOT] EXISTS + timeout disabling), so the static
+        check must not flag them — even though they inherit from RunSQL and their
+        display SQL contains a CONCURRENTLY index statement.
+
+        Plain MagicMock (no spec=) — spec= on a Django operation class would
+        cause `__class__.__name__ = ...` to mutate the real class name globally
+        and bleed across tests.
+        """
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        # Mirror what the real helpers stash on `sql` for sqlmigrate display:
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "t" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+        assert risk.level != RiskLevel.BLOCKED
