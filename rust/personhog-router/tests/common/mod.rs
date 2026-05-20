@@ -753,6 +753,14 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
 
 /// Start a raw proxy router (replica only, no leader).
 pub async fn start_test_router_raw(replica_addr: SocketAddr) -> SocketAddr {
+    start_test_router_raw_with_max_recv(replica_addr, 4 * 1024 * 1024).await
+}
+
+/// Start a raw proxy router with a custom max receive message size.
+pub async fn start_test_router_raw_with_max_recv(
+    replica_addr: SocketAddr,
+    max_recv_message_size: usize,
+) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -762,7 +770,7 @@ pub async fn start_test_router_raw(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, None, retry_config, 4 * 1024 * 1024);
+    let proxy = RawProxyService::new(replica, None, retry_config, max_recv_message_size);
 
     tokio::spawn(async move {
         Server::builder()
@@ -782,6 +790,22 @@ pub async fn start_test_router_raw_with_leader(
     leader_addr: SocketAddr,
     num_partitions: u32,
 ) -> SocketAddr {
+    start_test_router_raw_with_leader_and_max_recv(
+        replica_addr,
+        leader_addr,
+        num_partitions,
+        4 * 1024 * 1024,
+    )
+    .await
+}
+
+/// Start a raw proxy router with both backends and a custom max receive message size.
+pub async fn start_test_router_raw_with_leader_and_max_recv(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+    max_recv_message_size: usize,
+) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -792,7 +816,7 @@ pub async fn start_test_router_raw_with_leader(
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, Some(leader), retry_config, 4 * 1024 * 1024);
+    let proxy = RawProxyService::new(replica, Some(leader), retry_config, max_recv_message_size);
 
     tokio::spawn(async move {
         Server::builder()

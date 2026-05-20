@@ -2,8 +2,9 @@ mod common;
 
 use common::{
     create_client, create_test_person, start_test_leader, start_test_replica,
-    start_test_router_raw, start_test_router_raw_with_leader, TestLeaderService,
-    TestReplicaService,
+    start_test_router_raw, start_test_router_raw_with_leader,
+    start_test_router_raw_with_leader_and_max_recv, start_test_router_raw_with_max_recv,
+    TestLeaderService, TestReplicaService,
 };
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
@@ -815,4 +816,81 @@ async fn parity_leader_person_not_found() {
     assert!(t.is_err());
     assert!(r.is_err());
     assert_eq!(t.unwrap_err().code(), r.unwrap_err().code());
+}
+
+// ============================================================
+// 6. Request body size limits
+// ============================================================
+
+#[tokio::test]
+async fn raw_proxy_rejects_oversized_replica_request() {
+    let replica_service = TestReplicaService::new();
+    let replica_addr = start_test_replica(replica_service).await;
+    // 1 KiB limit — small enough that a normal-looking request can exceed it
+    let router_addr = start_test_router_raw_with_max_recv(replica_addr, 1024).await;
+    let mut client = create_client(router_addr).await;
+
+    let result = client
+        .get_persons_by_distinct_ids_in_team(GetPersonsByDistinctIdsInTeamRequest {
+            team_id: 1,
+            distinct_ids: (0..200).map(|i| format!("distinct-id-{i:0>50}")).collect(),
+            read_options: None,
+        })
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::ResourceExhausted);
+}
+
+#[tokio::test]
+async fn raw_proxy_rejects_oversized_leader_request() {
+    let replica_service = TestReplicaService::new();
+    let leader_service = TestLeaderService::new().with_person(create_test_person());
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr = start_test_router_raw_with_leader_and_max_recv(
+        replica_addr,
+        leader_addr,
+        NUM_PARTITIONS,
+        1024,
+    )
+    .await;
+    let mut client = create_client(router_addr).await;
+
+    let oversized_props = vec![0u8; 2048];
+    let result = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: oversized_props,
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            partition: 0,
+        })
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::ResourceExhausted);
+}
+
+#[tokio::test]
+async fn raw_proxy_accepts_request_within_limit() {
+    let test_person = create_test_person();
+    let replica_service = TestReplicaService::with_person(test_person.clone());
+    let replica_addr = start_test_replica(replica_service).await;
+    let router_addr = start_test_router_raw_with_max_recv(replica_addr, 1024).await;
+    let mut client = create_client(router_addr).await;
+
+    let response = client
+        .get_person(GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(response.into_inner().person.unwrap().id, test_person.id);
 }
