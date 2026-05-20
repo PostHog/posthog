@@ -16,6 +16,7 @@ from django.utils import timezone as django_timezone
 import redis as redis_lib
 import structlog
 from clickhouse_driver.errors import ServerException
+from prometheus_client import Counter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
@@ -70,6 +71,26 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
 # ClickHouse setup and we want them to remain fast and deterministic).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+
+
+# Mirrors the `lazy_computation.executed` structured log so the same outcomes
+# (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
+# countable in Prometheus without log-based aggregation.
+#
+# `cache_state` lets you compute hit ratio without joins:
+#   - `hit`  → no new jobs created and no pending jobs waited on (existing
+#              READY jobs covered the whole range).
+#   - `miss` → at least one new job was created or at least one pending job
+#              was waited on.
+#
+# Hit ratio across a window:
+#   sum(rate(lazy_computation_executions_total{cache_state="hit"}[5m]))
+#     / sum(rate(lazy_computation_executions_total[5m]))
+LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
+    "lazy_computation_executions_total",
+    "Lazy computation executor invocations, labeled by outcome / cache_state / table.",
+    ["outcome", "cache_state", "table"],
+)
 
 
 def _get_insert_settings(team_id: int) -> dict:
@@ -670,11 +691,18 @@ class LazyComputationExecutor:
         waited_job_ids: set[uuid.UUID] = set()
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
+            cache_state = "hit" if jobs_created == 0 and not waited_job_ids else "miss"
+            LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(
+                outcome=outcome,
+                cache_state=cache_state,
+                table=str(query_info.table),
+            ).inc()
             logger.info(
                 "lazy_computation.executed",
                 query_hash=query_hash,
                 table=str(query_info.table),
                 outcome=outcome,
+                cache_state=cache_state,
                 total_duration_ms=round((time.monotonic() - start_time) * 1000),
                 jobs_created=jobs_created,
                 jobs_waited_for=len(waited_job_ids),
