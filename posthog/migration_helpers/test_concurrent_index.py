@@ -83,8 +83,13 @@ def test_create_index_concurrently_is_idempotent(temp_table):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_create_index_concurrently_recovers_from_invalid_leftover(temp_table):
-    """Plant an invalid index, then run the helper; it should drop and rebuild."""
+def test_create_index_concurrently_recovers_from_invalid_leftover(temp_table, capsys):
+    """Plant an invalid index, then run the helper; it should drop and rebuild.
+
+    Also asserts the recovery is *noisy* — the auto-recovery would otherwise
+    mask repeated cancellations of the same index, so a stdout breadcrumb is
+    a hard requirement, not nice-to-have.
+    """
     idx_name = f"{temp_table}_col_idx"
 
     # Fake an interrupted CONCURRENTLY build by inserting an invalid index row.
@@ -109,6 +114,23 @@ def test_create_index_concurrently_recovers_from_invalid_leftover(temp_table):
 
     assert _index_exists(idx_name)
     assert _index_is_valid(idx_name)
+
+    captured = capsys.readouterr()
+    assert "invalid state by a prior interrupted build" in captured.out
+    assert idx_name in captured.out
+
+
+@pytest.mark.django_db(transaction=True)
+def test_no_recovery_breadcrumb_when_no_invalid_leftover(temp_table, capsys):
+    """Conversely, a clean first-time apply must NOT print the recovery
+    breadcrumb. We only want noise when something was actually recovered.
+    """
+    idx_name = f"{temp_table}_col_idx"
+    op = CreateIndexConcurrently(index_name=idx_name, table_name=temp_table, columns="(col)")
+    _apply(op)
+
+    captured = capsys.readouterr()
+    assert "invalid state by a prior interrupted build" not in captured.out
 
 
 @pytest.mark.django_db(transaction=True)

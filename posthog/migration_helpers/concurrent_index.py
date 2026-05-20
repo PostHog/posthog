@@ -17,7 +17,9 @@ These helpers implement the same recovery pattern GitLab uses in
    deploy-time timeouts can't cancel the build.
 2. Look the index up in pg_class/pg_index. If it exists with
    indisvalid = false, DROP it first — recovering from a prior interrupted
-   build.
+   build, and emitting a structured log line so the recovery is visible
+   in the deploy log (otherwise the auto-recovery would silently mask
+   repeated cancellations).
 3. Run the CREATE/DROP statement with IF [NOT] EXISTS so retries are safe.
 
 Wrap in SeparateDatabaseAndState so Django state still tracks the index:
@@ -35,6 +37,10 @@ The Migration class still needs `atomic = False`.
 """
 
 from django.db import migrations
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class _ConcurrentIndexOp(migrations.RunSQL):
@@ -61,6 +67,13 @@ class _ConcurrentIndexOp(migrations.RunSQL):
         Postgres leaves the row in pg_class with indisvalid = false; a
         plain `CREATE INDEX CONCURRENTLY IF NOT EXISTS` would silently
         skip and leave the invalid index in place.
+
+        The recovery is intentionally noisy: a log line plus a migration
+        stdout message, both tagged with the index name and the original
+        cause (`indisvalid = false`). Without this, the auto-recovery
+        would mask repeated cancellations of the same index and we would
+        never know a table has chronic lock contention or memory pressure
+        during builds.
         """
         with schema_editor.connection.cursor() as cursor:
             cursor.execute(
@@ -74,6 +87,18 @@ class _ConcurrentIndexOp(migrations.RunSQL):
             )
             if cursor.fetchone() is None:
                 return
+        logger.warning(
+            "concurrent_index_recovering_from_invalid_leftover",
+            index_name=index_name,
+        )
+        # Mirror to migration stdout so it shows up in bin/migrate log,
+        # not just the application log stream.
+        print(  # noqa: T201
+            f"[CreateIndexConcurrently] index {index_name!r} was left in an "
+            "invalid state by a prior interrupted build; dropping and "
+            "rebuilding it. If this fires repeatedly for the same index, "
+            "investigate why the prior build was cancelled."
+        )
         schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
 
 
