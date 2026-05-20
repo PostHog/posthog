@@ -136,7 +136,8 @@ drf-spectacular auto-names your enum (`Format5eaEnum` and similar), which fails 
 under `--fail-on-warn`. Either pick a more specific field name, or add a stable
 name to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` when you introduce the
 field. Run `python manage.py find_enum_collisions` after the change — it prints
-the exact override line to paste.
+a suggested override entry (pastable as-is for type-hint enum collisions; for
+ChoiceField collisions you fill in the Choices/Enum class path).
 
 ## DictField — typed values
 

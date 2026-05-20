@@ -1087,7 +1087,7 @@ jobs:
                       echo "\`--fail-on-warn\` turned it into an error."
                       echo ""
                       echo "Diagnose locally:"
-                      echo "  python manage.py find_enum_collisions   # for enum collisions; prints a ready-to-paste override"
+                      echo "  python manage.py find_enum_collisions   # prints a suggested override entry to add"
                       echo "  hogli build:openapi-schema              # to reproduce the full warning set"
                       echo ""
                       echo "Where to fix:"

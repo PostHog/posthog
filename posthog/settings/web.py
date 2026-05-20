@@ -407,9 +407,12 @@ SPECTACULAR_SETTINGS = {
         # Workflow to resolve a collision:
         #   1. Run `python manage.py find_enum_collisions` — it prints the field name,
         #      the auto-generated name (e.g. `Format5eaEnum`), the enum values, which
-        #      components share the hash, and a ready-to-paste override line.
+        #      components share the hash, and a suggested override entry. For type-hint
+        #      enum collisions the suggested line is pastable as-is; for ChoiceField
+        #      collisions you supply the Choices/Enum class path.
         #   2. Add the suggested entry below (pick the right category — see "hash trap"
-        #      note below).
+        #      note below). Optionally rename the key from the auto-generated name to a
+        #      more semantic one to improve the generated schema type's name.
         #   3. Re-run `hogli build:openapi-schema` locally to confirm the warning is gone.
         #
         # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
