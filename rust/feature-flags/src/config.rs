@@ -546,6 +546,15 @@ pub struct Config {
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
 
+    // Kill switch for the User-Agent-based bot filter applied at the top of
+    // the /flags handler. When true, bot-shaped User-Agents flow through the
+    // full pipeline (existing behavior). When false (default), known bots are
+    // short-circuited with the minimal config-only response — same shape that
+    // GET /flags already returns. Provides a no-redeploy rollback if a false
+    // positive surfaces in production.
+    #[envconfig(from = "FLAGS_DISABLE_BOT_FILTERING", default = "false")]
+    pub disable_bot_filtering: FlexBool,
+
     // Rate limiting configuration for /flags endpoint (token-based)
     // Enable/disable token-based rate limiting (defaults to off to match /decide)
     #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
@@ -907,6 +916,7 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            disable_bot_filtering: FlexBool(false),
             flags_rate_limit_enabled: FlexBool(false),
             flags_bucket_capacity: 625,
             flags_bucket_replenish_rate: 10.0,

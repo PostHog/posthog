@@ -12,9 +12,11 @@ use crate::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
-    metrics::consts::{FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS},
+    metrics::consts::{
+        FLAG_BOT_REJECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
+    },
     router,
-    utils::user_agent::UserAgentInfo,
+    utils::{bot_detection, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
 use axum::extract::{Extension, MatchedPath, Query, State};
@@ -320,6 +322,32 @@ pub async fn flags(
         body_read_ms,
         ..Default::default()
     };
+
+    // Bot User-Agent short-circuit. Runs before rate-limiting, auth,
+    // billing, and evaluation so a known crawler costs us a single lowercase
+    // + substring scan and a counter increment, nothing else. Mirrors the
+    // posthog-js `isBlockedUA` list (see `crate::utils::bot_detection`).
+    // Skipped when the kill switch is on, so we can disable filtering
+    // without a redeploy if a false positive surfaces.
+    if !*state.config.disable_bot_filtering {
+        if let Some(ua) = user_agent {
+            if let Some(category) = bot_detection::classify(ua) {
+                common_metrics::inc(
+                    FLAG_BOT_REJECTED_COUNTER,
+                    &[("bot_category".to_string(), category.as_str().to_string())],
+                    1,
+                );
+                let mut bot_log = canonical_log;
+                bot_log.is_bot = true;
+                bot_log.bot_category = Some(category.as_str());
+                bot_log.emit();
+                return Ok(
+                    get_minimal_flags_response(&headers, query_params.version.as_deref())?
+                        .into_response(),
+                );
+            }
+        }
+    }
 
     // Check if this request came through the decide proxy
     let is_from_decide = headers
