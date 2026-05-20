@@ -31,6 +31,12 @@ pub struct Config {
     #[envconfig(default = "500000")]
     pub max_entries_per_partition: usize,
 
+    /// Number of worker tasks per pod consuming from the shared Kafka consumer.
+    /// rdkafka serializes recv across them, so this is concurrency for the
+    /// fan-out + aggregate path, not extra Kafka connections.
+    #[envconfig(default = "4")]
+    pub worker_loop_count: usize,
+
     /// Teams to opt-in or opt-out of property-values aggregation.
     #[envconfig(default = "")]
     pub filtered_teams: TeamList,

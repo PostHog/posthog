@@ -7309,12 +7309,15 @@ dependencies = [
 name = "property-values-aggregator"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum 0.7.9",
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
  "envconfig",
  "lifecycle",
+ "metrics",
+ "rdkafka",
  "serde",
  "serde_json",
  "serve-metrics",

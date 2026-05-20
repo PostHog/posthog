@@ -1,8 +1,13 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{response::IntoResponse, routing::get, Router};
+use common_kafka::kafka_consumer::SingleTopicConsumer;
+use common_kafka::kafka_producer::create_kafka_producer;
 use lifecycle::{ComponentOptions, Manager};
-use property_values_aggregator::config::Config;
+use property_values_aggregator::{
+    app_context::AppContext, config::Config, producer::AggregatedProducer, worker::worker_loop,
+};
 use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
 use tracing::level_filters::LevelFilter;
@@ -44,6 +49,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_global_shutdown_timeout(Duration::from_secs(60))
         .build();
 
+    let worker_handle = manager.register(
+        "worker",
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(30))
+            .with_liveness_deadline(Duration::from_secs(60))
+            .with_stall_threshold(3),
+    );
+
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
 
@@ -55,10 +68,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         consumer_group = %config.consumer.kafka_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
+        worker_loop_count = config.worker_loop_count,
         "config loaded"
     );
 
+    let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
+    let raw_producer = create_kafka_producer(&config.kafka, worker_handle.clone()).await?;
+    let producer = AggregatedProducer::new(raw_producer, config.output_topic.clone());
+
+    let ctx = Arc::new(AppContext::new(&config, producer));
+
     let guard = manager.monitor_background();
+
+    for _ in 0..config.worker_loop_count {
+        tokio::spawn(worker_loop(
+            ctx.clone(),
+            consumer.clone(),
+            worker_handle.clone(),
+        ));
+    }
+    drop(worker_handle);
 
     let app = Router::new()
         .route("/", get(index))
