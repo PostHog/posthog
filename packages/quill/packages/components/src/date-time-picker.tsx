@@ -186,6 +186,12 @@ function Calendar({
         onViewChange(addMonths(viewing, 1))
     }
 
+    const floorDate = minDate && minDate.getTime() > POSTHOG_START_DATE.getTime() ? minDate : POSTHOG_START_DATE
+    const minYearVal = getYear(floorDate)
+    const minMonthAtMinYear = getMonth(floorDate)
+    const floorKey = minYearVal * 12 + minMonthAtMinYear
+    const viewingKey = getYear(viewing) * 12 + getMonth(viewing)
+
     const disableNext =
         (getMonth(viewing) === getMonth(new Date()) && getYear(viewing) === getYear(new Date())) ||
         (!!siblingViewing &&
@@ -193,13 +199,10 @@ function Calendar({
             getYear(siblingViewing) === getYear(addMonths(viewing, 1)))
 
     const disablePrev =
-        !!siblingViewing &&
-        getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
-        getYear(siblingViewing) === getYear(subMonths(viewing, 1))
-
-    const floorDate = minDate && minDate.getTime() > POSTHOG_START_DATE.getTime() ? minDate : POSTHOG_START_DATE
-    const minYearVal = getYear(floorDate)
-    const minMonthAtMinYear = getMonth(floorDate)
+        viewingKey <= floorKey ||
+        (!!siblingViewing &&
+            getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
+            getYear(siblingViewing) === getYear(subMonths(viewing, 1)))
     const maxYearVal = getYear(maxDate)
     const maxMonthAtMaxYear = getMonth(maxDate)
     const currentYear = getYear(viewing)
@@ -536,6 +539,7 @@ export function DateTimePicker({
             setStart(now)
         }
         setEnd(now)
+        setLastSet('end')
     }
 
     const handleQuickRange = (next: DateTimeRange): void => {
