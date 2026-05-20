@@ -12,7 +12,7 @@ var isCursor = os.Getenv("CURSOR_TRACE_ID") != ""
 var isZed = os.Getenv("TERM_PROGRAM") == "zed" || os.Getenv("ZED_TERM") == "true"
 
 // Fallback to regular variant in Cursor/Zed terminals to avoid SGR 100-107 bug
-func srgFallback(color ansi.Color, fallback ansi.Color) ansi.Color {
+func sgrFallback(color ansi.Color, fallback ansi.Color) ansi.Color {
 	if isCursor || isZed {
 		return fallback
 	}
@@ -37,21 +37,21 @@ var (
 	ColorMagenta       color.Color = lipgloss.Magenta                                      // ANSI 5: (unused)
 	ColorCyan          color.Color = lipgloss.Cyan                                         // ANSI 6: (unused)
 	ColorWhite         color.Color = lipgloss.White                                        // ANSI 7: secondary text, inactive items
-	ColorBrightBlack   color.Color = srgFallback(lipgloss.BrightBlack, lipgloss.Black)     // ANSI 8: subtle text/borders (dark)
-	ColorBrightRed     color.Color = srgFallback(lipgloss.BrightRed, lipgloss.Red)         // ANSI 9: (unused)
-	ColorBrightGreen   color.Color = srgFallback(lipgloss.BrightGreen, lipgloss.Green)     // ANSI 10: (unused)
-	ColorBrightYellow  color.Color = srgFallback(lipgloss.BrightYellow, lipgloss.Yellow)   // ANSI 11: (unused)
-	ColorBrightBlue    color.Color = srgFallback(lipgloss.BrightBlue, lipgloss.Blue)       // ANSI 12: (unused)
-	ColorBrightMagenta color.Color = srgFallback(lipgloss.BrightMagenta, lipgloss.Magenta) // ANSI 13: (unused)
-	ColorBrightCyan    color.Color = srgFallback(lipgloss.BrightCyan, lipgloss.Cyan)       // ANSI 14: (unused)
-	ColorBrightWhite   color.Color = srgFallback(lipgloss.BrightWhite, lipgloss.White)     // ANSI 15: subtle text/borders (light)
+	ColorBrightBlack   color.Color = sgrFallback(lipgloss.BrightBlack, lipgloss.Black)     // ANSI 8: subtle text/borders (dark)
+	ColorBrightRed     color.Color = sgrFallback(lipgloss.BrightRed, lipgloss.Red)         // ANSI 9: (unused)
+	ColorBrightGreen   color.Color = sgrFallback(lipgloss.BrightGreen, lipgloss.Green)     // ANSI 10: (unused)
+	ColorBrightYellow  color.Color = sgrFallback(lipgloss.BrightYellow, lipgloss.Yellow)   // ANSI 11: (unused)
+	ColorBrightBlue    color.Color = sgrFallback(lipgloss.BrightBlue, lipgloss.Blue)       // ANSI 12: (unused)
+	ColorBrightMagenta color.Color = sgrFallback(lipgloss.BrightMagenta, lipgloss.Magenta) // ANSI 13: (unused)
+	ColorBrightCyan    color.Color = sgrFallback(lipgloss.BrightCyan, lipgloss.Cyan)       // ANSI 14: (unused)
+	ColorBrightWhite   color.Color = sgrFallback(lipgloss.BrightWhite, lipgloss.White)     // ANSI 15: subtle text/borders (light)
 
-	// Selection backgrounds use explicit RGB to dodge the Cursor/Zed terminal's
-	// SGR 100-107 (bright background) rendering bug. The regular-variant
-	// fallback above is invisible against typical dark/light terminal bgs,
-	// and TrueColor (SGR 48;2;r;g;b) is unaffected by the bug.
-	SelectionDark  color.Color = srgFallback(lipgloss.Black, lipgloss.Color("#3a3a3a"))
-	SelectionLight color.Color = srgFallback(lipgloss.White, lipgloss.Color("#d4d4d4"))
+	// Selection backgrounds use explicit RGB everywhere so the highlight is
+	// visible regardless of how a terminal maps ANSI 0/7. TrueColor
+	// (SGR 48;2;r;g;b) is unaffected by the SGR 100-107 bug, so it doesn't
+	// need a fallback like the bright 4-bit palette above.
+	SelectionDark  color.Color = lipgloss.Color("#3a3a3a")
+	SelectionLight color.Color = lipgloss.Color("#d4d4d4")
 )
 
 const (
