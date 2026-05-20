@@ -104,6 +104,12 @@ export function eventualReadOptions() {
     return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }
 
+export function resolveConsistencyHeader(message: unknown): 'strong' | 'eventual' {
+    const msg = message as Record<string, unknown> | undefined
+    const readOptions = msg?.readOptions as { consistency?: ConsistencyLevel } | undefined
+    return readOptions?.consistency === ConsistencyLevel.STRONG ? 'strong' : 'eventual'
+}
+
 export interface PersonHogClientConfig {
     /** Host and port of the personhog gRPC server, e.g. "localhost:50051". */
     addr: string
@@ -187,7 +193,7 @@ export class PersonHogClient {
             })
         }
         interceptors.push((next) => async (req) => {
-            req.header.set('x-read-consistency', 'eventual')
+            req.header.set('x-read-consistency', resolveConsistencyHeader(req.message))
             return await next(req)
         })
 
