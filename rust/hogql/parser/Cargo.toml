@@ -19,4 +19,6 @@ workspace = true
 
 [dependencies]
 serde_json.workspace = true
-pyo3 = { version = "0.22", features = ["extension-module"] }
+# `abi3-py312` lets one wheel work on every Python 3.12+ via the stable
+# CPython ABI — avoids shipping a separate wheel per minor Python.
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }
