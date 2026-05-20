@@ -180,8 +180,13 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),
             "endpoint": {
                 "data_selector": "tickets",
-                "path": "/api/v2/incremental/tickets",
-                "paginator": ZendeskTicketsIncrementalEndpointPaginator(),
+                # Cursor-based incremental export. The time-based export
+                # (`/api/v2/incremental/tickets`) deadlocks when >1000 tickets
+                # share a `generated_timestamp`: the page never advances past
+                # that timestamp, so pagination loops forever re-fetching the
+                # same boundary page. Cursor pagination is immune to this.
+                "path": "/api/v2/incremental/tickets/cursor",
+                "paginator": ZendeskTicketsCursorIncrementalPaginator(),
                 "params": {
                     "per_page": 1000,
                     "start_time": {
@@ -226,29 +231,46 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     return resources[name]
 
 
-class ZendeskTicketsIncrementalEndpointPaginator(BasePaginator):
+class ZendeskTicketsCursorIncrementalPaginator(BasePaginator):
+    """Cursor-based pagination for Zendesk's incremental tickets export.
+
+    The first request is seeded with `start_time` (resolved from the incremental
+    cursor); every subsequent request follows the opaque `after_cursor` token.
+    Unlike the time-based export, the cursor encodes the stream position rather
+    than a timestamp, so it can't get pinned when many tickets share a
+    `generated_timestamp`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._after_cursor: Optional[str] = None
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
-        self._next_start_time = None
-
-        if not res:
+        if not res or res.get("end_of_stream", True):
             self._has_next_page = False
             return
 
-        if not res["end_of_stream"]:
-            self._has_next_page = True
+        after_cursor = res.get("after_cursor")
 
-            last_value_in_response = res["tickets"][-1]["generated_timestamp"]
-            self._next_start_time = last_value_in_response
-        else:
+        # No cursor advance means there's nothing further to fetch. Stop rather
+        # than re-request the same page — defends against a stuck cursor.
+        if not after_cursor or after_cursor == self._after_cursor:
             self._has_next_page = False
+            return
+
+        self._after_cursor = after_cursor
+        self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         if request.params is None:
             request.params = {}
 
-        request.params["start_time"] = self._next_start_time
+        # After the first page we paginate purely by cursor; drop the seed
+        # `start_time` so it doesn't conflict with the `cursor` param.
+        request.params.pop("start_time", None)
+        request.params["cursor"] = self._after_cursor
 
 
 class ZendeskIncrementalEndpointPaginator(BasePaginator):
