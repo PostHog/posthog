@@ -26,6 +26,9 @@ const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
         'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
     ),
+    tags: AccountsCreateBody.shape['tags'].describe(
+        'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
+    ),
 })
 
 const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account> => ({
@@ -42,6 +45,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         if (params.properties !== undefined) {
             body['properties'] = params.properties
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
@@ -92,6 +98,9 @@ const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_i
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
             'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'
         ),
+        tags: AccountsPartialUpdateBody.shape['tags'].describe(
+            'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
+        ),
     })
 
 const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, Schemas.Account> => ({
@@ -108,6 +117,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.properties !== undefined) {
             body['properties'] = params.properties
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',

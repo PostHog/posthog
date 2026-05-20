@@ -39,6 +39,9 @@ export type AccountApiProperties = {
     zendesk_id?: string | null
 } | null
 
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
 export interface AccountApi {
     readonly id: string
     /**
@@ -57,6 +60,8 @@ export interface AccountApi {
      * @nullable
      */
     properties?: AccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -105,6 +110,9 @@ export type PatchedAccountApiProperties = {
     zendesk_id?: string | null
 } | null
 
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
 export interface PatchedAccountApi {
     readonly id?: string
     /**
@@ -123,11 +131,57 @@ export interface PatchedAccountApi {
      * @nullable
      */
     properties?: PatchedAccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export interface CustomerJourneyApi {

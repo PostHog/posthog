@@ -5,7 +5,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Insight
+from posthog.models import Insight, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -638,6 +638,81 @@ class TestAccountViewSet(APIBaseTest):
             with self.subTest(method=method, url=url):
                 response = getattr(self.client, method.lower())(url, format="json")
                 self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_create_with_tags(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Tagged Account", "tags": ["enterprise", "priority"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual(sorted(response.json()["tags"]), ["enterprise", "priority"])
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        account = Account.objects.unscoped().get(id=response.json()["id"])
+        self.assertEqual(
+            sorted(Tag.objects.filter(team=self.team).values_list("name", flat=True)),
+            ["enterprise", "priority"],
+        )
+        self.assertEqual(
+            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
+            ["enterprise", "priority"],
+        )
+
+    def test_retrieve_returns_tags(self):
+        account = self._create_account()
+        tag = Tag.objects.create(name="vip", team=self.team)
+        account.tagged_items.create(tag=tag)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["vip"])
+
+    def test_list_returns_tags(self):
+        account = self._create_account()
+        for name in ("alpha", "beta"):
+            account.tagged_items.create(tag=Tag.objects.create(name=name, team=self.team))
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        results = {r["id"]: r for r in response.json()["results"]}
+        self.assertEqual(sorted(results[str(account.id)]["tags"]), ["alpha", "beta"])
+
+    def test_update_replaces_tags(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="old", team=self.team))
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"tags": ["new"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["new"])
+        self.assertEqual(list(account.tagged_items.values_list("tag__name", flat=True)), ["new"])
+
+    def test_update_with_empty_tags_clears_them(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="stale", team=self.team))
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": []}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertFalse(account.tagged_items.exists())
+
+    def test_tag_change_logs_to_account_activity_stream(self):
+        account = self._create_account()
+        initial_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": ["audit"]}, format="json")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
+        self.assertGreater(new_logs, initial_logs)
 
 
 @pytest.mark.ee

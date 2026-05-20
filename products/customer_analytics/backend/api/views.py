@@ -2,6 +2,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import log_activity_from_viewset
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -60,7 +61,7 @@ class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
 
 
 @extend_schema(tags=["customer_analytics"])
-class AccountViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "account"
     queryset = Account.objects.unscoped().order_by("-created_at")
     serializer_class = AccountSerializer
