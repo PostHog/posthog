@@ -7,9 +7,15 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recordingButton": HogQLFunctionMeta("recordingButton", 1, 2),
     "explainCSPReport": HogQLFunctionMeta("explainCSPReport", 1, 1),
-    # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization
+    # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization.
+    # The regex strictly validates X.Y.Z with no leading zeros (matching the Rust `semver` crate used
+    # for flag evaluation), optionally prefixed with 'v' and optionally suffixed with a
+    # pre-release or build identifier. Invalid versions match nothing: `extract` returns "",
+    # `nullIf` converts that to NULL, and NULL propagates through `splitByChar`/`arrayMap`,
+    # so all `WHERE sortableSemVer(prop) <op> sortableSemVer(value)` comparisons evaluate to
+    # NULL/false and the row is excluded — mirroring how Rust treats an unparseable version.
     "sortablesemver": HogQLFunctionMeta(
-        "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({}), '(\\d+(\\.\\d+)+)')))",
+        "arrayMap(x -> toInt64OrZero(x), splitByChar('.', nullIf(extract(assumeNotNull({}), '^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$'), '')))",
         1,
         1,
         case_sensitive=False,
