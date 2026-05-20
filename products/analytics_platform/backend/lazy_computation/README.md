@@ -176,18 +176,42 @@ Each invocation of the executor emits both a structured log and a Prometheus cou
 
 `lazy_computation_executions_total` is incremented once per `executor.execute()` call, with labels:
 
-| label         | values                                                                    |
-| ------------- | ------------------------------------------------------------------------- |
-| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded`       |
-| `cache_state` | `hit` (no jobs created and no pending jobs waited on), `miss` (otherwise) |
-| `table`       | the lazy table being populated (e.g. `preaggregation_results`)            |
+| label         | values                                                              |
+| ------------- | ------------------------------------------------------------------- |
+| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
+| `cache_state` | `hit`, `partial_hit`, `miss` — see below                            |
+| `table`       | the lazy table being populated (e.g. `preaggregation_results`)      |
 
-Hit ratio across a window:
+`cache_state` reflects the state at executor entry (before this call creates anything):
+
+- `hit` — every daily window in the requested range had a READY job.
+- `partial_hit` — some daily windows were already covered, some weren't.
+- `miss` — nothing was covered; every window needed computation.
+
+For the continuous view of "how much data was already there", use the companion histogram `lazy_computation_initial_coverage_ratio` (labels: `table`). It records the fraction of daily windows already ready on entry, so you can chart average coverage, p50/p95, or the share of requests with ≥90% coverage.
+
+Full hit ratio across a window:
 
 ```promql
 sum(rate(lazy_computation_executions_total{cache_state="hit"}[5m]))
   /
 sum(rate(lazy_computation_executions_total[5m]))
+```
+
+Any-coverage ratio (`hit` or `partial_hit`):
+
+```promql
+sum(rate(lazy_computation_executions_total{cache_state=~"hit|partial_hit"}[5m]))
+  /
+sum(rate(lazy_computation_executions_total[5m]))
+```
+
+Median fraction of data already present at entry:
+
+```promql
+histogram_quantile(0.5,
+  sum by (le, table) (rate(lazy_computation_initial_coverage_ratio_bucket[5m]))
+)
 ```
 
 Per-table breakdown of failures:
@@ -200,7 +224,7 @@ sum by (table, outcome) (
 
 ### Structured log
 
-The `lazy_computation.executed` log line carries the same `outcome`, `cache_state`, and `table` fields plus per-call detail (`query_hash`, `jobs_created`, `jobs_waited_for`, `total_duration_ms`, `time_range_days`). Useful when you need to follow a specific request rather than aggregate.
+The `lazy_computation.executed` log line carries the same `outcome`, `cache_state`, and `table` fields plus the coverage snapshot (`initial_coverage_ratio`, `initial_ready_windows`, `initial_total_windows`) and per-call detail (`query_hash`, `jobs_created`, `jobs_waited_for`, `total_duration_ms`, `time_range_days`). Useful when you need to follow a specific request rather than aggregate.
 
 ## Limitations
 

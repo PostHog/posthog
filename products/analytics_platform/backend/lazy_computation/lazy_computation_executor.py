@@ -16,7 +16,7 @@ from django.utils import timezone as django_timezone
 import redis as redis_lib
 import structlog
 from clickhouse_driver.errors import ServerException
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
@@ -77,17 +77,30 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
 # countable in Prometheus without log-based aggregation.
 #
-# `cache_state` lets you compute hit ratio without joins:
-#   - `hit`  → no new jobs created and no pending jobs waited on (existing
-#              READY jobs covered the whole range).
-#   - `miss` → at least one new job was created or at least one pending job
-#              was waited on.
+# `cache_state` reflects the cache state *at executor entry* (before any new
+# jobs are created), letting you distinguish requests that were already covered
+# from those that had to do work:
+#   - `hit`         → every daily window in the requested range had a READY job.
+#   - `partial_hit` → some windows were covered, some weren't.
+#   - `miss`        → nothing was covered; every window needed computation.
 #
+# Pair with `lazy_computation_initial_coverage_ratio` for the continuous view.
 # See README.md § Observability for example PromQL queries.
 LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
     "lazy_computation_executions_total",
     "Lazy computation executor invocations, labeled by outcome / cache_state / table.",
     ["outcome", "cache_state", "table"],
+)
+
+# Per-invocation distribution of the fraction of daily windows already covered
+# by READY jobs when the executor started. Captured exactly once per
+# `execute()` call after the first existing-jobs lookup. Lets you graph
+# average coverage, p50/p95, "% of requests with >= 90% coverage", etc.
+LAZY_COMPUTATION_INITIAL_COVERAGE_RATIO = Histogram(
+    "lazy_computation_initial_coverage_ratio",
+    "Fraction of daily windows already covered by READY jobs at executor entry.",
+    ["table"],
+    buckets=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
 )
 
 
@@ -688,19 +701,38 @@ class LazyComputationExecutor:
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
 
+        # Cache-state snapshot taken once on the first loop iteration, after the
+        # initial existing-jobs lookup. Tells us how covered the requested range
+        # was *before* this executor did any work.
+        initial_ready_windows = 0
+        initial_total_windows = 0
+        initial_state_captured = False
+
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            cache_state = "hit" if jobs_created == 0 and not waited_job_ids else "miss"
+            coverage_ratio = initial_ready_windows / initial_total_windows if initial_total_windows > 0 else 0.0
+            if coverage_ratio >= 1.0:
+                cache_state = "hit"
+            elif coverage_ratio > 0.0:
+                cache_state = "partial_hit"
+            else:
+                cache_state = "miss"
             LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(
                 outcome=outcome,
                 cache_state=cache_state,
                 table=str(query_info.table),
             ).inc()
+            LAZY_COMPUTATION_INITIAL_COVERAGE_RATIO.labels(
+                table=str(query_info.table),
+            ).observe(coverage_ratio)
             logger.info(
                 "lazy_computation.executed",
                 query_hash=query_hash,
                 table=str(query_info.table),
                 outcome=outcome,
                 cache_state=cache_state,
+                initial_coverage_ratio=round(coverage_ratio, 4),
+                initial_ready_windows=initial_ready_windows,
+                initial_total_windows=initial_total_windows,
                 total_duration_ms=round((time.monotonic() - start_time) * 1000),
                 jobs_created=jobs_created,
                 jobs_waited_for=len(waited_job_ids),
@@ -725,6 +757,17 @@ class LazyComputationExecutor:
                 # Step 2: Find missing ranges, split at TTL boundaries
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+
+                # Snapshot the *initial* cache state on the first iteration, before
+                # this executor creates any jobs. Reported to Prometheus + log via
+                # `_log_execution` to power the cache_state Counter and the
+                # coverage-ratio Histogram (see module-level docstrings).
+                if not initial_state_captured:
+                    total_windows = len(get_daily_windows(start, end))
+                    missing_windows = sum(len(get_daily_windows(rs, re)) for rs, re in missing_ranges)
+                    initial_total_windows = total_windows
+                    initial_ready_windows = max(0, total_windows - missing_windows)
+                    initial_state_captured = True
 
                 # Step 3: Insert missing ranges
                 did_work = False
