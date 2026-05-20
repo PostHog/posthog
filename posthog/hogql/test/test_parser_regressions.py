@@ -902,13 +902,9 @@ class TestParserRegressions(BaseTest):
         from posthog.hogql.errors import BaseHogQLError
 
         with self.assertRaises((BaseHogQLError, SyntaxError)):
-            parse_select(
-                "SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="rust-json"
-            )
+            parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="rust-json")
         with self.assertRaises((BaseHogQLError, SyntaxError)):
-            parse_select(
-                "SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="cpp-json"
-            )
+            parse_select("SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="cpp-json")
         # Guard: populated list still parses.
         src = "SELECT 1 FROM t PIVOT (sum(x) FOR y IN (1, 2))"
         oracle = clear_locations(parse_select(src, backend="cpp-json"))
@@ -1132,12 +1128,24 @@ class TestParserRegressions(BaseTest):
 
         expr_invalid = (
             # Postfix DOT
-            "a.except", "a.intersect", "a.null", "a.inf", "a.nan",
-            "a.fn", "a.fun", "a.let", "a.while",
-            "a.throw", "a.try", "a.catch", "a.finally",
+            "a.except",
+            "a.intersect",
+            "a.null",
+            "a.inf",
+            "a.nan",
+            "a.fn",
+            "a.fun",
+            "a.let",
+            "a.while",
+            "a.throw",
+            "a.try",
+            "a.catch",
+            "a.finally",
             "a.b.except",
             # Postfix `?.`
-            "a?.except", "a?.null", "a?.inf",
+            "a?.except",
+            "a?.null",
+            "a?.inf",
         )
         for src in expr_invalid:
             for backend in ("cpp-json", "rust-json", "python"):
@@ -1172,7 +1180,10 @@ class TestParserRegressions(BaseTest):
         # Guard: keywords that ARE valid identifiers per cpp's grammar
         # (interval units, plain keywords like CASE/DAY) still parse.
         for src in (
-            "a.case", "a.day", "day.minute", "select.from",
+            "a.case",
+            "a.day",
+            "day.minute",
+            "select.from",
             "SELECT a AS case FROM t",
             "SELECT a AS day FROM t",
         ):
@@ -1375,9 +1386,9 @@ class TestParserRegressions(BaseTest):
             "fn f() { return * x := y }",
             "fn f() { return *x := y }",
             # Guard cases that should *not* shorten:
-            "fn f() { return X := Y }",       # NamedArgument inside return
-            "fn f() { return a.b := c }",     # No valid prefix; bare return
-            "fn f() { return * }",            # Bare asterisk
+            "fn f() { return X := Y }",  # NamedArgument inside return
+            "fn f() { return a.b := c }",  # No valid prefix; bare return
+            "fn f() { return * }",  # Bare asterisk
             "fn f() { return *columns('a') }",  # No `:=`; full SpreadExpr
         )
         for src in cases:
@@ -1536,11 +1547,11 @@ class TestParserRegressions(BaseTest):
         from posthog.hogql.errors import BaseHogQLError
 
         invalid = (
-            r"'\x'",       # \x without two hex digits
-            r"'\g'",       # unknown escape letter
-            "'\\u00AB'",   # \u not in cpp grammar
-            r"'\1'",       # \1 not in cpp grammar
-            r"'\999'",     # \9 not in cpp grammar
+            r"'\x'",  # \x without two hex digits
+            r"'\g'",  # unknown escape letter
+            "'\\u00AB'",  # \u not in cpp grammar
+            r"'\1'",  # \1 not in cpp grammar
+            r"'\999'",  # \9 not in cpp grammar
         )
         for src in invalid:
             for backend in ("cpp-json", "rust-json", "python"):
@@ -2107,7 +2118,7 @@ class TestParserRegressions(BaseTest):
             "a := 1",
             "a := b",
             "a := b := c",
-            "a := \"str\" := 2",
+            'a := "str" := 2',
             "a := b := c := d",
             "if (c) a := b",
             "if (c) a := b ; else d",
@@ -2573,6 +2584,72 @@ class TestParserRegressions(BaseTest):
             "WITH x(true, false) AS (SELECT 1, 2) SELECT * FROM x",
         )
         for src in select_cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_join_constraint_rejected_on_lead_table_and_cross_join(self):
+        # cpp's grammar puts `joinConstraintClause` only on `JoinExprOp`
+        # and `JoinExprPositional`, NOT on the lead `JoinExprTable` (a
+        # bare FROM with optional FINAL/SAMPLE) or `JoinExprCrossOp`.
+        # Rust's stacked-constraint peel loop used to attach to any
+        # constraint-less JoinExpr in the chain, silently accepting
+        # `FROM t ON 1` and `CROSS JOIN b ON 1`.
+        for src in (
+            "SELECT * FROM t USING (a)",
+            "SELECT * FROM t USING (a, b)",
+            "SELECT * FROM t ON 1",
+            "SELECT * FROM t AS x FINAL USING (a)",
+            "SELECT * FROM (SELECT 1) USING (a)",
+            "SELECT * FROM numbers(10) USING (a)",
+            "SELECT * FROM t SAMPLE 0.5 ON 1",
+            "SELECT * FROM t FINAL ON 1",
+            "SELECT 1 FROM a CROSS JOIN b ON 1",
+            "SELECT 1 FROM a CROSS JOIN b USING (x)",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="rust-json")
+        # Guards: regular JOIN with constraint and bare CROSS JOIN must
+        # still parse, and a stacked `ON … ON …` chain must still attach
+        # right-associatively.
+        for src in (
+            "SELECT * FROM a JOIN b ON 1",
+            "SELECT * FROM a JOIN b USING (x)",
+            "SELECT * FROM a LEFT JOIN b ON 1",
+            "SELECT * FROM a CROSS JOIN b",
+            "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_columns_exclude_replace_reject_reserved_keywords(self):
+        # cpp's `columnsExcludeItem` and `columnsReplaceItem` use the
+        # strict `identifier` rule, which excludes NULL / INF / NAN /
+        # EXCEPT / INTERSECT and the Hog-statement keywords. Rust's
+        # accumulator admitted any `TokenKind::Keyword(_)`, silently
+        # accepting `EXCLUDE (null)` and `REPLACE (a AS inf)`.
+        for src in (
+            "SELECT * EXCLUDE (null) FROM t",
+            "SELECT * EXCLUDE (inf) FROM t",
+            "SELECT * EXCLUDE (nan) FROM t",
+            "SELECT COLUMNS(* EXCLUDE (null)) FROM t",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="rust-json")
+        # Guard: identifier-shaped EXCLUDE / nested EXCLUDE / REPLACE
+        # with admissible alias still work.
+        for src in (
+            "SELECT * EXCLUDE (a) FROM t",
+            "SELECT * EXCLUDE (a.b) FROM t",
+            "SELECT COLUMNS(* REPLACE (a AS b)) FROM t",
+        ):
             oracle = clear_locations(parse_select(src, backend="cpp-json"))
             for backend in ("rust-json", "python"):
                 got = clear_locations(parse_select(src, backend=backend))
