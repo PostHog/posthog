@@ -88,6 +88,20 @@ export class BusBridgingRegistry extends SessionRegistry {
                     },
                 ]
             }
+            case 'status': {
+                // `notify_user` meta tool — `{ text }` from session-runner.
+                const d = data as { text?: unknown }
+                if (typeof d?.text !== 'string') {
+                    return []
+                }
+                return [{ type: 'status', at, text: d.text }]
+            }
+            case 'awaiting_input': {
+                // `ask_for_input` meta tool — agent has suspended pending /send/:id.
+                const d = data as { prompt?: unknown }
+                const prompt = typeof d?.prompt === 'string' ? d.prompt : null
+                return [{ type: 'awaiting_input', at, prompt }]
+            }
             default:
                 return []
         }

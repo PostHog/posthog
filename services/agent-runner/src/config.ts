@@ -13,6 +13,8 @@ const ConfigSchema = z.object({
     anthropicApiKey: z.string().min(1, {
         message: 'ANTHROPIC_API_KEY is required (set it in your shell or repo-root .env)',
     }),
+    /** Max concurrent session jobs this worker process will hold. */
+    concurrency: z.coerce.number().int().min(1).default(8),
 })
 
 export type RunnerConfig = z.infer<typeof ConfigSchema>
@@ -27,5 +29,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
         kafkaBrokers: devDefault(env.KAFKA_HOSTS, AGENT_DEV_DEFAULTS.kafkaHosts),
         kafkaLogEntriesTopic: env.KAFKA_LOG_ENTRIES_TOPIC,
         anthropicApiKey: env.ANTHROPIC_API_KEY,
+        concurrency: env.AGENT_RUNNER_CONCURRENCY,
     })
 }

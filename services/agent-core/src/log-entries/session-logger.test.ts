@@ -120,6 +120,8 @@ describe('formatEvent', () => {
             { type: 'message', at: fixedAt, role: 'system', content: 'ready' },
             { type: 'tool_call', at: fixedAt, tool: 'x' },
             { type: 'tool_result', at: fixedAt, tool: 'x', ok: true },
+            { type: 'status', at: fixedAt, text: 'fetching…' },
+            { type: 'awaiting_input', at: fixedAt, prompt: 'what next?' },
             { type: 'session_completed', at: fixedAt, output: null },
             { type: 'session_failed', at: fixedAt, error: 'e' },
         ]

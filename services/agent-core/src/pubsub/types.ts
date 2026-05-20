@@ -8,6 +8,10 @@ export type SessionEvent =
     | { type: 'tool_call'; tool: string; at: string; args?: unknown }
     | { type: 'tool_result'; tool: string; at: string; ok: boolean; result?: unknown; error?: string }
     | { type: 'message'; at: string; role: 'assistant' | 'system' | 'user'; content: string }
+    /** One-line user-visible progress update from the agent's `notify_user` meta tool. */
+    | { type: 'status'; at: string; text: string }
+    /** Agent has suspended via `ask_for_input` and is waiting for a `/send/:id` message. */
+    | { type: 'awaiting_input'; at: string; prompt: string | null }
     | { type: 'session_completed'; at: string; output: unknown }
     | { type: 'session_failed'; at: string; error: string }
 

@@ -59,10 +59,22 @@ export interface ManagerConfig {
 export interface WorkerConfig {
     pool: PoolConfig
     queueName: string
-    batchMaxSize?: number
+    /** Max jobs in flight at any one time. Doubles as the per-round dequeue limit
+     *  (we only fetch `concurrency - inFlight` rows). Default 8. */
+    concurrency?: number
+    /** Sleep between dequeue rounds when the queue is empty. Default 50ms. */
     pollDelayMs?: number
+    /** `isHealthy()` threshold: max age of the last fetcher tick before we report
+     *  unhealthy. In-flight work also counts as healthy (we may be parked on a
+     *  slot, which is fine). Default 30_000ms. */
     heartbeatTimeoutMs?: number
-    includeEmptyBatches?: boolean
+    /** Interval at which the worker pings `last_heartbeat` on each in-flight row.
+     *  Auto-started when a job enters the handler, auto-stopped when it settles.
+     *  Set to 0 to disable. Default 5_000ms. */
+    heartbeatIntervalMs?: number
+    /** On `disconnect()`, max time to wait for in-flight handlers to drain before
+     *  forcefully closing the pool. Default 30_000ms. */
+    drainTimeoutMs?: number
 }
 
 export interface JanitorConfig {

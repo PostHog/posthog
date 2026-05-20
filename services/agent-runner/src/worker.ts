@@ -21,13 +21,13 @@ export interface RunnerWorkerConfig extends WorkerConfig {
     logProducer: LogProducer
     /** Lookup that returns the per-application secrets dictionary. Hooked to the internal-API client in prod. */
     loadSecrets: (applicationId: string | null) => Promise<Record<string, string>>
-    /** Optional turn-level heartbeat interval. Defaults to 5s. */
-    heartbeatIntervalMs?: number
 }
 
 /**
- * Consumes session jobs, runs one turn per dequeue, and reschedules at every tool
- * boundary. A heartbeat ticks while a turn is in flight so the janitor doesn't reap us.
+ * Consumes session jobs and runs one turn per dequeue, rescheduling at every
+ * tool boundary. The queue worker is the source of concurrency: it caps the
+ * number of in-flight jobs (`config.concurrency`) and auto-heartbeats each
+ * row's `last_heartbeat` during its handler — we don't manage that loop here.
  */
 export class RunnerWorker {
     private readonly queue: SessionQueueWorker
@@ -35,30 +35,25 @@ export class RunnerWorker {
     private readonly bus: SessionBus
     private readonly logProducer: LogProducer
     private readonly loadSecrets: RunnerWorkerConfig['loadSecrets']
-    private readonly heartbeatIntervalMs: number
 
     constructor(config: RunnerWorkerConfig) {
         this.queue = new SessionQueueWorker({
             pool: config.pool,
             queueName: config.queueName,
-            batchMaxSize: config.batchMaxSize,
+            concurrency: config.concurrency,
             pollDelayMs: config.pollDelayMs,
             heartbeatTimeoutMs: config.heartbeatTimeoutMs,
-            includeEmptyBatches: config.includeEmptyBatches,
+            heartbeatIntervalMs: config.heartbeatIntervalMs,
+            drainTimeoutMs: config.drainTimeoutMs,
         })
         this.executor = config.executor
         this.bus = config.bus
         this.logProducer = config.logProducer
         this.loadSecrets = config.loadSecrets
-        this.heartbeatIntervalMs = config.heartbeatIntervalMs ?? 5_000
     }
 
     async start(): Promise<void> {
-        await this.queue.connect(async (batch) => {
-            for (const job of batch) {
-                await this.processJob(job)
-            }
-        })
+        await this.queue.connect((job) => this.processJob(job))
     }
 
     async stop(): Promise<void> {
@@ -70,12 +65,6 @@ export class RunnerWorker {
     }
 
     private async processJob(job: DequeuedSessionJob): Promise<void> {
-        const heartbeat = setInterval(() => {
-            job.heartbeat().catch((err) => {
-                logger.error('runner heartbeat failed', { sessionId: job.id, error: String(err) })
-            })
-        }, this.heartbeatIntervalMs)
-
         const sessionLogger: SessionLogger = createSessionLogger({
             teamId: job.teamId,
             applicationId: job.applicationId,
@@ -184,8 +173,6 @@ export class RunnerWorker {
             } catch (failErr) {
                 logger.error({ err: failErr, sessionId: job.id }, 'runner job fail() failed')
             }
-        } finally {
-            clearInterval(heartbeat)
         }
     }
 

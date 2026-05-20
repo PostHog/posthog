@@ -88,6 +88,12 @@ export function formatEvent(event: SessionEvent): [LogLevel, string] {
             const err = event.error ? `: ${event.error}` : ''
             return ['ERROR', `[error] ${event.tool} failed${err}`]
         }
+        case 'status':
+            return ['INFO', `[meta] status: ${oneLine(event.text)}`]
+        case 'awaiting_input': {
+            const prompt = event.prompt ? ` prompt=${oneLine(event.prompt)}` : ''
+            return ['INFO', `[meta] awaiting_input${prompt}`]
+        }
         case 'session_completed':
             return ['INFO', '[event] session_completed']
         case 'session_failed':

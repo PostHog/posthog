@@ -53,6 +53,7 @@ async function main(): Promise<void> {
     const worker = new RunnerWorker({
         pool: { dbUrl: config.queueDbUrl },
         queueName: config.queueName,
+        concurrency: config.concurrency,
         executor,
         bus,
         logProducer,
