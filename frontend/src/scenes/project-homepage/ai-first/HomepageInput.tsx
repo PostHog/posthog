@@ -178,9 +178,13 @@ function HomepageAiInput(): JSX.Element {
                         I allow AI analysis in this organization
                     </LemonButton>
                 ) : (
-                    <LemonButton type="secondary" size="small" disabled sideIcon={<IconLock />}>
-                        {dataProcessingApprovalDisabledReason}
-                    </LemonButton>
+                    <div
+                        className="flex items-center gap-2 text-secondary text-xs"
+                        data-attr="homepage-ai-approval-needed"
+                    >
+                        <IconLock className="text-base shrink-0" />
+                        <span>{dataProcessingApprovalDisabledReason}</span>
+                    </div>
                 )}
             </div>
         )
