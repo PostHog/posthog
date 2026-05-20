@@ -454,15 +454,27 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                     const flagsArray = Array.isArray(x.flag) ? x.flag : [x.flag]
                     for (const flagCondition of flagsArray) {
-                        const flag = (
-                            flagCondition.startsWith('!') ? flagCondition.slice(1) : flagCondition
-                        ) as keyof typeof FEATURE_FLAGS
-                        let isConditionMet = featureFlags[FEATURE_FLAGS[flag]]
-                        if (flagCondition.startsWith('!')) {
-                            isConditionMet = !isConditionMet // Negated flag condition (!-prefixed)
-                        }
-                        if (!isConditionMet) {
-                            return false
+                        // Tuple flag condition ([flag, value])
+                        if (Array.isArray(flagCondition)) {
+                            const [flag, value] = flagCondition
+                            const isConditionMet = featureFlags[FEATURE_FLAGS[flag]] === value
+                            if (!isConditionMet) {
+                                return false
+                            }
+                            // Negated flag condition (`!${FeatureFlagKey}`)
+                        } else if (flagCondition.startsWith('!')) {
+                            const flag = flagCondition.slice(1) as keyof typeof FEATURE_FLAGS
+                            const isConditionMet = !featureFlags[FEATURE_FLAGS[flag]]
+                            if (!isConditionMet) {
+                                return false
+                            }
+                            // Normal flag condition (FeatureFlagKey)
+                        } else {
+                            const flag = flagCondition as keyof typeof FEATURE_FLAGS
+                            const isConditionMet = !!featureFlags[FEATURE_FLAGS[flag]]
+                            if (!isConditionMet) {
+                                return false
+                            }
                         }
                     }
                     return true
