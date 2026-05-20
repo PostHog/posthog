@@ -703,6 +703,23 @@ impl<'a> Parser<'a> {
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
             let right = self.parse_stmt_rhs_expr()?;
+            // A *second* `:=` after the rhs means cpp's varAssignment
+            // separator is the second one, not the first — the leading
+            // `IDENT := <rhs>` becomes a NamedArgument as the lvalue of
+            // the outer varAssignment. `a := 1 := 2` →
+            // `VariableAssignment(NamedArgument(a, 1), 2)`. cpp arrives
+            // here via the columnExpr alt of varAssignment when the
+            // rhs of the first `:=` is a non-ident-led expression that
+            // stops at the next `:=`.
+            if self.eat(TokenKind::ColonEquals)? {
+                let outer_right = self.parse_stmt_rhs_expr()?;
+                let _ = self.eat(TokenKind::Semicolon)?;
+                return Ok(json!({
+                    "node": "VariableAssignment",
+                    "left": json!({"node": "NamedArgument", "name": name, "value": right}),
+                    "right": outer_right,
+                }));
+            }
             // The `:=` form is an `exprStmt` (`expression (COLONEQUALS
             // expression)? SEMICOLON?`) — consume the optional trailing
             // `;` so `if (c) a := b ; else d` sees the `else`.

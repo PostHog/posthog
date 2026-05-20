@@ -1789,6 +1789,41 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_bare_assignment_lead_chains_through_second_colon_equals(self):
+        # `IDENT := <rhs> := <outer_rhs>` — cpp's grammar resolves the
+        # *second* `:=` as the statement-level varAssignment, with the
+        # leading `IDENT := <rhs>` becoming a NamedArgument as the
+        # lvalue. The Rust bare-assignment-lead shortcut returned a
+        # VariableAssignment immediately after the first `:=` and
+        # stranded the trailing tokens.
+        cases = (
+            "a := 1 := 2",
+            "a := 1 * 2 := 3",
+            "a := 1 + 2 := 3",
+            "a := {} := 2",
+            "a := 'str' := 2",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guards: the existing single- and ident-chain forms still
+        # produce the same AST as cpp.
+        for src in (
+            "a := 1",
+            "a := b",
+            "a := b := c",
+            "a := \"str\" := 2",
+            "a := b := c := d",
+            "if (c) a := b",
+            "if (c) a := b ; else d",
+        ):
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_pivot_column_lhs_extends_past_in_via_infix_operators(self):
         # cpp's `pivotColumn: columnExprTupleOrSingle IN (...)` greedily
         # extends the columnExpr LHS through ANY infix operator after a
