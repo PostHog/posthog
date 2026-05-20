@@ -25,28 +25,16 @@ operations = [
     # 3. writable_session_replay_features Distributed.
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS writable_session_replay_features",
-        node_roles=[NodeRole.INGESTION_MEDIUM],
-    ),
-    run_sql_with_exceptions(
-        "DROP TABLE IF EXISTS writable_session_replay_features",
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.INGESTION_MEDIUM, NodeRole.DATA],
     ),
     # 4. Read-side Distributed table.
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS session_replay_features",
-        node_roles=[NodeRole.AUX],
-    ),
-    run_sql_with_exceptions(
-        "DROP TABLE IF EXISTS session_replay_features",
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX, NodeRole.DATA],
     ),
     # 5. Sharded.
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS sharded_session_replay_features SYNC",
-        node_roles=[NodeRole.AUX],
-    ),
-    run_sql_with_exceptions(
-        "DROP TABLE IF EXISTS sharded_session_replay_features SYNC",
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX, NodeRole.DATA],
     ),
 ]
