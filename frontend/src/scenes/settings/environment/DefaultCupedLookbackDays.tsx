@@ -19,20 +19,24 @@ export function DefaultCupedLookbackDays(): JSX.Element {
     })
 
     const savedValue = experimentsConfig?.default_cuped_lookback_days ?? DEFAULT_LOOKBACK_DAYS
-    const [localValue, setLocalValue] = useState<number>(savedValue)
+    const [localValue, setLocalValue] = useState<number | undefined>(savedValue)
 
     useEffect(() => {
         setLocalValue(savedValue)
     }, [savedValue])
 
-    const commit = (value: number): void => {
-        if (!Number.isFinite(value)) {
+    const isInvalid =
+        localValue === undefined ||
+        !Number.isFinite(localValue) ||
+        localValue < MIN_LOOKBACK_DAYS ||
+        localValue > MAX_LOOKBACK_DAYS
+
+    const commit = (): void => {
+        if (isInvalid) {
+            setLocalValue(savedValue)
             return
         }
-        const rounded = Math.round(value)
-        if (rounded < MIN_LOOKBACK_DAYS || rounded > MAX_LOOKBACK_DAYS) {
-            return
-        }
+        const rounded = Math.round(localValue as number)
         if (rounded === savedValue) {
             return
         }
@@ -45,13 +49,10 @@ export function DefaultCupedLookbackDays(): JSX.Element {
             min={MIN_LOOKBACK_DAYS}
             max={MAX_LOOKBACK_DAYS}
             value={localValue}
-            onChange={(value) => {
-                if (typeof value === 'number') {
-                    setLocalValue(value)
-                }
-            }}
-            onBlur={() => commit(localValue)}
-            onPressEnter={() => commit(localValue)}
+            onChange={(value) => setLocalValue(value)}
+            onBlur={commit}
+            onPressEnter={commit}
+            status={isInvalid ? 'danger' : 'default'}
             disabled={!!restrictionReason || experimentsConfigLoading}
             className="w-32"
         />
