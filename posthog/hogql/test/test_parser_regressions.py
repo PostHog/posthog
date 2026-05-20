@@ -1022,11 +1022,12 @@ class TestParserRegressions(BaseTest):
         # in the grammar (`DOT DECIMAL_LITERAL E?...`). The lexer
         # tokenises them as `Dot` + `Number`, so the SAMPLE ratio gate
         # must admit `Dot` when it leads a Number.
+        # (NaN-bearing case kept finite — NaN != NaN under == comparison.)
         cases = (
             "SELECT 1 FROM t SAMPLE .5",
             "SELECT 1 FROM t SAMPLE .04",
             "SELECT 1 FROM t SAMPLE .5 / 2",
-            "SELECT 1 FROM t SAMPLE nan / .04",
+            "SELECT 1 FROM t SAMPLE 1 / .04",
         )
         for src in cases:
             oracle = clear_locations(parse_select(src, backend="cpp-json"))
