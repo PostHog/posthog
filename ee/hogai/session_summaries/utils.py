@@ -19,9 +19,7 @@ logger = structlog.get_logger(__name__)
 GENERIC_SESSION_SUMMARY_ERROR_MESSAGE = "Something went wrong while generating the summary. Please try again."
 
 
-def build_session_summary_error_payload(
-    *, message: str, retryable: bool, error_class: str | None = None
-) -> str:
+def build_session_summary_error_payload(*, message: str, retryable: bool, error_class: str | None = None) -> str:
     """Build the JSON ``data`` field for a ``session-summary-error`` SSE event.
 
     The frontend accepts both the legacy plain-string payload and this JSON

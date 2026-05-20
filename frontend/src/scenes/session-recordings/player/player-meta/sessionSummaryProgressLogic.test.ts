@@ -176,9 +176,7 @@ describe('sessionSummaryProgressLogic', () => {
             })
             ;(api as any).recordings.summarizeStream = jest
                 .fn()
-                .mockResolvedValue(
-                    makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${payload}\n\n`])
-                )
+                .mockResolvedValue(makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${payload}\n\n`]))
 
             await expectLogic(logic, () => {
                 logic.actions.startSummarization(sessionId)
@@ -203,9 +201,7 @@ describe('sessionSummaryProgressLogic', () => {
             })
             ;(api as any).recordings.summarizeStream = jest
                 .fn()
-                .mockResolvedValue(
-                    makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${payload}\n\n`])
-                )
+                .mockResolvedValue(makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${payload}\n\n`]))
 
             await expectLogic(logic, () => {
                 logic.actions.startSummarization(sessionId)
@@ -221,9 +217,7 @@ describe('sessionSummaryProgressLogic', () => {
             const legacy = 'Something went wrong while generating the summary. Please try again.'
             ;(api as any).recordings.summarizeStream = jest
                 .fn()
-                .mockResolvedValue(
-                    makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${legacy}\n\n`])
-                )
+                .mockResolvedValue(makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${legacy}\n\n`]))
 
             await expectLogic(logic, () => {
                 logic.actions.startSummarization(sessionId)
