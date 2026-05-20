@@ -322,10 +322,13 @@ export function MenuFilterCombobox({
     //     is shorter than that. Shows the group's `searchDescription`
     //     to explain what the typing will reach (matching the
     //     screenshot in the design).
-    //   - "no matches" — search query is long enough but nothing
-    //     resolved. Names the active category for context.
+    //   - "no results for query" — search query is long enough but
+    //     nothing resolved. Echoes the search query verbatim so the
+    //     user can confirm what they typed (parity with the legacy
+    //     `InfiniteList` empty state).
     //   - "no items" — initial render with no search and no resolved
     //     entries (rare for finite groups).
+    const trimmedQuery = searchQuery.trim()
     const emptyState = useMemo<{ title: string; body?: string } | null>(() => {
         if (filtered.length > 0) {
             return null
@@ -336,24 +339,23 @@ export function MenuFilterCombobox({
                 ? (groups.find((g) => g.type === scope) ?? null)
                 : null
         const minLen = singleGroup?.minSearchQueryLength ?? 0
-        const trimmedLen = searchQuery.trim().length
-        if (singleGroup && minLen > 0 && trimmedLen < minLen) {
+        if (singleGroup && minLen > 0 && trimmedQuery.length < minLen) {
             const description = singleGroup.searchDescription ?? singleGroup.name.toLowerCase()
             return {
                 title: singleGroup.name,
                 body: `Type at least ${minLen} characters to search ${description} we have seen.`,
             }
         }
-        const categoryLabel = singleGroup?.name ?? (showChips ? null : null)
-        if (trimmedLen > 0) {
+        if (trimmedQuery.length > 0) {
             return {
-                title: categoryLabel ? `No "${categoryLabel}" found` : 'No matches',
+                title: `No results for "${trimmedQuery}"`,
+                body: singleGroup ? `No matching ${singleGroup.name.toLowerCase()} found.` : undefined,
             }
         }
         return {
-            title: categoryLabel ? `No "${categoryLabel}" found` : 'No items',
+            title: singleGroup ? `No "${singleGroup.name}" found` : 'No items',
         }
-    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery])
+    }, [filtered.length, showChips, activeChip, drillTo, groups, trimmedQuery])
 
     const headerTitle =
         title ??

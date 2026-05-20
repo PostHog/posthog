@@ -20,7 +20,8 @@
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
-import { useMemo, useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     isQuickFilterItem,
@@ -222,6 +223,57 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     )
 
     const remoteItems: ListStorage = remote.data ?? EMPTY_LIST_STORAGE
+
+    // ---- Empty-result instrumentation --------------------------------------
+    // Mirror the legacy `infiniteListLogic.loadRemoteItemsSuccess` capture so
+    // empty-state visibility is preserved when the call site is on the
+    // rebuilt menu (which routes through this hook instead of the kea logic).
+    // Without parity, the project-wide dashboard for `taxonomic filter empty
+    // result` only sees the legacy surface and we can't compare empty rates
+    // across the two paths.
+    //
+    // Legacy gates the capture on `isActiveTab` because every list runs the
+    // same search in parallel. The rebuilt menu's `Combobox` only mounts a
+    // `Fetcher` (→ this hook) for groups in the active scope, so the
+    // "background-tab storm" the gate guards against can't happen here.
+    // We dedupe within the hook instance so back-to-back renders for the
+    // same (group, query) don't double-fire.
+    const lastEmptyResultDedupeRef = useRef<string | null>(null)
+    const remoteResultCount = remoteItems.results.length
+    useEffect(() => {
+        if (!hasRemoteDataSource) {
+            return
+        }
+        if (remote.isLoading || remote.isFetching) {
+            return
+        }
+        if (needsMoreSearchCharacters) {
+            return
+        }
+        if (trimmedSearch.length === 0) {
+            return
+        }
+        if (remoteResultCount > 0) {
+            return
+        }
+        const dedupeKey = `${group.type}::${trimmedSearch}`
+        if (lastEmptyResultDedupeRef.current === dedupeKey) {
+            return
+        }
+        lastEmptyResultDedupeRef.current = dedupeKey
+        posthog.capture('taxonomic filter empty result', {
+            groupType: group.type,
+            searchQuery: trimmedSearch,
+        })
+    }, [
+        hasRemoteDataSource,
+        remote.isLoading,
+        remote.isFetching,
+        needsMoreSearchCharacters,
+        trimmedSearch,
+        remoteResultCount,
+        group.type,
+    ])
 
     // ---- Combined items + keyword shortcuts --------------------------------
     const keywordShortcuts: QuickFilterItem[] = useMemo(() => {

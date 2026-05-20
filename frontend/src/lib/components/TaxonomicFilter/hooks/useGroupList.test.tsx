@@ -1,4 +1,5 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -274,6 +275,112 @@ describe('useGroupList', () => {
             )
             await waitFor(() => expect(result.current.isLoading).toBe(false))
             expect(result.current.showNonCapturedEventOption).toBe(true)
+        })
+    })
+
+    describe('`taxonomic filter empty result` capture', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation((() => {}) as any)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+        })
+
+        const emptyCalls = (): unknown[][] =>
+            captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+
+        it('fires when a remote search settles with zero results', async () => {
+            apiGet.mockResolvedValueOnce({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: 'mcp tool call' }))
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            await waitFor(() => expect(emptyCalls()).toHaveLength(1))
+            expect(emptyCalls()[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: 'mcp tool call',
+            })
+        })
+
+        it('does not fire when results are non-empty', async () => {
+            apiGet.mockResolvedValueOnce({ results: [{ name: 'present' }], count: 1 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: 'present' }))
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            expect(emptyCalls()).toHaveLength(0)
+        })
+
+        it('does not fire while still loading', async () => {
+            // `isLoading` blocks the capture; resolve only after we've
+            // observed the loading state to confirm the gate.
+            let resolveFn: (v: any) => void = () => {}
+            apiGet.mockImplementationOnce(() => new Promise((r) => (resolveFn = r)))
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: 'pending' }))
+            expect(result.current.isLoading).toBe(true)
+            expect(emptyCalls()).toHaveLength(0)
+            await act(async () => {
+                resolveFn({ results: [], count: 0 })
+                await Promise.resolve()
+            })
+            await waitFor(() => expect(emptyCalls()).toHaveLength(1))
+        })
+
+        it('does not fire when the query is below the group minSearchQueryLength', async () => {
+            const group = makeGroup({
+                endpoint: 'api/projects/1/event_definitions',
+                minSearchQueryLength: 3,
+            })
+            renderHook(() => useGroupList({ group, searchQuery: 'ab' }))
+            // No fetch happens, but we still need to wait a tick for effects to settle.
+            await act(async () => {
+                await Promise.resolve()
+            })
+            expect(apiGet).not.toHaveBeenCalled()
+            expect(emptyCalls()).toHaveLength(0)
+        })
+
+        it('does not fire for local-only groups', async () => {
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Wildcards,
+                options: [{ name: 'foo' }] as any,
+            })
+            renderHook(() => useGroupList({ group, searchQuery: 'zzz' }))
+            await act(async () => {
+                await Promise.resolve()
+            })
+            expect(emptyCalls()).toHaveLength(0)
+        })
+
+        it('dedupes back-to-back identical empty results', async () => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'same' },
+            })
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            await waitFor(() => expect(emptyCalls()).toHaveLength(1))
+            // Rerender without changing the query — should not double-fire.
+            rerender({ q: 'same' })
+            await act(async () => {
+                await Promise.resolve()
+            })
+            expect(emptyCalls()).toHaveLength(1)
+        })
+
+        it('fires again when the search query changes to a new empty result', async () => {
+            apiGet.mockResolvedValueOnce({ results: [], count: 0 }).mockResolvedValueOnce({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'first' },
+            })
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            await waitFor(() => expect(emptyCalls()).toHaveLength(1))
+            rerender({ q: 'second' })
+            await waitFor(() => expect(emptyCalls()).toHaveLength(2))
+            expect((emptyCalls()[1][1] as { searchQuery: string }).searchQuery).toBe('second')
         })
     })
 })
