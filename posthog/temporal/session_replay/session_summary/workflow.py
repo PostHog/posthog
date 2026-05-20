@@ -829,8 +829,14 @@ async def _extract_workflow_failure_cause(
     except WorkflowFailureError as exc:
         cause: BaseException | None = exc.cause
         # Walk down to the leaf cause — typically Workflow → Activity → Application.
-        while cause is not None and getattr(cause, "cause", None) is not None:
-            cause = cause.cause
+        # `BaseException.__cause__` exists, but Temporal failures expose the chain via a
+        # private `cause` attribute that mypy doesn't see on `BaseException` — fall back
+        # to ``__cause__`` so the walk works without an attribute-defined error.
+        while cause is not None:
+            inner = getattr(cause, "cause", None) or cause.__cause__
+            if inner is None:
+                break
+            cause = inner
         if cause is None:
             return None, None
         if isinstance(cause, ApplicationError):
