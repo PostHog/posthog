@@ -240,7 +240,13 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
 
 ALL_EXPOSED_FUNCTION_NAMES = [
-    name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
+    name
+    for name in chain(
+        HOGQL_CLICKHOUSE_FUNCTIONS.keys(),
+        HOGQL_AGGREGATIONS.keys(),
+        HOGQL_POSTHOG_FUNCTIONS.keys(),
+    )
+    if not name.startswith("_")
 ]
 
 

@@ -87,20 +87,54 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
 
     const hogPositionClass = hogPosition === 'top-right' ? 'CheekyHogTopRight' : 'CheekyHogTopLeft'
 
+    const cardDisabled = planData.ctaAction === 'billing' && !!billingProductLoading
+
+    const activateCard = (): void => {
+        if (cardDisabled) {
+            return
+        }
+        if (planData.ctaAction === 'billing') {
+            startPaymentEntryFlow(product, window.location.pathname + window.location.search)
+        } else if (planData.ctaAction === 'next') {
+            reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
+            goToNextStep()
+        }
+    }
+
+    const handleCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            activateCard()
+        }
+    }
+
     return (
         <div className="relative" onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            <HeartHog
-                width="100"
-                height="100"
-                className={clsx(
-                    hogPositionClass,
-                    isHovering === true && `${hogPositionClass}--peek`,
-                    isHovering === false && `${hogPositionClass}--hide`
-                )}
-            />
+            {!cardDisabled && (
+                <HeartHog
+                    width="100"
+                    height="100"
+                    className={clsx(
+                        hogPositionClass,
+                        isHovering === true && `${hogPositionClass}--peek`,
+                        isHovering === false && `${hogPositionClass}--hide`
+                    )}
+                />
+            )}
             <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Select ${planData.title} plan`}
+                aria-disabled={cardDisabled || undefined}
+                onClick={activateCard}
+                onKeyDown={handleCardKeyDown}
+                data-attr={`plan-card-${planData.plan}`}
                 className={clsx(
-                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
+                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform text-left',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-active',
+                    cardDisabled
+                        ? 'cursor-wait opacity-80'
+                        : 'cursor-pointer hover:scale-[1.02] hover:shadow-lg active:scale-[1.01]',
                     highlight ? 'border-2 border-accent-active' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
@@ -152,11 +186,13 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             disabledReason={billingProductLoading && 'Please wait...'}
                             disableClientSideRouting
                             loading={!!billingProductLoading}
-                            onClick={() =>
+                            onClick={(event) => {
+                                event.stopPropagation()
                                 startPaymentEntryFlow(product, window.location.pathname + window.location.search)
-                            }
+                            }}
                             data-attr="onboarding-subscribe-button"
                             fullWidth
+                            tabIndex={-1}
                         >
                             {planData.ctaText}
                         </BillingUpgradeCTA>
@@ -167,10 +203,12 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             fullWidth
                             center
                             status={highlight ? 'alt' : undefined}
-                            onClick={() => {
+                            onClick={(event) => {
+                                event.stopPropagation()
                                 reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
                                 goToNextStep()
                             }}
+                            tabIndex={-1}
                         >
                             {planData.ctaText}
                         </LemonButton>

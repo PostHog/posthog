@@ -175,7 +175,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.3.9.8}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.3.10.60}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -265,7 +265,7 @@ services:
     worker: &worker
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
-        env_file: dev-services.env
+        env_file: .env.services
         environment: &worker_env
             OTEL_SDK_DISABLED: 'true'
             API_QUERIES_PER_TEAM: '{"1": 100}'

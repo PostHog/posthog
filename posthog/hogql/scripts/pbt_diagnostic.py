@@ -1,0 +1,468 @@
+"""Diagnostic PBT runner: oracle backend vs candidate backend.
+
+Reuses the strategies from `test_parser_grammar_pbt.py` (the
+auto-generated grammar PBT introduced in PR #58627) but runs as an
+ad-hoc CLI rather than a pytest collection. Backend-agnostic:
+defaults to `cpp-json` vs `python` (the two backends shipped in
+master); point `--candidate` at any other backend in a feature
+branch that adds one.
+
+Distinct from the pytest PBT in five ways:
+
+1. **AST node-type pair categorization.** Each ast_mismatch is
+   bucketed by `(oracle.root_node, candidate.root_node)` so the
+   dominant divergence classes surface immediately — no manual
+   eyeballing of 200-line AST dumps.
+2. **Diff-only AST output.** When printing a sample mismatch, walk
+   both ASTs together and print only the path from root to the first
+   differing node.
+3. **Auto-shrinker (`--shrink-failures`).** For each ast_mismatch
+   and reject, run a delete-one-token reducer that keeps the smallest
+   variant which still triggers the same divergence shape. Drops
+   typical PBT failures from 200+ chars to <50.
+4. **Optional JSONL persistence (`--write-divergences PATH`).** Drop
+   one JSON line per failing example for cross-run analysis or
+   regression-corpus extraction.
+5. **Reject categorization.** Group `candidate_reject` queries by the
+   error message + leading-token signature so recurring shapes
+   surface even though there's no AST to diff against.
+6. **Crash bucketing.** A query that makes a backend raise a non-HogQL
+   exception (`RecursionError`, a half-built parser's `RuntimeError`,
+   …) is bucketed as `candidate_crash` / `oracle_crash` and the grind
+   continues — surfacing the crash rather than aborting on it.
+
+The shared parse / AST-diff / divergence-shape vocabulary lives in
+`_diagnostic_common.py` alongside this script.
+
+Typical usage:
+
+    # Default: cpp-json vs python (works in master out of the box)
+    PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py --n 5000
+
+    # With auto-shrinking on every failure
+    PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \\
+        --n 5000 --shrink-failures
+
+    # Persist for later analysis / corpus extraction
+    PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \\
+        --write-divergences /tmp/divergences.jsonl --shrink-failures
+"""
+
+# ruff: noqa: T201 (this is a CLI script — print is the output channel)
+# ruff: noqa: E402 (django.setup() must run between import django and the
+#                   project-app imports below)
+
+from __future__ import annotations
+
+import os
+import re
+import sys
+import json
+import argparse
+import traceback
+from collections import Counter
+from typing import Any
+
+import django
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+django.setup()
+
+from hypothesis import assume, given, settings
+
+from posthog.hogql.scripts._diagnostic_common import (
+    DivergenceShape,
+    _ast_mismatch_shape,
+    _diff_path,
+    _format_diff_path,
+    _node_type,
+    _probe_backend,
+    _safe_parse,
+    _shape_for,
+)
+from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
+from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle
+
+# ---------------------------------------------------------------------------
+# Auto-shrinker
+# ---------------------------------------------------------------------------
+#
+# Hypothesis has its own shrinker but we're running queries that already
+# escaped from a Hypothesis trial — by the time the diagnostic sees them,
+# Hypothesis has moved on. We re-run our own delete-one-token reducer so
+# each printed failure is a small repro the human can paste into a unit
+# test.
+
+
+_TOKEN_RE = re.compile(r"\s+|[^\s]+")
+
+
+def _tokenize_for_shrink(query: str) -> list[str]:
+    """Split into shrinker units. We use whitespace-or-non-whitespace
+    runs so paren matching is preserved (a token like `(` or `)` is a
+    single shrinker unit). The original whitespace is retained so we
+    can re-join faithfully."""
+    return [m.group(0) for m in _TOKEN_RE.finditer(query)]
+
+
+def _shrink_query(
+    query: str,
+    rule: str,
+    oracle_backend: str,
+    candidate_backend: str,
+    target_shape: DivergenceShape,
+    max_passes: int = 5,
+) -> str:
+    """Greedy delete-one-token shrinker. Each pass walks every token
+    and drops it (and its trailing whitespace) if the resulting query
+    still triggers the same divergence shape. Stops when a pass
+    removes nothing or after `max_passes`. Linear in
+    tokens × passes — fine for ~50-300-token PBT queries."""
+    current = query
+    for _ in range(max_passes):
+        tokens = _tokenize_for_shrink(current)
+        # Try delete each non-whitespace token (and any trailing
+        # whitespace token) in turn.
+        improved = False
+        i = 0
+        while i < len(tokens):
+            if tokens[i].isspace():
+                i += 1
+                continue
+            # Build a candidate with tokens[i] removed (plus any
+            # immediately-following whitespace token).
+            drop_to = i + 1
+            if drop_to < len(tokens) and tokens[drop_to].isspace():
+                drop_to += 1
+            candidate = "".join(tokens[:i] + tokens[drop_to:])
+            if not candidate.strip():
+                i += 1
+                continue
+            shape = _shape_for(candidate, rule, oracle_backend, candidate_backend)
+            if shape == target_shape:
+                current = candidate
+                tokens = _tokenize_for_shrink(current)
+                improved = True
+                # Don't advance i — the next token slid into this slot.
+                continue
+            i += 1
+        if not improved:
+            break
+    return current
+
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+
+def _print_failure_sample(
+    query: str,
+    shrunk: str | None,
+    rule: str,
+    oracle: str,
+    candidate: str,
+    *,
+    diff_steps: list | None = None,
+) -> None:
+    """Print one sample failure. The caller pre-computes the shrunken
+    form (None if shrinking is off) — both this print path and the
+    JSONL writer pull from the same pre-shrunk string so they never
+    disagree on the minimal repro. For ast_mismatch samples, pass
+    `diff_steps` so the diff path renders against the original; when
+    a shrunk query is present, re-parse it for a fresh diff path."""
+    if shrunk is not None and shrunk != query:
+        print(f"  query (shrunk {len(query)} -> {len(shrunk)}): {shrunk!r}")
+        if diff_steps is not None:
+            _, o_s, _ = _safe_parse(shrunk, rule, oracle)
+            _, c_s, _ = _safe_parse(shrunk, rule, candidate)
+            print(_format_diff_path(_diff_path(o_s, c_s)))
+    else:
+        print(f"  query: {query!r}")
+        if diff_steps is not None:
+            print(_format_diff_path(diff_steps))
+
+
+# ---------------------------------------------------------------------------
+# Main runner
+# ---------------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--n", type=int, default=int(os.environ.get("N", "500")))
+    parser.add_argument("--rule", choices=("expr", "select", "program"), default="expr")
+    parser.add_argument("--jiggle", action="store_true")
+    parser.add_argument(
+        "--accepted-only",
+        action="store_true",
+        help=(
+            "Make `--n` count only examples the ORACLE accepts: oracle "
+            "rejects/crashes are `assume()`d out (Hypothesis keeps "
+            "generating until --n oracle-accepted examples are reached), "
+            "so the match denominator is exactly --n."
+        ),
+    )
+    parser.add_argument(
+        "--oracle",
+        default=os.environ.get("ORACLE_BACKEND", "cpp-json"),
+        help="Source-of-truth backend (default: cpp-json)",
+    )
+    parser.add_argument(
+        "--candidate",
+        default=os.environ.get("CANDIDATE_BACKEND", "python"),
+        help="Backend under test (default: python; override in feature branches that add a third backend)",
+    )
+    parser.add_argument(
+        "--max-mismatch-samples",
+        type=int,
+        default=3,
+        help="Per category, max sample mismatches to print (default: 3)",
+    )
+    parser.add_argument(
+        "--print-rejects",
+        action="store_true",
+        help="Also print sample candidate-rejected queries (oracle accepted)",
+    )
+    parser.add_argument(
+        "--shrink-failures",
+        action="store_true",
+        help="Run an auto-shrinker on each printed failure to produce a minimal repro",
+    )
+    parser.add_argument(
+        "--write-divergences",
+        metavar="PATH",
+        default=None,
+        help="Write JSONL with one entry per failing example (query + diff path)",
+    )
+    args = parser.parse_args()
+    oracle = args.oracle
+    candidate = args.candidate
+
+    # Sanity-probe the backends so we fail fast with a clear error
+    # rather than mid-run with cryptic Hypothesis output.
+    for label, backend in (("oracle", oracle), ("candidate", candidate)):
+        err = _probe_backend(args.rule, backend)
+        if err is not None:
+            print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
+            return 1
+
+    counts: Counter[str] = Counter()
+    # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`. We
+    # shrink ONCE per failure (in `run()` below) and reuse the result
+    # both for the JSONL writer and the summary print loop — otherwise
+    # the two paths would shrink independently and could land on
+    # different minima of the same divergence (greedy deletion picks
+    # the first viable reduction at each step, so order matters), and
+    # a user cross-referencing the two outputs would see two
+    # different "minimal" repros for the same bug.
+    mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
+    reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
+    # A candidate that raises a non-HogQL exception (RecursionError, a
+    # half-built backend's RuntimeError, …) is a finding in its own
+    # right — `_safe_parse` catches it so one crashing query can't
+    # abort the whole grind. Keyed by normalised `<ExcType>: …`.
+    crash_buckets: dict[str, list[str]] = {}
+
+    base_strategy = {
+        "expr": expr_strategy,
+        "select": select_strategy,
+        "program": program_strategy,
+    }[args.rule]()
+    strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
+
+    # Stream JSONL during the run rather than collecting everything in
+    # memory. Opened in the try-block below so the strategy
+    # construction and decorator application above have no chance to
+    # leak the handle.
+    jsonl_file: Any = None
+    jsonl_count = 0
+
+    def write_record(rec: dict, shrunk: str | None) -> None:
+        nonlocal jsonl_count
+        if jsonl_file is None:
+            return
+        if shrunk is not None:
+            rec["query_shrunk"] = shrunk
+        if "diff_path" in rec:
+            rec["diff_path"] = [list(s) if isinstance(s, tuple) else s for s in rec["diff_path"]]
+        jsonl_file.write(json.dumps(rec) + "\n")
+        jsonl_count += 1
+
+    # Reuse the pytest PBT's shared settings (deadline=None, slow /
+    # filter-too-much suppression) and only override `max_examples`
+    # from the CLI flag. The pytest PBT deliberately leaves
+    # `data_too_large` unsuppressed — same signal here.
+    @given(query=strategy)
+    @settings(parent=_PBT_SETTINGS, max_examples=args.n)
+    def run(query: str) -> None:
+        counts["total"] += 1
+
+        o_status, o_ast, _ = _safe_parse(query, args.rule, oracle)
+        if o_status == "reject":
+            counts["oracle_reject"] += 1
+            # `--accepted-only`: discard so this doesn't count toward
+            # `max_examples` — Hypothesis regenerates until `--n`
+            # oracle-accepted examples land.
+            if args.accepted_only:
+                assume(False)
+            return
+        if o_status == "crash":
+            # The oracle (source of truth) crashing is its own kind of
+            # finding — count it, but with no oracle AST there's
+            # nothing to compare the candidate against, so stop here.
+            counts["oracle_crash"] += 1
+            if args.accepted_only:
+                assume(False)
+            return
+
+        c_status, c_ast, c_detail = _safe_parse(query, args.rule, candidate)
+        if c_status == "reject":
+            counts["candidate_reject"] += 1
+            sig = c_detail or "<no message>"
+            shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
+            shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+            reject_buckets.setdefault(sig, []).append((query, shrunk))
+            write_record(
+                {
+                    "kind": "candidate_reject",
+                    "rule": args.rule,
+                    "oracle": oracle,
+                    "candidate": candidate,
+                    "query": query,
+                    "reject_signature": sig,
+                },
+                shrunk,
+            )
+            return
+        if c_status == "crash":
+            # Not shrunk: a crash isn't a stable `DivergenceShape`, so
+            # `_shrink_query` can't reduce toward it. Recorded full.
+            counts["candidate_crash"] += 1
+            sig = c_detail or "<no message>"
+            crash_buckets.setdefault(sig, []).append(query)
+            write_record(
+                {
+                    "kind": "candidate_crash",
+                    "rule": args.rule,
+                    "oracle": oracle,
+                    "candidate": candidate,
+                    "query": query,
+                    "crash_signature": sig,
+                },
+                None,
+            )
+            return
+
+        if o_ast == c_ast:
+            counts["match"] += 1
+            return
+
+        counts["ast_mismatch"] += 1
+        bucket = (_node_type(o_ast), _node_type(c_ast))
+        steps = _diff_path(o_ast, c_ast)
+        shape = _ast_mismatch_shape(bucket, steps)
+        shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+        mismatch_buckets.setdefault(bucket, []).append((query, shrunk, steps))
+        write_record(
+            {
+                "kind": "ast_mismatch",
+                "rule": args.rule,
+                "oracle": oracle,
+                "candidate": candidate,
+                "query": query,
+                "oracle_root": bucket[0],
+                "candidate_root": bucket[1],
+                "diff_path": steps,
+            },
+            shrunk,
+        )
+
+    # `run()` can fail outright — a Hypothesis `FailedHealthCheck`, a
+    # backend import error surfacing mid-run, an unopenable
+    # `--write-divergences` path. We still print whatever summary we
+    # have, but track the failure so the exit code reflects it: tooling
+    # that invokes the diagnostic non-interactively must not read a
+    # crashed run as success.
+    run_ok = True
+    try:
+        if args.write_divergences:
+            jsonl_file = open(args.write_divergences, "w")  # noqa: SIM115 — see finally
+        run()
+    except Exception:
+        traceback.print_exc()
+        run_ok = False
+    finally:
+        if jsonl_file is not None:
+            jsonl_file.close()
+
+    # ---- Summary ----------------------------------------------------------
+    print()
+    print(
+        f"=== PBT run: rule={args.rule} oracle={oracle} candidate={candidate} "
+        f"jiggle={args.jiggle} max_examples={args.n} ==="
+    )
+    for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        print(f"  {k:32s} {v}")
+
+    # ---- ast_mismatch categorization + samples ----------------------------
+    if mismatch_buckets:
+        total = sum(len(v) for v in mismatch_buckets.values())
+        print()
+        print(f"=== ast_mismatch categories ({total} total) ===")
+        sorted_mismatch_buckets = sorted(mismatch_buckets.items(), key=lambda kv: -len(kv[1]))
+        for (o_t, c_t), examples in sorted_mismatch_buckets:
+            print(f"  {o_t} vs {c_t}: {len(examples)}")
+        print()
+        print(f"=== Sample mismatches (up to {args.max_mismatch_samples} per category) ===")
+        for (o_t, c_t), examples in sorted_mismatch_buckets:
+            print(f"\n--- {o_t} vs {c_t} ({len(examples)} total) ---")
+            for query, shrunk, steps in examples[: args.max_mismatch_samples]:
+                _print_failure_sample(query, shrunk, args.rule, oracle, candidate, diff_steps=steps)
+
+    # ---- candidate_reject categorization + samples ------------------------
+    # The category summary always prints (parity with the ast_mismatch
+    # category table); per-query samples stay gated behind `--print-rejects`
+    # to keep the default output short.
+    if reject_buckets:
+        total = sum(len(v) for v in reject_buckets.values())
+        print()
+        print(f"=== candidate_reject categories ({total} total) ===")
+        sorted_reject_buckets = sorted(reject_buckets.items(), key=lambda kv: -len(kv[1]))
+        for sig, queries in sorted_reject_buckets:
+            print(f"  [{len(queries):3d}] {sig}")
+        if args.print_rejects:
+            print()
+            print(f"=== Sample candidate_rejects (up to {args.max_mismatch_samples} per category) ===")
+            for sig, queries in sorted_reject_buckets:
+                print(f"\n--- {sig} ({len(queries)} total) ---")
+                for query, shrunk in queries[: args.max_mismatch_samples]:
+                    _print_failure_sample(query, shrunk, args.rule, oracle, candidate)
+
+    # ---- candidate_crash categorization + samples -------------------------
+    if crash_buckets:
+        total = sum(len(v) for v in crash_buckets.values())
+        print()
+        print(f"=== candidate_crash categories ({total} total — non-HogQL exceptions) ===")
+        sorted_crash_buckets = sorted(crash_buckets.items(), key=lambda kv: -len(kv[1]))
+        # Distinct loop names from the reject block above: crash buckets hold
+        # bare query strings, reject buckets hold (query, shrunk) pairs.
+        for crash_sig, crash_queries in sorted_crash_buckets:
+            print(f"  [{len(crash_queries):3d}] {crash_sig}")
+        if args.print_rejects:
+            print()
+            print(f"=== Sample candidate_crashes (up to {args.max_mismatch_samples} per category) ===")
+            for crash_sig, crash_queries in sorted_crash_buckets:
+                print(f"\n--- {crash_sig} ({len(crash_queries)} total) ---")
+                for crash_query in crash_queries[: args.max_mismatch_samples]:
+                    print(f"  query: {crash_query!r}")
+
+    if args.write_divergences:
+        print()
+        print(f"=== Wrote {jsonl_count} divergence records to {args.write_divergences} ===")
+
+    return 0 if run_ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

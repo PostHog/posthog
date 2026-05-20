@@ -110,6 +110,12 @@ export type IngestionConsumerConfig = {
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
 
+    // Maximum in-flight batches per worker (BatchingPipeline.concurrentBatches).
+    // Mirrors INGESTION_WORKER_CONCURRENT_BATCHES on the Rust consumer side —
+    // both values MUST agree, otherwise either the Rust consumer over-limits
+    // (idle worker capacity) or the worker rejects with HTTP 503.
+    INGESTION_WORKER_CONCURRENT_BATCHES: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -219,6 +225,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
+        INGESTION_WORKER_CONCURRENT_BATCHES: 1,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',

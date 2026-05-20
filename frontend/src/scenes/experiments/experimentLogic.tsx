@@ -657,7 +657,13 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: true,
         endExperiment: true,
         endExperimentWithoutShipping: true,
-        finishExperiment: ({ selectedVariantKey }: { selectedVariantKey: string }) => ({ selectedVariantKey }),
+        finishExperiment: ({
+            selectedVariantKey,
+            releaseToEveryone,
+        }: {
+            selectedVariantKey: string
+            releaseToEveryone: boolean
+        }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
@@ -1684,12 +1690,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey }) => {
+        finishExperiment: async ({ selectedVariantKey, releaseToEveryone }) => {
             try {
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
                     {
                         variant_key: selectedVariantKey,
+                        release_to_everyone: releaseToEveryone,
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                     }
@@ -1697,7 +1704,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
                 actions.closeFinishExperimentModal()
-                lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
+                lemonToast.success(
+                    releaseToEveryone
+                        ? 'Experiment ended. The selected variant has been rolled out to all users.'
+                        : 'Experiment ended. The selected variant has been rolled out to the experiment population.'
+                )
 
                 // Trigger Hogfetti celebration with cascading delays
                 if (values.experiment.conclusion === ExperimentConclusion.Won) {

@@ -1,6 +1,6 @@
 ---
 name: using-kea-disposables
-description: Use when adding timers (`setInterval`, `setTimeout`), event listeners (`window.addEventListener`, `document.addEventListener`, `MediaQueryList.addEventListener`), or any other resource that needs cleanup inside a kea logic. Every logic has `cache.disposables.add(setup, key?, options?)` and `cache.disposables.dispose(key)` available via the globally registered `disposablesPlugin` (`frontend/src/kea-disposables.ts`). Replaces the bare `cache.foo = setInterval(...)` + `beforeUnmount: clearInterval(cache.foo)` pattern and auto-pauses background work when the tab is hidden.
+description: 'Use when adding timers (`setInterval`, `setTimeout`), event listeners (`window.addEventListener`, `document.addEventListener`, `MediaQueryList.addEventListener`), or any other resource that needs cleanup inside a kea logic. Every logic has `cache.disposables.add(setup, key?, options?)` and `cache.disposables.dispose(key)` available via the globally registered `disposablesPlugin` (`frontend/src/kea-disposables.ts`). Replaces the bare `cache.foo = setInterval(...)` + `beforeUnmount: clearInterval(cache.foo)` pattern and auto-pauses background work when the tab is hidden.'
 ---
 
 # Using kea disposables

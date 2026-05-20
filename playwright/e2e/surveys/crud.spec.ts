@@ -197,7 +197,9 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr="survey-popup-delay-input"]').fill('5')
 
         await page.locator('.LemonButton').getByText('Display conditions').click()
-        await page.locator('[data-attr="survey-display-conditions-select"]').click()
+        // Display conditions is now a LemonRadio whose outer data-attr is not
+        // forwarded to the DOM (only inner option `data-attr`s are). Click the
+        // "match conditions" radio option directly.
         await page.locator('[data-attr="survey-display-conditions-select-users"]').click()
 
         await expect(page.getByText('Cancel survey on events')).toBeVisible()

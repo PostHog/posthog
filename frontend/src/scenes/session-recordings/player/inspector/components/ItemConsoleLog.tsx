@@ -1,15 +1,17 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond } from 'lib/utils'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
+import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
@@ -23,12 +25,15 @@ export interface ItemAppStateProps {
 }
 
 export function ItemConsoleLog({ item, groupCount }: ItemConsoleLogProps): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
     const count = groupCount ?? item.data.count
     const showBadge = count && count > 1
 
     return (
         <div className="w-full font-light flex items-center" data-attr="item-console-log">
-            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
+            <Tooltip title={showLineTooltips ? item.data.content : undefined}>
+                <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
+            </Tooltip>
             {showBadge ? (
                 <span
                     className={clsx(
@@ -107,9 +112,12 @@ export function ItemConsoleLogDetail({ item, groupedItems }: ItemConsoleLogProps
 }
 
 export function ItemAppState({ item }: ItemAppStateProps): JSX.Element {
+    const { showLineTooltips } = useValues(miniFiltersLogic)
     return (
         <div className="w-full font-light" data-attr="item-app-state">
-            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.action}</div>
+            <Tooltip title={showLineTooltips ? item.action : undefined}>
+                <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.action}</div>
+            </Tooltip>
         </div>
     )
 }

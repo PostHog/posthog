@@ -3,14 +3,13 @@
 
 export {
     ErrorTrackingConsumer,
-    ErrorTrackingConsumerOptions,
-    ErrorTrackingConsumerDeps,
-    ErrorTrackingHogTransformer,
+    type ErrorTrackingConsumerOptions,
+    type ErrorTrackingConsumerDeps,
+    type ErrorTrackingHogTransformer,
 } from './error-tracking-consumer'
-export { CymbalClient, CymbalClientConfig } from './cymbal'
-export {
-    createErrorTrackingPipeline,
-    runErrorTrackingPipeline,
+export { CymbalClient, type CymbalClientConfig } from './cymbal'
+export { createErrorTrackingPipeline, runErrorTrackingPipeline } from './error-tracking-pipeline'
+export type {
     ErrorTrackingPipelineConfig,
     ErrorTrackingPipelineInput,
     ErrorTrackingPipelineOutput,

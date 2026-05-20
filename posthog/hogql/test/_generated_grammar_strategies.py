@@ -32,9 +32,9 @@ from posthog.hogql.test._grammar_token_strategies import (
     string_literal_token,
 )
 
-_DEFAULT_DEPTH = 3
-_MAX_REPEAT = 2  # cap for `*` / `+` quantifiers (per occurrence)
-_MAX_LR_CHAIN = 2  # cap for chained Pratt-style suffixes (per LR rule)
+_DEFAULT_DEPTH = 5
+_MAX_REPEAT = 4  # cap for `*` / `+` quantifiers (per occurrence)
+_MAX_LR_CHAIN = 4  # cap for chained Pratt-style suffixes (per LR rule)
 
 # Probability an optional ``?``-quantified element is included. 50/50
 # produces unrealistically clause-rich SELECTs (a typical SELECT has 25
@@ -81,11 +81,58 @@ def _include_soft(draw: Any) -> bool:
 
 
 @functools.cache
+def program_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+            parts.append(draw(declaration_strategy(_dec(depth))))
+        parts.append("")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def declaration_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        alt_idx = draw(st.integers(min_value=0, max_value=1))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(varDecl_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(statement_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
 def expression_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
         parts.append(draw(columnExpr_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def varDecl_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("let")
+        parts.append(draw(identifier_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(":=")
+            parts.append(draw(expression_strategy(_dec(depth))))
         return " ".join(p for p in parts if p)
 
     return gen()
@@ -102,6 +149,295 @@ def identifierList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
             parts.append(draw(nestedIdentifier_strategy(_dec(depth))))
         if _include_optional(draw):
             parts.append(",")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def statement_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        alt_idx = draw(st.integers(min_value=0, max_value=10))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(returnStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(throwStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 2:
+            parts = []
+            parts.append(draw(tryCatchStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 3:
+            parts = []
+            parts.append(draw(ifStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 4:
+            parts = []
+            parts.append(draw(whileStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 5:
+            parts = []
+            parts.append(draw(forInStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 6:
+            parts = []
+            parts.append(draw(forStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 7:
+            parts = []
+            parts.append(draw(funcStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 8:
+            parts = []
+            parts.append(draw(block_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 9:
+            parts = []
+            parts.append(draw(exprStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 10:
+            parts = []
+            parts.append(draw(emptyStmt_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
+def returnStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("return")
+        if _include_optional(draw):
+            parts.append(draw(expression_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def throwStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("throw")
+        parts.append(draw(expression_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def catchBlock_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("catch")
+        if _include_optional(draw):
+            parts.append("(")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            if _include_optional(draw):
+                parts.append(":")
+                parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append(")")
+        parts.append(draw(block_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def tryCatchStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("try")
+        parts.append(draw(block_strategy(_dec(depth))))
+        for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+            parts.append(draw(catchBlock_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append("finally")
+            parts.append(draw(block_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def ifStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("if")
+        parts.append("(")
+        parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(")")
+        parts.append(draw(statement_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append("else")
+            parts.append(draw(statement_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def whileStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("while")
+        parts.append("(")
+        parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(")")
+        parts.append(draw(statement_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def forStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("for")
+        parts.append("(")
+        if _include_optional(draw):
+            group_idx = draw(st.integers(min_value=0, max_value=2))
+            if group_idx == 0:
+                parts.append(draw(varDecl_strategy(_dec(depth))))
+            if group_idx == 1:
+                parts.append(draw(varAssignment_strategy(_dec(depth))))
+            if group_idx == 2:
+                parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(";")
+        if _include_optional(draw):
+            parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(";")
+        if _include_optional(draw):
+            group_idx = draw(st.integers(min_value=0, max_value=2))
+            if group_idx == 0:
+                parts.append(draw(varDecl_strategy(_dec(depth))))
+            if group_idx == 1:
+                parts.append(draw(varAssignment_strategy(_dec(depth))))
+            if group_idx == 2:
+                parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(")")
+        parts.append(draw(statement_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def forInStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("for")
+        parts.append("(")
+        parts.append("let")
+        parts.append(draw(identifier_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(",")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+        parts.append("in")
+        parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(")")
+        parts.append(draw(statement_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def funcStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        group_idx = draw(st.integers(min_value=0, max_value=1))
+        if group_idx == 0:
+            parts.append("fn")
+        if group_idx == 1:
+            parts.append("fun")
+        parts.append(draw(identifier_strategy(_dec(depth))))
+        parts.append("(")
+        if _include_optional(draw):
+            parts.append(draw(identifierList_strategy(_dec(depth))))
+        parts.append(")")
+        parts.append(draw(block_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def varAssignment_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(":=")
+        parts.append(draw(expression_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def exprStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(expression_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(":=")
+            parts.append(draw(expression_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def emptyStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(";")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def block_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("{")
+        for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+            parts.append(draw(declaration_strategy(_dec(depth))))
+        parts.append("}")
         return " ".join(p for p in parts if p)
 
     return gen()
@@ -2105,7 +2441,11 @@ def columnLambdaExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
                 parts.append("(")
                 parts.append(")")
             parts.append("->")
-            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            group_idx = draw(st.integers(min_value=0, max_value=1))
+            if group_idx == 0:
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+            if group_idx == 1:
+                parts.append(draw(block_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
             parts = []
@@ -2536,18 +2876,22 @@ def numberLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
                 parts.append("+")
             if group_idx == 1:
                 parts.append("-")
-        group_idx = draw(st.integers(min_value=0, max_value=5))
+        group_idx = draw(st.integers(min_value=0, max_value=7))
         if group_idx == 0:
             parts.append(draw(floatingLiteral_strategy(_dec(depth))))
         if group_idx == 1:
-            parts.append(draw(octal_literal_token))
+            parts.append("<unresolved:BINARY_LITERAL>")
         if group_idx == 2:
-            parts.append(draw(decimal_literal_token))
+            parts.append(draw(octal_literal_token))
         if group_idx == 3:
-            parts.append(draw(hexadecimal_literal_token))
+            parts.append("<unresolved:OCTAL_PREFIX_LITERAL>")
         if group_idx == 4:
-            parts.append(draw(st.sampled_from(["inf", "infinity"])))
+            parts.append(draw(decimal_literal_token))
         if group_idx == 5:
+            parts.append(draw(hexadecimal_literal_token))
+        if group_idx == 6:
+            parts.append(draw(st.sampled_from(["inf", "infinity"])))
+        if group_idx == 7:
             parts.append("nan")
         return " ".join(p for p in parts if p)
 
