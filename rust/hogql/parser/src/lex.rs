@@ -959,9 +959,48 @@ impl<'a> Lexer<'a> {
                     return Ok(TokenKind::String);
                 }
                 Some(b'\\') => {
+                    // `ESCAPE_CHAR_COMMON` (`HogQLLexer.common.g4:145`)
+                    // is a closed set: `\b \f \r \n \t \0 \a \v \\ \xNN`,
+                    // plus the string-literal-only `\'`. cpp rejects
+                    // anything else; rust was silently keeping the
+                    // backslash + char as literal text.
+                    let escape_pos = self.pos;
                     self.pos += 1;
-                    if self.peek_byte(0).is_some() {
-                        self.pos += 1;
+                    match self.peek_byte(0) {
+                        None => {} // unterminated — caught by the outer loop's None arm
+                        Some(c) => match c {
+                            b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'n' | b'N'
+                            | b't' | b'T' | b'0' | b'a' | b'A' | b'v' | b'V'
+                            | b'\\' | b'\'' => {
+                                self.pos += 1;
+                            }
+                            b'x' | b'X' => {
+                                // `\xNN` — exactly two hex digits required.
+                                self.pos += 1;
+                                if self
+                                    .peek_byte(0)
+                                    .is_some_and(|b| b.is_ascii_hexdigit())
+                                    && self
+                                        .peek_byte(1)
+                                        .is_some_and(|b| b.is_ascii_hexdigit())
+                                {
+                                    self.pos += 2;
+                                } else {
+                                    return Err(ParseError::syntax(
+                                        r"\x escape requires two hex digits",
+                                        escape_pos,
+                                        self.pos,
+                                    ));
+                                }
+                            }
+                            _ => {
+                                return Err(ParseError::syntax(
+                                    format!("unrecognised escape '\\{}'", c as char),
+                                    escape_pos,
+                                    self.pos + 1,
+                                ));
+                            }
+                        },
                     }
                 }
                 Some(_) => self.pos += 1,

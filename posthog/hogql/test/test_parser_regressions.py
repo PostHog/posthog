@@ -809,6 +809,42 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_string_literal_unknown_backslash_escapes_rejected(self):
+        # `ESCAPE_CHAR_COMMON` (`HogQLLexer.common.g4:145`) is a closed
+        # set: `\b \f \r \n \t \0 \a \v \\ \xNN`, plus `\'` (escape
+        # quote) inside a STRING_LITERAL. Anything else — `\g`, `\u…`,
+        # `\1`, bare `\x` without two hex digits — is a lexer error.
+        # Rust's `lex_string` silently accepted any two-byte escape,
+        # keeping `\g` as literal `\g` etc.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            r"'\x'",       # \x without two hex digits
+            r"'\g'",       # unknown escape letter
+            "'\\u00AB'",   # \u not in cpp grammar
+            r"'\1'",       # \1 not in cpp grammar
+            r"'\999'",     # \9 not in cpp grammar
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # Guard: every grammar-allowed escape still parses.
+        valid = (
+            r"'\n'",
+            r"'\t'",
+            r"'\\'",
+            r"'\''",
+            r"'\xAB'",
+            r"'\b'",
+            r"'\xFF'",
+        )
+        for src in valid:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_sample_clause_only_accepts_number_literals(self):
         # `ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?`
         # — each side of the ratio is a `numberLiteral`, not a generic
