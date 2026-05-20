@@ -28,12 +28,12 @@ from hogli.manifest import load_manifest
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
 DEFAULT_TEMPLATE = "posthog-linux"
-# Name of the preset on the PostHog Coder deployment that provisions from the warm
-# pool. Newer coder versions added an interactive "Select a preset" prompt to
-# `coder create` that `--yes` does not bypass, so we must pass `--preset` explicitly
-# or the user gets stuck on a TUI picker. Override with `--preset` on the CLI; pass
-# `"none"` to opt out of presets entirely.
+# Newer coder versions added an interactive "Select a preset" prompt to `coder
+# create` that `--yes` does not bypass. Callers must always forward `--preset`
+# with a concrete value -- either a preset the template defines, or the literal
+# NO_PRESET sentinel below.
 DEFAULT_PRESET = "Default (warm)"
+NO_PRESET = "none"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -979,14 +979,8 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def list_template_presets(template: str) -> list[str]:
-    """Return preset names defined on the active version of ``template``.
-
-    Returns an empty list when the CLI rejects the command (older coder
-    server / template has no presets / network failure), so callers can
-    treat "unknown" the same as "no presets" without distinguishing the
-    failure modes.
-    """
+def _list_template_presets(template: str) -> list[str]:
+    """Return preset names defined on the active version of ``template``, or [] on failure."""
     result = _run(
         ["coder", "templates", "presets", "list", template, "-o", "json"],
         capture_output=True,
@@ -1003,33 +997,25 @@ def list_template_presets(template: str) -> list[str]:
 
 
 def resolve_template_preset(template: str, requested: str) -> str:
-    """Resolve ``requested`` to a preset name the template actually defines.
+    """Resolve ``requested`` to a preset the template defines, or ``NO_PRESET``.
 
-    Coder added an interactive "Select a preset" picker to ``coder create``
-    that ``--yes`` does not bypass — callers must always forward ``--preset``
-    with a concrete value. Resolution rules:
-
-    - ``"none"`` is passed through (explicit opt-out).
-    - A requested name that matches one of the template's presets is used.
-    - Anything else (preset list empty, requested name missing, server too
-      old to expose presets) falls back to ``"none"`` so creation proceeds
-      without prompting. The fallback is logged when there are alternatives
-      the user could have picked.
+    Falls back to ``NO_PRESET`` (with a warning when alternatives exist) so
+    ``coder create`` never reaches its interactive picker.
     """
-    if requested == "none":
-        return "none"
-    presets = list_template_presets(template)
+    if requested == NO_PRESET:
+        return NO_PRESET
+    presets = _list_template_presets(template)
     if requested in presets:
         return requested
     if presets:
         click.echo(
             click.style(
                 f"Warning: preset '{requested}' not found for template '{template}'. "
-                f"Available: {', '.join(presets)}. Falling back to --preset none.",
+                f"Available: {', '.join(presets)}. Falling back to --preset {NO_PRESET}.",
                 fg="yellow",
             ),
         )
-    return "none"
+    return NO_PRESET
 
 
 def create_workspace(
@@ -1052,11 +1038,8 @@ def create_workspace(
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
 
-    ``preset`` is resolved against the template's actual presets and
-    forwarded as ``--preset`` to suppress coder's interactive picker that
-    ``--yes`` does not bypass. Pass ``"none"`` to opt out of presets
-    entirely; an unknown preset name falls back to ``"none"`` with a
-    warning so creation still proceeds.
+    ``preset`` is resolved against the template's actual presets via
+    ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),

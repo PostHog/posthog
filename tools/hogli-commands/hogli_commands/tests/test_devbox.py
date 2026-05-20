@@ -647,6 +647,39 @@ def _flag_value(args: list[str], flag: str) -> str | None:
     return None
 
 
+def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., None]:
+    """Stub for ``devbox_cli.create_workspace`` that records its forwarded kwargs.
+
+    Tracks every CLI-facing kwarg so devbox:start tests can assert on the
+    specific subset they care about without redeclaring the signature.
+    """
+
+    def stub(
+        name: str,
+        disk_size: int,
+        *,
+        git_name: str | None = None,
+        git_email: str | None = None,
+        dotfiles_uri: str | None = None,
+        template: str = "posthog-linux",
+        preset: str = "Default (warm)",
+        verbose: bool = False,
+    ) -> None:
+        captured.update(
+            {
+                "name": name,
+                "disk_size": str(disk_size),
+                "git_name": git_name,
+                "git_email": git_email,
+                "dotfiles_uri": dotfiles_uri,
+                "template": template,
+                "preset": preset,
+            }
+        )
+
+    return stub
+
+
 def _fake_run_build_capturing(captured: dict[str, object]) -> Callable[..., subprocess.CompletedProcess[str]]:
     """Return a `_run_build` stub that records its argv and reports success."""
 
@@ -706,21 +739,13 @@ class TestWorkspaceCreation:
                 "none",
                 {"disk_size": "100", "repo": _REPO},
             ),
-            # Template doesn't declare the default preset -- must fall back to "none"
-            # so coder's interactive picker (which --yes does not bypass) never opens.
+            # Resolution fallback to "none" is exhaustively covered by
+            # TestTemplatePresetResolution; one case here is enough to prove
+            # the resolved value flows through to the coder argv.
             (
                 {"template": "posthog-microvm"},
                 ["Cold only"],
                 "posthog-microvm",
-                "none",
-                {"disk_size": "100", "repo": _REPO},
-            ),
-            # Coder server didn't return any presets (older server, network error,
-            # template has none) -- also fall back to "none".
-            (
-                {},
-                [],
-                "posthog-linux",
                 "none",
                 {"disk_size": "100", "repo": _REPO},
             ),
@@ -730,8 +755,7 @@ class TestWorkspaceCreation:
             "all-optionals",
             "custom-template",
             "preset-opt-out",
-            "default-preset-missing-falls-back",
-            "no-presets-available",
+            "resolver-fallback-flows-through",
         ],
     )
     def test_create_workspace_forwards_params_and_template(
@@ -745,7 +769,7 @@ class TestWorkspaceCreation:
     ) -> None:
         captured: dict[str, object] = {}
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
-        monkeypatch.setattr(coder, "list_template_presets", lambda template: list(available_presets))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
         coder.create_workspace("devbox-test-user", 100, **kwargs)
 
@@ -820,7 +844,7 @@ class TestWorkspaceCreation:
             return subprocess.CompletedProcess(args, rc, stdout, "")
 
         monkeypatch.setattr(coder, "_run_build", fake_run_build)
-        monkeypatch.setattr(coder, "list_template_presets", lambda template: ["Default (warm)"])
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
 
         def go() -> None:
             coder.create_workspace(
@@ -847,13 +871,9 @@ class TestTemplatePresetResolution:
         "rc, stdout, expected",
         [
             (0, '[{"name": "Default (warm)"}, {"name": "Cold"}]', ["Default (warm)", "Cold"]),
-            # Older coder server / template has no presets / CLI rejected the command
             (1, "", []),
-            # Older coder server returns non-list JSON
             (0, '{"error": "no presets"}', []),
-            # Mangled JSON
             (0, "not json", []),
-            # Skip entries that lack a name
             (0, '[{"name": "Default (warm)"}, {"description": "no-name"}]', ["Default (warm)"]),
         ],
         ids=["happy", "non-zero-exit", "non-list-json", "invalid-json", "skip-nameless"],
@@ -871,23 +891,15 @@ class TestTemplatePresetResolution:
 
         monkeypatch.setattr(coder, "_run", fake_run)
 
-        assert coder.list_template_presets("posthog-linux") == expected
+        assert coder._list_template_presets("posthog-linux") == expected
 
     @pytest.mark.parametrize(
         "requested, presets, expected, warning_expected",
         [
-            # Default preset on a template that declares it -> use it.
             ("Default (warm)", ["Default (warm)", "Cold"], "Default (warm)", False),
-            # Explicit "none" is always honored.
             ("none", ["Default (warm)"], "none", False),
-            # Default preset missing on this template -> silent fall back (the
-            # implicit default shouldn't shout when a sibling template just
-            # happens not to expose it).
             ("Default (warm)", ["Cold only"], "none", True),
-            # Empty preset list (older coder server, or template has no presets)
-            # -> fall back silently so creation still proceeds.
             ("Default (warm)", [], "none", False),
-            # Explicit user-supplied preset that doesn't exist -> warn and fall back.
             ("Missing", ["Default (warm)"], "none", True),
         ],
         ids=["match", "explicit-none", "default-missing", "no-presets", "user-supplied-missing"],
@@ -901,7 +913,7 @@ class TestTemplatePresetResolution:
         expected: str,
         warning_expected: bool,
     ) -> None:
-        monkeypatch.setattr(coder, "list_template_presets", lambda template: list(presets))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(presets))
 
         result = coder.resolve_template_preset("posthog-linux", requested)
 
@@ -1189,28 +1201,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            preset="Default (warm)",
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "disk_size": str(disk_size),
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                    "template": template,
-                    "preset": preset,
-                }
-            ),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start"])
 
@@ -1245,27 +1236,7 @@ class TestDevboxCommands:
                 "dotfiles_uri": "https://github.com/user/dotfiles",
             },
         )
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            preset="Default (warm)",
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                    "template": template,
-                    "preset": preset,
-                }
-            ),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "api"])
 
@@ -1279,56 +1250,35 @@ class TestDevboxCommands:
         assert "devbox:ssh api" in result.output
 
     def test_devbox_start_forwards_template_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            preset="Default (warm)",
-            verbose=False: captured.update({"template": template, "preset": preset}),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "-t", "posthog-microvm"])
 
         assert result.exit_code == 0, result.output
-        assert captured == {"template": "posthog-microvm", "preset": "Default (warm)"}
+        assert captured["template"] == "posthog-microvm"
+        assert captured["preset"] == "Default (warm)"
 
     def test_devbox_start_forwards_preset_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            preset="Default (warm)",
-            verbose=False: captured.update({"preset": preset}),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "--preset", "none"])
 
         assert result.exit_code == 0, result.output
-        assert captured == {"preset": "none"}
+        assert captured["preset"] == "none"
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
