@@ -1975,6 +1975,16 @@ export namespace Schemas {
       hidden?: boolean | null;
     }
 
+    export type LegendPosition = typeof LegendPosition[keyof typeof LegendPosition];
+
+
+    export const LegendPosition = {
+      Right: 'right',
+      Left: 'left',
+      Top: 'top',
+      Bottom: 'bottom',
+    } as const;
+
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
 
 
@@ -2025,6 +2035,8 @@ export namespace Schemas {
       resultCustomizationBy?: ResultCustomizationBy | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: TrendsFilterResultCustomizations;
+      /** Where to place the legend relative to the chart. */
+      legendPosition?: LegendPosition | null;
       showAlertThresholdLines?: boolean | null;
       showConfidenceIntervals?: boolean | null;
       showLabelsOnSeries?: boolean | null;
@@ -2647,6 +2659,8 @@ export namespace Schemas {
       computedAs?: StickinessComputationMode | null;
       display?: ChartDisplayType | null;
       hiddenLegendIndexes?: number[] | null;
+      /** Where to place the legend relative to the chart. */
+      legendPosition?: LegendPosition | null;
       /** Whether result datasets are associated by their values or by their order. */
       resultCustomizationBy?: ResultCustomizationBy | null;
       /** Customizations for the appearance of result datasets. */
@@ -2699,6 +2713,8 @@ export namespace Schemas {
     } as const;
 
     export interface LifecycleFilter {
+      /** Where to place the legend relative to the chart. */
+      legendPosition?: LegendPosition | null;
       showLegend?: boolean | null;
       showValuesOnSeries?: boolean | null;
       stacked?: boolean | null;

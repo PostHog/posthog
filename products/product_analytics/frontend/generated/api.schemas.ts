@@ -1467,6 +1467,15 @@ export interface ResultCustomizationByPositionApi {
     hidden?: boolean | null
 }
 
+export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
+
+export const LegendPositionApi = {
+    Right: 'right',
+    Left: 'left',
+    Top: 'top',
+    Bottom: 'bottom',
+} as const
+
 export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]
 
 export const YAxisScaleTypeApi = {
@@ -1519,6 +1528,8 @@ export interface TrendsFilterApi {
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: TrendsFilterApiResultCustomizations
+    /** Where to place the legend relative to the chart. */
+    legendPosition?: LegendPositionApi | null
     showAlertThresholdLines?: boolean | null
     showConfidenceIntervals?: boolean | null
     showLabelsOnSeries?: boolean | null
@@ -2411,6 +2422,8 @@ export interface StickinessFilterApi {
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
+    /** Where to place the legend relative to the chart. */
+    legendPosition?: LegendPositionApi | null
     /** Whether result datasets are associated by their values or by their order. */
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
@@ -2486,6 +2499,8 @@ export const LifecycleToggleApi = {
 } as const
 
 export interface LifecycleFilterApi {
+    /** Where to place the legend relative to the chart. */
+    legendPosition?: LegendPositionApi | null
     showLegend?: boolean | null
     showValuesOnSeries?: boolean | null
     stacked?: boolean | null
