@@ -23,6 +23,7 @@ import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { slugify } from 'lib/utils'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -56,8 +57,8 @@ import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTem
 const RESOURCE_TYPE = 'dashboard'
 
 export function DashboardSceneMenuBar(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]) {
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    if (!sceneMenuBarEnabled) {
         return null
     }
     return <DashboardSceneMenuBarInner />
@@ -76,8 +77,11 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         effectiveDashboardVariableOverrides,
         tiles,
         apiUrl,
+        minimalViewEnabled,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen, setMinimalViewEnabled } =
+        useActions(dashboardLogic)
+    const isMinimalViewFeatureEnabled = useFeatureFlag('DASHBOARD_MINIMAL_VIEW')
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -127,6 +131,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const showCreateMenu = canEditDashboard // notebook + subscribe both gated on canEdit
     const showEditMenu = true // duplicate always
     const showFileMenu = true
+    const showViewMenu = isMinimalViewFeatureEnabled
     const showMetadataMenu = true
 
     return (
@@ -315,6 +320,17 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         data-attr={`${RESOURCE_TYPE}-menubar-fullscreen`}
                     >
                         Fullscreen
+                    </SceneMenuBarCheckboxItem>
+                </SceneMenuBarMenu>
+            )}
+            {showViewMenu && (
+                <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
+                    <SceneMenuBarCheckboxItem
+                        checked={minimalViewEnabled}
+                        onCheckedChange={(checked) => setMinimalViewEnabled(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-minimal-view`}
+                    >
+                        Minimal view
                     </SceneMenuBarCheckboxItem>
                 </SceneMenuBarMenu>
             )}

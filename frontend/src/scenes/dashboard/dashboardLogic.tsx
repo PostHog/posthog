@@ -249,6 +249,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          **/
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetInterval: true,
+        setMinimalViewEnabled: (enabled: boolean) => ({ enabled }),
 
         /*
          * Dashboard filters & variables.
@@ -964,6 +965,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             { persist: true, prefix: '2_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
+            },
+        ],
+        minimalViewEnabled: [
+            false,
+            { persist: true },
+            {
+                setMinimalViewEnabled: (_, { enabled }) => enabled,
             },
         ],
         shouldReportOnAPILoad: [
