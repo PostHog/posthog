@@ -13455,32 +13455,25 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
 
+    @parameterized.expand(
+        [
+            ("evaluation_reasons", "evaluation_reasons/", {"distinct_id": "user-1"}, False),
+            ("my_flags", "my_flags/", {}, True),
+        ]
+    )
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_evaluation_reasons_passes_internal_request_token(self, mock_get_flags):
-        """evaluation_reasons is a PostHog UI debug endpoint, not customer SDK
-        traffic — it must forward INTERNAL_REQUEST_TOKEN so the Rust service
-        skips the per-team billing limiter."""
+    def test_internal_handler_forwards_internal_request_token(
+        self, _name, endpoint, params, needs_flag, mock_get_flags
+    ):
+        """The in-app Django handlers (my_flags, evaluation_reasons) are not
+        customer SDK traffic — they must forward INTERNAL_REQUEST_TOKEN so the
+        Rust service skips the per-team billing limiter."""
+        if needs_flag:
+            FeatureFlag.objects.create(team=self.team, key="my-flag", created_by=self.user)
         mock_get_flags.return_value = {"flags": {}}
 
         with self.settings(INTERNAL_REQUEST_TOKEN="test-internal-token"):
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
-                {"distinct_id": "user-1"},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
-
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    def test_my_flags_passes_internal_request_token(self, mock_get_flags):
-        """my_flags is the authenticated in-app flags list, not customer SDK
-        traffic — it must forward INTERNAL_REQUEST_TOKEN so the Rust service
-        skips the per-team billing limiter."""
-        FeatureFlag.objects.create(team=self.team, key="my-flag", created_by=self.user)
-        mock_get_flags.return_value = {"flags": {}}
-
-        with self.settings(INTERNAL_REQUEST_TOKEN="test-internal-token"):
-            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/my_flags/")
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{endpoint}", params)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
