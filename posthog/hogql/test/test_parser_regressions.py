@@ -1789,6 +1789,35 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_named_argument_admits_identifier_shaped_keywords(self):
+        # cpp's `ColumnExprNamedArg: identifier COLONEQUALS columnExpr`
+        # admits the full `identifier` rule. `true` / `false` lex to plain
+        # IDENTIFIERs in cpp (the lexer has no TRUE / FALSE tokens), and
+        # soft keywords like `select` / `return` pass through `keyword`.
+        # The Rust call-arg fast-path gated on Ident / QuotedIdent only,
+        # so `f(true := 1)` fell through and choked on the trailing `:=`.
+        cases = (
+            "f(true := 1)",
+            "f(false := 1)",
+            "f(select := 1)",
+            "f(return := 1)",
+            # quoted-ident path stays the same
+            'f("x" := 1)',
+            "f(x := 1)",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # NULL / INF / NAN aren't in cpp's `identifier` rule and must
+        # stay rejected by both backends.
+        for src in ("f(null := 1)", "f(inf := 1)", "f(nan := 1)"):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="rust-json")
+
     def test_null_inf_nan_rejected_in_hog_identifier_slots(self):
         # cpp's `varDecl`, `funcStmt`, `catchBlock`, `forInStmt`, and the
         # lambda heads (`columnLambdaExpr` arrow + `ColumnExprColonLambda`)

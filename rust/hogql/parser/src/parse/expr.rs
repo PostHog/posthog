@@ -3593,7 +3593,16 @@ impl<'a> Parser<'a> {
         &mut self,
         suppress_inner_trailing_order_by: bool,
     ) -> Result<Value, ParseError> {
-        if matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent)
+        // cpp's `ColumnExprNamedArg: identifier COLONEQUALS columnExpr`
+        // admits the full `identifier` rule — IDENT / QUOTED_IDENTIFIER /
+        // any keyword accepted by `kw_valid_as_identifier`. That includes
+        // `true` / `false` (which cpp lexes as plain IDENTIFIERs) plus
+        // any soft keyword that doubles as an identifier. The fast-path
+        // here used to gate on IDENT / QUOTED_IDENTIFIER only, so
+        // `f(true := 1)` fell through to `parse_expr_bp` and choked on
+        // the trailing `:=`.
+        let name_kw_ok = matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+        if (matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent) || name_kw_ok)
             && self.peek_next() == TokenKind::ColonEquals
         {
             let name_tok = self.bump()?;
