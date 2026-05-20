@@ -40,12 +40,16 @@ class StatsTableQueryStrategy(ABC):
         return query
 
 
-class MainQueryStrategy(StatsTableQueryStrategy):
-    """Default query for most breakdown types.
+class SimpleBreakdownStrategy(StatsTableQueryStrategy):
+    """Default query for simple-dimension breakdowns.
 
-    Used by all UTM / device / browser / OS / geo / language / timezone
+    Used by UTM / device / browser / OS / geo / language / timezone
     breakdowns, PAGE with conversion goals or without special metrics,
     and INITIAL_PAGE with bounce rate (via *breakdown_override*).
+
+    INITIAL_CHANNEL_TYPE has its own ``ChannelTypeStrategy`` subclass so
+    the query tag can be attributed separately even though the SQL shape
+    is identical.
     """
 
     def __init__(
@@ -59,7 +63,7 @@ class MainQueryStrategy(StatsTableQueryStrategy):
     def build_query(self) -> ast.SelectQuery:
         breakdown = self.breakdown_override or self.runner._counts_breakdown_value()
 
-        with self.runner.timings.measure("stats_table_query"):
+        with self.runner.timings.measure(self.runner.query_strategy()):
             selects: list[ast.Expr] = [
                 ast.Alias(alias="context.columns.breakdown_value", expr=self.runner._processed_breakdown_value()),
                 self.runner._period_comparison_tuple("filtered_person_id", "context.columns.visitors", "uniq"),
@@ -140,11 +144,27 @@ class MainQueryStrategy(StatsTableQueryStrategy):
         return query
 
 
+class ChannelTypeStrategy(SimpleBreakdownStrategy):
+    """INITIAL_CHANNEL_TYPE breakdown.
+
+    Shares the ``MAIN_INNER_QUERY`` skeleton with ``SimpleBreakdownStrategy``,
+    but the breakdown value ``session.$channel_type`` is NOT a single field
+    lookup. In ``sessions_v2.py`` it unfolds via ``create_channel_type_expr``
+    into a multi-input case expression composing ten entry-level session
+    fields (``$entry_utm_{campaign,medium,source}``,
+    ``$entry_{current_url,hostname,pathname,referring_domain,gad_source}``,
+    plus ``isNotNull`` on ``$entry_{gclid,fbclid}``) and applies any
+    ``customChannelTypeRules`` from the query modifiers. That makes
+    per-row work materially heavier than other simple breakdowns, which
+    is why this gets its own tag for attribution even though the outer
+    SQL is the same template."""
+
+
 class PathBounceStrategy(StatsTableQueryStrategy):
     """PAGE breakdown with bounce rate (no scroll depth or avg time)."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("stats_table_path_bounce_query"):
+        with self.runner.timings.measure("stats_table_path_bounce"):
             query = parse_select(
                 PATH_BOUNCE_QUERY,
                 timings=self.runner.timings,
@@ -167,7 +187,7 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
     """PAGE breakdown with average time on page and bounce rate."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("stats_table_time_on_page_query"):
+        with self.runner.timings.measure("stats_table_path_bounce_and_avg_time"):
             query = parse_select(
                 PATH_BOUNCE_AND_AVG_TIME_QUERY,
                 timings=self.runner.timings,
@@ -194,7 +214,7 @@ class FrustrationMetricsStrategy(StatsTableQueryStrategy):
     """FRUSTRATION_METRICS breakdown: rage clicks, dead clicks, errors."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("frustration_metrics_query"):
+        with self.runner.timings.measure("stats_table_frustration_metrics"):
             selects: list[ast.Expr] = [
                 ast.Alias(alias="context.columns.breakdown_value", expr=self.runner._processed_breakdown_value()),
                 self.runner._period_comparison_tuple("rage_clicks_count", "context.columns.rage_clicks", "sum"),

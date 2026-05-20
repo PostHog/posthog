@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
     filter_mssql_incremental_fields,
@@ -191,8 +192,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(detected_pks.get(table_name), columns),
                 )
             )
 

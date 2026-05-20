@@ -23,3 +23,18 @@ export function Basic(): JSX.Element {
         </>
     )
 }
+
+export function Disabled(): JSX.Element {
+    const [value, setValue] = useState(42)
+
+    return (
+        <LemonSlider
+            value={value}
+            min={0}
+            max={100}
+            step={1}
+            onChange={setValue}
+            disabledReason="You don't have permission to change this value"
+        />
+    )
+}

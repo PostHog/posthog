@@ -2230,15 +2230,6 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
-        async getSuggestions(id: number, context?: string): Promise<any> {
-            if (context) {
-                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
-            }
-            return await new ApiRequest().insight(id).withAction('suggestions').get()
-        },
-        async analyze(id: number): Promise<{ result: string }> {
-            return await new ApiRequest().insight(id).withAction('analyze').get()
-        },
         async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {
             return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
@@ -2635,6 +2626,7 @@ const api = {
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
+                    ActivityScope.COHORT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -5046,6 +5038,17 @@ const api = {
                 .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
                 .get()
         },
+        async questionLabels(): Promise<{
+            labels: {
+                question_id: string
+                question_text: string
+                question_index: number
+                survey_id: string
+                survey_name: string
+            }[]
+        }> {
+            return await new ApiRequest().surveys().withAction('question_labels').get()
+        },
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
@@ -5483,6 +5486,7 @@ const api = {
                 | 'sync_frequency'
                 | 'sync_time_of_day'
                 | 'cdc_table_mode'
+                | 'enabled_columns'
             >[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
@@ -7019,6 +7023,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
+            }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
             }
         }
 

@@ -71,7 +71,7 @@ export interface EvaluationRun {
     id: string
     evaluation_id: string
     evaluation_name: string
-    generation_id: string
+    generation_id: string | null
     trace_id: string
     timestamp: string
     result: boolean | null

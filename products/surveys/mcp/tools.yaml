@@ -252,6 +252,9 @@ tools:
             Get aggregated response statistics across all surveys in the project. Includes event counts (shown,
             dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-global-stats
+    surveys-question-labels:
+        operation: surveys_question_labels
+        enabled: false
     surveys-responses-archive-create:
         operation: surveys_responses_archive_create
         enabled: false

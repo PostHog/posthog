@@ -70,6 +70,13 @@ from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
+# Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
+PERSON_EMAIL_LOOKUP_QUERY = """
+SELECT id, properties.email
+FROM persons
+WHERE lower(properties.email) IN {emails}
+"""
+
 
 def _get_persons_by_email(
     team: Team,
@@ -89,11 +96,7 @@ def _get_persons_by_email(
     emails_lower = [e.lower() for e in emails]
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(
-            """
-            SELECT id, properties.email
-            FROM persons
-            WHERE lower(properties.email) IN {emails}
-            """,
+            PERSON_EMAIL_LOOKUP_QUERY,
             placeholders={"emails": ast.Constant(value=emails_lower)},
             team=team,
             query_type="conversations_person_email_lookup",

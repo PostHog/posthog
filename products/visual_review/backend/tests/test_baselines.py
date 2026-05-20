@@ -335,6 +335,63 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert by_id == {"active": True, "expired": False, "future": True}
         assert result.totals.currently_quarantined == 2
 
+    def test_baseline_entry_embeds_quarantine_summary(self):
+        """Active quarantines surface their reason/expiry/who/source-run inline
+        on `BaselineEntry.quarantine` so the overview grid doesn't need a
+        per-card fetch. Non-quarantined entries get None."""
+        run = _mk_run(self.repo)
+        _mk_snapshot(run, identifier="flake")
+        _mk_snapshot(run, identifier="clean")
+
+        expires = timezone.now() + timedelta(days=14)
+        QuarantinedIdentifier.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="Known flaky",
+            expires_at=expires,
+            created_by_id=self.user.id,
+            source_run=run,
+        )
+
+        result = vr_api.get_baselines_overview(self.repo.id)
+        by_id = {e.identifier: e for e in result.entries}
+
+        # Clean entry: no embedded summary.
+        assert by_id["clean"].is_quarantined is False
+        assert by_id["clean"].quarantine is None
+
+        # Quarantined entry: full summary surfaces.
+        q = by_id["flake"].quarantine
+        assert q is not None
+        assert q.reason == "Known flaky"
+        assert q.expires_at == expires
+        assert q.created_by is not None
+        assert q.created_by.id == self.user.id
+        assert q.source_run is not None
+        assert q.source_run.id == run.id
+        assert q.source_run.commit_sha == run.commit_sha
+        assert q.source_run.branch == run.branch
+
+    def test_baseline_entry_quarantine_without_source_run(self):
+        """Quarantines opened from the snapshot history page (no run context)
+        have `source_run=None`; the summary should still surface, just without
+        the source-run pointer."""
+        run = _mk_run(self.repo)
+        _mk_snapshot(run, identifier="orphan")
+        QuarantinedIdentifier.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="orphan",
+            run_type=RunType.STORYBOOK,
+            reason="manual",
+        )
+        result = vr_api.get_baselines_overview(self.repo.id)
+        entry = next(e for e in result.entries if e.identifier == "orphan")
+        assert entry.quarantine is not None
+        assert entry.quarantine.source_run is None
+
     def test_baseline_change_count_lifetime(self):
         # Three master runs over time. The middle one classifies the snapshot
         # as CHANGED (the moment the YAML baseline moved), the others are
