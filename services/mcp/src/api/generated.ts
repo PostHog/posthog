@@ -11043,6 +11043,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
+
+
+    export const DataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type DataWarehouseSavedQueryQuery = {
+      kind?: DataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -11091,8 +11106,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -26012,6 +26027,21 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
+
+
+    export const PatchedDataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type PatchedDataWarehouseSavedQueryQuery = {
+      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -26028,8 +26058,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
