@@ -36,6 +36,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Value, ParseError> {
         let lhs_start = self.peek0.start;
         let lhs = self.parse_prefix()?;
+        let lhs = self.wrap_pos(lhs, lhs_start);
         self.pratt_continue_with_lhs(lhs, min_bp, lhs_start)
     }
 
@@ -101,7 +102,7 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     match self.parse_expr_bp(rbp) {
                         Ok(rhs) => {
-                            lhs = build_infix(op, lhs, rhs);
+                            lhs = self.wrap_pos(build_infix(op, lhs, rhs), lhs_start);
                             continue;
                         }
                         Err(_) => {
@@ -112,7 +113,7 @@ impl<'a> Parser<'a> {
                 }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(rbp)?;
-                lhs = build_infix(op, lhs, rhs);
+                lhs = self.wrap_pos(build_infix(op, lhs, rhs), lhs_start);
                 continue;
             }
             if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
@@ -138,11 +139,12 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 lhs = self.parse_postfix(kind, lhs)?;
+                lhs = self.wrap_pos(lhs, lhs_start);
                 continue;
             }
             break;
         }
-        Ok(lhs)
+        Ok(self.wrap_pos(lhs, lhs_start))
     }
 
     pub(crate) fn parse_prefix(&mut self) -> Result<Value, ParseError> {

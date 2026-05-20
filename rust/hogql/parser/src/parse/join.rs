@@ -19,6 +19,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_join_expr(&mut self) -> Result<Value, ParseError> {
         // Left-recursive in the grammar; iterate, chaining each new
         // right-side table into the previous JoinExpr's `next_join` field.
+        let chain_start = self.peek0.start;
         let mut left = self.parse_table_atom_with_pivot()?;
         // Record the lead's chain depth: a parens-wrapped joinExpr arrives
         // pre-built (e.g. `(a JOIN b)` is two JoinExprs deep). The peel-extras
@@ -156,7 +157,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(left)
+        Ok(self.wrap_pos(left, chain_start))
     }
 
     /// `parse_table_atom` followed by an optional immediately-adjacent
@@ -515,6 +516,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_table_atom(&mut self) -> Result<Value, ParseError> {
+        let atom_start = self.peek0.start;
         let mut table_expr = self.parse_table_expr()?;
         // `(joinExpr)` per the grammar's `JoinExprParens` returns an
         // already-wrapped JoinExpr (or chain). The grammar:
@@ -576,7 +578,7 @@ impl<'a> Parser<'a> {
                 Value::Array(ca.into_iter().map(Value::String).collect()),
             );
         }
-        Ok(Value::Object(obj))
+        Ok(self.wrap_pos(Value::Object(obj), atom_start))
     }
 
     /// Consume a chain of table aliases. The grammar's `TableExprAlias`

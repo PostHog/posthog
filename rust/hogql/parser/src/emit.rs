@@ -249,6 +249,28 @@ pub fn spread_expr(expr: Value) -> Value {
     json!({"node": "SpreadExpr", "expr": expr})
 }
 
+/// `{line, column, offset}` per cpp's visitor — line is 1-based, column is
+/// 0-based, offset is the byte position in the source. `LineColMap` builds
+/// the line-start index once per parse for O(log N) offset → (line, col).
+pub fn position(line: u32, column: u32, offset: usize) -> Value {
+    json!({"line": line, "column": column, "offset": offset})
+}
+
+/// Inject `start` / `end` position objects on an emitted AST node. Mirrors
+/// the cpp visitor's per-node span emission. Idempotent: if `start` is
+/// already present, leave both keys untouched — this is how cpp's paren
+/// wrap (`(expr)`) keeps the inner expression's positions instead of
+/// overwriting with the outer parens span.
+pub fn with_pos(mut value: Value, start: Value, end: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        if !obj.contains_key("start") {
+            obj.insert("start".into(), start);
+            obj.insert("end".into(), end);
+        }
+    }
+    value
+}
+
 trait ConstantExt {
     fn tagged_constant(self) -> Value;
 }

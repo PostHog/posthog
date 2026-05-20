@@ -21,6 +21,7 @@ use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_select_set_stmt(&mut self) -> Result<Value, ParseError> {
+        let stmt_start = self.peek0.start;
         let first = self.parse_select_stmt_with_parens()?;
         let mut subsequent: Vec<Value> = Vec::new();
         while let Some(op) = self.try_consume_set_op()? {
@@ -168,7 +169,7 @@ impl<'a> Parser<'a> {
         for (k, v) in trailing {
             wrap.insert(k, v);
         }
-        Ok(Value::Object(wrap))
+        Ok(self.wrap_pos(Value::Object(wrap), stmt_start))
     }
 
     fn try_consume_set_op(&mut self) -> Result<Option<String>, ParseError> {
@@ -375,6 +376,7 @@ impl<'a> Parser<'a> {
         &mut self,
         pre_parsed_ctes: Option<Vec<Value>>,
     ) -> Result<Value, ParseError> {
+        let stmt_start = self.peek0.start;
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("SelectQuery".into()));
         if let Some(ctes) = pre_parsed_ctes {
@@ -743,7 +745,7 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        Ok(Value::Object(obj))
+        Ok(self.wrap_pos(Value::Object(obj), stmt_start))
     }
 
     /// Probe: at the GROUP BY position, peek is `ALL`. The peek_next

@@ -35,6 +35,7 @@ use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_program(&mut self) -> Result<Value, ParseError> {
+        let prog_start = self.peek0.start;
         let mut declarations: Vec<Value> = Vec::new();
         while !matches!(self.peek(), TokenKind::Eof) {
             // Empty statement (a stray `;`) is a no-op — skip it
@@ -45,10 +46,13 @@ impl<'a> Parser<'a> {
             }
             declarations.push(self.parse_declaration()?);
         }
-        Ok(json!({
-            "node": "Program",
-            "declarations": declarations,
-        }))
+        Ok(self.wrap_pos(
+            json!({
+                "node": "Program",
+                "declarations": declarations,
+            }),
+            prog_start,
+        ))
     }
 
     fn parse_declaration(&mut self) -> Result<Value, ParseError> {

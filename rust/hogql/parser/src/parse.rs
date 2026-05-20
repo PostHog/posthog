@@ -218,6 +218,11 @@ pub(crate) struct Parser<'a> {
     /// directly and re-seeks the lexer, so peek1's transient invalid
     /// state is recoverable.
     pub(crate) hogqlx_text_lookahead_depth: u32,
+    /// Sorted byte offsets of each line start in `src` (line 1 starts at 0,
+    /// line N starts at `line_starts[N-1]`). Built once at construction;
+    /// `pos(offset)` binary-searches for line / column. Used to emit cpp's
+    /// per-node `{line, column, offset}` position objects.
+    pub(crate) line_starts: Vec<usize>,
 }
 
 impl<'a> Parser<'a> {
@@ -232,6 +237,7 @@ impl<'a> Parser<'a> {
         let mut lexer = Lexer::with_pos(src, pos);
         let peek0 = lexer.next_token()?;
         let peek1 = lexer.next_token()?;
+        let line_starts = build_line_starts(src);
         Ok(Self {
             src,
             lexer,
@@ -247,6 +253,7 @@ impl<'a> Parser<'a> {
             limit_body_depth: 0,
             pivot_in_stop: None,
             hogqlx_text_lookahead_depth: 0,
+            line_starts,
         })
     }
 
@@ -345,6 +352,34 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn text(&self, t: Token) -> &'a str {
         &self.src[t.start..t.end]
+    }
+
+    /// Resolve a byte offset to a cpp-shape `{line, column, offset}` object.
+    /// Lines are 1-based, columns are 0-based — matches the C++ visitor's
+    /// `start` / `end` emission.
+    pub(crate) fn pos_obj(&self, offset: usize) -> Value {
+        let (line, column) = offset_to_line_col(&self.line_starts, offset);
+        emit::position(line, column, offset)
+    }
+
+    /// Inject `start` / `end` position objects on `value` using `start`
+    /// (the byte offset of the first token consumed) and the parser's
+    /// `last_consumed_end` (the end of the last token consumed). The
+    /// canonical wrap-on-return helper for every `parse_*` fn that emits
+    /// an AST node.
+    pub(crate) fn wrap_pos(&self, value: Value, start: usize) -> Value {
+        let s = self.pos_obj(start);
+        let e = self.pos_obj(self.last_consumed_end);
+        emit::with_pos(value, s, e)
+    }
+
+    /// Variant of [`Self::wrap_pos`] that takes an explicit end offset —
+    /// used when the natural end of the node isn't `last_consumed_end`
+    /// (e.g. composite chain re-tagged with the rightmost child's end).
+    pub(crate) fn wrap_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
+        let s = self.pos_obj(start);
+        let e = self.pos_obj(end);
+        emit::with_pos(value, s, e)
     }
 
     /// Snapshot the parser cursor + per-call context so a failed
@@ -1043,6 +1078,32 @@ pub(crate) fn interval_call_name_case_sensitive(unit: &str) -> Option<&'static s
         "year" => Some("toIntervalYear"),
         _ => None,
     }
+}
+
+/// Collect the byte offset of each line start in `src`. Line 1 begins at
+/// offset 0; each `\n` byte begins the next line. Single pass over the
+/// source, used by `offset_to_line_col` for O(log N) lookups.
+fn build_line_starts(src: &str) -> Vec<usize> {
+    let mut starts = Vec::with_capacity(src.len() / 40 + 1);
+    starts.push(0);
+    for (i, b) in src.as_bytes().iter().enumerate() {
+        if *b == b'\n' {
+            starts.push(i + 1);
+        }
+    }
+    starts
+}
+
+/// Resolve a byte offset to `(line, column)` using a sorted line-starts
+/// table. cpp's visitor uses 1-based lines and 0-based columns; mirror that.
+fn offset_to_line_col(line_starts: &[usize], offset: usize) -> (u32, u32) {
+    let line_idx = match line_starts.binary_search(&offset) {
+        Ok(i) => i,
+        Err(i) => i.saturating_sub(1),
+    };
+    let line = (line_idx + 1) as u32;
+    let column = (offset - line_starts[line_idx]) as u32;
+    (line, column)
 }
 
 #[cfg(test)]
