@@ -19,22 +19,67 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_with_expr_list(&mut self) -> Result<Vec<Value>, ParseError> {
         // The C++ visitor returns CTEs as a list; the Python deserialiser
         // turns it into a dict keyed by name. We follow the same shape.
-        // ANTLR ALL(*) tolerates a trailing comma before the SELECT/LPAREN
-        // that terminates the CTE list; mirror that.
+        // ANTLR ALL(*) tolerates a trailing comma before the SELECT
+        // that terminates the CTE list; mirror that. A bare `LPAREN`
+        // following the comma can ALSO be the leading `(` of the next
+        // CTE element (column-form `(SELECT 1) AS x` / `(a + b) AS y`),
+        // so peek past the matching `)` to see if an `AS identifier`
+        // pattern follows before terminating the loop.
         let mut out = Vec::new();
         loop {
             out.push(self.parse_with_expr()?);
             if !self.eat(TokenKind::Comma)? {
                 break;
             }
-            if matches!(
-                self.peek(),
-                TokenKind::Keyword(Kw::Select) | TokenKind::LParen
-            ) {
+            if matches!(self.peek(), TokenKind::Keyword(Kw::Select)) {
+                break;
+            }
+            if self.peek() == TokenKind::LParen
+                && !self.paren_group_followed_by_as_identifier()
+            {
                 break;
             }
         }
         Ok(out)
+    }
+
+    /// `self.peek()` is `(`. Probe whether the matching `)` is followed
+    /// by an `AS identifier` pattern — the shape that marks the paren
+    /// group as the head of the next column-form CTE
+    /// (`(SELECT 1) AS x`, `(a + b) AS y`) rather than the leading
+    /// paren of the enclosing SELECT statement.
+    fn paren_group_followed_by_as_identifier(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 1;
+        while depth > 0 {
+            let tok = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            match tok.kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+        let after = match probe.next_token() {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+        if after.kind != TokenKind::Keyword(Kw::As) {
+            return false;
+        }
+        let ident = match probe.next_token() {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+        matches!(
+            ident.kind,
+            TokenKind::Ident
+                | TokenKind::QuotedIdent
+                | TokenKind::Keyword(_)
+        )
     }
 
     fn parse_with_expr(&mut self) -> Result<Value, ParseError> {

@@ -418,7 +418,7 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn next_token(&mut self) -> Result<Token, ParseError> {
-        self.skip_trivia();
+        self.skip_trivia()?;
         let start = self.pos;
         let Some(b) = self.peek_byte(0) else {
             return Ok(Token::eof(start));
@@ -711,7 +711,7 @@ impl<'a> Lexer<'a> {
         ParseError::syntax(msg, start, self.pos.max(start + 1))
     }
 
-    fn skip_trivia(&mut self) {
+    fn skip_trivia(&mut self) -> Result<(), ParseError> {
         loop {
             // Whitespace. The ANTLR `WHITESPACE` rule is
             // `[ \t\r\n]`; `u8::is_ascii_whitespace`
@@ -746,15 +746,18 @@ impl<'a> Lexer<'a> {
                 self.skip_line_comment();
                 continue;
             }
-            // `/* ... */` block comment. Unterminated-comment errors get
-            // re-discovered on the next real lex attempt when we hit EOF;
-            // dropping the Result here keeps the trivia loop simple.
+            // `/* ... */` block comment. Surface unterminated-comment
+            // errors — `skip_block_comment` advances `pos` to EOF on
+            // unterminated, so without the propagation the parser
+            // happily returns the prefix expression and silently drops
+            // the trailing garbage.
             if self.peek_byte(0) == Some(b'/') && self.peek_byte(1) == Some(b'*') {
-                drop(self.skip_block_comment(self.pos));
+                self.skip_block_comment(self.pos)?;
                 continue;
             }
             break;
         }
+        Ok(())
     }
 
     fn skip_line_comment(&mut self) {
@@ -770,19 +773,32 @@ impl<'a> Lexer<'a> {
     fn skip_block_comment(&mut self, start: usize) -> Result<(), ParseError> {
         // Caller saw `/*` but didn't consume it.
         self.pos += 2;
+        // Track whether any non-whitespace body content appeared before
+        // the unterminated end. cpp's ANTLR tolerates `/*` followed by
+        // only whitespace at EOF (silent recovery), but rejects when
+        // non-trivia content sits inside the unterminated comment.
+        let mut saw_content = false;
         loop {
             match (self.peek_byte(0), self.peek_byte(1)) {
                 (Some(b'*'), Some(b'/')) => {
                     self.pos += 2;
                     return Ok(());
                 }
-                (Some(_), _) => self.pos += 1,
+                (Some(b), _) => {
+                    if !(b.is_ascii_whitespace() || b == 0x0B) {
+                        saw_content = true;
+                    }
+                    self.pos += 1;
+                }
                 (None, _) => {
-                    return Err(ParseError::syntax(
-                        "unterminated block comment",
-                        start,
-                        self.pos,
-                    ))
+                    if saw_content {
+                        return Err(ParseError::syntax(
+                            "unterminated block comment",
+                            start,
+                            self.pos,
+                        ));
+                    }
+                    return Ok(());
                 }
             }
         }

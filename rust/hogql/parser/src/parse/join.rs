@@ -38,8 +38,21 @@ impl<'a> Parser<'a> {
             {
                 break;
             }
-            // `,` cross join.
-            if self.eat(TokenKind::Comma)? {
+            // `,` cross join. cpp's ANTLR ALL(*) tolerates a trailing
+            // comma after a constrained JOIN chain (`a JOIN b ON 1,`)
+            // when nothing parseable follows — the comma is recovery-
+            // discarded. Mirror that: if peek_next isn't a token that
+            // can start a table atom, consume + discard the trailing
+            // comma so the outer SELECT parser keeps walking.
+            if self.peek() == TokenKind::Comma {
+                if !self.peek_next_starts_table_atom() {
+                    if joined_any {
+                        // Trailing comma after at least one join — discard.
+                        self.bump()?;
+                    }
+                    break;
+                }
+                self.bump()?;
                 let right = self.parse_table_atom_with_pivot()?;
                 left = chain_join(left, right, "CROSS JOIN", None);
                 joined_any = true;
@@ -372,6 +385,25 @@ impl<'a> Parser<'a> {
             ));
         }
         Ok(None)
+    }
+
+    /// Probe: does `peek_next` look like the start of a `tableExpr`?
+    /// Used by the JOIN loop to decide whether a top-level `,` is the
+    /// start of a CROSS JOIN (table atom follows) or a stray trailing
+    /// comma that the SELECT-level parser will handle.
+    fn peek_next_starts_table_atom(&self) -> bool {
+        matches!(
+            self.peek_next(),
+            TokenKind::Ident
+                | TokenKind::QuotedIdent
+                | TokenKind::LParen
+                | TokenKind::LBrace
+                | TokenKind::Lt
+                | TokenKind::Keyword(Kw::Values)
+        ) || matches!(
+            self.peek_next(),
+            TokenKind::Keyword(kw) if super::kw_valid_as_identifier(kw)
+        )
     }
 
     fn parse_table_atom(&mut self) -> Result<Value, ParseError> {

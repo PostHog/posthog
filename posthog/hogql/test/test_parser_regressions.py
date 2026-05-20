@@ -809,6 +809,103 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_cte_list_paren_after_non_paren_cte(self):
+        # A column-form CTE followed by a CTE whose head token is `(`
+        # (paren-wrapped subquery or paren'd expression) must continue
+        # the CTE list, not terminate it. The Rust parser used to break
+        # the loop on the leading `(` because of the trailing-comma
+        # tolerance for `, SELECT`.
+        for src in (
+            "WITH 1 AS x, (SELECT 1) AS y SELECT x, y",
+            "WITH (SELECT 1) AS x, (SELECT 2) AS y SELECT x, y",
+            "WITH 1 AS x, (a + b) AS y SELECT y",
+            "WITH 1 AS x, (1) AS y SELECT y",
+            "WITH 1 AS a, (x -> x + 1) AS f SELECT f(a)",
+            "WITH count() AS c, (x -> x + 1) AS f SELECT f(c)",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_group_by_cube_rollup_continues_list(self):
+        # cpp's ALL(*) treats `CUBE(...)` / `ROLLUP(...)` as ordinary
+        # function calls when followed by `, <more>` keys; the
+        # specialised `(CUBE|ROLLUP) LPAREN ... RPAREN` mode commits
+        # only when no list continuation follows. Rust's eager commit
+        # to the specialised branch swallowed the parens and left the
+        # trailing `,` stranded.
+        for src in (
+            "SELECT * FROM t GROUP BY CUBE(a), ROLLUP(b)",
+            "SELECT * FROM t GROUP BY CUBE(a), b",
+            "SELECT * FROM t GROUP BY ROLLUP(a), b",
+            "SELECT * FROM t GROUP BY a, CUBE(b)",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Bare `GROUP BY CUBE(...)` (no trailing keys) still uses the mode.
+        for src in (
+            "SELECT * FROM t GROUP BY CUBE(a)",
+            "SELECT * FROM t GROUP BY ROLLUP(a)",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_trailing_comma_after_joined_table_chain(self):
+        # cpp tolerates a stray trailing comma after a constrained JOIN
+        # chain (`FROM a JOIN b ON 1,`) — the comma falls off the end
+        # of the joinExpr without a following table atom. Rust's join
+        # loop treated the comma unconditionally as a cross-join start
+        # and demanded a following table atom.
+        for src in (
+            "SELECT * FROM a JOIN b ON 1,",
+            "SELECT * FROM a JOIN b USING (x),",
+            "SELECT * FROM a JOIN b ON 1 JOIN c ON 1,",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_unterminated_block_comment_with_content_rejected(self):
+        # `/*` without a closing `*/` must be a SyntaxError when
+        # non-whitespace content follows the open. The Rust lexer used
+        # to drop the `skip_block_comment` error result and silently
+        # advance to EOF, masking the trailing garbage.
+        from posthog.hogql.errors import BaseHogQLError
+
+        for src in (
+            "1 /* unclosed",
+            "1 /* unclosed more text",
+            "a /* unclosed\nstill unclosed",
+        ):
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # cpp tolerates `/*` with only whitespace at EOF (silent
+        # recovery); mirror that.
+        for src in ("1 /*", "1 /* "):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_interpolate_no_trailing_comma(self):
+        # `INTERPOLATE LPAREN interpolateExpr (COMMA interpolateExpr)*
+        # RPAREN` — no trailing comma. cpp rejects; rust was accepting.
+        from posthog.hogql.errors import BaseHogQLError
+
+        for backend in ("cpp-json", "rust-json", "python"):
+            with self.assertRaises((BaseHogQLError, SyntaxError), msg=backend):
+                parse_select(
+                    "SELECT 1 FROM t ORDER BY x WITH FILL INTERPOLATE (y,)",
+                    backend=backend,
+                )
+
     def test_boolean_dot_chain_is_field_not_array_access(self):
         # `true.x` / `false.x` is a property chain — cpp treats `true` /
         # `false` as ordinary identifiers in `columnIdentifier` chain

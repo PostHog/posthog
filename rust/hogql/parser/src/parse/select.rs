@@ -17,7 +17,7 @@ use super::{
 };
 use crate::emit;
 use crate::error::ParseError;
-use crate::lex::{Kw, TokenKind};
+use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_select_set_stmt(&mut self) -> Result<Value, ParseError> {
@@ -530,26 +530,22 @@ impl<'a> Parser<'a> {
             self.bump()?;
             if self.eat_kw(Kw::All)? {
                 obj.insert("group_by_mode".into(), Value::String("all".into()));
-            } else if matches!(self.peek(), TokenKind::Keyword(Kw::Cube))
+            } else if matches!(self.peek(), TokenKind::Keyword(Kw::Cube | Kw::Rollup))
                 && self.peek_next() == TokenKind::LParen
                 && !self.peek_lparen_is_empty()
+                && !self.cube_rollup_followed_by_more_keys()
             {
+                let kw = if matches!(self.peek(), TokenKind::Keyword(Kw::Cube)) {
+                    "cube"
+                } else {
+                    "rollup"
+                };
                 self.bump()?;
                 self.expect(TokenKind::LParen, "(")?;
                 let exprs = self.parse_expr_list_until_paren()?;
                 self.expect(TokenKind::RParen, ")")?;
                 obj.insert("group_by".into(), Value::Array(exprs));
-                obj.insert("group_by_mode".into(), Value::String("cube".into()));
-            } else if matches!(self.peek(), TokenKind::Keyword(Kw::Rollup))
-                && self.peek_next() == TokenKind::LParen
-                && !self.peek_lparen_is_empty()
-            {
-                self.bump()?;
-                self.expect(TokenKind::LParen, "(")?;
-                let exprs = self.parse_expr_list_until_paren()?;
-                self.expect(TokenKind::RParen, ")")?;
-                obj.insert("group_by".into(), Value::Array(exprs));
-                obj.insert("group_by_mode".into(), Value::String("rollup".into()));
+                obj.insert("group_by_mode".into(), Value::String(kw.into()));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Grouping))
                 && self.peek_next() == TokenKind::Keyword(Kw::Sets)
             {
@@ -689,8 +685,14 @@ impl<'a> Parser<'a> {
                         if !self.eat(TokenKind::Comma)? {
                             break;
                         }
+                        // `interpolateClause: INTERPOLATE LPAREN
+                        // interpolateExpr (COMMA interpolateExpr)*
+                        // RPAREN` — no trailing comma. cpp rejects
+                        // `INTERPOLATE (y,)`.
                         if self.peek() == TokenKind::RParen {
-                            break;
+                            return Err(
+                                self.err("trailing comma in INTERPOLATE clause"),
+                            );
                         }
                     }
                     self.expect(TokenKind::RParen, ")")?;
@@ -720,6 +722,31 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Value::Object(obj))
+    }
+
+    /// Probe: at the GROUP BY position, peek is `CUBE` or `ROLLUP` and
+    /// peek_next is `(`. Look past the matching close `)` to see if a
+    /// `,` follows — that signals the caller's specialised
+    /// `CUBE(...)` / `ROLLUP(...)` mode is wrong and cpp's ANTLR ALL(*)
+    /// would fall back to the `columnExprList` alternative with the
+    /// CUBE/ROLLUP as an ordinary function call.
+    fn cube_rollup_followed_by_more_keys(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        let mut depth: i32 = 1;
+        while depth > 0 {
+            let tok = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            match tok.kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+        // After the matching close, is the next token a list separator?
+        matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::Comma))
     }
 
     /// Parse a `LIMIT` clause's first operand — a `columnExpr`
