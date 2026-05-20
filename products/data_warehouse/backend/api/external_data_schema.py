@@ -43,13 +43,14 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
 )
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
@@ -763,7 +764,7 @@ def handle_external_data_schema_change(
 
     sync_frequency = None
     if external_data_schema.sync_frequency_interval:
-        from products.data_warehouse.backend.models.external_data_schema import (
+        from products.warehouse_sources.backend.models.external_data_schema import (
             sync_frequency_interval_to_sync_frequency,
         )
 

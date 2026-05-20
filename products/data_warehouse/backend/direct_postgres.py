@@ -6,11 +6,14 @@ from django.db.models import Q
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column, postgres_columns_to_dwh_columns
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.util import (
+    postgres_column_to_dwh_column,
+    postgres_columns_to_dwh_columns,
+)
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 DIRECT_POSTGRES_URL_PATTERN = "direct://postgres"
 DIRECT_POSTGRES_CATALOG_OPTION = "direct_postgres_catalog"
@@ -166,7 +169,7 @@ def upsert_direct_postgres_table(
     source_schema: str,
     source_table_name: str,
 ) -> DataWarehouseTable:
-    from products.data_warehouse.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     options = {
         **(existing_table.options if existing_table is not None and isinstance(existing_table.options, dict) else {}),
@@ -231,7 +234,7 @@ def reconcile_direct_postgres_schemas(
     source_schemas: list[SourceSchema],
     team_id: int,
 ) -> list[str]:
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     source_schema_names = [schema.name for schema in source_schemas]
     schema_models = {
@@ -301,7 +304,7 @@ def rename_direct_postgres_schemas_to_match_source_schemas(
     source_schemas: list[SourceSchema],
     team_id: int,
 ) -> None:
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     default_schema = (source.job_inputs or {}).get("schema")
     schema_models = list(

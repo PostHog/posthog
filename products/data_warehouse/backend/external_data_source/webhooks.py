@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.config import Config
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 def get_webhook_url(hog_function_id: str) -> str:

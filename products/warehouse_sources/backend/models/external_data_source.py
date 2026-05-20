@@ -122,7 +122,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
         )
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         if not self.supports_scheduled_sync:
             return

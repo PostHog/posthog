@@ -23,8 +23,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     pyarrow_schema_from_arrow_exportable,
 )
 
-from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 
 def _write_deltalake(

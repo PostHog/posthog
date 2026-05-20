@@ -54,18 +54,17 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
-    CLICKHOUSE_HOGQL_MAPPING,
     DataModelingJob,
     DataWarehouseJoin,
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryFolder,
-    clean_type,
 )
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
 logger = structlog.get_logger(__name__)
 

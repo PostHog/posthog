@@ -35,10 +35,6 @@ from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
@@ -49,6 +45,10 @@ from products.llm_analytics.backend.models.trace_reviews import TraceReview, Tra
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 

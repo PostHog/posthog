@@ -82,7 +82,6 @@ from posthog.types import InsightQueryNode
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 from products.endpoints.backend.insight_transformers import (
     MaterializedSeriesMismatchError,
     transform_materialized_insight_response,
@@ -123,6 +122,7 @@ from products.endpoints.backend.serializers import (
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
+from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 
 from common.hogvm.python.utils import HogVMException
 

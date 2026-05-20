@@ -46,13 +46,12 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
 )
 
-from products.data_warehouse.backend.models import (
-    ExternalDataJob,
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
-    ExternalDataSource,
-    get_latest_run_if_exists,
+    get_all_schemas_for_source_id,
 )
-from products.data_warehouse.backend.models.external_data_schema import get_all_schemas_for_source_id
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()

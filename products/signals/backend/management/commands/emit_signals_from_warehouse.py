@@ -15,7 +15,7 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitSignalsActivityInputs,
 )
 
-from products.data_warehouse.backend.models import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 # Maps the CLI --type arg to (ExternalDataSourceType value, registered schema name).
 # Conversations is excluded — it's an internal Postgres source, not warehouse-backed.

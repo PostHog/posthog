@@ -22,8 +22,8 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         V3 = "v3-kafka-s3", "v3-kafka-s3"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    pipeline = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
-    schema = models.ForeignKey("data_warehouse.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
+    pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
+    schema = models.ForeignKey("warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=400)
     rows_synced = models.BigIntegerField(null=True, blank=True)
     latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
@@ -61,7 +61,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
 @database_sync_to_async
 def get_external_data_job(job_id: UUID) -> ExternalDataJob:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))

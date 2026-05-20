@@ -30,9 +30,11 @@ from posthog.temporal.data_imports.sources.common.http import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -182,8 +184,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     )
             except CDCHandledExternally:
                 await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-                # Mark the job as non-billable so it doesn't clutter the Syncs tab
-                from products.data_warehouse.backend.models import ExternalDataJob
+                from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
                 await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
                     billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)

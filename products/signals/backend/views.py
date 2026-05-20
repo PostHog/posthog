@@ -48,7 +48,6 @@ from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import (
     InvalidStatusTransition,
@@ -90,6 +89,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.models import TaskRun
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 

@@ -39,8 +39,8 @@ from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
 )
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.util import (
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,

@@ -562,7 +562,7 @@ class HogQLQueryExecutor:
 
         from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
 
-        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
         try:
             source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)

@@ -13,10 +13,10 @@ from products.data_warehouse.backend.models import (
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryFolder,
-    DataWarehouseTable,
 )
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestSavedQuery(APIBaseTest):

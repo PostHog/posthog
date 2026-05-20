@@ -14,14 +14,16 @@ from posthog.temporal.common.logger import get_logger
 from products.data_warehouse.backend.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    acreate_datawarehousetable,
     aget_saved_query_by_id,
     aget_table_by_saved_query_id,
-    asave_datawarehousetable,
     asave_saved_query,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
+from products.warehouse_sources.backend.models.table import (
+    DataWarehouseTable,
+    acreate_datawarehousetable,
+    asave_datawarehousetable,
+)
 
 LOGGER = get_logger(__name__)
 

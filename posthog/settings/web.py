@@ -75,6 +75,8 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.deployments.backend.apps.DeploymentsConfig",
+    "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
+    "products.data_tools.backend.apps.DataToolsConfig",
 ]
 
 INSTALLED_APPS = [

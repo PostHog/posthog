@@ -69,7 +69,7 @@ class WebhookSourceManager:
     async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
         from posthog.models.hog_functions.hog_function import HogFunction
 
-        from products.data_warehouse.backend.models import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         flag_enabled = await self._is_webhook_feature_flag_enabled()
 

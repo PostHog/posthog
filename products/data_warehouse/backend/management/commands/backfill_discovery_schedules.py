@@ -34,8 +34,8 @@ import structlog
 from posthog.temporal.data_imports.sources import SourceRegistry
 
 from products.data_warehouse.backend.data_load.service import sync_discover_schemas_schedule
-from products.data_warehouse.backend.models import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

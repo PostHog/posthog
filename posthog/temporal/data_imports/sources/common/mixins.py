@@ -7,8 +7,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
-from products.data_warehouse.backend.models.util import _is_safe_public_ip
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.util import _is_safe_public_ip
 
 
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:

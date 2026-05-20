@@ -22,8 +22,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     strip_s3_protocol,
 )
 
-from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import get_s3_client
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
 

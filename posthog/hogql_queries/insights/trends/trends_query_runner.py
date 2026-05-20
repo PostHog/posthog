@@ -83,8 +83,8 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):

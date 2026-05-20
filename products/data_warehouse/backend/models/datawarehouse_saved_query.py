@@ -23,7 +23,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
-from products.data_warehouse.backend.models.util import (
+from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
@@ -92,7 +92,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     # In case the saved query is materialized to a table, this will be set
-    table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # The name of the view at the time of soft deletion
@@ -329,7 +329,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
-        from products.data_warehouse.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
+        from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
         for column, type in columns.items():
             # Support for 'old' style columns

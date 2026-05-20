@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from django.conf import settings
 

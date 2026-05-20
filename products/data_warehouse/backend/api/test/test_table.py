@@ -12,8 +12,8 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestTable(APIBaseTest):
@@ -589,7 +589,7 @@ class TestTable(APIBaseTest):
         assert table.url_pattern == "https://your-org.s3.amazonaws.com/bucket/whatever.pqt"
 
     def test_update_table_credential_blank_access_key(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -612,7 +612,7 @@ class TestTable(APIBaseTest):
         assert credential.access_key == "original_key"
 
     def test_update_table_credential_blank_access_secret(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -635,7 +635,7 @@ class TestTable(APIBaseTest):
         assert credential.access_secret == "original_secret"
 
     def test_update_table_credential_null_field_values_rejected(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -660,7 +660,7 @@ class TestTable(APIBaseTest):
         assert credential.access_secret == "original_secret"
 
     def test_update_table_credential_null_rejected(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"

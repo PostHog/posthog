@@ -33,7 +33,6 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models import ExternalDataSchema
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
@@ -48,6 +47,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 SUBSCRIPTIONS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions"
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"

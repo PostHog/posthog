@@ -13,15 +13,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseCredential,
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
+from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 STRIPE_SCHEMA_NAMES = [
     STRIPE_CHARGE_RESOURCE_NAME,

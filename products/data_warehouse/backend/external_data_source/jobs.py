@@ -4,8 +4,8 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 def update_external_job_status(
