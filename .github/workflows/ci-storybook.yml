@@ -480,6 +480,12 @@ jobs:
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
+              # On master pushes the run was created with --purpose observe (tracking-only),
+              # but `vr run complete` still exits 1 whenever visual changes are detected.
+              # That makes the Storybook check fail on master even though observe runs are
+              # not gating by design. Treat exit 1 as informational on push events; PRs
+              # still gate as before.
+              continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
