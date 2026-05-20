@@ -1788,3 +1788,27 @@ class TestParserRegressions(BaseTest):
             for backend in ("rust-json", "python"):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_true_false_admitted_as_identifier_in_chain_and_table_positions(self):
+        # cpp's lexer has no TRUE/FALSE tokens; those source spellings are plain
+        # IDENTIFIERs that the visitor lifts into Bool Constants only in the
+        # bare-Field branch. In positions that route through `keywordForAlias`
+        # or identifier-text rules (postfix `.`, table identifiers, CTE column
+        # lists), `true`/`false` round-trip as ordinary identifiers. The Rust
+        # `kw_valid_as_identifier` predicate used to exclude them.
+        expr_cases = ("x.true", "x.false", "x.true.false")
+        for src in expr_cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        select_cases = (
+            "SELECT * FROM x.true",
+            "SELECT * FROM x.false",
+            "WITH x(true, false) AS (SELECT 1, 2) SELECT * FROM x",
+        )
+        for src in select_cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")

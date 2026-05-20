@@ -792,11 +792,16 @@ pub(crate) fn kw_allowed_as_implicit_alias(kw: Kw) -> bool {
 /// per `tableExpr: … | tableExpr (alias | AS identifier) …` — there is
 /// no special-form ambiguity to guard against, and cpp accepts them.
 pub(crate) fn kw_valid_as_identifier(kw: Kw) -> bool {
+    // `true` / `false` are NOT lexer-level keywords in the cpp
+    // grammar (they're plain IDENTIFIERs), so they pass through as
+    // valid identifiers in chain / table-ident / CTE column / etc.
+    // positions. The bare-Field branch in parse_primary still
+    // promotes them to Bool Constants; only positions that route
+    // through this predicate (postfix `.`, table identifiers, CTE
+    // columns, columnAliases) admit them as identifier text.
     !matches!(
         kw,
-        Kw::True
-            | Kw::False
-            | Kw::Null
+        Kw::Null
             | Kw::Inf
             | Kw::Nan
             | Kw::Intersect
