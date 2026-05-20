@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     QueryTimeoutException,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.sources.postgres.query_builders import build_select_clause
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -495,6 +496,9 @@ def build_partition_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    *,
+    enabled_columns: Optional[list[str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     """Build a SELECT against one child partition.
 
@@ -505,8 +509,11 @@ def build_partition_query(
     pipeline can advance the incremental cursor per chunk via max() without risking
     data loss on restart; the non-incremental branch returns a bare SELECT *.
     """
+    select_clause = build_select_clause(enabled_columns, primary_keys, incremental_field)
+
     if not should_use_incremental_field:
-        return sql.SQL("SELECT * FROM {schema}.{table}").format(
+        return sql.SQL("SELECT {cols} FROM {schema}.{table}").format(
+            cols=select_clause,
             schema=sql.Identifier(child_schema),
             table=sql.Identifier(child_name),
         )
@@ -518,7 +525,8 @@ def build_partition_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
-    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} {op} {last_value} ORDER BY {field} ASC").format(
+    return sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {field} {op} {last_value} ORDER BY {field} ASC").format(
+        cols=select_clause,
         schema=sql.Identifier(child_schema),
         table=sql.Identifier(child_name),
         field=sql.Identifier(incremental_field),

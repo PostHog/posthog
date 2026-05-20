@@ -15741,6 +15741,12 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
@@ -15881,6 +15887,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -15922,6 +15935,11 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Columns to sync. Null means sync all columns.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -26938,6 +26956,12 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -27010,6 +27034,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {

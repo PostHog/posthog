@@ -57,7 +57,7 @@ from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
 from products.surveys.backend.api.survey import public_survey_page
-from products.user_interviews.backend.webhooks import (
+from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
