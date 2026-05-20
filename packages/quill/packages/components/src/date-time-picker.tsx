@@ -19,7 +19,7 @@ import {
 import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { Day, useCalendar } from './use-calendar'
@@ -35,6 +35,7 @@ const DATE_FORMAT_LABELS: Record<DateFormatOrder, string> = {
     DMY: 'DD/MM/YY',
     YMD: 'YY-MM-DD',
 }
+const POSTHOG_START_DATE = new Date(2020, 0, 23)
 const WEEK_DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_NAMES = [
     'January',
@@ -113,29 +114,27 @@ function DayItem({ day, startDate, endDate, viewing, minDate, maxDate, onClick }
             data-is-today={today}
             data-is-same-day={sameDay}
             className={cn(
-                'w-10 h-10 flex items-center justify-center',
+                'w-8 h-8 flex items-center justify-center',
                 isBetween && 'bg-fill-selected',
                 isStart && !sameDay && 'bg-fill-selected rounded-l-full',
                 isEnd && !sameDay && 'bg-fill-selected rounded-r-full'
             )}
         >
-            <button
-                type="button"
+            <Button
+                variant={isStart || isEnd ? 'primary' : 'default'}
+                size="icon-sm"
                 disabled={disabled}
                 aria-label={`Select ${format(day, 'PP')}`}
                 title={disabled ? undefined : `Select ${format(day, 'PP')}`}
                 onClick={() => onClick(day)}
                 className={cn(
-                    'w-full h-full rounded-full flex items-center justify-center text-xs outline-none transition-colors',
-                    'focus-visible:ring-2 focus-visible:ring-ring focus-visible:relative focus-visible:z-10',
-                    !disabled && !isStart && !isEnd && 'hover:bg-fill-hover text-foreground cursor-pointer',
-                    (isStart || isEnd) && 'bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer',
+                    'w-full h-full !rounded-full p-0 text-[11px] tabular-nums',
                     today && !isStart && !isEnd && 'border border-primary',
-                    disabled && 'opacity-20 cursor-default'
+                    disabled && 'opacity-20'
                 )}
             >
                 {label}
-            </button>
+            </Button>
         </div>
     )
 }
@@ -198,29 +197,74 @@ function Calendar({
         getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
         getYear(siblingViewing) === getYear(subMonths(viewing, 1))
 
+    const floorDate = minDate && minDate.getTime() > POSTHOG_START_DATE.getTime() ? minDate : POSTHOG_START_DATE
+    const minYearVal = getYear(floorDate)
+    const minMonthAtMinYear = getMonth(floorDate)
+    const maxYearVal = getYear(maxDate)
+    const maxMonthAtMaxYear = getMonth(maxDate)
+    const currentYear = getYear(viewing)
+    const currentMonth = getMonth(viewing)
+
+    const monthKey = (year: number, month: number): number => year * 12 + month
+    const currentKey = monthKey(currentYear, currentMonth)
+    const siblingKey = siblingViewing ? monthKey(getYear(siblingViewing), getMonth(siblingViewing)) : null
+
+    const monthOptions: { key: number; year: number; month: number }[] = []
+    for (let y = minYearVal; y <= maxYearVal; y++) {
+        const startMonth = y === minYearVal ? minMonthAtMinYear : 0
+        const endMonth = y === maxYearVal ? maxMonthAtMaxYear : 11
+        for (let m = startMonth; m <= endMonth; m++) {
+            monthOptions.push({ key: monthKey(y, m), year: y, month: m })
+        }
+    }
+
+    const handleMonthYearSelect = (next: number): void => {
+        const year = Math.floor(next / 12)
+        const month = next % 12
+        const nextDate = new Date(year, month, 1)
+        setViewing(nextDate)
+        onViewChange(nextDate)
+    }
+
     return (
         <div>
-            <div className="flex justify-center items-center py-2 gap-4">
+            <div className="flex justify-center items-center py-1 gap-1">
                 <Button
                     variant="default"
-                    size="icon-sm"
+                    size="icon-xs"
                     onClick={handlePrev}
                     disabled={disablePrev}
                     aria-label="Previous month"
-                    title="Previous month"
+                    title={disablePrev ? 'Disabled' : 'Previous month'}
+                    className="disabled:cursor-not-allowed"
                 >
                     <ChevronLeft />
                 </Button>
-                <span className="text-xs text-muted-foreground text-center w-28 min-w-28">
-                    {MONTH_NAMES[getMonth(viewing)]} {getYear(viewing)}
-                </span>
+                <Select
+                    value={currentKey}
+                    onValueChange={(v: number) => handleMonthYearSelect(v)}
+                >
+                    <SelectTrigger size="sm" aria-label="Month and year" className="h-6 px-2 text-xs">
+                        <SelectValue>
+                            {(v: number) => `${MONTH_NAMES[v % 12]} ${Math.floor(v / 12)}`}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        {monthOptions.map(({ key, year, month }) => (
+                            <SelectItem key={key} value={key} disabled={key === siblingKey}>
+                                {MONTH_NAMES[month]} {year}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
                 <Button
                     variant="default"
-                    size="icon-sm"
+                    size="icon-xs"
                     onClick={handleNext}
                     disabled={disableNext}
                     aria-label="Next month"
                     title={disableNext ? 'Disabled' : 'Next month'}
+                    className="disabled:cursor-not-allowed"
                 >
                     <ChevronRight />
                 </Button>
@@ -230,7 +274,7 @@ function Calendar({
                 {calendar[0][0].map((day) => (
                     <div
                         key={`h-${getDay(day)}`}
-                        className="w-10 h-8 flex items-center justify-center text-[10px] text-muted-foreground uppercase"
+                        className="w-8 h-6 flex items-center justify-center text-[10px] text-muted-foreground uppercase"
                     >
                         {WEEK_DAYS[getDay(day)]}
                     </div>
@@ -426,39 +470,34 @@ export function DateTimePicker({
     const [start, setStart] = React.useState<Date>(value.start)
     const [end, setEnd] = React.useState<Date>(value.end)
     const [range, setRange] = React.useState<DateTimeRange>(value.range)
-    const [lastSet, setLastSet] = React.useState<'start' | 'end'>('end')
+    const [lastSet, setLastSet] = React.useState<'start' | 'end' | null>(null)
     const [rightViewing, setRightViewing] = React.useState<Date>(value.end)
     const [leftViewing, setLeftViewing] = React.useState<Date>(subMonths(value.end, 1))
 
     const handleSelect = (date: Date): void => {
-        const now = new Date()
-        const hours = getHours(now)
-        const minutes = getMinutes(now)
-        const newDate = new Date(date)
-        newDate.setHours(hours, minutes)
+        const newStart = startOfDay(date)
+        const newEnd = endOfDay(date)
 
-        const settingStart = lastSet === 'end'
-
-        if (settingStart) {
-            if (newDate.getTime() < start.getTime() || newDate.getTime() > end.getTime()) {
-                setStart(newDate)
-                setEnd(newDate)
-            } else {
-                setStart(newDate)
-            }
+        if (newStart.getTime() < start.getTime()) {
+            // Before current start — extend start backward, keep end
+            setStart(newStart)
+            setLastSet('start')
+        } else if (newEnd.getTime() > end.getTime()) {
+            // After current end — extend end forward, keep start
+            setEnd(newEnd)
+            setLastSet('end')
+        } else if (lastSet === 'start') {
+            // Inside range and start was just set — pull end inward
+            setEnd(newEnd)
+            setLastSet('end')
+        } else if (lastSet === 'end') {
+            // Inside range and end was just set — pull start inward
+            setStart(newStart)
             setLastSet('start')
         } else {
-            if (newDate.getTime() === end.getTime()) {
-                setStart(startOfDay(newDate))
-                setEnd(endOfDay(newDate))
-            } else if (newDate.getTime() < start.getTime()) {
-                setStart(newDate)
-                setEnd(newDate)
-                setLastSet('start')
-            } else {
-                setEnd(newDate)
-                setLastSet('end')
-            }
+            // No recent edge — collapse to clicked day
+            setStart(newStart)
+            setEnd(newEnd)
         }
         setRange(CUSTOM_RANGE)
     }
@@ -468,6 +507,7 @@ export function DateTimePicker({
             return
         }
         setRange(CUSTOM_RANGE)
+        setLastSet('start')
         if (next.getTime() > end.getTime()) {
             setStart(end)
             setEnd(next)
@@ -481,6 +521,7 @@ export function DateTimePicker({
             return
         }
         setRange(CUSTOM_RANGE)
+        setLastSet('end')
         if (next.getTime() < start.getTime()) {
             setEnd(start)
             setStart(next)
@@ -503,6 +544,7 @@ export function DateTimePicker({
         setStart(nextStart)
         setEnd(now)
         setRange(next)
+        setLastSet(null)
         setRightViewing(now)
         setLeftViewing(subMonths(now, 1))
     }
@@ -515,25 +557,25 @@ export function DateTimePicker({
         <div
             className={cn(
                 'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
-                compact ? 'w-[19rem]' : 'w-[19rem] lg:w-full max-w-[49rem]',
+                compact ? 'w-[15rem]' : 'w-[15rem] lg:w-full max-w-[42rem]',
                 className
             )}
         >
             {/* Headers */}
             {!compact && (
-                <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_10.625rem]">
-                    <div className="flex items-center gap-2 px-2 py-2 bg-muted/30 border-b border-border rounded-tl-lg">
-                        <span className="text-xs text-muted-foreground">Custom</span>
+                <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]">
+                    <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
                         {(minDate || hasExplicitMaxDate) && (
                             <div className="flex items-center gap-1 ml-auto">
-                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min date: {format(minDate, 'MMM d, yy')}</Badge>}
+                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min: {format(minDate, 'MMM d, yy')}</Badge>}
                                 {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
-                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max date: {format(maxDate, 'MMM d, yy')}</Badge>}
+                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDate, 'MMM d, yy')}</Badge>}
                             </div>
                         )}
                     </div>
-                    <div className="flex justify-start px-2 py-2 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                        <span className="text-xs text-muted-foreground">Quick ranges</span>
+                    <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
                     </div>
                 </div>
             )}
@@ -541,23 +583,23 @@ export function DateTimePicker({
             {/* Body */}
             <div className={compact
                 ? 'flex flex-col'
-                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_10.625rem]'
+                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
             }>
                 {/* Calendars column */}
                 <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
                     {/* Inputs */}
                     {!compact && (
-                        <div className="hidden lg:flex justify-center items-center p-4 pb-1">
-                            <div className="flex items-center gap-2">
+                        <div className="hidden lg:flex justify-center items-center px-3 pt-3 pb-1">
+                            <div className="flex items-center gap-1.5">
                                 {onDateTimeSettings && (
                                     <Button
-                                        size="icon-sm"
+                                        size="icon-xs"
                                         onClick={onDateTimeSettings}
                                         aria-label="Date and time settings"
                                         title="Date and time settings"
                                         className="text-muted-foreground hover:text-foreground"
                                     >
-                                        <SettingsIcon className="w-4 h-4" />
+                                        <SettingsIcon />
                                     </Button>
                                 )}
                                 <DateTimeInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} />
@@ -565,7 +607,7 @@ export function DateTimePicker({
                                 <DateTimeInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} />
                                 <Button
                                     variant="link"
-                                    size="sm"
+                                    size="xs"
                                     onClick={handleNow}
                                     aria-label="Set end to now"
                                     title="Set end to now"
@@ -582,7 +624,7 @@ export function DateTimePicker({
                         : 'flex flex-col lg:flex-row justify-between'
                     }>
                         {!compact && (
-                            <div className="p-3 hidden lg:block">
+                            <div className="p-2 hidden lg:block">
                                 <Calendar
                                     defaultViewing={leftViewing}
                                     startDate={start}
@@ -596,7 +638,7 @@ export function DateTimePicker({
                                 />
                             </div>
                         )}
-                        <div className="p-3">
+                        <div className="p-2">
                             <Calendar
                                 defaultViewing={rightViewing}
                                 startDate={start}
@@ -619,13 +661,14 @@ export function DateTimePicker({
                 }>
                     <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
                         <ul className={compact
-                            ? 'flex flex-row p-3 gap-px max-h-[388px]'
-                            : 'flex flex-row lg:flex-col p-3 gap-px max-h-[388px]'
+                            ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                            : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
                         }>
                             {quickRanges.slice(1).map((quick) => (
                                 <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
                                     <Button
                                         variant="default"
+                                        size="sm"
                                         left
                                         className={compact
                                             ? 'whitespace-nowrap'
@@ -649,17 +692,18 @@ export function DateTimePicker({
             <Separator />
 
             {/* Actions */}
-            <div className="flex justify-end p-4 items-center gap-2 bg-muted/30">
-                <span className="text-xs text-muted-foreground flex items-center gap-1 tabular-nums">
+            <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
                     {range.name === 'Custom' ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
                 </span>
                 {onCancel ? (
-                    <Button variant="outline" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
+                    <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
                         Cancel
                     </Button>
                 ) : null}
                 <Button
                     variant="primary"
+                    size="sm"
                     aria-label="Apply date range"
                     title="Apply date range"
                     onClick={() => onApply({ start, end, range })}
