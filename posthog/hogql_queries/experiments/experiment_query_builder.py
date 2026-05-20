@@ -308,6 +308,9 @@ class ExperimentQueryBuilder:
             return None
 
         maturity_seconds = self._get_retention_maturity_seconds()
+        if maturity_seconds == 0:
+            return None
+
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         start_timestamp_expr = self._build_start_event_timestamp_expr()
 
