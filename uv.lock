@@ -15,7 +15,6 @@ exclude-newer = "2026-05-12T12:28:26.957458Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-mypy = false
 pixelhog = false
 hogql-parser = false
 posthoganalytics = false
