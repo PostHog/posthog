@@ -197,9 +197,9 @@ class UpsertAlertTool(MaxTool):
 
     async def _validate_every_15_minutes_interval(
         self,
-        calculation_interval: AlertCalculationInterval | None,
+        calculation_interval: str | AlertCalculationInterval | None,
         *,
-        existing_interval: AlertCalculationInterval | None = None,
+        existing_interval: str | AlertCalculationInterval | None = None,
     ) -> str | None:
         team = self._team
         user = self._user
