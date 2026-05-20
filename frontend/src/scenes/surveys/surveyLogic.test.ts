@@ -334,6 +334,69 @@ describe('translation validation', () => {
     })
 })
 
+describe('rating question validation', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('does not require bound labels for thumb questions (emoji + 2-point scale)', async () => {
+        // Thumb questions hide the bound-label inputs in the editor, so requiring them here
+        // would silently block save with no visible error to surface.
+        const thumbSurvey: Survey = {
+            ...createPersistedSurvey(),
+            type: SurveyType.API,
+            questions: [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: 'Was this response helpful?',
+                    description: '',
+                    display: 'emoji',
+                    scale: 2,
+                    lowerBoundLabel: '',
+                    upperBoundLabel: '',
+                },
+            ],
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(thumbSurvey)
+        }).toFinishAllListeners()
+
+        const questionErrors = logic.values.surveyErrors.questions?.[0]
+        expect(questionErrors?.lowerBoundLabel).toBeFalsy()
+        expect(questionErrors?.upperBoundLabel).toBeFalsy()
+    })
+
+    it('requires bound labels for non-thumb rating questions', async () => {
+        const numberRatingSurvey: Survey = {
+            ...createPersistedSurvey(),
+            questions: [
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: 'How likely are you to recommend us?',
+                    description: '',
+                    display: 'number',
+                    scale: 10,
+                    lowerBoundLabel: '',
+                    upperBoundLabel: '',
+                },
+            ],
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(numberRatingSurvey)
+        }).toFinishAllListeners()
+
+        const questionErrors = logic.values.surveyErrors.questions?.[0]
+        expect(questionErrors?.lowerBoundLabel).toBe('Please enter a lower bound label.')
+        expect(questionErrors?.upperBoundLabel).toBe('Please enter an upper bound label.')
+    })
+})
+
 describe('set response-based survey branching', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
