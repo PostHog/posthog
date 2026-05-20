@@ -190,7 +190,9 @@ class TestCreateLLMSkillTool(BaseTest):
         skill = LLMSkill.objects.get(team=self.team, name="make-fractals", is_latest=True)
         assert skill.description == "Render fractals."
         assert skill.files.count() == 1
-        assert skill.files.first().path == "scripts/mandelbrot.py"
+        first_file = skill.files.first()
+        assert first_file is not None
+        assert first_file.path == "scripts/mandelbrot.py"
 
     def test_duplicate_name_raises_fatal(self):
         LLMSkill.objects.create(team=self.team, name="dup", description="d", body="b")

@@ -1059,7 +1059,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     list_llm_skills: {
         name: 'List shared skills',
-        description: 'List shared agent skills stored for this team',
+        description: 'List shared skills stored for this team',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -1070,7 +1070,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     get_llm_skill: {
         name: 'Load shared skill',
-        description: 'Fetch a shared skill body and file manifest',
+        description: 'Load shared skill body and file manifest',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             const name = toolCall.args?.skill_name
@@ -1083,7 +1083,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     get_llm_skill_file: {
         name: 'Load shared skill file',
-        description: 'Fetch a bundled file from a shared skill',
+        description: 'Load shared skill file bundled in a skill',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             const path = toolCall.args?.file_path
@@ -1096,7 +1096,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_llm_skill: {
         name: 'Create shared skill',
-        description: 'Save a workflow as a shared agent skill',
+        description: 'Create shared skill to save a reusable workflow',
         product: Scene.LLMAnalytics,
         icon: <IconBook />,
         modes: [AgentMode.LLMAnalytics],
@@ -1111,7 +1111,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     update_llm_skill: {
         name: 'Update shared skill',
-        description: 'Publish a new version of an existing shared skill',
+        description: 'Update shared skill by publishing a new version',
         product: Scene.LLMAnalytics,
         icon: <IconBook />,
         modes: [AgentMode.LLMAnalytics],
@@ -1126,7 +1126,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     archive_llm_skill: {
         name: 'Archive shared skill',
-        description: 'Archive a shared agent skill',
+        description: 'Archive shared skill to hide it from suggestions',
         product: Scene.LLMAnalytics,
         icon: <IconBook />,
         modes: [AgentMode.LLMAnalytics],
