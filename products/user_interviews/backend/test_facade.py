@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from products.user_interviews.backend.facade.api import UserInterviewsAPI
+from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 from products.user_interviews.backend.models import UserInterview, UserInterviewTopic
 
@@ -18,7 +18,7 @@ class TestParseIntervieweeIdentifier(APIBaseTest):
         ]
     )
     def test_parses_identifier(self, _: str, identifier: str, expected_name: str, expected_email: str | None) -> None:
-        assert UserInterviewsAPI.parse_interviewee_identifier(identifier) == IntervieweeIdentity(
+        assert parse_interviewee_identifier(identifier) == IntervieweeIdentity(
             display_name=expected_name, email=expected_email
         )
 
@@ -34,9 +34,7 @@ class TestHasReplied(APIBaseTest):
 
     def test_false_when_no_reply(self) -> None:
         topic = self._create_topic()
-        assert not UserInterviewsAPI.has_replied(
-            team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com"
-        )
+        assert not has_replied(team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com")
 
     def test_true_when_reply_exists(self) -> None:
         topic = self._create_topic()
@@ -49,9 +47,7 @@ class TestHasReplied(APIBaseTest):
             summary="hi",
             topic=topic,
         )
-        assert UserInterviewsAPI.has_replied(
-            team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com"
-        )
+        assert has_replied(team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com")
 
     def test_scoped_by_team(self) -> None:
         topic = self._create_topic()
@@ -65,6 +61,4 @@ class TestHasReplied(APIBaseTest):
             summary="hi",
             topic=topic,
         )
-        assert not UserInterviewsAPI.has_replied(
-            team_id=other_team.id, topic_id=topic.id, interviewee_identifier="alex@example.com"
-        )
+        assert not has_replied(team_id=other_team.id, topic_id=topic.id, interviewee_identifier="alex@example.com")

@@ -39,7 +39,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import absolute_uri
 
-from ..facade.api import UserInterviewsAPI
+from ..facade.api import parse_interviewee_identifier
 from ..facade.enums import SEARCH_DOCUMENT_TYPES
 from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
@@ -539,7 +539,7 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
 
 def _parse_identifier(identifier: str) -> tuple[str, str | None]:
     """Tuple-shaped shim around the facade's identifier parser for legacy internal callers."""
-    identity = UserInterviewsAPI.parse_interviewee_identifier(identifier)
+    identity = parse_interviewee_identifier(identifier)
     return identity.display_name, identity.email
 
 
