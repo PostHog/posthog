@@ -1,15 +1,15 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
@@ -22,11 +22,7 @@ import {
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import {
-    SSH_FIELD,
-    buildKeaFormDefaultFromSourceDetails,
-    getErrorsForFields,
-} from '../../NewSourceScene/sourceWizardLogic'
+import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
@@ -123,6 +119,7 @@ function buildSchemaUpdatePayload(
     | 'sync_frequency'
     | 'sync_time_of_day'
     | 'cdc_table_mode'
+    | 'enabled_columns'
 > {
     return {
         id: schema.id,
@@ -133,6 +130,7 @@ function buildSchemaUpdatePayload(
         sync_frequency: schema.sync_frequency,
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,
+        enabled_columns: schema.enabled_columns ?? null,
     }
 }
 
@@ -167,11 +165,11 @@ function hasOptimisticSchemaChanges(
     })
 }
 
-const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
-    return field.type === 'password' || field.name === 'private_key'
+export const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
+    return ('secret' in field && !!field.secret) || field.type === 'password'
 }
 
-const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
+export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
     for (const field of fields) {
         if (field.type === 'switch-group') {
             const groupValue = valueObj[field.name]
@@ -238,13 +236,25 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             payload,
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
+        pausePolling: true,
+        resumePolling: true,
     }),
     loaders(({ actions, values, cache }) => ({
         source: [
             null as ExternalDataSource | null,
             {
                 loadSource: async () => {
-                    return await api.externalDataSources.get(values.sourceId)
+                    try {
+                        return await api.externalDataSources.get(values.sourceId)
+                    } catch (error: any) {
+                        // Source soft-deleted. Bounce to the list and swallow
+                        // the failure so kea-loaders doesn't toast "Not found".
+                        if (error?.status === 404) {
+                            router.actions.replace(urls.sources())
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -366,6 +376,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 refreshSchemas: () => true,
             },
         ],
+        pollPauseCount: [
+            0 as number,
+            {
+                pausePolling: (state) => state + 1,
+                resumePolling: (state) => Math.max(0, state - 1),
+            },
+        ],
         sourceConfigLoading: [
             false as boolean,
             {
@@ -404,9 +421,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         sourceConfig: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources ?? {}),
+            // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
+            // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
+            // The cast widens the inferred form value type so reads of `access_method`, payload
+            // sub-fields, etc. type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
@@ -507,7 +528,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             const latestPendingUpdate = schemaUpdateCache.pendingSchemaUpdates[updatedSchema.id]
                             const inFlightUpdate = pendingSchemaUpdates[updatedSchema.id]
 
-                            return !latestPendingUpdate || latestPendingUpdate.revision <= inFlightUpdate.revision
+                            return (
+                                !latestPendingUpdate ||
+                                !inFlightUpdate ||
+                                latestPendingUpdate.revision <= inFlightUpdate.revision
+                            )
                         })
 
                         if (schemasToApply.length > 0) {
@@ -570,19 +595,19 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
-                const isDirectQueryEnabled =
-                    !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
                 const breadcrumbName =
-                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+                    values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSource()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'sourceRefreshTimeout')
+                if (values.pollPauseCount === 0) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadSource()
+                        }, REFRESH_INTERVAL)
+                        return () => clearTimeout(timerId)
+                    }, 'sourceRefreshTimeout')
+                }
 
                 const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
@@ -592,12 +617,22 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
             loadSourceFailure: () => {
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSource()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'sourceRefreshTimeout')
+                if (values.pollPauseCount === 0) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadSource()
+                        }, REFRESH_INTERVAL)
+                        return () => clearTimeout(timerId)
+                    }, 'sourceRefreshTimeout')
+                }
+            },
+            resumePolling: () => {
+                // After the reducer runs we may have dropped to 0 — but no fresh load has been
+                // scheduled (the prior loadSourceSuccess fired while paused and skipped its
+                // reschedule). Kick a load now so the source page resumes auto-refreshing status.
+                if (values.pollPauseCount === 0) {
+                    actions.loadSource()
+                }
             },
             refreshSchemas: async () => {
                 try {

@@ -11,7 +11,7 @@
  */
 
 import { cssVarsFlat } from './css'
-import { generateShadowCSS } from './shadow'
+import { generateShadowCSS, shadow } from './shadow'
 import { generateSpacingCSS } from './spacing'
 import { generateFontSizeCSS, generateFontFamilyCSS } from './typography'
 
@@ -87,27 +87,32 @@ function oklch(l: number, c: number, h: number, alpha?: number): string {
 export function buildSemanticColors(): Record<string, ColorTuple> {
     return {
         // ── Surfaces (theme-derived) ──────────────────
-        background: [surface(0.97, 1, 'light'), surface(0.145, 1.5, 'dark'), 'bg-background'],
+        // Matched to PostHog app's --color-bg-primary so quill panels blend
+        // with the surrounding app: light hsl(75 14% 95%), dark hsl(240 8% 8%),
+        // converted to OKLCH. Dark equals `muted` — PostHog uses one token for
+        // both; surfaces separate via `card` / borders, not background tone.
+        background: [surface(0.966, 0.79, 'light'), surface(0.187, 1.1, 'dark'), 'bg-background'],
         foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
 
         card: [surface(0.995, 0.3, 'light'), surface(0.2, 1.2, 'dark'), 'bg-card'],
-        'card-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-card-foreground'],
+        // Aliases `foreground` — kept for shadcn API compatibility. Drop once
+        // primitives migrate to plain `text-foreground`.
+        'card-foreground': ['var(--foreground)', 'var(--foreground)', 'text-card-foreground'],
 
-        popover: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-popover'],
-        'popover-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-popover-foreground'],
-
-        muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
+        // Matched to PostHog app's --color-bg-surface-secondary (subdued cards,
+        // list rows): light hsl(70 16% 93%), dark hsl(240 8% 10%), in OKLCH.
+        muted: [surface(0.953, 1.28, 'light'), surface(0.209, 1.33, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
 
-        accent: [surface(0.87, 0.8, 'light'), surface(0.35, 1.2, 'dark'), 'bg-accent'],
-        'accent-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-accent-foreground'],
+        // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
+        // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
+        // dark hsl(240 8% 8%), in OKLCH. Hue stays theme-derived; chroma is
+        // near-zero so the hue offset is imperceptible.
+        chrome: [surface(0.923, 1.67, 'light'), surface(0.187, 1.1, 'dark'), 'bg-chrome'],
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
-
-        secondary: [oklch(0.31, 0, 0), oklch(0.86, 0, 0), 'bg-secondary'],
-        'secondary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-secondary-foreground'],
 
         // ── Status (independent of theme hue) ─────────
         destructive: [oklch(0.92, 0.03, 32.22), oklch(0.24, 0.03, 2.79), 'bg-destructive'],
@@ -181,8 +186,11 @@ export interface StylesConfig {
      * array — when multiple are given they are combined with `:is()`
      * so any of them activates dark mode.
      *
-     * Default: `['.dark', '[theme="dark"]']` (both `.dark` class and
-     * `theme="dark"` attribute work out of the box).
+     * Default: `['.dark', '[theme="dark"]', '[data-theme="dark"]']`. The
+     * three flavours cover Tailwind's `.dark` class convention, the bare
+     * `theme="dark"` attribute, and the `data-theme="dark"` attribute used
+     * by libraries that follow the HTML `data-*` convention (notably
+     * `@modelcontextprotocol/ext-apps` SDK's `applyDocumentTheme()`).
      */
     darkSelector?: string | string[]
 }
@@ -201,20 +209,19 @@ export function resolveTheme(mode: 'light' | 'dark'): Record<string, string> {
  *
  * Direct references to `--theme-hue`, `--theme-dark-hue`, `--theme-tint`,
  * or `--primary-light` / `--primary-dark` are validated at module load
- * (see `assertThemeDerivedSyncedWithColors` below). The `fill-*` tokens are transitive — they reference
- * `var(--accent)` / `var(--muted)` rather than a theme var directly, so
- * they can't be auto-detected and must be listed explicitly.
+ * (see `assertThemeDerivedSyncedWithColors` below). The `fill-*` tokens are
+ * transitive — they reference `var(--foreground)` rather than a theme var
+ * directly, so they can't be auto-detected and must be listed explicitly.
  */
 const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'background',
     'card',
-    'popover',
     'muted',
-    'accent',
+    'chrome',
     'primary',
     'border',
     'input',
-    // Transitive: reference var(--accent) / var(--muted) — must also live
+    // Transitive: reference var(--foreground) / var(--muted) — must also live
     // on `*` to re-evaluate on local overrides.
     'fill-hover',
     'fill-expanded',
@@ -228,7 +235,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
  * (`[--theme-hue:X]`) would silently fail for it.
  *
  * This runs once at module load. It only catches direct references;
- * transitive references (e.g. `fill-*` → `var(--accent)`) must be kept
+ * transitive references (e.g. `fill-*` → `var(--foreground)`) must be kept
  * in the set manually.
  */
 function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>): void {
@@ -255,7 +262,7 @@ assertThemeDerivedSyncedWithColors(semanticColors)
 
 /** Normalize darkSelector option into a single CSS selector string. */
 function resolveDarkSelector(raw?: string | string[]): string {
-    const defaults = ['.dark', '[theme="dark"]']
+    const defaults = ['.dark', '[theme="dark"]', '[data-theme="dark"]']
     const selectors = raw === undefined ? defaults : typeof raw === 'string' ? [raw] : raw
     return selectors.length === 1 ? selectors[0] : `:is(${selectors.join(', ')})`
 }
@@ -331,7 +338,7 @@ ${cssVarsFlat(light.staticVars)}
 ${cssVarsFlat(light.dynamicVars)}
 
   /* Override Tailwind --color-* theme tokens within scope so utilities
-   * like bg-accent, text-foreground, border-border resolve to quill's
+   * like bg-card, text-foreground, border-border resolve to quill's
    * values instead of the consumer's global theme. */
 ${generateColorMappingsCSS()}
 }
@@ -466,8 +473,8 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('  }')
     lines.push('')
     lines.push('  @keyframes pulse-glow {')
-    lines.push('    0%, 100% { box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-accent)) }')
-    lines.push('    50% { box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-accent)) }')
+    lines.push('    0%, 100% { box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-primary)) }')
+    lines.push('    50% { box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-primary)) }')
     lines.push('  }')
     lines.push('')
     lines.push('  @keyframes horizontal-shake {')
@@ -485,13 +492,16 @@ export function generateStylesCSS(config: StylesConfig = {}): string {
     lines.push('}')
 
     // Runtime materialization: `@theme inline` only feeds Tailwind's utility
-    // generator, so BEM CSS that references `var(--radius-*)` directly needs a
-    // real `:root` (or scoped) block at runtime.
+    // generator, so BEM CSS that references `var(--radius-*)` / `var(--shadow-*)`
+    // directly needs a real `:root` (or scoped) block at runtime.
     lines.push('')
     const runtimeSelector = scope ?? ':root'
     lines.push(`${runtimeSelector} {`)
     for (const [name, value] of RADIUS_VARS) {
         lines.push(`  ${name}: ${value};`)
+    }
+    for (const [name, value] of Object.entries(shadow)) {
+        lines.push(`  --shadow-${name}: ${value};`)
     }
     lines.push('}')
 

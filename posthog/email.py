@@ -118,6 +118,8 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "approval_applied": "61",
     "conversation_restore": "63",
     "proxy_provisioned": "64",
+    "delegation_invite": "66",
+    "provisioning_welcome": "67",
 }
 
 

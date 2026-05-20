@@ -5,16 +5,19 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CountCohortMembersRequest, DeleteCohortMemberRequest, DeleteCohortMembersBulkRequest,
+    CountCohortMembersRequest, CreateGroupRequest, DeleteCohortMemberRequest,
+    DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, GetGroupRequest, GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
+    UpdateGroupRequest, UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
 use tonic::Request;
 
 use mocks::FailingStorage;
 
-use super::PersonHogReplicaService;
+use super::{PersonHogReplicaService, MAX_BATCH_DELETE_SIZE};
 
 #[tokio::test]
 async fn test_connection_error_returns_unavailable() {
@@ -215,7 +218,7 @@ async fn test_delete_persons_batch_for_team_storage_error(
 #[rstest]
 #[case::zero(0)]
 #[case::negative(-1)]
-#[case::exceeds_max(50001)]
+#[case::exceeds_max(MAX_BATCH_DELETE_SIZE + 1)]
 #[tokio::test]
 async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_size: i64) {
     let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
@@ -543,6 +546,426 @@ async fn test_list_cohort_member_ids_clamps_invalid_limit() {
             limit: 0,
             read_options: None,
         }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+// ============================================================
+// CreateGroup tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_create_group_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .create_group(Request::new(CreateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            group_properties: b"{}".to_vec(),
+            created_at: Some(1000),
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[tokio::test]
+async fn test_create_group_invalid_timestamp() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .create_group(Request::new(CreateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            group_properties: b"{}".to_vec(),
+            created_at: Some(i64::MIN),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("created_at"));
+}
+
+#[tokio::test]
+async fn test_create_group_invalid_json() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .create_group(Request::new(CreateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            group_properties: b"not json".to_vec(),
+            created_at: Some(1000),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("group_properties"));
+}
+
+#[tokio::test]
+async fn test_create_group_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .create_group(Request::new(CreateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            group_properties: b"{}".to_vec(),
+            created_at: Some(1000),
+        }))
+        .await;
+
+    let response = result.unwrap().into_inner();
+    assert!(response.group.is_some());
+}
+
+#[tokio::test]
+async fn test_create_group_defaults_created_at_to_now() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .create_group(Request::new(CreateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            group_properties: b"{}".to_vec(),
+            created_at: None,
+        }))
+        .await;
+
+    let response = result.unwrap().into_inner();
+    assert!(response.group.is_some());
+}
+
+// ============================================================
+// UpdateGroup tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_update_group_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .update_group(Request::new(UpdateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            update_mask: vec!["group_properties".to_string()],
+            group_properties: Some(b"{}".to_vec()),
+            ..Default::default()
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[tokio::test]
+async fn test_update_group_invalid_json() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .update_group(Request::new(UpdateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            update_mask: vec!["group_properties".to_string()],
+            group_properties: Some(b"bad".to_vec()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn test_update_group_invalid_mask_field() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .update_group(Request::new(UpdateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            update_mask: vec!["nonexistent_field".to_string()],
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn test_update_group_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .update_group(Request::new(UpdateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            update_mask: vec!["group_properties".to_string()],
+            group_properties: Some(b"{}".to_vec()),
+            ..Default::default()
+        }))
+        .await;
+
+    let response = result.unwrap().into_inner();
+    assert!(!response.updated);
+}
+
+// ============================================================
+// DeleteGroupsBatchForTeam tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::pool_exhausted(FailingStorage::with_pool_exhausted(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_groups_batch_for_team_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_groups_batch_for_team(Request::new(DeleteGroupsBatchForTeamRequest {
+            team_id: 1,
+            batch_size: 100,
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[rstest]
+#[case::zero(0)]
+#[case::negative(-1)]
+#[case::exceeds_max(MAX_BATCH_DELETE_SIZE + 1)]
+#[tokio::test]
+async fn test_delete_groups_batch_for_team_invalid_batch_size(#[case] batch_size: i64) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_groups_batch_for_team(Request::new(DeleteGroupsBatchForTeamRequest {
+            team_id: 1,
+            batch_size,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("batch_size"));
+}
+
+#[tokio::test]
+async fn test_delete_groups_batch_for_team_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .delete_groups_batch_for_team(Request::new(DeleteGroupsBatchForTeamRequest {
+            team_id: 1,
+            batch_size: 1000,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+// ============================================================
+// UpdateGroupTypeMapping tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_update_group_type_mapping_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .update_group_type_mapping(Request::new(UpdateGroupTypeMappingRequest {
+            project_id: 1,
+            group_type_index: 0,
+            update_mask: vec!["name_singular".to_string()],
+            name_singular: Some("Company".to_string()),
+            name_plural: None,
+            detail_dashboard_id: None,
+            default_columns: None,
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[tokio::test]
+async fn test_update_group_type_mapping_invalid_mask_field() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .update_group_type_mapping(Request::new(UpdateGroupTypeMappingRequest {
+            project_id: 1,
+            group_type_index: 0,
+            update_mask: vec!["invalid_field".to_string()],
+            name_singular: None,
+            name_plural: None,
+            detail_dashboard_id: None,
+            default_columns: None,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("invalid_field"));
+}
+
+#[tokio::test]
+async fn test_update_group_type_mapping_not_found() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .update_group_type_mapping(Request::new(UpdateGroupTypeMappingRequest {
+            project_id: 999,
+            group_type_index: 0,
+            update_mask: vec!["name_singular".to_string()],
+            name_singular: Some("Company".to_string()),
+            name_plural: None,
+            detail_dashboard_id: None,
+            default_columns: None,
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+}
+
+// ============================================================
+// DeleteGroupTypeMapping tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::pool_exhausted(FailingStorage::with_pool_exhausted(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_group_type_mapping_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_group_type_mapping(Request::new(DeleteGroupTypeMappingRequest {
+            project_id: 1,
+            group_type_index: 0,
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[tokio::test]
+async fn test_delete_group_type_mapping_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .delete_group_type_mapping(Request::new(DeleteGroupTypeMappingRequest {
+            project_id: 1,
+            group_type_index: 0,
+        }))
+        .await;
+
+    let response = result.unwrap().into_inner();
+    assert!(!response.deleted);
+}
+
+// ============================================================
+// DeleteGroupTypeMappingsBatchForTeam tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::pool_exhausted(FailingStorage::with_pool_exhausted(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_group_type_mappings_batch_for_team_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_group_type_mappings_batch_for_team(Request::new(
+            DeleteGroupTypeMappingsBatchForTeamRequest {
+                team_id: 1,
+                batch_size: 100,
+            },
+        ))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[rstest]
+#[case::zero(0)]
+#[case::negative(-1)]
+#[case::exceeds_max(MAX_BATCH_DELETE_SIZE + 1)]
+#[tokio::test]
+async fn test_delete_group_type_mappings_batch_for_team_invalid_batch_size(
+    #[case] batch_size: i64,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_group_type_mappings_batch_for_team(Request::new(
+            DeleteGroupTypeMappingsBatchForTeamRequest {
+                team_id: 1,
+                batch_size,
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("batch_size"));
+}
+
+#[tokio::test]
+async fn test_delete_group_type_mappings_batch_for_team_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .delete_group_type_mappings_batch_for_team(Request::new(
+            DeleteGroupTypeMappingsBatchForTeamRequest {
+                team_id: 1,
+                batch_size: 1000,
+            },
+        ))
         .await;
 
     assert!(result.is_ok());

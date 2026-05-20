@@ -1193,5 +1193,59 @@ describe('the feature flag release conditions logic', () => {
                 }),
             })
         })
+
+        // v2 Properties → Device: the UI calls setAggregationGroupTypeIndex(null) when switching
+        // to Device mode. Group-scoped condition properties are dropped (incompatible with
+        // distinct_id bucketing) while person-scoped condition properties are preserved.
+        it('drops group-scoped condition properties when v2 switches to Device mode', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'v2-properties-to-device',
+                filters: {
+                    ...generateFeatureFlagFilters([
+                        {
+                            properties: userProperties,
+                            rollout_percentage: 50,
+                            variant: null,
+                            sort_key: 'user-cond',
+                            aggregation_group_type_index: null,
+                        },
+                        {
+                            properties: groupProperties,
+                            rollout_percentage: 30,
+                            variant: 'test',
+                            sort_key: 'group-cond',
+                            aggregation_group_type_index: 0,
+                        },
+                    ]),
+                    aggregation_group_type_index: null,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setAggregationGroupTypeIndex(null)
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    aggregation_group_type_index: null,
+                    groups: [
+                        expect.objectContaining({
+                            sort_key: 'user-cond',
+                            rollout_percentage: 50,
+                            properties: userProperties,
+                        }),
+                        expect.objectContaining({
+                            sort_key: 'group-cond',
+                            rollout_percentage: 30,
+                            properties: [],
+                        }),
+                    ],
+                }),
+            })
+        })
     })
 })

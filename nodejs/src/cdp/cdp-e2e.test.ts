@@ -12,6 +12,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { logger } from '../utils/logger'
@@ -35,6 +36,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         let cyclotronWorkerPostgres: CdpCyclotronWorker | undefined
 
         let hub: Hub
+        let kafkaProducer: KafkaProducerWrapper = undefined as unknown as KafkaProducerWrapper
         let team: Team
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
@@ -46,7 +48,10 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         }
 
         beforeEach(async () => {
-            // We still want to mock all created producers but we wan't to use the real implementation, not the mocked one
+            // Each `KafkaProducerWrapper.create()` call (e.g. inside each cyclotron job
+            // queue) gets a fresh real producer it owns and disconnects on stop. The
+            // CDP outputs registry uses the dedicated `kafkaProducer` below — a separate
+            // real producer the test owns, observes, and disconnects in `afterEach`.
             MockKafkaProducerWrapper.create = jest.fn((...args) => {
                 return ActualKafkaProducerWrapper.create(...args)
             })
@@ -55,8 +60,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             await resetTestDatabase()
             hub = await createHub()
+
+            kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+
             team = await getFirstTeam(hub.postgres)
-            mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
             mockProducerObserver.resetKafkaProducer()
 
             hub.CDP_FETCH_RETRIES = 2
@@ -113,7 +121,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
                 },
-                createCdpConsumerDeps(hub)
+                createCdpConsumerDeps(hub, kafkaProducer)
             )
             await eventsConsumer.start()
 
@@ -122,7 +130,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
                 },
-                createCdpConsumerDeps(hub)
+                createCdpConsumerDeps(hub, kafkaProducer)
             )
             await cyclotronWorkerKafka.start()
 
@@ -131,7 +139,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
                 },
-                createCdpConsumerDeps(hub)
+                createCdpConsumerDeps(hub, kafkaProducer)
             )
             await cyclotronWorkerPostgres.start()
 
@@ -169,6 +177,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             ].filter((s): s is Promise<void> => s !== undefined)
 
             await Promise.all(stoppers)
+            await kafkaProducer.disconnect()
             await closeHub(hub)
             mockProducerObserver.resetKafkaProducer()
         })

@@ -19,25 +19,6 @@ impl CaptureMode {
             CaptureMode::Ai => "ai",
         }
     }
-
-    /// Returns the pipeline name used in Redis restriction configs.
-    /// These must match the values in Django's EventIngestionRestrictionConfig.pipelines.
-    pub fn as_pipeline_name(&self) -> &'static str {
-        match self {
-            CaptureMode::Events => "analytics",
-            CaptureMode::Recordings => "session_recordings",
-            CaptureMode::Ai => "ai",
-        }
-    }
-
-    pub fn parse_pipeline_name(s: &str) -> Option<Self> {
-        match s {
-            "analytics" => Some(Self::Events),
-            "session_recordings" => Some(Self::Recordings),
-            "ai" => Some(Self::Ai),
-            _ => None,
-        }
-    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -246,6 +227,14 @@ pub struct Config {
     /// Empty string means the v1 sink layer is disabled.
     #[envconfig(default = "")]
     pub capture_v1_sinks: String,
+
+    /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
+    #[envconfig(default = "10485760")]
+    pub capture_v1_max_compressed_body_bytes: usize,
+
+    /// Maximum decompressed body size the v1 endpoint will accept (bytes).
+    #[envconfig(default = "52428800")]
+    pub capture_v1_max_decompressed_body_bytes: usize,
 }
 
 #[derive(Envconfig, Clone)]
@@ -265,6 +254,8 @@ pub struct KafkaConfig {
     pub kafka_topic: String,
     #[envconfig(default = "ingestion-traces")]
     pub kafka_traces_topic: String,
+    #[envconfig(default = "ingestion-metrics")]
+    pub kafka_metrics_topic: String,
     #[envconfig(default = "events_plugin_ingestion_overflow")]
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
@@ -319,4 +310,34 @@ pub struct KafkaConfig {
     pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
     #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
     pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
+
+    // Traces-cluster overrides (consumed by capture-logs). When unset, the
+    // traces producer reuses the corresponding `kafka_*` value above.
+    pub kafka_traces_hosts: Option<String>,
+    pub kafka_traces_tls: Option<bool>,
+    pub kafka_traces_client_id: Option<String>,
+    pub kafka_traces_compression_codec: Option<String>,
+    pub kafka_traces_producer_acks: Option<String>,
+    pub kafka_traces_producer_linger_ms: Option<u32>,
+    pub kafka_traces_producer_queue_mib: Option<u32>,
+    pub kafka_traces_message_timeout_ms: Option<u32>,
+    pub kafka_traces_producer_message_max_bytes: Option<u32>,
+    pub kafka_traces_producer_max_retries: Option<u32>,
+    pub kafka_traces_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_traces_metadata_max_age_ms: Option<u32>,
+
+    // Metrics-cluster overrides (consumed by capture-logs). When unset, the
+    // metrics producer reuses the corresponding `kafka_*` value above.
+    pub kafka_metrics_hosts: Option<String>,
+    pub kafka_metrics_tls: Option<bool>,
+    pub kafka_metrics_client_id: Option<String>,
+    pub kafka_metrics_compression_codec: Option<String>,
+    pub kafka_metrics_producer_acks: Option<String>,
+    pub kafka_metrics_producer_linger_ms: Option<u32>,
+    pub kafka_metrics_producer_queue_mib: Option<u32>,
+    pub kafka_metrics_message_timeout_ms: Option<u32>,
+    pub kafka_metrics_producer_message_max_bytes: Option<u32>,
+    pub kafka_metrics_producer_max_retries: Option<u32>,
+    pub kafka_metrics_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_metrics_metadata_max_age_ms: Option<u32>,
 }

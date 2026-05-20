@@ -38,6 +38,7 @@ CACHE_UPDATE_FAILED_COUNTER = Counter(
 CACHE_UPDATE_SHARED_GAUGE = Gauge(
     "insight_cache_state_update_rows_updated",
     "Number of rows updated during insight cache refresh. A single cache key can be shared by more than one insight/tile.",
+    multiprocess_mode="livesum",
 )
 
 

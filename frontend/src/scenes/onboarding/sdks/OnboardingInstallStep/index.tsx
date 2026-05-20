@@ -6,10 +6,13 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
-import { OnboardingStepComponentType } from '../../onboardingLogic'
+import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
+import { INSTALL_DEDUP_KEYS } from '../../types'
+import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
 import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
@@ -27,6 +30,8 @@ interface OnboardingInstallStepProps {
     sdkTagOverrides?: SDKTagOverrides
     listeningForName?: string
     teamPropertyToVerify?: string
+    /** When true, the realtime check indicator is hidden and Continue is always enabled. */
+    hideInstallationCheck?: boolean
     header?: React.ReactNode
 }
 
@@ -63,6 +68,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     sdkTagOverrides,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
+    hideInstallationCheck = false,
     header,
 }) => {
     const { setAvailableSDKInstructionsMap, setSDKTagOverrides, selectSDK, setSearchTerm, setSelectedTag } =
@@ -72,14 +78,32 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
+    const { currentStepProductKey, currentFlowStep } = useValues(onboardingLogic)
+    const productName = currentStepProductKey
+        ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
+        : undefined
+    // The posthog-js install step is shared across many products via dedup, so it
+    // gets a generic "Install" title rather than tying it to whichever product
+    // happens to be the dedup survivor (which would mislead users picking PA + WA +
+    // SR into thinking the step only installs Product Analytics, etc.).
+    // Product-specific install steps (LLM Analytics, Workflows, Logs) keep their
+    // product-titled label since they really are product-specific.
+    const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
+    const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
 
-    const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
+    const installationComplete = hideInstallationCheck || installationCompleteFromTeam
     const adblockResult = useAdblockDetection()
     const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     const isWizardHero = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-hero')
     const isWizardTab = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-tab')
     const isWizardOnly = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-only')
+
+    // Logs uses OpenTelemetry, not the PostHog JS wizard. When the Logs install step is
+    // shown (either directly or as a secondary product within another flow), skip all
+    // wizard variants and fall through to the control SDK-grid layout.
+    const isLogsProduct = currentStepProductKey === ProductKey.LOGS
 
     // Double-gated: both the feature flag AND the client-side mobile check must
     // be true. The flag controls experiment enrollment (targeted to mobile
@@ -124,7 +148,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         setInstructionsModalOpen(true)
     }
 
-    const isWizardVariant = isWizardHero || isWizardTab || isWizardOnly
+    const isWizardVariant = (isWizardHero || isWizardTab || isWizardOnly) && !isLogsProduct
 
     const sdkGridProps: SDKGridProps = {
         filteredSDKs: filteredSDKs ?? [],
@@ -162,12 +186,16 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             adblockResult={adblockResult}
             verifyingProperty={teamPropertyToVerify}
             verifyingName={listeningForName}
+            hideInstallationCheck={hideInstallationCheck}
         />
     )
 
     // Mobile users in the test arm get the handoff screen instead of the regular
     // variant dispatch. "Continue on this device" dismisses and falls through below.
-    if (showMobileHandoff) {
+    // Logs onboarding uses OpenTelemetry, which has no `ingested_event` signal — the
+    // mobile handoff would render a RealtimeCheckIndicator that never resolves and
+    // leave Continue disabled forever, so we skip the handoff for Logs entirely.
+    if (showMobileHandoff && !isLogsProduct) {
         return (
             <MobileInstallHandoff
                 listeningForName={listeningForName}
@@ -180,7 +208,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     }
 
     // Route to the appropriate experiment variant. WizardOnlyVariant renders its own SDKInstructionsModal.
-    if (isWizardHero) {
+    if (isWizardHero && !isLogsProduct) {
         return (
             <>
                 <WizardHeroVariant {...variantProps} />
@@ -189,7 +217,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         )
     }
 
-    if (isWizardTab) {
+    if (isWizardTab && !isLogsProduct) {
         return (
             <>
                 <WizardTabVariant {...variantProps} />
@@ -198,28 +226,30 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         )
     }
 
-    if (isWizardOnly) {
+    if (isWizardOnly && !isLogsProduct) {
         return <WizardOnlyVariant {...variantProps} />
     }
 
     // Control: existing behavior — SDK grid without the wizard hero
     return (
         <OnboardingStep
-            title="Install"
+            title={installTitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             showSkip={showSkipAtBottom}
             actions={
-                <div className="pr-2">
-                    <RealtimeCheckIndicator
-                        teamPropertyToVerify={teamPropertyToVerify}
-                        listeningForName={listeningForName}
-                    />
-                </div>
+                hideInstallationCheck ? undefined : (
+                    <div className="pr-2">
+                        <RealtimeCheckIndicator
+                            teamPropertyToVerify={teamPropertyToVerify}
+                            listeningForName={listeningForName}
+                        />
+                    </div>
+                )
             }
         >
             {header}
-            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
+            {!hideInstallationCheck && !installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6">
                 <SDKGrid {...sdkGridProps} />
             </div>

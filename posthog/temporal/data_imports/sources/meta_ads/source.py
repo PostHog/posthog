@@ -39,7 +39,12 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
         }
 
     def get_schemas(
-        self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MetaAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -95,6 +100,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="meta_ads_integration_id",
@@ -108,6 +114,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
+                        secret=False,
                     ),
                 ],
             ),

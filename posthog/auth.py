@@ -20,6 +20,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -60,6 +61,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
+
+tracer = trace.get_tracer(__name__)
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
@@ -158,15 +161,16 @@ class SessionAuthentication(authentication.SessionAuthentication):
     """
 
     def authenticate(self, request):
-        auth_result = super().authenticate(request)
+        with tracer.start_as_current_span("posthog.auth.session"):
+            auth_result = super().authenticate(request)
 
-        if not auth_result:
-            return None
+            if not auth_result:
+                return None
 
-        user, auth = auth_result
-        enforce_two_factor(request, user)
+            user, auth = auth_result
+            enforce_two_factor(request, user)
 
-        return (user, auth)
+            return (user, auth)
 
     def authenticate_header(self, request):
         return "Session"
@@ -242,22 +246,29 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         personal_api_key, source = personal_api_key_with_source
         personal_api_key_object = None
         mode_used = None
+        modes_tried = 0
 
-        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(
-                personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
-            )
-            try:
-                personal_api_key_object = (
-                    PersonalAPIKey.objects.select_related("user")
-                    .filter(user__is_active=True)
-                    .get(secure_value=secure_value)
+        with tracer.start_as_current_span("posthog.auth.personal_api_key.db_lookup") as db_span:
+            for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+                modes_tried += 1
+                secure_value = hash_key_value(
+                    personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
                 )
-                mode_used = mode
-                PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
-                break
-            except PersonalAPIKey.DoesNotExist:
-                pass
+                try:
+                    personal_api_key_object = (
+                        PersonalAPIKey.objects.select_related("user")
+                        .filter(user__is_active=True)
+                        .get(secure_value=secure_value)
+                    )
+                    mode_used = mode
+                    PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
+                    break
+                except PersonalAPIKey.DoesNotExist:
+                    pass
+
+            db_span.set_attribute("auth.modes_tried", modes_tried)
+            if mode_used:
+                db_span.set_attribute("auth.hash_mode_used", mode_used)
 
         if not personal_api_key_object:
             source_display = cls._SOURCE_DISPLAY.get(source, source)
@@ -266,9 +277,11 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
         if mode_used != "sha256":
-            key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
-            key_to_update.secure_value = hash_key_value(personal_api_key)
-            key_to_update.save(update_fields=["secure_value"])
+            with tracer.start_as_current_span("posthog.auth.personal_api_key.mode_upgrade") as upgrade_span:
+                upgrade_span.set_attribute("auth.hash_mode_used", mode_used or "")
+                key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
+                key_to_update.secure_value = hash_key_value(personal_api_key)
+                key_to_update.save(update_fields=["secure_value"])
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
@@ -276,35 +289,38 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return personal_api_key_object
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        personal_api_key_with_source = self.find_key_with_source(request)
-        if not personal_api_key_with_source:
-            return None
+        with tracer.start_as_current_span("posthog.auth.personal_api_key") as span:
+            personal_api_key_with_source = self.find_key_with_source(request)
+            if not personal_api_key_with_source:
+                return None
 
-        _, source = personal_api_key_with_source
-        personal_api_key_object = self.validate_key(personal_api_key_with_source)
+            _, source = personal_api_key_with_source
+            span.set_attribute("auth.source", source)
 
-        now = timezone.now()
-        key_last_used_at = personal_api_key_object.last_used_at
-        # Only updating last_used_at if the hour's changed
-        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
-            personal_api_key_object.last_used_at = now
-            personal_api_key_object.save(update_fields=["last_used_at"])
-        assert personal_api_key_object.user is not None
+            personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
-        # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
-        tag_queries(
-            user_id=personal_api_key_object.user.pk,
-            team_id=personal_api_key_object.user.current_team_id,
-            access_method="personal_api_key",
-            api_key_mask=personal_api_key_object.mask_value,
-            api_key_label=personal_api_key_object.label,
-        )
+            now = timezone.now()
+            key_last_used_at = personal_api_key_object.last_used_at
+            # Only updating last_used_at if the hour's changed
+            # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+            if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
+                personal_api_key_object.last_used_at = now
+                personal_api_key_object.save(update_fields=["last_used_at"])
+            assert personal_api_key_object.user is not None
 
-        self.personal_api_key = personal_api_key_object
-        self.personal_api_key_source = source
+            # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
+            tag_queries(
+                user_id=personal_api_key_object.user.pk,
+                team_id=personal_api_key_object.user.current_team_id,
+                access_method="personal_api_key",
+                api_key_mask=personal_api_key_object.mask_value,
+                api_key_label=personal_api_key_object.label,
+            )
 
-        return personal_api_key_object.user, None
+            self.personal_api_key = personal_api_key_object
+            self.personal_api_key_source = source
+
+            return personal_api_key_object.user, None
 
     @classmethod
     def authenticate_header(cls, request) -> str:
@@ -405,24 +421,25 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if "authorization" in request.headers:
-            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
-            if authorization_match:
-                try:
-                    token = authorization_match.group(1).strip()
-                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                    user = User.objects.get(pk=info["id"])
-                    return (user, None)
-                except jwt.DecodeError:
-                    # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+        with tracer.start_as_current_span("posthog.auth.jwt"):
+            if "authorization" in request.headers:
+                authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+                if authorization_match:
+                    try:
+                        token = authorization_match.group(1).strip()
+                        info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
+                        user = User.objects.get(pk=info["id"])
+                        return (user, None)
+                    except jwt.DecodeError:
+                        # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+                        return None
+                    except Exception:
+                        raise AuthenticationFailed(detail=f"Token invalid.")
+                else:
+                    # We don't throw so that the PersonalAPIKeyAuthentication can have a go
                     return None
-                except Exception:
-                    raise AuthenticationFailed(detail=f"Token invalid.")
-            else:
-                # We don't throw so that the PersonalAPIKeyAuthentication can have a go
-                return None
 
-        return None
+            return None
 
     @classmethod
     def authenticate_header(cls, request) -> str:
@@ -590,31 +607,32 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     access_token: OAuthAccessToken
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        authorization_token = self._extract_token(request)
+        with tracer.start_as_current_span("posthog.auth.oauth"):
+            authorization_token = self._extract_token(request)
 
-        if not authorization_token:
-            return None
+            if not authorization_token:
+                return None
 
-        try:
-            access_token = self._validate_token(authorization_token)
+            try:
+                access_token = self._validate_token(authorization_token)
 
-            if not access_token:
+                if not access_token:
+                    raise AuthenticationFailed(detail="Invalid access token.")
+
+                self.access_token = access_token
+
+                tag_queries(
+                    user_id=access_token.user.pk,
+                    team_id=access_token.user.current_team_id,
+                    access_method="oauth",
+                )
+
+                return access_token.user, None
+
+            except AuthenticationFailed:
+                raise
+            except Exception:
                 raise AuthenticationFailed(detail="Invalid access token.")
-
-            self.access_token = access_token
-
-            tag_queries(
-                user_id=access_token.user.pk,
-                team_id=access_token.user.current_team_id,
-                access_method="oauth",
-            )
-
-            return access_token.user, None
-
-        except AuthenticationFailed:
-            raise
-        except Exception:
-            raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
@@ -957,7 +975,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
                 return int(tid)
         return None
 
-    def authenticate(self, request: Request) -> tuple[None, Any] | None:
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, Any] | None:
         signature = request.headers.get(self.get_signature_header())
         timestamp = request.headers.get(self.get_timestamp_header())
         if not signature or not timestamp:
@@ -986,7 +1004,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")
 
-        return (None, self.get_auth_context(request))
+        # Return AnonymousUser (not None) so DRF throttles can safely access request.user.is_authenticated.
+        return (AnonymousUser(), self.get_auth_context(request))
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"

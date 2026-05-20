@@ -10,15 +10,17 @@ from products.tasks.backend.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.services.modal_sandbox import (
+    _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
     SANDBOX_IMAGE,
     ModalSandbox,
     _get_modal_region,
     _get_sandbox_image_reference,
+    _image_ref_cache,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError, SandboxProvisionError
 
 
 def _mock_token_response(status_code: int = 200, token: str | None = "test-token"):
@@ -35,9 +37,37 @@ def _mock_manifest_response(status_code: int = 200, digest: str | None = "sha256
     return resp
 
 
+def _ghcr_side_effect(
+    token_resp: Any = None,
+    manifest_resp: Any = None,
+    token_exc: Exception | None = None,
+    manifest_exc: Exception | None = None,
+):
+    """Build a `requests.get` side effect that answers token vs manifest calls
+    consistently no matter how many times it is called, so the test stays valid
+    regardless of the (bounded) `_GHCR_RESOLVE_MAX_ATTEMPTS` retry cap.
+    """
+
+    def _side(url: str, *args: Any, **kwargs: Any) -> Any:
+        if "/token" in url:
+            if token_exc is not None:
+                raise token_exc
+            return token_resp
+        if manifest_exc is not None:
+            raise manifest_exc
+        return manifest_resp
+
+    return _side
+
+
 class TestGetSandboxImageReference:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
+
+    @pytest.fixture(autouse=True)
+    def _no_backoff_sleep(self):
+        with patch("products.tasks.backend.services.modal_sandbox.time.sleep"):
+            yield
 
     def test_returns_digest_reference_on_success(self):
         with patch(
@@ -49,42 +79,46 @@ class TestGetSandboxImageReference:
         assert result == f"{SANDBOX_IMAGE}@sha256:abc123"
 
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
-    def test_falls_back_to_master_on_token_request_failure(self, status_code: int):
+    def test_fails_closed_on_token_request_failure(self, status_code: int):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
             return_value=_mock_token_response(status_code=status_code),
-        ):
-            result = _get_sandbox_image_reference()
+        ) as mock_get:
+            with pytest.raises(SandboxProvisionError, match="refusing to fall back to the mutable"):
+                _get_sandbox_image_reference()
 
-        assert result == f"{SANDBOX_IMAGE}:master"
+        assert mock_get.call_count == _GHCR_RESOLVE_MAX_ATTEMPTS
 
-    def test_falls_back_to_master_when_token_missing(self):
+    def test_fails_closed_when_token_missing(self):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
             return_value=_mock_token_response(token=None),
         ):
-            result = _get_sandbox_image_reference()
-
-        assert result == f"{SANDBOX_IMAGE}:master"
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
 
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
-    def test_falls_back_to_master_on_manifest_request_failure(self, status_code: int):
+    def test_fails_closed_on_manifest_request_failure(self, status_code: int):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
-            side_effect=[_mock_token_response(), _mock_manifest_response(status_code=status_code)],
+            side_effect=_ghcr_side_effect(
+                token_resp=_mock_token_response(),
+                manifest_resp=_mock_manifest_response(status_code=status_code),
+            ),
         ):
-            result = _get_sandbox_image_reference()
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
 
-        assert result == f"{SANDBOX_IMAGE}:master"
-
-    def test_falls_back_to_master_when_digest_header_missing(self):
+    def test_fails_closed_when_digest_header_missing(self):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
-            side_effect=[_mock_token_response(), _mock_manifest_response(digest=None)],
+            side_effect=_ghcr_side_effect(
+                token_resp=_mock_token_response(),
+                manifest_resp=_mock_manifest_response(digest=None),
+            ),
         ):
-            result = _get_sandbox_image_reference()
-
-        assert result == f"{SANDBOX_IMAGE}:master"
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
 
     @pytest.mark.parametrize(
         "exception",
@@ -94,14 +128,50 @@ class TestGetSandboxImageReference:
             Exception("Unknown error"),
         ],
     )
-    def test_falls_back_to_master_on_request_exception(self, exception: Exception):
+    def test_fails_closed_on_request_exception(self, exception: Exception):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=exception,
         ):
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
+
+    def test_retries_transient_failure_then_succeeds(self):
+        attempts = {"token": 0}
+
+        def _side(url: str, *args: Any, **kwargs: Any) -> Any:
+            if "/token" in url:
+                attempts["token"] += 1
+                if attempts["token"] == 1:
+                    return _mock_token_response(status_code=503)
+                return _mock_token_response()
+            return _mock_manifest_response(digest="sha256:recovered")
+
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=_side,
+        ):
             result = _get_sandbox_image_reference()
 
-        assert result == f"{SANDBOX_IMAGE}:master"
+        assert result == f"{SANDBOX_IMAGE}@sha256:recovered"
+        assert attempts["token"] == 2  # failed once, succeeded on retry
+
+    def test_failure_is_not_cached(self):
+        """A failed resolution must re-attempt on the next call (never cache the failure)."""
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            return_value=_mock_token_response(status_code=503),
+        ):
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
+
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:after")],
+        ):
+            result = _get_sandbox_image_reference()
+
+        assert result == f"{SANDBOX_IMAGE}@sha256:after"
 
     def test_caches_result_across_calls(self):
         with patch(
@@ -115,10 +185,31 @@ class TestGetSandboxImageReference:
         assert result1 == result2 == result3 == f"{SANDBOX_IMAGE}@sha256:cached123"
         assert mock_get.call_count == 2  # token + manifest, called only once due to cache
 
+    def test_re_resolves_after_cache_expiry(self):
+        """After TTL expiry (simulated via clear), a fresh GHCR query picks up the new digest."""
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=[
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:old"),
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:new"),
+            ],
+        ) as mock_get:
+            result1 = _get_sandbox_image_reference()
+            assert result1 == f"{SANDBOX_IMAGE}@sha256:old"
+            assert mock_get.call_count == 2
+
+            _image_ref_cache.clear()
+
+            result2 = _get_sandbox_image_reference()
+            assert result2 == f"{SANDBOX_IMAGE}@sha256:new"
+            assert mock_get.call_count == 4
+
 
 class TestGetSandboxImageReferenceIntegration:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     @pytest.mark.xfail(
         reason="Flaky: depends on GHCR availability. Remove this mark when we've figured out a less flaky approach"
@@ -238,6 +329,29 @@ class TestModalSandboxAgentServer:
         assert "/tmp/agentsh-env-wrapper.sh" in command
         assert "./node_modules/.bin/agent-server" in command
 
+    def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=[],
+            )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
+        command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert "--allowedDomains" not in command
+        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
+        assert "env -0 > /tmp/agent-env" in command
+
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),
         [
@@ -349,6 +463,28 @@ class TestModalSandboxAgentServer:
 
         assert result is False
         assert mock_sandbox.execute.call_count == 1
+
+    def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
+        events: list[str] = []
+        exec_process = MagicMock()
+        exec_process.wait.side_effect = lambda: events.append("wait")
+        image = MagicMock()
+        image.object_id = "snapshot-123"
+
+        def snapshot_filesystem() -> Any:
+            events.append("snapshot")
+            return image
+
+        mock_sandbox._sandbox.exec.return_value = exec_process
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = snapshot_filesystem
+
+        result = mock_sandbox.create_snapshot()
+
+        assert result == "snapshot-123"
+        mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
+        exec_process.wait.assert_called_once_with()
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with()
+        assert events == ["wait", "snapshot"]
 
 
 class TestModalSandboxProvisionDiagnostics:

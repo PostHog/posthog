@@ -226,6 +226,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 query={query}
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded={props.embedded}
             />
         )
     } else if (
@@ -268,6 +269,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    }
+
+    if (props.embedded) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
     }
 
     return (

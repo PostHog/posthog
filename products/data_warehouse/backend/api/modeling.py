@@ -22,14 +22,14 @@ class DataWarehouseModelPathSerializer(serializers.ModelSerializer):
 
 
 class DataWarehouseModelPathViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
 
     queryset = DataWarehouseModelPath.objects.all()
     serializer_class = DataWarehouseModelPathSerializer
 
 
 class DataWarehouseModelDagViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
     serializer_class = _FallbackSerializer
 
     def list(self, request: request.Request, *args, **kwargs) -> response.Response:

@@ -25,7 +25,10 @@ import enum
 from dataclasses import dataclass
 from typing import Any, Union
 
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -79,7 +82,9 @@ class SelectQueryBuilder:
         """Build a full `SELECT * FROM schema.table` with optional incremental predicate.
 
         When `incremental_field` is provided, appends
-        `WHERE <incremental_field> >= :last_value [ORDER BY <incremental_field> ASC]`.
+        `WHERE <incremental_field> <op> :last_value [ORDER BY <incremental_field> ASC]`.
+        `<op>` is `>=` for `Date` (day-granularity boundary) and `>` for
+        every other type — same semantics as `incremental_type_to_operator`.
         `incremental_last_value` falls back to the type's initial value so
         the semantics match today's `_build_query` implementations.
 
@@ -104,8 +109,9 @@ class SelectQueryBuilder:
         )
         quoted_field = self.quoter.quote(incremental_field)
         placeholder, params = self._single_param("incremental_value", value)
+        operator = incremental_type_to_operator(incremental_field_type)
 
-        parts = [f"SELECT * FROM {table_ref}{hint}", f"WHERE {quoted_field} >= {placeholder}"]
+        parts = [f"SELECT * FROM {table_ref}{hint}", f"WHERE {quoted_field} {operator} {placeholder}"]
         if order_by_incremental:
             parts.append(f"ORDER BY {quoted_field} ASC")
 

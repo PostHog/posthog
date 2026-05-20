@@ -306,17 +306,6 @@
     </opentelemetry_span_log>
 
 
-    <!-- Trace log. Stores stack traces collected by the query profiler. -->
-    <trace_log>
-        <database>system</database>
-        <table>trace_log</table>
-        <partition_by>toYYYYMM(event_date)</partition_by>
-        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-
-        <ttl>event_date + INTERVAL 5 DAY</ttl>
-        <ttl_only_drop_parts>1</ttl_only_drop_parts>
-    </trace_log>
-
     <!-- Crash log. Stores stack traces for fatal errors.
          This table is normally empty. -->
     <crash_log>

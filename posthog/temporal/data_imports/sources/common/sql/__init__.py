@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources.common.sql.types import (
     TableBase,
     TableReference,
     TableSchemas,
+    resolve_detected_primary_keys,
 )
 
 __all__ = [
@@ -51,4 +52,5 @@ __all__ = [
     "TableStats",
     "build_incremental_fields",
     "initial_value_for_incremental_type",
+    "resolve_detected_primary_keys",
 ]

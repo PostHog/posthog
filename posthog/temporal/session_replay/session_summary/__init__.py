@@ -1,52 +1,42 @@
-from posthog.temporal.session_replay.session_summary.activities import (
+from posthog.temporal.session_replay.session_summary.activities.capture_timing import capture_timing_activity
+from posthog.temporal.session_replay.session_summary.activities.check_summary_exists import (
+    check_summary_exists_activity,
+)
+from posthog.temporal.session_replay.session_summary.activities.event_based import (
+    fetch_session_data_activity,
+    get_llm_single_session_summary_activity,
+)
+from posthog.temporal.session_replay.session_summary.activities.video_based import (
     analyze_video_segment_activity,
-    capture_timing_activity,
     cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     emit_session_problem_signals_activity,
     prep_session_video_asset_activity,
+    slice_session_data_for_segments_activity,
     store_video_session_summary_activity,
     tag_and_highlight_session_activity,
     upload_video_to_gemini_activity,
 )
-from posthog.temporal.session_replay.session_summary.activities.patterns import (
-    assign_events_to_patterns_activity,
-    combine_patterns_from_chunks_activity,
-    extract_session_group_patterns_activity,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
-)
-from posthog.temporal.session_replay.session_summary.summarize_session import (
-    SummarizeSingleSessionWorkflow,
-    fetch_session_data_activity,
-    get_llm_single_session_summary_activity,
-)
-from posthog.temporal.session_replay.session_summary.summarize_session_group import (
-    SummarizeSessionGroupWorkflow,
-    fetch_session_batch_events_activity,
-)
+from posthog.temporal.session_replay.session_summary.workflow import SummarizeSingleSessionWorkflow
 
 SESSION_SUMMARY_WORKFLOWS = [
     SummarizeSingleSessionWorkflow,
-    SummarizeSessionGroupWorkflow,
 ]
 
 SESSION_SUMMARY_ACTIVITIES = [
-    get_llm_single_session_summary_activity,
-    fetch_session_batch_events_activity,
-    extract_session_group_patterns_activity,
-    assign_events_to_patterns_activity,
+    check_summary_exists_activity,
     fetch_session_data_activity,
-    combine_patterns_from_chunks_activity,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
+    get_llm_single_session_summary_activity,
     prep_session_video_asset_activity,
     upload_video_to_gemini_activity,
+    slice_session_data_for_segments_activity,
     analyze_video_segment_activity,
+    consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     emit_session_problem_signals_activity,
     store_video_session_summary_activity,
     tag_and_highlight_session_activity,
     cleanup_gemini_file_activity,
-    consolidate_video_segments_activity,
     capture_timing_activity,
 ]

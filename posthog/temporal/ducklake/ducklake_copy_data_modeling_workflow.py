@@ -11,10 +11,12 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.ducklake.common import (
+    _get_org_id_for_team,
     attach_catalog,
     get_config,
-    get_duckgres_server_for_team,
-    get_ducklake_catalog_for_team,
+    get_duckgres_server_for_organization,
+    get_ducklake_catalog_by_team_org,
+    get_ducklake_catalog_for_organization,
     is_dev_mode,
     sanitize_ducklake_identifier,
 )
@@ -153,11 +155,13 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         normalized_name = saved_query.normalized_name or saved_query.name
 
         # Get partition column name from Delta metadata
-        partition_column = _detect_partition_column_name(model.table_uri)
+        partition_column = await database_sync_to_async(_detect_partition_column_name)(
+            model.table_uri, team_id=inputs.team_id
+        )
 
         staging_uri: str | None = None
         if not is_dev_mode():
-            catalog = await database_sync_to_async(get_ducklake_catalog_for_team)(inputs.team_id)
+            catalog = await database_sync_to_async(get_ducklake_catalog_by_team_org)(inputs.team_id)
             if catalog:
                 staging_uri = compute_staging_uri(model.table_uri, catalog.bucket)
 
@@ -239,7 +243,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
                 config = get_config()
                 configure_connection(conn)
             else:
-                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                catalog = get_ducklake_catalog_by_team_org(inputs.team_id)
                 if catalog is None:
                     raise ApplicationError(
                         f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
@@ -497,8 +501,9 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
 
 def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger) -> None:
     """Stage Delta files and create the DuckLake table via duckgres."""
-    catalog = get_ducklake_catalog_for_team(inputs.team_id)
-    server = get_duckgres_server_for_team(inputs.team_id)
+    org_id = _get_org_id_for_team(inputs.team_id)
+    catalog = get_ducklake_catalog_for_organization(org_id)
+    server = get_duckgres_server_for_organization(org_id)
     if catalog is None:
         raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
     if server is None:
@@ -516,6 +521,7 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
         catalog_bucket=catalog.bucket,
         role_arn=catalog.cross_account_role_arn,
         external_id=catalog.cross_account_external_id,
+        organization_id=org_id,
     )
 
     schema = inputs.model.schema_name
@@ -546,7 +552,7 @@ class DuckLakeDataModelingStagingCleanupInputs:
 def cleanup_data_modeling_staging_activity(inputs: DuckLakeDataModelingStagingCleanupInputs) -> None:
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
-    catalog = get_ducklake_catalog_for_team(inputs.team_id)
+    catalog = get_ducklake_catalog_by_team_org(inputs.team_id)
     if catalog is None:
         return
     cleanup_staged_files(
@@ -565,19 +571,19 @@ def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, 
             raise
 
 
-def _detect_partition_column_name(table_uri: str) -> str | None:
+def _detect_partition_column_name(table_uri: str, *, team_id: int) -> str | None:
     """Detect partition column name from Delta metadata."""
     if not table_uri:
         return None
 
-    partition_columns = _fetch_delta_partition_columns(table_uri)
+    partition_columns = _fetch_delta_partition_columns(table_uri, team_id=team_id)
 
     # Return the first partition column
     return partition_columns[0] if partition_columns else None
 
 
-def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
-    options = get_deltalake_storage_options()
+def _fetch_delta_partition_columns(table_uri: str, *, team_id: int) -> list[str]:
+    options = get_deltalake_storage_options(team_id=team_id)
     try:
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
     except Exception as exc:

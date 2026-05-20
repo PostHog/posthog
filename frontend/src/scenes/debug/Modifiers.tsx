@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { HogQLQueryModifiers, NodeKind } from '~/queries/schema/schema-general'
 
@@ -34,17 +32,15 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
     query: Q
     setQuery: (query: Q) => void
 }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourcesDataLogic)
     const { loadSources } = useActions(sourcesDataLogic)
-    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     const isHogQLQuery = query.kind === NodeKind.HogQLQuery
 
     useEffect(() => {
-        if (isHogQLQuery && isDirectQueryEnabled && !dataWarehouseSources) {
+        if (isHogQLQuery && !dataWarehouseSources) {
             loadSources()
         }
-    }, [dataWarehouseSources, isDirectQueryEnabled, isHogQLQuery, loadSources])
+    }, [dataWarehouseSources, isHogQLQuery, loadSources])
 
     const directPostgresSources = useMemo(
         () =>
@@ -54,7 +50,7 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
         [dataWarehouseSources]
     )
 
-    if (!isHogQLQuery || !isDirectQueryEnabled) {
+    if (!isHogQLQuery) {
         return null
     }
 

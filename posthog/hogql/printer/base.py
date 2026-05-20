@@ -39,6 +39,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
     TablesWithMaterializedColumns,
@@ -1275,26 +1276,38 @@ class BasePrinter(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
+            # In non-HogQL contexts (legacy queries, data deletion predicates) the consumer splices
+            # this fragment into a query whose table scope is fixed and known (e.g. ``events e``,
+            # ``DELETE FROM sharded_events``). Mirror what visit_field_type already does for regular
+            # columns at line 1201: drop the table prefix. In particular, lightweight DELETE rewrites
+            # the predicate into a mutation, whose expression analyzer rejects table-qualified
+            # references like ``sharded_events.mat_$current_url`` even when the column exists.
+            table_prefix: str | None = (
+                None if self.context.within_non_hogql_query else self.visit(field_type.table_type)
+            )
+
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column is not None:
                 yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
+                    table_prefix,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
                 )
 
             # Check for dmat (dynamic materialized) columns
             if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
                 yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
+                    table_prefix,
                     self._print_identifier(dmat_column),
                     is_nullable=True,
                     has_minmax_index=False,
                     has_ngram_lower_index=False,
                     has_bloom_filter_index=False,
+                    has_bloom_filter_lower_index=False,
                 )
 
             yield from self._yield_property_group_columns(field_type, table_name, field_name, property_name)
@@ -1314,6 +1327,7 @@ class BasePrinter(Visitor[str]):
                     has_minmax_index=materialized_column.has_minmax_index,
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):
@@ -1538,7 +1552,7 @@ class BasePrinter(Visitor[str]):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
+        return json_extract_trim_quotes(unsafe_field, *unsafe_args)
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
@@ -1554,7 +1568,7 @@ class BasePrinter(Visitor[str]):
         """
         Get the dmat column name for a property if available.
 
-        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
         otherwise None.
         """
         if self.context.property_swapper is None:

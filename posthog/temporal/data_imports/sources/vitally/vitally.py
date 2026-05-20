@@ -2,11 +2,11 @@ import base64
 from datetime import datetime
 from typing import Any, Optional
 
-import requests
 from dateutil import parser
-from requests import JSONDecodeError, Request, Response
+from requests import HTTPError, JSONDecodeError, Request, Response
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -349,7 +349,7 @@ def get_messages(
         else:
             params["updatedAt"] = "1970-01-01"
 
-    request = requests.Request(
+    request = Request(
         "get",
         url=f"{get_base_url(region, subdomain)}resources/conversations",
         params=params,
@@ -358,7 +358,7 @@ def get_messages(
 
     logger.debug("Requesting first page")
 
-    with requests.Session() as session:
+    with make_tracked_session() as session:
         while paginator.has_next_page:
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)
@@ -373,7 +373,7 @@ def get_messages(
                 conversation_updated_at = conversation.get("updatedAt")
                 logger.debug(f"Requesting messages for conversation {id}")
 
-                conversation_response = requests.get(
+                conversation_response = session.get(
                     f"{get_base_url(region, subdomain)}resources/conversations/{id}",
                     headers={"Authorization": f"Basic {basic_token}:"},
                 )
@@ -386,7 +386,7 @@ def get_messages(
                     for message in messages:
                         message["conversation_updated_at"] = conversation_updated_at
                         yield message
-                except requests.HTTPError as e:
+                except HTTPError as e:
                     logger.debug(
                         f"Failed to fetch messages for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
                     )
@@ -452,7 +452,7 @@ def vitally_source(
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:
     basic_token = base64.b64encode(f"{secret_token}:".encode("ascii")).decode("ascii")
-    res = requests.get(
+    res = make_tracked_session().get(
         f"{get_base_url(region, subdomain)}resources/users?limit=1",
         headers={"Authorization": f"Basic {basic_token}"},
     )

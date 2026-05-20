@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -14,6 +15,7 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
+    ExcludedOperators,
     InfiniteListLogicProps,
     QuickFilterItem,
     SkeletonItem,
@@ -26,6 +28,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
@@ -48,53 +51,6 @@ function pinnedItemMatchesSearch(
     const name = sourceGroup?.getName?.(item) || ('name' in item ? item.name : '') || ''
     const label = sourceGroup ? getCoreFilterDefinition(name, sourceGroup.type)?.label : undefined
     return name.toLowerCase().includes(query) || (label?.toLowerCase().includes(query) ?? false)
-}
-
-/** Search terms mapped to properties that should be promoted when that exact term is searched. */
-const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
-    url: ['$current_url'],
-    email: ['$email'],
-}
-
-/**
- * If the search query matches a promoted property's search terms, move that property
- * to the top of results so users find it quickly.
- */
-function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | SkeletonItem>(
-    results: T[],
-    searchQuery: string
-): T[] {
-    if (!searchQuery) {
-        return results
-    }
-
-    const query = searchQuery.toLowerCase().trim()
-    const promotedPropertyNames = PROMOTED_PROPERTIES_BY_SEARCH_TERM[query]
-    if (!promotedPropertyNames?.length) {
-        return results
-    }
-
-    const promotedPropertyNameSet = new Set(promotedPropertyNames)
-    const promoted: T[] = []
-    const rest: T[] = []
-
-    for (const item of results as (T | undefined)[]) {
-        if (!item) {
-            continue
-        }
-        if (isSkeletonItem(item)) {
-            rest.push(item)
-            continue
-        }
-        const name = 'name' in item ? (item as { name?: string }).name : undefined
-        if (name && promotedPropertyNameSet.has(name)) {
-            promoted.push(item)
-        } else {
-            rest.push(item)
-        }
-    }
-
-    return promoted.length > 0 ? [...promoted, ...rest] : results
 }
 
 export interface RowInfo {
@@ -427,18 +383,58 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (listGroupType, activeTab): boolean => listGroupType === activeTab,
         ],
         contextFilteredRecentItems: [
-            (s) => [s.recentFilterItems, s.taxonomicGroupTypes],
+            (s) => [
+                s.recentFilterItems,
+                s.taxonomicGroupTypes,
+                (_, props: InfiniteListLogicProps) => props.excludedOperators,
+                (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
+            ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                excludedOperators: ExcludedOperators | undefined,
+                selectingKeyOnly: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
                 }
                 const availableTypes = new Set(taxonomicGroupTypes)
-                return recentFilterItems.filter(
-                    (item) => hasRecentContext(item) && availableTypes.has(item._recentContext.sourceGroupType)
-                )
+                const inScope = recentFilterItems.filter((item) => {
+                    if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
+                    if (excludedForGroup?.length) {
+                        const propertyFilter = item._recentContext.propertyFilter
+                        const operator =
+                            propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
+                        if (operator && excludedForGroup.includes(operator)) {
+                            return false
+                        }
+                    }
+                    return true
+                })
+                if (!selectingKeyOnly) {
+                    return inScope
+                }
+                const seen = new Set<string>()
+                const dedupedItems: TaxonomicDefinitionTypes[] = []
+                for (const item of inScope) {
+                    if (!hasRecentContext(item)) {
+                        continue
+                    }
+                    // Dedup by the persisted storage key (groupType + value), not by item.name —
+                    // for groups like Cohorts/Actions name is a display label that may be unstable
+                    // or duplicated across distinct ids.
+                    const dedupKey = `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
+                    if (seen.has(dedupKey)) {
+                        continue
+                    }
+                    seen.add(dedupKey)
+                    const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
+                    dedupedItems.push({ ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes)
+                }
+                return dedupedItems
             },
         ],
         contextFilteredPinnedItems: [
@@ -671,7 +667,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.fuse, s.group],
             (rawLocalItems, searchQuery, fuse, group): ListStorage => {
-                if (group.localItemsSearch) {
+                if (group?.localItemsSearch) {
                     const filtered = group.localItemsSearch(rawLocalItems || [], searchQuery)
                     return {
                         results: filtered,
@@ -936,12 +932,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
-                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem)
+                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
+                        position: values.index,
+                    })
                 }
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+
+            const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
+            const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
+            // Only fire on the tab the user is actually looking at — every list runs the same
+            // search in parallel, so without this gate one keystroke can fire 4-8 empty events
+            // from background tabs the user never sees, inflating the dead-end metric.
+            if (
+                values.isActiveTab &&
+                trimmedQuery.length > 0 &&
+                queryReachedBackend &&
+                remoteItems.results.length === 0
+            ) {
+                const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+                if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
+                    cache.lastEmptyResultDedupeKey = dedupeKey
+                    posthog.capture('taxonomic filter empty result', {
+                        groupType: props.listGroupType,
+                        searchQuery: trimmedQuery,
+                    })
+                }
+            }
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()

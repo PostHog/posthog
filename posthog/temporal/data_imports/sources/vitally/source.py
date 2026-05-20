@@ -34,7 +34,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         return ExternalDataSourceType.VITALLY
 
     def get_schemas(
-        self, config: VitallySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: VitallySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -104,6 +109,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="region",
@@ -124,6 +130,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="",
+                                            secret=False,
                                         )
                                     ],
                                 ),

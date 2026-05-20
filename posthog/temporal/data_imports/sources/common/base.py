@@ -7,6 +7,8 @@ from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourc
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
+    from products.data_warehouse.backend.models import ExternalDataSource
+
 from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -73,8 +75,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return {}
 
     def get_schemas(
-        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ConfigType,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        """Return the list of schemas available for this source.
+
+        ``force_refresh=True`` instructs the source to bypass any internal cache
+        of upstream schema discovery (e.g. paginated API listings). Sources
+        without caches can ignore the flag.
+        """
         raise NotImplementedError()
 
     @property
@@ -97,6 +110,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
+
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
 
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
@@ -124,6 +141,10 @@ class WebhookCreationResult:
     success: bool
     error: str | None = None
     extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Names of `webhookFields` the user still needs to fill in after creation
+    # (e.g. when the source's API doesn't return the signing secret on create).
+    # Empty list means the auto-created webhook is fully configured.
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -164,6 +185,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook creation, returns a failed result so the user can set it up manually.
         """
         raise NotImplementedError()
+
+    def webhook_inputs_updated(
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """Called when webhook inputs have been set on the underlying hog function.
+
+        Returns ``(success, error)``. Implementations that need to call out to the
+        external service (e.g. enabling a previously-disabled webhook) should return
+        ``(False, message)`` on failure so the API view can surface the error to the
+        user instead of silently dropping it.
+        """
+        return True, None
 
     @property
     @abstractmethod

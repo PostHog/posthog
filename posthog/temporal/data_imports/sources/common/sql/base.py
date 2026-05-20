@@ -72,6 +72,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
             foreign_keys = impl.get_foreign_keys(conn, config, tables)
             metadata = impl.get_source_metadata(conn, config, tables)
             cdc_support = impl.get_cdc_support(conn, config, tables)
+            indexed_columns_by_table = impl.get_leading_index_columns(conn, config, tables)
 
         incremental_filter = impl.get_incremental_filter()
 
@@ -79,6 +80,9 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         for table_name, columns in columns_by_table.items():
             incremental_triples = incremental_filter(columns)
             detected_pks = primary_keys.get(table_name) or self._default_primary_key_from_columns(columns)
+            indexed_columns = (
+                indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
+            )
 
             schemas.append(
                 SourceSchema(
@@ -86,7 +90,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                     supports_incremental=len(incremental_triples) > 0,
                     supports_append=len(incremental_triples) > 0,
                     supports_cdc=cdc_support.get(table_name, False),
-                    incremental_fields=build_incremental_fields(incremental_triples),
+                    incremental_fields=build_incremental_fields(incremental_triples, indexed_columns),
                     columns=columns,
                     row_count=row_counts.get(table_name),
                     foreign_keys=foreign_keys.get(table_name, []),

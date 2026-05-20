@@ -45,7 +45,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import get_scope_descriptions
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -680,18 +680,39 @@ class OAuthTokenView(TokenView):
         grant_type = request.POST.get("grant_type", "unknown")
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
+        redirect_uri = request.POST.get("redirect_uri", "")
         logger.info(
             "oauth_token_request",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
         )
 
-        response = super().post(request, *args, **kwargs)
+        try:
+            response = super().post(request, *args, **kwargs)
+        except OAuthAccessToken.DoesNotExist:
+            # django-oauth-toolkit's token response path re-reads the access token it
+            # just issued; concurrent requests racing on the same authorization code
+            # can surface this as DoesNotExist. Map to the standard 400 invalid_grant.
+            logger.warning(
+                "oauth_token_access_token_missing",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code is invalid or has already been used",
+                },
+                status=400,
+            )
 
         logger.info(
             "oauth_token_response",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
             status=response.status_code,
         )
 
@@ -905,10 +926,7 @@ class OAuthAuthorizationServerMetadataView(APIView):
         # Build base URL from request
         base_url = request.build_absolute_uri("/").rstrip("/")
 
-        # Get all available scopes
-        oidc_scopes = ["openid", "profile", "email"]
-        resource_scopes = list(get_scope_descriptions().keys())
-        all_scopes = oidc_scopes + resource_scopes
+        all_scopes = get_oauth_scopes_supported()
 
         metadata = {
             # Required by RFC 8414

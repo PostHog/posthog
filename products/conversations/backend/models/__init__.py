@@ -1,6 +1,7 @@
 from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .email_message_mapping import EmailMessageMapping
+from .github_comment_mapping import GithubCommentMapping
 from .restore_token import ConversationRestoreToken
 from .team_conversations_email_config import EmailChannel
 from .team_conversations_slack_config import TeamConversationsSlackConfig
@@ -14,6 +15,7 @@ __all__ = [
     "ConversationRestoreToken",
     "EmailChannel",
     "EmailMessageMapping",
+    "GithubCommentMapping",
     "Priority",
     "RuleType",
     "Status",

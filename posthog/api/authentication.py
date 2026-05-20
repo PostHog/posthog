@@ -154,11 +154,11 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # This is the default case - for regular login, we flush the session (log out)
         request.session.flush()
     else:
-        # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
-        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+        # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
-            f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
+            f"/account-connected/github-login?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
         request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 

@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface NotebookMinimalApi {
@@ -111,7 +107,7 @@ export interface NotebookApi {
      */
     title?: string | null
     /** Notebook content as a ProseMirror JSON document structure. */
-    content?: unknown | null
+    content?: unknown
     /**
      * Plain text representation of the notebook content for search.
      * @nullable
@@ -137,6 +133,28 @@ export interface NotebookApi {
     _create_in_folder?: string
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
+}
+
 export interface PatchedNotebookApi {
     /** UUID of the notebook. */
     readonly id?: string
@@ -149,7 +167,7 @@ export interface PatchedNotebookApi {
      */
     title?: string | null
     /** Notebook content as a ProseMirror JSON document structure. */
-    content?: unknown | null
+    content?: unknown
     /**
      * Plain text representation of the notebook content for search.
      * @nullable
@@ -188,6 +206,11 @@ export interface NotebookCollabSaveApi {
     text_content?: string
     /** Updated notebook title. */
     title?: string
+    /**
+     * ProseMirror cursor head position after applying steps.
+     * @nullable
+     */
+    cursor_head?: number | null
 }
 
 export type NotebooksListParams = {

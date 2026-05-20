@@ -1,4 +1,4 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -641,10 +641,10 @@ describe('CDP API', () => {
 
         beforeEach(async () => {
             // The batch hogflow route now goes through the outputs registry, which in
-            // tests routes every CDP producer slot at `hub.kafkaProducer`. Spying on
-            // its `produce` intercepts the produced message without reconstructing
+            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
+            // on its `produce` intercepts the produced message without reconstructing
             // the api.
-            produceSpy = jest.spyOn(hub.kafkaProducer, 'produce')
+            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',

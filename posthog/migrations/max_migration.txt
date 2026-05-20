@@ -1,1 +1,1 @@
-1124_alter_alertconfiguration_subscribed_users
+1164_alter_alertconfiguration_calculation_interval

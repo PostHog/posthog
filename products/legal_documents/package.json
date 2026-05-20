@@ -14,9 +14,10 @@
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "*",
-        "@storybook/testing-library": "*",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
-        "posthog-js": "*",
+        "posthog-js": "catalog:",
         "react": "*"
     }
 }

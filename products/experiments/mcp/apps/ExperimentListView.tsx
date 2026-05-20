@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, formatDate, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { ExperimentView } from './ExperimentView'
 import { ExperimentData, getStatus } from './utils'
@@ -31,12 +32,14 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                         sortable: true,
                         render: (row): ReactNode =>
                             onExperimentClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
+                                    className="h-auto px-0 text-left"
                                 >
                                     {row.name}
-                                </button>
+                                </Button>
                             ) : (
                                 row.name
                             ),
@@ -46,11 +49,7 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                         header: 'Status',
                         render: (row): ReactNode => {
                             const s = getStatus(row)
-                            return (
-                                <Badge variant={s.variant} size="sm">
-                                    {s.label}
-                                </Badge>
-                            )
+                            return <Badge variant={s.variant}>{s.label}</Badge>
                         },
                     },
                     {
@@ -59,9 +58,9 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                         sortable: true,
                         render: (row): ReactNode =>
                             row.feature_flag_key ? (
-                                <span className="text-text-secondary">{row.feature_flag_key}</span>
+                                <span className="text-muted-foreground">{row.feature_flag_key}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                     {
@@ -70,12 +69,12 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                         render: (row): ReactNode => {
                             const variants = row.parameters?.feature_flag_variants
                             if (!variants || variants.length === 0) {
-                                return <span className="text-text-secondary">&mdash;</span>
+                                return <span className="text-muted-foreground">&mdash;</span>
                             }
                             return (
                                 <div className="flex gap-1 flex-wrap">
                                     {variants.map((v) => (
-                                        <Badge key={v.key} variant={v.key === 'control' ? 'neutral' : 'info'} size="sm">
+                                        <Badge key={v.key} variant={v.key === 'control' ? 'default' : 'info'}>
                                             {v.key}
                                             {(v.split_percent ?? v.rollout_percentage) != null
                                                 ? `: ${v.split_percent ?? v.rollout_percentage}%`
@@ -92,20 +91,19 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                         sortable: true,
                         render: (row): ReactNode =>
                             row.start_date ? (
-                                <span className="text-text-secondary">{formatDate(row.start_date)}</span>
+                                <span className="text-muted-foreground">{formatDate(row.start_date)}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
-                                    {data.results.length} experiment
-                                    {data.results.length === 1 ? '' : 's'}
+                                <span className="text-sm text-muted-foreground">
+                                    {data.results.length} experiment{data.results.length === 1 ? '' : 's'}
                                 </span>
                             </div>
                             <DataTable<ExperimentData>
@@ -115,7 +113,7 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                                 defaultSort={{ key: 'name', direction: 'asc' }}
                                 emptyMessage="No experiments found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

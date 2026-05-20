@@ -1353,6 +1353,87 @@ class TestQuarantineStamping:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestQuarantineIdentifier:
+    """Coverage for `logic.quarantine_identifier` — especially the new
+    `source_run_id` behavior (valid run is stored, foreign run is dropped)."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/test-source-run")
+
+    def _mk_run(self, repo: Repo, branch: str = "main") -> Run:
+        return Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch=branch,
+            commit_sha="abc123",
+            status=RunStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
+    def test_stores_valid_source_run(self, repo, team, user):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._mk_run(repo)
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            source_run_id=run.id,
+        )
+        # Returned row points at the source run …
+        assert entry.source_run_id == run.id
+        # … and the persisted row agrees.
+        persisted = QuarantinedIdentifier.objects.get(id=entry.id)
+        assert persisted.source_run_id == run.id
+
+    def test_drops_source_run_from_another_team(self, repo, team, user):
+        """A `source_run_id` from a run that doesn't belong to this team/repo
+        is silently dropped — the quarantine still gets created, just without
+        the cross-team pointer."""
+        from posthog.models.team.team import Team
+
+        # Sibling team in the same org with its own repo + run.
+        other_team = Team.objects.create(organization=team.organization, name="other")
+        other_repo = logic.create_repo(team_id=other_team.id, repo_external_id=12121, repo_full_name="org/other-repo")
+        foreign_run = Run.objects.create(
+            team_id=other_team.id,
+            repo=other_repo,
+            run_type=RunType.STORYBOOK,
+            branch="main",
+            commit_sha="xyz789",
+            status=RunStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            source_run_id=foreign_run.id,
+        )
+        assert entry.source_run_id is None
+
+    def test_omitting_source_run_leaves_it_null(self, repo, team, user):
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+        )
+        assert entry.source_run_id is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRecomputeRun:
     @pytest.fixture
     def repo(self, team):
@@ -1831,3 +1912,122 @@ class TestMergeBaseBaselineHealing:
 
         assert "story-x" not in merged
         assert healed == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestVerifyUploadsAndCreateArtifacts:
+    """Server-side hash integrity for uploaded PNGs."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=42424, repo_full_name="org/vr")
+
+    def _png(self, color: tuple[int, int, int, int]) -> bytes:
+        import io as _io
+
+        from PIL import Image as _Image
+
+        img = _Image.new("RGBA", (8, 8), color)
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_creates_artifact_with_server_computed_hash(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        png = self._png((10, 20, 30, 255))
+        server_hash = hash_image(png)
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "Card", "content_hash": server_hash}],
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            return_value=png,
+        )
+
+        created = logic.verify_uploads_and_create_artifacts(run.id)
+
+        assert created == 1
+        artifact = logic.get_artifact(repo.id, server_hash)
+        assert artifact is not None
+        assert artifact.content_hash == server_hash
+        assert artifact.size_bytes == len(png)
+
+    def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
+        # Two snapshots: first verifies cleanly, second has a mismatched claim.
+        # The two-pass split must prevent the first artifact from being written
+        # before the second is checked.
+        from products.visual_review.backend.hashing import hash_image
+
+        png_a = self._png((255, 0, 0, 255))
+        png_b = self._png((0, 0, 255, 255))
+        good_hash = hash_image(png_a)
+        bad_claim = "f" * 64  # nothing hashes to this
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha",
+            branch="main",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "Good", "content_hash": good_hash},
+                {"identifier": "Bad", "content_hash": bad_claim},
+            ],
+        )
+
+        def _read(self, content_hash):
+            return {good_hash: png_a, bad_claim: png_b}.get(content_hash)
+
+        mocker.patch("products.visual_review.backend.storage.ArtifactStorage.read", autospec=True, side_effect=_read)
+
+        with pytest.raises(logic.HashIntegrityError):
+            logic.verify_uploads_and_create_artifacts(run.id)
+
+        assert logic.get_artifact(repo.id, good_hash) is None
+        assert logic.get_artifact(repo.id, bad_claim) is None
+
+    def test_corrupt_png_raises_hash_integrity_error(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "Card", "content_hash": "a" * 64}],
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            return_value=b"not a png",
+        )
+
+        with pytest.raises(logic.HashIntegrityError):
+            logic.verify_uploads_and_create_artifacts(run.id)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestVerifyBaselineHashes:
+    """Bootstrap-window guard: unsigned baselines must not be honored."""
+
+    def test_drops_all_entries_when_no_signing_keys(self, team):
+        repo = Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=77777,
+            repo_full_name="org/no-keys",
+            signing_keys={},
+        )
+
+        result = logic._verify_baseline_hashes(repo, {"snap-a": "v1.k1.deadbeef.fake"})
+
+        assert result == {}

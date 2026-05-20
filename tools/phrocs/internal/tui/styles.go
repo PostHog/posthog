@@ -30,6 +30,8 @@ var (
 	colorBrightWhite  = sharedpalette.ColorBrightWhite
 	colorBrightBlack  = sharedpalette.ColorBrightBlack
 	colorBrightYellow = sharedpalette.ColorBrightYellow
+	selectionDark     = sharedpalette.SelectionDark
+	selectionLight    = sharedpalette.SelectionLight
 	brandYellow       = sharedpalette.BrandYellow
 	brandBlue         = sharedpalette.BrandBlue
 	brandRed          = sharedpalette.BrandRed
@@ -161,12 +163,20 @@ func statusIconColor(s process.Status) color.Color {
 	}
 }
 
-// Renders a single sidebar row with icon and name
+// Renders a single sidebar row with icon and name.
 func subtleBg(isDark bool) color.Color {
 	if isDark {
 		return colorBrightBlack
 	}
 	return colorBrightWhite
+}
+
+// Selection fill color for highlighted rows.
+func selectionBg(isDark bool) color.Color {
+	if isDark {
+		return selectionDark
+	}
+	return selectionLight
 }
 
 // borderFor returns the border style with a foreground appropriate for the
@@ -192,7 +202,7 @@ type sidebarRow struct {
 
 func renderSidebarRow(r sidebarRow) string {
 	nameW := max(r.innerW-2, 0) // 1 padding + 1 icon
-	selBg := subtleBg(r.isDark)
+	selBg := selectionBg(r.isDark)
 
 	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(r.iconColor)
 	if r.selected {

@@ -411,6 +411,45 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
     def get_incremental_filter(self) -> IncrementalFieldFilter:
         return filter_mysql_incremental_fields
 
+    def get_leading_index_columns(
+        self,
+        conn: pymysql.Connection,
+        config: MySQLSourceConfig,
+        tables: list[str],
+    ) -> dict[str, set[str]] | None:
+        """Return the leading column of each index per table.
+
+        `information_schema.STATISTICS` lists every index (primary, unique,
+        secondary) one row per column. `SEQ_IN_INDEX = 1` identifies the
+        first column of each index, which is what speeds up
+        `WHERE col >= …` predicates. Returns `None` when discovery fails
+        so the caller defaults to no warning; tables with no indexes still
+        appear with an empty set so the UI can distinguish them from
+        "lookup failed".
+        """
+        if not tables:
+            return {}
+
+        result: dict[str, set[str]] = {table: set() for table in tables}
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT TABLE_NAME, COLUMN_NAME
+                    FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA = %(schema)s
+                      AND TABLE_NAME IN %(names)s
+                      AND SEQ_IN_INDEX = 1
+                    """,
+                    {"schema": config.schema, "names": tuple(tables)},
+                )
+                for table_name, column_name in cursor.fetchall():
+                    result.setdefault(table_name, set()).add(column_name)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect leading index columns for MySQL schemas", exc_info=e)
+            return None
+        return result
+
     # ------------------------------------------------------------------
     # Per-cursor metadata — used during `build_pipeline`
     # ------------------------------------------------------------------

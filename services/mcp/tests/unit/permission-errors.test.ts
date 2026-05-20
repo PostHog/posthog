@@ -6,7 +6,9 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
     handleToolError,
+    PostHogApiError,
     PostHogPermissionError,
+    PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
 
@@ -17,11 +19,13 @@ vi.mock('@/api/rate-limiter', () => ({
 }))
 
 const captureException = vi.fn()
-vi.mock('@/lib/analytics', () => ({
-    getPostHogClient: () => ({
-        captureException,
-    }),
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ captureException }),
+}))
+vi.mock('@/lib/posthog/analytics', () => ({
     AnalyticsEvent: { MCP_INIT: 'mcp init' },
+}))
+vi.mock('@/lib/posthog/flags', () => ({
     isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),
 }))
 
@@ -165,6 +169,35 @@ describe('findPostHogPermissionError', () => {
         const err: Error & { cause?: unknown } = new Error('loop')
         err.cause = err
         expect(findPostHogPermissionError(err)).toBeUndefined()
+    })
+
+    // Cloudflare Durable Object RPC strips Error.cause and the custom subclass
+    // prototype on the way out of the DO. Only `name`, `message`, and `stack`
+    // survive. Without a message-shape fallback, init-time permission failures
+    // get mapped to opaque 500s and OAuth-aware MCP clients never see the
+    // 403 + insufficient_scope challenge they need to re-consent.
+    describe('boundary-stripped errors (DO RPC fallback)', () => {
+        it('reconstructs a PostHogPermissionError from a plain Error whose message carries the missing-scope literal', () => {
+            const stripped = new Error("Failed to get user: Missing PostHog API scope: 'user:read'")
+
+            const recovered = findPostHogPermissionError(stripped)
+
+            expect(recovered).toBeInstanceOf(PostHogPermissionError)
+            expect(recovered?.missingScope).toBe('user:read')
+        })
+
+        it('handles double-quoted scope literal', () => {
+            const stripped = new Error('Failed to do thing: Missing PostHog API scope: "insight:write"')
+
+            const recovered = findPostHogPermissionError(stripped)
+
+            expect(recovered?.missingScope).toBe('insight:write')
+        })
+
+        it('returns undefined for unrelated error messages even when shape-similar', () => {
+            expect(findPostHogPermissionError(new Error('Something about scope but not the literal'))).toBeUndefined()
+            expect(findPostHogPermissionError(new Error('Missing PostHog API scope without quotes'))).toBeUndefined()
+        })
     })
 })
 
@@ -337,5 +370,111 @@ describe('ApiClient fetchJson on 403 permission_denied', () => {
         )
 
         vi.unstubAllGlobals()
+    })
+})
+
+// Regression: an LLM agent passing a placeholder UUID to an MCP tool produced
+// a 404, and `handleToolError` captured it as a PostHog exception fingerprinted
+// by tool name — creating a brand-new error tracking issue per tool every time
+// an agent fumbled a parameter. `handleToolError` must treat 4xx (and
+// validation errors) as recoverable agent input and reserve `captureException`
+// for 5xx and unexpected non-HTTP errors.
+describe('handleToolError with API errors', () => {
+    beforeEach(() => {
+        captureException.mockClear()
+    })
+
+    // Boundary coverage: include 499 and 500 in the tables so an off-by-one
+    // in the `status < 500` guard (e.g. `<=` instead of `<`) gets caught.
+    it.each([
+        { status: 400, statusText: 'Bad Request' },
+        { status: 404, statusText: 'Not Found' },
+        { status: 422, statusText: 'Unprocessable Entity' },
+        { status: 499, statusText: 'Client Closed Request' },
+    ])(
+        'short-circuits $status PostHogApiError without capturing an exception',
+        ({ status, statusText }: { status: number; statusText: string }) => {
+            const error = new PostHogApiError({
+                status,
+                statusText,
+                body: '{"detail":"Not found."}',
+                url: 'https://us.posthog.com/api/environments/2/symbol_sets/00000000-0000-0000-0000-000000000000/',
+                method: 'GET',
+            })
+
+            const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
+
+            expect(captureException).not.toHaveBeenCalled()
+            expect(result.isError).toBe(true)
+            const [content] = result.content as Array<{ type: string; text: string }>
+            expect(content?.text).toContain('[error-tracking-symbol-sets-retrieve]')
+            expect(content?.text).toContain(`Status Code: ${status}`)
+        }
+    )
+
+    it.each([
+        { status: 500, statusText: 'Internal Server Error' },
+        { status: 502, statusText: 'Bad Gateway' },
+        { status: 503, statusText: 'Service Unavailable' },
+    ])(
+        'captures $status PostHogApiError as an exception (real service failure)',
+        ({ status, statusText }: { status: number; statusText: string }) => {
+            const error = new PostHogApiError({
+                status,
+                statusText,
+                body: '{"detail":"oops"}',
+                url: 'https://us.posthog.com/api/environments/2/symbol_sets/abc/',
+                method: 'GET',
+            })
+
+            const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
+
+            expect(captureException).toHaveBeenCalledTimes(1)
+            expect(result.isError).toBe(true)
+        }
+    )
+
+    it('short-circuits PostHogValidationError without capturing an exception', () => {
+        const error = new PostHogValidationError({
+            detail: 'invalid uuid',
+            attr: 'id',
+            code: 'invalid',
+            extra: undefined,
+            url: 'https://us.posthog.com/api/environments/2/symbol_sets/not-a-uuid/',
+            method: 'GET',
+        })
+
+        const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
+
+        expect(captureException).not.toHaveBeenCalled()
+        expect(result.isError).toBe(true)
+        const [content] = result.content as Array<{ type: string; text: string }>
+        expect(content?.text).toContain('Validation error')
+        expect(content?.text).toContain('field: id')
+    })
+
+    it('unwraps a 4xx PostHogApiError hidden behind Error.cause', () => {
+        const original = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"Not found."}',
+            url: 'https://us.posthog.com/api/environments/2/symbol_sets/00000000-0000-0000-0000-000000000000/',
+            method: 'GET',
+        })
+        const wrapped = wrapError('Failed to retrieve symbol set', original)
+
+        const result = handleToolError(wrapped, 'error-tracking-symbol-sets-retrieve')
+
+        expect(captureException).not.toHaveBeenCalled()
+        expect(result.isError).toBe(true)
+    })
+
+    it('still captures unexpected non-HTTP errors', () => {
+        const error = new Error('boom — something unexpected went wrong')
+
+        const result = handleToolError(error, 'some-tool')
+
+        expect(captureException).toHaveBeenCalledTimes(1)
+        expect(result.isError).toBe(true)
     })
 })

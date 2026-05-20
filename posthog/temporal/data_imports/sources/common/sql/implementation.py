@@ -179,6 +179,23 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     ) -> dict[str, bool]:
         return {}
 
+    def get_leading_index_columns(
+        self,
+        conn: ConnT,
+        config: ConfigT,
+        tables: list[str],
+    ) -> dict[str, set[str]] | None:
+        """Return `{table_name: {leading_index_column, …}}` per table, or `None`.
+
+        Drives the UI warning when a user picks an incremental field with
+        no index on the source. Returning `None` means "lookup failed —
+        don't warn, treat every field as indexed". Tables present with an
+        empty set mean "we looked, no indexes here — warn for every
+        candidate". Drivers opt in by overriding; the default skips the
+        feature (every field reported as indexed).
+        """
+        return None
+
     # ------------------------------------------------------------------
     # Optional streaming queries — called from within `build_pipeline`
     # on a live cursor. Base returns `None` so drivers opt into partition

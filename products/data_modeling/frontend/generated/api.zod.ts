@@ -31,7 +31,7 @@ export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
     type: zod
         .enum(['table', 'view', 'matview', 'endpoint'])
         .optional()
-        .describe('* `table` - Table\n* `view` - View\n* `matview` - Mat View\n* `endpoint` - Endpoint'),
+        .describe('\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint'),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })

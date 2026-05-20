@@ -367,7 +367,7 @@ class TestSentrySourceValidation:
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_issue_tag_values_custom_fanout_row_format(self, mock_get) -> None:
         seen_issues_params: list[dict | None] = []
         seen_values_params: list[dict | None] = []
@@ -383,7 +383,7 @@ class TestSentrySourceValidation:
                 return _response([{"value": "Chrome", "timesSeen": 1}])
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
 
         resp = sentry_source(
             auth_token="token",
@@ -402,7 +402,7 @@ class TestSentrySourceValidation:
         assert seen_issues_params == [{"limit": 100, "query": "", "sort": "date"}]
         assert seen_values_params == [{"limit": 100, "sort": "-date"}]
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self, mock_get) -> None:
         cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
 
@@ -423,7 +423,7 @@ class TestSentrySourceValidation:
                 raise AssertionError("should not request the next page after reaching cutoff")
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
 
         resp = sentry_source(
             auth_token="token",
@@ -531,7 +531,7 @@ class TestSentrySourceResumable:
 class TestIssueTagValuesResumable:
     """Resume behaviour for the two-level issue_tag_values fan-out loop."""
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_fresh_run_saves_state_pointing_to_next_values_page(self, mock_get) -> None:
         next_values_link = (
             "<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2>; "
@@ -548,7 +548,7 @@ class TestIssueTagValuesResumable:
             # Second values page returns empty + no link header to end the loop
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
         manager = _make_fake_manager(can_resume=False)
 
         resp = sentry_source(
@@ -575,7 +575,7 @@ class TestIssueTagValuesResumable:
             values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
         )
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_resume_fetches_saved_values_url_and_skips_earlier_pairs(self, mock_get) -> None:
         seen_urls: list[str] = []
         resume_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2"
@@ -591,7 +591,7 @@ class TestIssueTagValuesResumable:
             # Any other URL shouldn't be hit on resume; fall back to empty
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
         manager = _make_fake_manager(
             can_resume=True,
             state=SentryResumeConfig(issue_id="100", tag_key="browser", values_next_url=resume_url),
@@ -617,7 +617,7 @@ class TestIssueTagValuesResumable:
         assert initial_values_url not in seen_urls
 
     @patch("posthog.temporal.data_imports.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 2)
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_stale_checkpoint_falls_through_after_skip_limit(self, mock_get) -> None:
         """If the checkpoint issue was deleted between runs, bounded skipping
         falls through so subsequent issues still get processed."""
@@ -632,7 +632,7 @@ class TestIssueTagValuesResumable:
                 return _response([{"value": "Chrome"}])
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
         manager = _make_fake_manager(
             can_resume=True,
             state=SentryResumeConfig(
@@ -657,7 +657,7 @@ class TestIssueTagValuesResumable:
         # the limit, clear the markers, and process it fresh.
         assert rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_partial_resume_state_falls_through_to_fresh_run(self, mock_get) -> None:
         """Only activate resume when the full (issue_id, tag_key, values_next_url)
         triple is present; partial state must fall through to a fresh run."""
@@ -671,7 +671,7 @@ class TestIssueTagValuesResumable:
                 return _response([{"value": "Chrome"}])
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
         # issue_id set, but tag_key + values_next_url are missing → partial state.
         manager = _make_fake_manager(
             can_resume=True,
@@ -691,7 +691,7 @@ class TestIssueTagValuesResumable:
         rows = list(cast(Any, resp.items()))
         assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_resume_with_empty_state_falls_through_to_fresh_run(self, mock_get) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
             if url.endswith("/organizations/acme/issues/"):
@@ -702,7 +702,7 @@ class TestIssueTagValuesResumable:
                 return _response([{"value": "Chrome"}])
             return _response([])
 
-        mock_get.side_effect = side_effect
+        mock_get.return_value.get.side_effect = side_effect
         # can_resume=True but state.issue_id is None — should fall through.
         manager = _make_fake_manager(can_resume=True, state=SentryResumeConfig())
 

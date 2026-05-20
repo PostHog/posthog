@@ -62,6 +62,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="324587...",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="organization_slug",
@@ -69,6 +70,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-org",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="api_base_url",
@@ -96,7 +98,12 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
         }
 
     def get_schemas(
-        self, config: SentrySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SentrySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:

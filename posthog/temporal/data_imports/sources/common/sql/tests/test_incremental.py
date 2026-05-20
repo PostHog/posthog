@@ -18,6 +18,8 @@ def test_build_incremental_fields_emits_dict_per_triple() -> None:
         ("id", IncrementalFieldType.Integer, False),
     ]
     result = build_incremental_fields(triples)
+    # `indexed_columns=None` (the default) means "discovery wasn't run" — the UI
+    # treats every field as indexed so no warning ever fires.
     assert result == [
         {
             "label": "created_at",
@@ -25,6 +27,7 @@ def test_build_incremental_fields_emits_dict_per_triple() -> None:
             "field": "created_at",
             "field_type": IncrementalFieldType.DateTime,
             "nullable": False,
+            "is_indexed": True,
         },
         {
             "label": "id",
@@ -32,6 +35,7 @@ def test_build_incremental_fields_emits_dict_per_triple() -> None:
             "field": "id",
             "field_type": IncrementalFieldType.Integer,
             "nullable": False,
+            "is_indexed": True,
         },
     ]
 
@@ -43,6 +47,24 @@ def test_build_incremental_fields_preserves_nullable_flag() -> None:
 
 def test_build_incremental_fields_empty_input() -> None:
     assert build_incremental_fields([]) == []
+
+
+def test_build_incremental_fields_marks_indexed_columns() -> None:
+    triples: list[tuple[str, IncrementalFieldType, bool]] = [
+        ("created_at", IncrementalFieldType.DateTime, False),
+        ("id", IncrementalFieldType.Integer, False),
+    ]
+    result = build_incremental_fields(triples, indexed_columns={"id"})
+    assert result[0]["is_indexed"] is False
+    assert result[1]["is_indexed"] is True
+
+
+def test_build_incremental_fields_empty_indexed_set_marks_none_indexed() -> None:
+    triples: list[tuple[str, IncrementalFieldType, bool]] = [
+        ("created_at", IncrementalFieldType.DateTime, False),
+    ]
+    result = build_incremental_fields(triples, indexed_columns=set())
+    assert result[0]["is_indexed"] is False
 
 
 @pytest.mark.parametrize(

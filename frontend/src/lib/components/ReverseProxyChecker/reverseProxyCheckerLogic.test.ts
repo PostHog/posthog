@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -74,5 +77,40 @@ describe('reverseProxyCheckerLogic', () => {
             .toMatchValues({
                 hasReverseProxy: true,
             })
+    })
+
+    it('should swallow server errors silently instead of showing a toast', async () => {
+        // Regression test: previously a 500 from the HogQL endpoint would propagate
+        // through kea-loaders and surface a user-visible
+        // 'Load has reverse proxy failed: A server error occurred' toast on every
+        // scene that mounts ProductSetupButton.
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [500, { detail: 'A server error occurred' }],
+            },
+        })
+
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: false,
+            })
+
+        expect(toastErrorSpy).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: expect.stringContaining('reverseProxyCheckerLogic: loadHasReverseProxy query failed'),
+            })
+        )
+
+        toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
     })
 })

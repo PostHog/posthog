@@ -83,7 +83,7 @@ class TestProcessTeamsEvent(BaseTest):
             ),
         ]
     )
-    @patch("products.conversations.backend.teams.send_teams_help_reply")
+    @patch("products.conversations.backend.teams.post_help_card")
     @patch("products.conversations.backend.teams.get_bot_from_id", return_value="28:bot-app-id")
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     @patch("products.conversations.backend.teams._send_confirmation_card")
@@ -98,7 +98,7 @@ class TestProcessTeamsEvent(BaseTest):
         _mock_card: MagicMock,
         _mock_user: MagicMock,
         _mock_bot_id: MagicMock,
-        mock_help_reply: MagicMock,
+        mock_help_card: MagicMock,
     ):
         if disable_teams:
             self.team.conversations_settings = {"teams_enabled": False}
@@ -117,7 +117,8 @@ class TestProcessTeamsEvent(BaseTest):
             assert ticket is not None
             assert ticket.channel_detail == expected_channel_detail
         if _name == "greeting_mention_replies_with_help_no_ticket":
-            mock_help_reply.assert_called_once()
+            mock_help_card.assert_called_once()
+            assert mock_help_card.call_args.kwargs["reply"] is True
 
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     @patch("products.conversations.backend.teams._send_confirmation_card")

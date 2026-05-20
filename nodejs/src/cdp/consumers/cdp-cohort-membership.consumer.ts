@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
@@ -24,11 +24,11 @@ export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema
 
 export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
-    private kafkaConsumer: KafkaConsumer
+    private kafkaConsumer: KafkaConsumerInterface
 
     constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: 'cdp-cohort-membership-consumer',
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
         })

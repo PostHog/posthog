@@ -28,18 +28,18 @@ WEB_ANALYTICS_QUERY_LATENCY_BUCKETS = [
 WEB_ANALYTICS_QUERY_DURATION = Histogram(
     "web_analytics_query_duration_seconds",
     "Web analytics query execution latency in seconds",
-    labelnames=["query_kind", "used_preaggregated", "breakdown", "has_conversion_goal"],
+    labelnames=["query_kind", "query_strategy", "used_preaggregated", "breakdown", "has_conversion_goal"],
     buckets=WEB_ANALYTICS_QUERY_LATENCY_BUCKETS,
 )
 
 WEB_ANALYTICS_QUERY_COUNTER = Counter(
     "web_analytics_query_total",
     "Total number of web analytics queries executed",
-    labelnames=["query_kind", "used_preaggregated", "breakdown", "has_conversion_goal"],
+    labelnames=["query_kind", "query_strategy", "used_preaggregated", "breakdown", "has_conversion_goal"],
 )
 
 WEB_ANALYTICS_QUERY_ERRORS = Counter(
     "web_analytics_query_errors_total",
     "Total number of web analytics query errors",
-    labelnames=["query_kind", "breakdown", "error_type"],
+    labelnames=["query_kind", "query_strategy", "breakdown", "error_type"],
 )

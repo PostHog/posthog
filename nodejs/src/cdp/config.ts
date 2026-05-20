@@ -1,5 +1,4 @@
 import {
-    KAFKA_APP_METRICS,
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
@@ -11,7 +10,6 @@ import {
 import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 import {
     CdpProducerName,
-    MSK_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -63,6 +61,22 @@ export type CdpConfig = {
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+    // Reuses CDP_REDIS_PASSWORD; falls back to the writer when host is unset.
+    CDP_REDIS_READER_HOST: string
+    CDP_REDIS_READER_PORT: number
+
+    // Shadow Valkey pool for dual-write/read load testing. When CDP_VALKEY_DUAL_ENABLED
+    // is true and CDP_VALKEY_HOST is set, every Redis call also runs against this pool;
+    // shadow results are discarded, errors/timeouts logged + counted but never affect
+    // the primary code path.
+    CDP_VALKEY_HOST: string
+    CDP_VALKEY_PORT: number
+    CDP_VALKEY_PASSWORD: string
+    CDP_VALKEY_READER_HOST: string
+    CDP_VALKEY_READER_PORT: number
+    CDP_VALKEY_DUAL_ENABLED: boolean
+    // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
+    CDP_VALKEY_TLS: boolean
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -78,8 +92,6 @@ export type CdpConfig = {
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
     CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
-    CDP_LEGACY_PLUGIN_APP_METRICS_TOPIC: string
-    CDP_LEGACY_PLUGIN_APP_METRICS_PRODUCER: CdpProducerName
     CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: string
     CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
@@ -111,9 +123,6 @@ export type CdpConfig = {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
-
-    APP_METRICS_FLUSH_FREQUENCY_MS: number
-    APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -161,6 +170,16 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',
+        CDP_REDIS_READER_HOST: '',
+        CDP_REDIS_READER_PORT: 6379,
+
+        CDP_VALKEY_HOST: '',
+        CDP_VALKEY_PORT: 6379,
+        CDP_VALKEY_PASSWORD: '',
+        CDP_VALKEY_READER_HOST: '',
+        CDP_VALKEY_READER_PORT: 6379,
+        CDP_VALKEY_DUAL_ENABLED: false,
+        CDP_VALKEY_TLS: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -176,8 +195,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
         CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_LEGACY_PLUGIN_APP_METRICS_TOPIC: KAFKA_APP_METRICS,
-        CDP_LEGACY_PLUGIN_APP_METRICS_PRODUCER: MSK_PRODUCER,
         CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
         CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
@@ -216,8 +233,5 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
-
-        APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
-        APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
     }
 }

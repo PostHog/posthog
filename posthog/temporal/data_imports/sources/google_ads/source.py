@@ -65,6 +65,7 @@ class GoogleAdsSource(
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,
@@ -134,6 +135,7 @@ class GoogleAdsSource(
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="123-456-7890",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
@@ -152,6 +154,7 @@ class GoogleAdsSource(
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="123-456-7890",
+                                    secret=False,
                                 )
                             ],
                         ),

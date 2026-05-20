@@ -171,7 +171,7 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
         if (!experimentLoading && experiment) {
             refreshExperimentResults(false, 'page_load')
         }
-    }, [experimentLoading, experiment?.id])
+    }, [experimentLoading, experiment?.id, experiment, refreshExperimentResults])
 
     return (
         <BindLogic logic={legacyExperimentLogic} props={legacyLogicProps}>
@@ -230,7 +230,6 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
                           - SharedMetricModal (can't add shared metrics)
                           - SharedMetricDetailsModal (can't manage shared metrics)
                           - ExposureCriteriaModal (can't edit exposure)
-                          - RunningTimeCalculatorModal (modern feature)
                           - EditConclusionModal (uses legacy version instead)
                         */}
                     </>

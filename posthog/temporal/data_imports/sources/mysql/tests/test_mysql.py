@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     _safe_convert_datetime,
     _sanitize_identifier,
 )
+from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -653,3 +654,21 @@ class TestBuildQueryForceIndex:
                 db_incremental_field_last_value="2025-01-01",
                 force_index_name="bad;injection",
             )
+
+
+class TestMySQLSourceNonRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return MySQLSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Cannot build decimal array from values",
+            "ValueError: Cannot build decimal array from values",
+        ],
+    )
+    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"

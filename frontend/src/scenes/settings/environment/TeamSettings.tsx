@@ -7,7 +7,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { JSSnippet, JSSnippetV2 as JSSnippetV2Component } from 'lib/components/JSSnippet'
+import { JSSnippet } from 'lib/components/JSSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -69,19 +69,6 @@ export function WebSnippet(): JSX.Element {
         </div>
     ) : (
         <JSSnippet />
-    )
-}
-
-export function WebSnippetV2(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-
-    return currentTeamLoading && !currentTeam ? (
-        <div className="deprecated-space-y-4">
-            <LemonSkeleton className="w-1/2 h-4" />
-            <LemonSkeleton repeat={3} />
-        </div>
-    ) : (
-        <JSSnippetV2Component />
     )
 }
 

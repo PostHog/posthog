@@ -106,6 +106,8 @@ class CostThrottle(Throttle):
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
                 retry_after=retry_after,
+                used_usd=current,
+                limit_usd=limit,
             )
         return ThrottleResult.allow()
 
@@ -230,9 +232,8 @@ class _UserCostThrottleBase(CostThrottle):
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
             return ""
-        team_id = context.user.team_id or 0
         team_mult = self._get_team_multiplier(context)
-        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}:t{team_id}"
+        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
         if team_mult == 1:
             return base
         return f"{base}:tm{team_mult}"

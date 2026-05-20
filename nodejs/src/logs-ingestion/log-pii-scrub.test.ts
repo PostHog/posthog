@@ -132,7 +132,7 @@ describe('log-pii-scrub', () => {
             expect(r.body).toBe(`plain ${PII_REDACTED} log`)
         })
 
-        it('does not mutate attributes, resource_attributes, or metadata string fields', () => {
+        it('scrubs pattern-shaped PII in log attributes; does not mutate resource_attributes or metadata string fields', () => {
             const r = baseRecord()
             r.body = 'ok'
             r.attributes = { safe: 'ok', auth_token: 'secret@x.com' }
@@ -143,12 +143,21 @@ describe('log-pii-scrub', () => {
             r.instrumentation_scope = 'scope@lib.example'
             scrubLogRecord(r)
             expect(r.body).toBe('ok')
-            expect(r.attributes).toEqual({ safe: 'ok', auth_token: 'secret@x.com' })
+            expect(r.attributes).toEqual({ safe: 'ok', auth_token: PII_REDACTED })
             expect(r.resource_attributes).toEqual({ host: 'srv', note: 'x@example.com' })
             expect(r.service_name).toBe('svc@corp.example')
             expect(r.severity_text).toBe('warn ops@example.com')
             expect(r.event_name).toBe('evt user@host.invalid')
             expect(r.instrumentation_scope).toBe('scope@lib.example')
+        })
+
+        it('scrubs log attributes when body is null (no early return)', () => {
+            const r = baseRecord()
+            r.body = null
+            r.attributes = { x: 'a@b.co' }
+            const stats = scrubLogRecord(r)
+            expect(r.attributes).toEqual({ x: PII_REDACTED })
+            expect(stats.piiReplacements).toBe(1)
         })
 
         it('scrubs pattern-shaped PII in JSON array body string; does not redact by JSON key alone', () => {

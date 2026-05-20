@@ -29,12 +29,19 @@ class IncrementalFieldFilter(Protocol):
 
 def build_incremental_fields(
     triples: list[tuple[str, IncrementalFieldType, bool]],
+    indexed_columns: set[str] | None = None,
 ) -> list[IncrementalField]:
     """Convert `(name, type, nullable)` tuples into `IncrementalField` dicts.
 
     This loop used to live unchanged in every `source.py` (postgres, mysql,
     mssql, snowflake, bigquery, redshift, clickhouse) — centralizing it
     here so schema discovery stays consistent.
+
+    `indexed_columns` is the leading index column set for the table the
+    triples came from. `None` means "discovery wasn't run / failed" — the
+    UI treats every field as indexed (no warning). When provided, each
+    field reports `is_indexed=True` iff its column is the leading column
+    of some index.
     """
     return [
         {
@@ -43,6 +50,7 @@ def build_incremental_fields(
             "field": name,
             "field_type": field_type,
             "nullable": nullable,
+            "is_indexed": True if indexed_columns is None else name in indexed_columns,
         }
         for name, field_type, nullable in triples
     ]

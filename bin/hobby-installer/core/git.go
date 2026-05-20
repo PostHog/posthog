@@ -151,9 +151,9 @@ func CopyComposeFiles() error {
 		return err
 	}
 
-	// Copy the shared env file that docker-compose.base.yml references via env_file.
-	if err := copyFile("posthog/dev-services.env", "dev-services.env"); err != nil {
-		logger.Debug("Failed to copy dev-services.env: %v", err)
+	// Copy the shared service-connection env file that docker-compose.base.yml references via env_file.
+	if err := copyFile("posthog/.env.services", ".env.services"); err != nil {
+		logger.Debug("Failed to copy .env.services: %v", err)
 		return err
 	}
 

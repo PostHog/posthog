@@ -33,6 +33,8 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     """
     SandboxClass = get_sandbox_class()
 
+    logger.info("create_resume_snapshot_started", sandbox_id=input.sandbox_id, run_id=input.run_id)
+
     try:
         sandbox = SandboxClass.get_by_id(input.sandbox_id)
     except Exception as e:

@@ -48,7 +48,7 @@ class TestSelectAllIncremental:
             incremental_last_value=datetime.datetime(2025, 1, 1),
         )
         assert "%(incremental_value)s" in result.sql
-        assert "WHERE `created_at` >= %(incremental_value)s" in result.sql
+        assert "WHERE `created_at` > %(incremental_value)s" in result.sql
         assert "ORDER BY `created_at` ASC" in result.sql
         assert result.params == {"incremental_value": datetime.datetime(2025, 1, 1)}
 
@@ -84,6 +84,16 @@ class TestSelectAllIncremental:
                 incremental_field_type=None,
             )
 
+    def test_date_type_uses_inclusive_operator(self) -> None:
+        result = self.builder.select_all(
+            schema="mydb",
+            table_name="messages",
+            incremental_field="event_date",
+            incremental_field_type=IncrementalFieldType.Date,
+            incremental_last_value=datetime.date(2025, 1, 1),
+        )
+        assert "WHERE `event_date` >= %(incremental_value)s" in result.sql
+
     def test_order_by_can_be_suppressed(self) -> None:
         result = self.builder.select_all(
             schema="mydb",
@@ -106,7 +116,7 @@ class TestParamStyles:
             incremental_field_type=IncrementalFieldType.Integer,
             incremental_last_value=42,
         )
-        assert 'WHERE "id" >= ?' in result.sql
+        assert 'WHERE "id" > ?' in result.sql
         assert result.params == [42]
 
     def test_named_style_uses_colon_prefix(self) -> None:

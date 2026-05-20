@@ -30,6 +30,27 @@ if TYPE_CHECKING:
     pass
 
 LOGGER = get_logger(__name__)
+MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
+
+
+def build_person_properties_select_clause(person_properties: list[str]) -> tuple[str, dict[str, str], dict[str, str]]:
+    """Build ClickHouse SELECT expressions for the requested person properties.
+
+    Property names come from cohort filters, so they must stay out of the SQL string.
+    The returned clause contains only generated aliases and query parameter placeholders.
+    """
+    property_selects: list[str] = []
+    property_alias_mapping: dict[str, str] = {}
+    property_query_params: dict[str, str] = {}
+
+    for i, prop in enumerate(person_properties):
+        safe_alias = f"prop_{i}"
+        property_key_param = f"property_key_{i}"
+        property_selects.append(f"JSONExtract(properties, %({property_key_param})s, 'String') as `{safe_alias}`")
+        property_alias_mapping[safe_alias] = prop
+        property_query_params[property_key_param] = prop
+
+    return ",\n                ".join(property_selects), property_alias_mapping, property_query_params
 
 
 def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
@@ -456,40 +477,16 @@ async def backfill_precalculated_person_properties_activity(
             pass
 
         # Build optimized query to only fetch needed person properties
-        MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
-        property_alias_mapping = {}
+        property_alias_mapping: dict[str, str] = {}
+        property_query_params: dict[str, str] = {}
 
         if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
-            # Build a single JSONExtract with tuple structure for all properties
-            escaped_properties = []
-            for prop in person_properties:
-                # Use backtick escaping for identifier names in tuple definition
-                escaped_prop = prop.replace("`", "``")
-                escaped_properties.append(f"`{escaped_prop}` String")
-
-            tuple_definition = ",\n        ".join(escaped_properties)
-
-            # Build the select statements for tupleElement extractions
-            property_selects = []
-            for i, prop in enumerate(person_properties):
-                safe_alias = f"prop_{i}"  # Use safe numeric aliases
-                # Escape single quotes for string literal in tupleElement
-                string_escaped_prop = prop.replace("'", "''")
-                property_selects.append(f"tupleElement(p, '{string_escaped_prop}') as `{safe_alias}`")
-                property_alias_mapping[safe_alias] = prop
-
-            tuple_selects = ",\n                ".join(property_selects)
-
-            properties_clause = f"""JSONExtract(
-                properties,
-                'Tuple(
-        {tuple_definition}
-                )'
-            ) AS p,
-                {tuple_selects}"""
+            properties_clause, property_alias_mapping, property_query_params = build_person_properties_select_clause(
+                person_properties
+            )
 
             logger.info(
-                f"Optimized query: using single JSONExtract with tuple structure for {len(person_properties)} properties"
+                f"Optimized query: fetching {len(person_properties)} specific properties with parameterized keys"
             )
         else:
             # Fallback to all properties if we have too many properties or can't determine which ones are needed
@@ -522,6 +519,7 @@ async def backfill_precalculated_person_properties_activity(
             "team_id": inputs.team_id,
             "start_person_id": inputs.start_person_id,
             "end_person_id": inputs.end_person_id,
+            **property_query_params,
         }
         if inputs.person_id is not None:
             query_params["person_id"] = inputs.person_id
