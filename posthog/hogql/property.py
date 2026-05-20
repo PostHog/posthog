@@ -568,27 +568,29 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        # _validate_between_values already enforces numeric bounds, so the LHS
-        # always needs numeric coercion here.
-        left_low = _force_numeric(expr) if _is_numeric_value(value[0]) else expr
-        left_high = _force_numeric(expr) if _is_numeric_value(value[1]) else expr
+        # `_validate_between_values` accepts string-numerics like "5" via float(), so
+        # the two bounds can arrive with different Python types (e.g. [1, "5"]). Decide
+        # coercion once per BETWEEN to keep both comparisons in the same regime — if
+        # either bound looks numeric, treat the LHS as numeric for both halves so we
+        # don't end up comparing one bound numerically and the other lexicographically.
+        needs_coercion = _is_numeric_value(value[0]) or _is_numeric_value(value[1])
+        left = _force_numeric(expr) if needs_coercion else expr
         return ast.And(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left_low, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq, left=left_high, right=ast.Constant(value=value[1])
-                ),
+                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=value[1])),
             ]
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        left_low = _force_numeric(expr) if _is_numeric_value(value[0]) else expr
-        left_high = _force_numeric(expr) if _is_numeric_value(value[1]) else expr
+        # See BETWEEN above — same one-decision-per-bound-pair rationale.
+        needs_coercion = _is_numeric_value(value[0]) or _is_numeric_value(value[1])
+        left = _force_numeric(expr) if needs_coercion else expr
         return ast.Or(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left_low, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left_high, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=value[1])),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:

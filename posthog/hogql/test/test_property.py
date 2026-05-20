@@ -1472,19 +1472,44 @@ class TestProperty(BaseTest):
         )
 
     def test_property_to_expr_numeric_coercion_in_between_validation(self):
-        """BETWEEN already enforces numeric bounds via _validate_between_values, so the LHS
-        is always coerced. Confirm both bounds wrap independently — there's no scenario
-        where one bound is numeric and the other isn't.
+        """BETWEEN bounds may arrive with mixed Python types because
+        ``_validate_between_values`` accepts string-numerics like ``"5"`` via ``float()``.
+        Coercion must be decided once per BETWEEN so both halves stay in the same
+        comparison regime — never one numeric and one lexicographic.
         """
-        # Float bounds.
+        # Float bounds: both numeric → both halves coerced.
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "between", "value": [0.5, 99.5]}),
             self._parse_expr("(toFloat(properties.score) >= 0.5 AND toFloat(properties.score) <= 99.5)"),
         )
-        # Mixed int/float.
+        # Mixed int/float: both numeric → both halves coerced.
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "between", "value": [0, 99.5]}),
             self._parse_expr("(toFloat(properties.score) >= 0 AND toFloat(properties.score) <= 99.5)"),
+        )
+        # Mixed int/string-numeric: one side is numeric, so both halves must coerce —
+        # otherwise we'd produce ``toFloat(x) >= 1 AND x <= '5'`` (numeric on one side,
+        # lexicographic on the other), which gives subtly wrong results.
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "between", "value": [1, "5"]}),
+            self._parse_expr("(toFloat(properties.score) >= 1 AND toFloat(properties.score) <= '5')"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "between", "value": ["1", 5]}),
+            self._parse_expr("(toFloat(properties.score) >= '1' AND toFloat(properties.score) <= 5)"),
+        )
+        # Both bounds are string-numerics: neither is _is_numeric_value, so we keep
+        # the legacy lexicographic comparison — matches the single-value LT/LTE
+        # behavior for string operands.
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "between", "value": ["1", "5"]}),
+            self._parse_expr("(properties.score >= '1' AND properties.score <= '5')"),
+        )
+
+        # Same one-decision-per-pair rule for NOT_BETWEEN.
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [1, "5"]}),
+            self._parse_expr("(toFloat(properties.score) < 1 OR toFloat(properties.score) > '5')"),
         )
 
     def test_property_to_expr_numeric_coercion_does_not_affect_other_operators(self):
