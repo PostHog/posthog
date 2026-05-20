@@ -21,6 +21,7 @@ class SignalSourceConfig(UUIDModel):
         ZENDESK = "zendesk", "Zendesk"
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        PGANALYZE = "pganalyze", "pganalyze"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"

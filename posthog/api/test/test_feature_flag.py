@@ -8564,7 +8564,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8589,6 +8589,76 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
+        # Regression: a flag with a team-wide "none" default plus a single explicit
+        # editor grant becomes invisible to everyone once the grantee is removed
+        # from the org (their AccessControl row cascade-deletes). Org admins should
+        # still be able to find such orphaned flags in the list endpoint.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee = self._create_user("grantee@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee_membership = grantee.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="orphaned flag",
+            key="orphaned-flag",
+        )
+        # Team-wide "no access" default for this flag
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+        # Single explicit editor grant for the grantee
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=grantee_membership,
+            access_level="editor",
+        )
+
+        # self.user is the org admin via APIBaseTest setup
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Remove the grantee from the org -> cascade deletes their explicit grant
+        grantee_membership.delete()
+
+        # Org admin must still see the flag in the list (it's an orphaned flag now)
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        keys = [f["key"] for f in list_response.json()["results"]]
+        self.assertIn("orphaned-flag", keys)
+
+    def test_member_still_blocked_from_listing_default_none_flag(self) -> None:
+        # Counterpart to the test above: non-admin members without an explicit
+        # grant must still be filtered out by the per-object "none" default.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="blocked flag",
+            key="blocked-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(other)
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        keys = [f["key"] for f in list_response.json()["results"]]
+        self.assertNotIn("blocked-flag", keys)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -13367,3 +13437,53 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the mock was called
         mock_reconstruct.assert_called_once()
+
+
+class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_passes_runtime_all(self, mock_get_flags):
+        """The Person → Feature flags tab must bypass Rust's header-based
+        runtime detection — otherwise flags whose evaluation_runtime is
+        "client" or "server" disappear from the tab."""
+        mock_get_flags.return_value = {"flags": {}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+
+    @parameterized.expand(
+        [
+            ("all",),
+            ("client",),
+            ("server",),
+        ]
+    )
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_surfaces_flag_for_runtime(self, runtime, mock_get_flags):
+        """Each stored runtime must round-trip through evaluation_reasons with
+        its evaluation.reason intact — this is the shape
+        relatedFeatureFlagsLogic.ts depends on."""
+        flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{runtime}", evaluation_runtime=runtime)
+        mock_get_flags.return_value = {
+            "flags": {
+                flag.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn(flag.key, data)
+        self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")

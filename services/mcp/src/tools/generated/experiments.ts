@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ExperimentSavedMetricsCreateBody,
+    ExperimentSavedMetricsDestroyParams,
+    ExperimentSavedMetricsListQueryParams,
+    ExperimentSavedMetricsPartialUpdateBody,
+    ExperimentSavedMetricsPartialUpdateParams,
+    ExperimentSavedMetricsRetrieveParams,
     ExperimentsArchiveCreateParams,
     ExperimentsCreateBody,
     ExperimentsDestroyParams,
@@ -313,6 +319,7 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                     limit: params.limit,
                     offset: params.offset,
                     order: params.order,
+                    prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
                 },
@@ -402,6 +409,140 @@ const experimentResume = (): ToolBase<typeof ExperimentResumeSchema, WithPostHog
         },
     })
 
+const ExperimentSavedMetricsCreateSchema = ExperimentSavedMetricsCreateBody
+
+const experimentSavedMetricsCreate = (): ToolBase<
+    typeof ExperimentSavedMetricsCreateSchema,
+    Schemas.ExperimentSavedMetric
+> => ({
+    name: 'experiment-saved-metrics-create',
+    schema: ExperimentSavedMetricsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.ExperimentSavedMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExperimentSavedMetricsDestroySchema = ExperimentSavedMetricsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentSavedMetricsDestroyParams.shape['id']),
+})
+
+const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetricsDestroySchema, unknown> => ({
+    name: 'experiment-saved-metrics-destroy',
+    schema: ExperimentSavedMetricsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ExperimentSavedMetricsListSchema = ExperimentSavedMetricsListQueryParams.extend({
+    limit: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['offset']).optional(),
+})
+
+const experimentSavedMetricsList = (): ToolBase<
+    typeof ExperimentSavedMetricsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExperimentSavedMetricList>
+> => ({
+    name: 'experiment-saved-metrics-list',
+    schema: ExperimentSavedMetricsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExperimentSavedMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'description', 'query', 'created_at', 'updated_at', 'tags'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/experiments')
+    },
+})
+
+const ExperimentSavedMetricsPartialUpdateSchema = ExperimentSavedMetricsPartialUpdateParams.omit({ project_id: true })
+    .extend(ExperimentSavedMetricsPartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentSavedMetricsPartialUpdateParams.shape['id']) })
+
+const experimentSavedMetricsPartialUpdate = (): ToolBase<
+    typeof ExperimentSavedMetricsPartialUpdateSchema,
+    Schemas.ExperimentSavedMetric
+> => ({
+    name: 'experiment-saved-metrics-partial-update',
+    schema: ExperimentSavedMetricsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.ExperimentSavedMetric>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExperimentSavedMetricsRetrieveSchema = ExperimentSavedMetricsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentSavedMetricsRetrieveParams.shape['id']),
+})
+
+const experimentSavedMetricsRetrieve = (): ToolBase<
+    typeof ExperimentSavedMetricsRetrieveSchema,
+    Schemas.ExperimentSavedMetric
+> => ({
+    name: 'experiment-saved-metrics-retrieve',
+    schema: ExperimentSavedMetricsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentSavedMetric>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const ExperimentShipVariantSchema = ExperimentsShipVariantCreateParams.omit({ project_id: true })
     .extend(ExperimentsShipVariantCreateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']) })
@@ -421,6 +562,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key
+            }
+            if (params.release_to_everyone !== undefined) {
+                body['release_to_everyone'] = params.release_to_everyone
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -572,6 +716,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-pause': experimentPause,
     'experiment-reset': experimentReset,
     'experiment-resume': experimentResume,
+    'experiment-saved-metrics-create': experimentSavedMetricsCreate,
+    'experiment-saved-metrics-destroy': experimentSavedMetricsDestroy,
+    'experiment-saved-metrics-list': experimentSavedMetricsList,
+    'experiment-saved-metrics-partial-update': experimentSavedMetricsPartialUpdate,
+    'experiment-saved-metrics-retrieve': experimentSavedMetricsRetrieve,
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,

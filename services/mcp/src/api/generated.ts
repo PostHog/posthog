@@ -32,6 +32,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `read_write` - read_write
+    * `read` - read
+    * `none` - none
+     */
+    export type AccessLevelEnum = typeof AccessLevelEnum[keyof typeof AccessLevelEnum];
+
+
+    export const AccessLevelEnum = {
+      ReadWrite: 'read_write',
+      Read: 'read',
+      None: 'none',
+    } as const;
+
+    /**
      * * `warehouse` - warehouse
     * `direct` - direct
      */
@@ -42,6 +56,53 @@ export namespace Schemas {
       Warehouse: 'warehouse',
       Direct: 'direct',
     } as const;
+
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    export type AccountProperties = {
+      /** @nullable */
+      csm?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_executive?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_owner?: {
+      id: number;
+      email: string;
+    } | null;
+    } | null;
+
+    export interface Account {
+      readonly id: string;
+      /**
+         * Human-readable name of the account.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * @maxLength 400
+         * @nullable
+         */
+      external_id?: string | null;
+      /**
+         * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+         * @nullable
+         */
+      properties?: AccountProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
 
     /**
      * * `event` - event
@@ -1928,11 +1989,23 @@ export namespace Schemas {
     export type TrendsFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | {[key: string]: ResultCustomizationByPosition} | null;
 
     export interface TrendsFilter {
+      /** Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+
+      - `numeric` (default): raw numbers, e.g. `1,234`.
+      - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+      - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+      - `percentage`: values are already in the 0-100 range; appends `%`.
+      - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+      - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+      - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
       aggregationAxisFormat?: AggregationAxisFormat | null;
+      /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
       aggregationAxisPostfix?: string | null;
+      /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
       breakdown_histogram_bin_count?: number | null;
       confidenceLevel?: number | null;
+      /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
       decimalPlaces?: number | null;
       /** detailed results table */
       detailedResultsAggregationType?: DetailedResultsAggregationType | null;
@@ -3882,7 +3955,8 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
-     * * `hourly` - hourly
+     * * `every_15_minutes` - every_15_minutes
+    * `hourly` - hourly
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly
@@ -3891,6 +3965,7 @@ export namespace Schemas {
 
 
     export const CalculationIntervalEnum = {
+      Every15Minutes: 'every_15_minutes',
       Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
@@ -3957,6 +4032,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -4953,7 +5029,28 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
     export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -5284,8 +5381,16 @@ export namespace Schemas {
          * @nullable
          */
       bytes_exported?: number | null;
-      /** The BatchExport this run belongs to. */
-      readonly batch_export: string;
+      /**
+         * The `BatchExport` this run belongs to.
+         * @nullable
+         */
+      readonly batch_export: string | null;
+      /**
+         * The `BatchExportOnDemand` this run belongs to.
+         * @nullable
+         */
+      batch_export_on_demand?: string | null;
       /**
          * The backfill this run belongs to.
          * @nullable
@@ -6328,6 +6433,41 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
+    }
+
+    export interface BulkNotificationIdsRequest {
+      /**
+         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
+         * @maxItems 500
+         */
+      notification_ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -6813,6 +6953,11 @@ export namespace Schemas {
       settings?: Settings | null;
     }
 
+    /**
+     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+     */
+    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -6870,6 +7015,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+      resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
@@ -7587,6 +7734,37 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface ComposeTicket {
+      /** Recipient email address. */
+      recipient_email: string;
+      /**
+         * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+         * @maxLength 400
+         */
+      recipient_distinct_id?: string;
+      /**
+         * Email subject line.
+         * @maxLength 500
+         */
+      email_subject?: string;
+      /** ID of the EmailChannel to send from. */
+      email_config_id: string;
+      /**
+         * Message content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
+    export interface ComposeTicketResponse {
+      /** Created ticket UUID. */
+      id: string;
+      /** Human-readable ticket number. */
+      ticket_number: number;
+    }
+
     /**
      * * `won` - won
     * `lost` - lost
@@ -7981,6 +8159,43 @@ export namespace Schemas {
       GithubRepo: 'github_repo',
     } as const;
 
+    /**
+     * * `cost` - cost
+    * `latency` - latency
+    * `eval_pass_rate` - eval_pass_rate
+     */
+    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
+
+
+    export const TemplatesEnum = {
+      Cost: 'cost',
+      Latency: 'latency',
+      EvalPassRate: 'eval_pass_rate',
+    } as const;
+
+    export interface CreateFromPromptInput {
+      /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+      prompt_name: string;
+      /**
+         * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+         * @minItems 2
+         * @maxItems 10
+         */
+      versions: number[];
+      /**
+         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+         * @minItems 1
+         * @maxItems 3
+         */
+      templates: TemplatesEnum[];
+      /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+      name?: string;
+      /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+      feature_flag_key?: string;
+      /** Optional experiment description. */
+      description?: string;
+    }
+
     export interface CreateGroup {
       /**
          * @minimum -2147483648
@@ -7996,10 +8211,10 @@ export namespace Schemas {
      * * `BAA` - BAA
     * `DPA` - DPA
      */
-    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
 
 
-    export const DocumentTypeEnum = {
+    export const CreateLegalDocumentDocumentTypeEnum = {
       Baa: 'BAA',
       Dpa: 'DPA',
     } as const;
@@ -8014,7 +8229,7 @@ export namespace Schemas {
 
       * `BAA` - BAA
       * `DPA` - DPA */
-      document_type: DocumentTypeEnum;
+      document_type: CreateLegalDocumentDocumentTypeEnum;
       /**
          * The customer legal entity entering the agreement (PandaDoc's Client.Company).
          * @maxLength 255
@@ -11442,6 +11657,7 @@ export namespace Schemas {
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
     * `Resend` - Resend
+    * `PgAnalyze` - PgAnalyze
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -11591,6 +11807,7 @@ export namespace Schemas {
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
       Resend: 'Resend',
+      PgAnalyze: 'PgAnalyze',
     } as const;
 
     /**
@@ -11746,7 +11963,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -11845,6 +12063,430 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `dispatch` - Dispatch
+    * `clone` - Clone
+    * `install` - Install
+    * `build` - Build
+    * `publish` - Publish
+     */
+    export type ErrorStepEnum = typeof ErrorStepEnum[keyof typeof ErrorStepEnum];
+
+
+    export const ErrorStepEnum = {
+      Dispatch: 'dispatch',
+      Clone: 'clone',
+      Install: 'install',
+      Build: 'build',
+      Publish: 'publish',
+    } as const;
+
+    export const DeploymentErrorStep = {...ErrorStepEnum,...BlankEnum,} as const
+    /**
+     * * `queued` - Queued
+    * `initializing` - Initializing
+    * `building` - Building
+    * `ready` - Ready
+    * `error` - Error
+    * `cancelled` - Cancelled
+     */
+    export type DeploymentStatusEnum = typeof DeploymentStatusEnum[keyof typeof DeploymentStatusEnum];
+
+
+    export const DeploymentStatusEnum = {
+      Queued: 'queued',
+      Initializing: 'initializing',
+      Building: 'building',
+      Ready: 'ready',
+      Error: 'error',
+      Cancelled: 'cancelled',
+    } as const;
+
+    /**
+     * * `manual` - Manual
+    * `git` - Git
+    * `redeploy` - Redeploy
+    * `rollback` - Rollback
+    * `seed` - Seed
+     */
+    export type TriggerKindEnum = typeof TriggerKindEnum[keyof typeof TriggerKindEnum];
+
+
+    export const TriggerKindEnum = {
+      Manual: 'manual',
+      Git: 'git',
+      Redeploy: 'redeploy',
+      Rollback: 'rollback',
+      Seed: 'seed',
+    } as const;
+
+    export interface Deployment {
+      /** Unique identifier for the deployment. */
+      readonly id: string;
+      /** The deployment project this deployment belongs to. */
+      readonly project: string;
+      /** Current pipeline stage. Valid values: queued, initializing, building, ready, error, cancelled.
+
+      * `queued` - Queued
+      * `initializing` - Initializing
+      * `building` - Building
+      * `ready` - Ready
+      * `error` - Error
+      * `cancelled` - Cancelled */
+      status: DeploymentStatusEnum;
+      /**
+         * When the pipeline started building. Null while still queued.
+         * @nullable
+         */
+      started_at?: string | null;
+      /**
+         * When the pipeline finished (regardless of outcome). Null while still running.
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** When the deployment row was created (~ queued_at). */
+      readonly created_at: string;
+      /**
+         * Git commit SHA the deployment was built from.
+         * @maxLength 64
+         */
+      commit_sha?: string;
+      /** Commit message associated with the commit SHA. */
+      commit_message?: string;
+      /**
+         * Display name of the commit author.
+         * @maxLength 255
+         */
+      commit_author_name?: string;
+      /**
+         * Email address of the commit author. Used by the Author filter on the list page.
+         * @maxLength 255
+         */
+      commit_author_email?: string;
+      /**
+         * HTTPS URL of the source repository. Captured at deploy time.
+         * @maxLength 1024
+         */
+      repo_url?: string;
+      /**
+         * Source branch the deployment was built from.
+         * @maxLength 255
+         */
+      branch?: string;
+      /**
+         * Public URL serving the built site once ready.
+         * @maxLength 1024
+         */
+      deployment_url?: string;
+      /**
+         * URL of the captured site screenshot, used in the list/card view.
+         * @maxLength 1024
+         */
+      preview_image_url?: string;
+      /**
+         * The deployment this one was triggered from (for rollbacks and redeploys).
+         * @nullable
+         */
+      readonly triggered_by_deployment: string | null;
+      /**
+         * Posthog user id of the user who clicked Deploy/Redeploy/Rollback. Null for git-triggered or seed rows.
+         * @nullable
+         */
+      readonly triggered_by_user_id: number | null;
+      /** What caused this deployment to start: manual | git | redeploy | rollback | seed.
+
+      * `manual` - Manual
+      * `git` - Git
+      * `redeploy` - Redeploy
+      * `rollback` - Rollback
+      * `seed` - Seed */
+      trigger_kind: TriggerKindEnum;
+      /** Failure detail set when status=error. Empty for successful or in-flight deployments. */
+      readonly error_message: string;
+      /** Build step that failed: dispatch | clone | install | build | publish. Empty when status != error.
+
+      * `dispatch` - Dispatch
+      * `clone` - Clone
+      * `install` - Install
+      * `build` - Build
+      * `publish` - Publish */
+      error_step?: typeof DeploymentErrorStep[keyof typeof DeploymentErrorStep];
+      /** Cloudflare Pages deployment id, set once the publish step succeeds. */
+      readonly cloudflare_deployment_id: string;
+      /** Temporal workflow id for this build. Used for cancellation signalling. */
+      readonly temporal_workflow_id: string;
+      /** True if this deployment is currently serving production traffic for its project. */
+      readonly is_current: boolean;
+      /** Build duration in seconds (finished_at - started_at). 0 while still running. */
+      readonly duration_seconds: number;
+    }
+
+    /**
+     * Response shape for one-off action endpoints (cancel, refresh_preview).
+     */
+    export interface DeploymentActionResponse {
+      /** Short human-readable confirmation message. */
+      detail: string;
+    }
+
+    /**
+     * Response shape returned with HTTP 409 when an active deploy exists.
+     */
+    export interface DeploymentConflictResponse {
+      /** Reason for the conflict. */
+      detail: string;
+      /** The deployment currently in-flight for the project. Frontend can poll this id. */
+      active_deployment_id: string;
+    }
+
+    /**
+     * Body of POST /api/projects/{}/deployment_projects/{}/deployments/.
+     */
+    export interface DeploymentCreateInput {
+      /**
+         * Optional commit SHA. If omitted, the build worker resolves HEAD of `branch` (or the project's default_branch).
+         * @maxLength 64
+         */
+      commit_sha?: string;
+      /**
+         * Optional branch override. If omitted, uses the project's `default_branch`.
+         * @maxLength 255
+         */
+      branch?: string;
+    }
+
+    export interface DeploymentEvent {
+      /** Unique identifier for the event row. */
+      readonly id: string;
+      /** The deployment this event belongs to. */
+      readonly deployment: string;
+      /**
+         * Event category, e.g. `status_changed`, `preview_captured`, `dispatched`.
+         * @maxLength 50
+         */
+      event_type: string;
+      /** Arbitrary structured payload for the event. Shape varies by event_type. */
+      payload: unknown;
+      /** When the event occurred (server time). */
+      readonly occurred_at: string;
+    }
+
+    /**
+     * One line of build output emitted by the build worker as a `$log` event.
+     */
+    export interface DeploymentLogEntry {
+      /** When the line was emitted by the build worker. */
+      timestamp: string;
+      /**
+         * Log level: "info" | "warn" | "error". Null if the event did not carry one.
+         * @nullable
+         */
+      level: string | null;
+      /**
+         * Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.
+         * @nullable
+         */
+      step: string | null;
+      /**
+         * The log line itself (a single line of stdout or stderr).
+         * @nullable
+         */
+      line: string | null;
+      /**
+         * Set on the last line of a step; null on all other lines.
+         * @nullable
+         */
+      exit_code: number | null;
+    }
+
+    /**
+     * Response shape for GET /deployments/{id}/logs/.
+     */
+    export interface DeploymentLogsResponse {
+      /** Log lines for the deployment, oldest first. */
+      results: DeploymentLogEntry[];
+      /** True if the row limit was hit and older lines may exist beyond this page. */
+      has_more: boolean;
+      /** The hard cap applied by the server. */
+      row_limit: number;
+    }
+
+    export interface DeploymentProject {
+      /** Unique identifier for the deployment project. */
+      readonly id: string;
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * HTTPS URL of the connected GitHub repository, resolved from the selected repository id.
+         * @maxLength 1024
+         */
+      readonly repo_url: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+      /** Cloudflare Pages project name, assigned during provisioning. */
+      readonly cloudflare_project_name: string;
+      /** Public subdomain at which deployments of this project serve. */
+      readonly subdomain: string;
+      /**
+         * Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.
+         * @nullable
+         */
+      readonly cloudflare_ready_at: string | null;
+      /**
+         * The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.
+         * @nullable
+         */
+      readonly current_deployment: string | null;
+      /** True when the project has both a provisioned Cloudflare backend and a configured GitHub credential — meaning a deploy can be triggered right now. */
+      readonly is_ready_to_deploy: boolean;
+      /** Timestamp when the project was created. */
+      readonly created_at: string;
+      /** Timestamp when the project was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface DeploymentProjectCreate {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /** Existing PostHog GitHub integration id used for repository access. */
+      github_integration_id: number;
+      /** Stable GitHub repository identifier selected from the existing integration's repository list. */
+      github_repo_id: number;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
+    /**
+     * Response shape for refreshing a deployment project's GitHub branch.
+     */
+    export interface DeploymentProjectRefreshResponse {
+      /** Human-readable explanation of the refresh result. */
+      detail: string;
+      /** HTTPS URL of the connected GitHub repository. */
+      repo_url: string;
+      /** Branch checked by the refresh action. */
+      default_branch: string;
+      /** Current GitHub HEAD SHA for default_branch. */
+      commit_sha: string;
+    }
+
+    export interface DeploymentProjectWrite {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
     export interface DeprovisionWarehouseResponse {
       status: string;
       team: string;
@@ -11921,6 +12563,69 @@ export namespace Schemas {
       completed_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Inputs the `/detect/` endpoint needs to suggest a project config.
+
+    Decouples detection from any one git provider — callers fetch
+    `package.json` and the list of lockfiles however they like (GitHub
+    raw content via the team's existing integration, a temporary clone,
+    user-pasted JSON during early development) and pass them here.
+     */
+    export interface DetectConfigRequest {
+      /** Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback. */
+      package_json?: unknown;
+      /** Filenames of package-manager lockfiles found in the repo root (e.g. ["pnpm-lock.yaml"]). Used to pick the package manager. */
+      lockfiles?: string[];
+    }
+
+    /**
+     * * `npm` - npm
+    * `pnpm` - pnpm
+    * `yarn` - yarn
+    * `bun` - bun
+     */
+    export type PackageManagerEnum = typeof PackageManagerEnum[keyof typeof PackageManagerEnum];
+
+
+    export const PackageManagerEnum = {
+      Npm: 'npm',
+      Pnpm: 'pnpm',
+      Yarn: 'yarn',
+      Bun: 'bun',
+    } as const;
+
+    /**
+     * Suggested project config. Every field is overridable in the connect-repo UI.
+
+    `build_command`, `output_dir`, and `framework` map directly to the
+    `DeploymentProject` model fields. `package_manager`, `install_command`,
+    and `node_version` are informational hints — the model doesn't store
+    them today, but the UI can display them so the user knows what the
+    build worker will end up running.
+     */
+    export interface DetectConfigResponse {
+      /** Detected package manager from lockfile presence.
+
+      * `npm` - npm
+      * `pnpm` - pnpm
+      * `yarn` - yarn
+      * `bun` - bun */
+      package_manager: PackageManagerEnum;
+      /** Suggested install command, or empty when no install is needed. */
+      install_command: string;
+      /** Suggested build command, or empty when no known framework matched. */
+      build_command: string;
+      /** Suggested output directory relative to repo root. */
+      output_dir: string;
+      /** Suggested Node major version, parsed from `engines.node` or defaulted to 20. */
+      node_version: string;
+      /**
+         * Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into `DeploymentProject.framework`. Null when no framework matched — leaving the field null lets the build worker fall back to its own auto-detection.
+         * @nullable
+         */
+      framework: string | null;
     }
 
     /**
@@ -14954,13 +15659,18 @@ export namespace Schemas {
      */
     export interface ExperimentSavedMetric {
       readonly id: number;
-      /** @maxLength 400 */
+      /**
+         * Name of the shared metric. Must be unique within the project (case-insensitive).
+         * @maxLength 400
+         */
       name: string;
       /**
+         * Short description of what the metric measures.
          * @maxLength 400
          * @nullable
          */
       description?: string | null;
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -15376,7 +16086,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -15425,7 +16136,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -16312,6 +17023,22 @@ export namespace Schemas {
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
+    }
+
+    export interface GitHubTeam {
+      /** GitHub team numeric identifier. */
+      id: number;
+      /** GitHub team slug. */
+      slug: string;
+      /** GitHub team display name. */
+      name: string;
+    }
+
+    export interface GitHubTeamsResponse {
+      /** List of GitHub teams available to the installation organization. */
+      teams: GitHubTeam[];
+      /** Whether more teams are available beyond this page. */
       has_more: boolean;
     }
 
@@ -17796,6 +18523,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: TraceSpansTreeQueryResponse | null;
+      /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+      serviceName: string;
       serviceNames?: string[] | null;
       /** Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run. */
       spanName: string;
@@ -18582,6 +19311,60 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    export interface InterviewInviteResult {
+      /** The original identifier (email or distinct ID) from the topic targeting. */
+      interviewee_identifier: string;
+      /**
+         * Email used for delivery. Null when the identifier was not an email (e.g., a distinct ID).
+         * @nullable
+         */
+      email?: string | null;
+      /** The personalized public interview URL embedded in the email body. */
+      interview_url: string;
+      /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
+      sent: boolean;
+      /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+      reason?: string;
+    }
+
+    export interface InterviewLink {
+      /**
+         * The original identifier (email or distinct ID) from the topic targeting.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /** Best-effort display name derived from the identifier, used to greet the interviewee. */
+      user_name: string;
+      /** Public, unauthenticated URL the interviewee opens to start the call. Backed by a SharingConfiguration access token. */
+      interview_url: string;
+      /** The merged topic + per-interviewee context the voice agent will see during the call. */
+      agent_context: string;
+    }
+
+    export interface IntervieweeContext {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface IntervieweeIdentifierRequest {
+      /**
+         * Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.
+         * @maxLength 400
+         */
+      identifier: string;
+    }
+
     /**
      * * `2.0` - 2.0
      */
@@ -19117,6 +19900,19 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+     */
+    export interface LensResult {
+      /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+    }
+
+    /**
      * * `monitor` - Monitor
     * `classifier` - Classifier
     * `scorer` - Scorer
@@ -19133,6 +19929,37 @@ export namespace Schemas {
       Summarizer: 'summarizer',
       Indexer: 'indexer',
     } as const;
+
+    /**
+     * Mirrors `temporal.types.LensSnapshot` for OpenAPI generation.
+     */
+    export interface LensSnapshot {
+      /** Lens name at run time. */
+      name: string;
+      /** Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.
+
+      * `monitor` - Monitor
+      * `classifier` - Classifier
+      * `scorer` - Scorer
+      * `summarizer` - Summarizer
+      * `indexer` - Indexer */
+      lens_type: LensTypeEnum;
+      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
+      lens_version: number;
+      /** Concrete model that ran the observation.
+
+      * `gemini-3-flash` - Gemini 3 Flash
+      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      model: LensModelEnum;
+      /** Concrete provider that ran the observation.
+
+      * `google` - Google */
+      provider: LensProviderEnum;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      lens_config: unknown;
+    }
 
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
@@ -19170,6 +19997,12 @@ export namespace Schemas {
       group_type_mapping: LocalEvaluationResponseGroupTypeMapping;
       /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
       cohorts: LocalEvaluationResponseCohorts;
+    }
+
+    export interface LogsAlertFilters {
+      filterGroup?: PropertyGroupFilter | null;
+      serviceNames?: string[] | null;
+      severityLevels?: LogSeverityLevel[] | null;
     }
 
     /**
@@ -19245,7 +20078,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
@@ -19368,6 +20201,7 @@ export namespace Schemas {
     * `snooze` - Snooze
     * `unsnooze` - Unsnooze
     * `threshold_change` - Threshold change
+    * `broken_config` - Broken config
      */
     export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
 
@@ -19380,6 +20214,7 @@ export namespace Schemas {
       Snooze: 'snooze',
       Unsnooze: 'unsnooze',
       ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
     } as const;
 
     export interface LogsAlertEvent {
@@ -19414,7 +20249,7 @@ export namespace Schemas {
 
     export interface LogsAlertSimulateRequest {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
-      filters: unknown;
+      filters: LogsAlertFilters;
       /**
          * Threshold count to evaluate against.
          * @minimum 1
@@ -19521,7 +20356,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -19876,7 +20711,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `BACKFILL` - Backfill
+     * * `PENDING` - Pending
+    * `BACKFILL` - Backfill
     * `READY` - Ready
     * `ERROR` - Error
      */
@@ -19884,6 +20720,7 @@ export namespace Schemas {
 
 
     export const MaterializedColumnSlotStateEnum = {
+      Pending: 'PENDING',
       Backfill: 'BACKFILL',
       Ready: 'READY',
       Error: 'ERROR',
@@ -19894,18 +20731,18 @@ export namespace Schemas {
       team: number;
       property_definition: string;
       readonly property_definition_details: PropertyDefinition;
-      property_type: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at: string;
@@ -20258,6 +21095,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      target_type: string;
+      target_id: string;
       /** @nullable */
       resource_type: string | null;
       resource_id: string;
@@ -20346,6 +21185,25 @@ export namespace Schemas {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
     } as const;
+
+    /**
+     * Body of POST /vision/lenses/{id}/observe/.
+     */
+    export interface ObserveRequest {
+      /**
+         * ID of the session recording to apply the lens to.
+         * @maxLength 128
+         */
+      session_id: string;
+    }
+
+    /**
+     * Async-accepted response for POST /vision/lenses/{id}/observe/.
+     */
+    export interface ObserveResponse {
+      /** Temporal workflow id for this lens application. Look up the resulting ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>. */
+      workflow_id: string;
+    }
 
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
@@ -20734,6 +21592,15 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    export interface PaginatedAccountList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Account[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -21004,6 +21871,33 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Dataset[];
+    }
+
+    export interface PaginatedDeploymentEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DeploymentEvent[];
+    }
+
+    export interface PaginatedDeploymentList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Deployment[];
+    }
+
+    export interface PaginatedDeploymentProjectList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DeploymentProject[];
     }
 
     export interface PaginatedDesktopRecordingList {
@@ -21400,6 +22294,33 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
+    }
+
+    export interface PaginatedInterviewInviteResultList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: InterviewInviteResult[];
+    }
+
+    export interface PaginatedInterviewLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: InterviewLink[];
+    }
+
+    export interface PaginatedIntervieweeContextList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: IntervieweeContext[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -21886,6 +22807,8 @@ export namespace Schemas {
 
     export interface QuarantinedIdentifierEntry {
       created_by?: UserBasicInfo | null;
+      /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+      source_run?: QuarantineSourceRun | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -22031,24 +22954,20 @@ export namespace Schemas {
       * `succeeded` - Succeeded
       * `failed` - Failed */
       readonly status: ObservationStatusEnum;
-      /** Populated on failure. Includes the malformed model response when validation fails. */
+      /** Populated on failure; includes the malformed model response when validation fails. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
-      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
-      readonly lens_version: number;
-      /** Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations. */
-      readonly lens_config_snapshot: unknown;
-      /** Concrete model that ran the observation. */
-      readonly model_used: string;
-      /** Concrete provider that ran the observation. */
-      readonly provider_used: string;
+      /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
+      readonly lens_snapshot: LensSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly lens_result: LensResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
       * `on_demand` - On demand */
       readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation. Null for scheduled observations. */
+      /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
       /** @nullable */
       started_at?: string | null;
@@ -22634,6 +23553,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
+    * `pganalyze` - pganalyze
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -22646,6 +23566,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
+      Pganalyze: 'pganalyze',
     } as const;
 
     /**
@@ -24101,6 +25022,9 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       interviewee_emails?: string[];
+      readonly interviewee_identifier: string;
+      /** @nullable */
+      readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
       audio: string;
@@ -24113,6 +25037,31 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: UserInterview[];
+    }
+
+    export interface UserInterviewTopic {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
+    }
+
+    export interface PaginatedUserInterviewTopicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserInterviewTopic[];
     }
 
     /**
@@ -24405,6 +25354,53 @@ export namespace Schemas {
     }
 
     /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    export type PatchedAccountProperties = {
+      /** @nullable */
+      csm?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_executive?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_owner?: {
+      id: number;
+      email: string;
+    } | null;
+    } | null;
+
+    export interface PatchedAccount {
+      readonly id?: string;
+      /**
+         * Human-readable name of the account.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * @maxLength 400
+         * @nullable
+         */
+      external_id?: string | null;
+      /**
+         * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+         * @nullable
+         */
+      properties?: PatchedAccountProperties;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface PatchedAction {
@@ -24492,6 +25488,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -25187,6 +26184,53 @@ export namespace Schemas {
       readonly team?: number;
     }
 
+    export interface PatchedDeploymentProjectWrite {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
     export interface PatchedDesktopRecording {
       readonly id?: string;
       readonly team?: number;
@@ -25865,13 +26909,18 @@ export namespace Schemas {
      */
     export interface PatchedExperimentSavedMetric {
       readonly id?: number;
-      /** @maxLength 400 */
+      /**
+         * Name of the shared metric. Must be unique within the project (case-insensitive).
+         * @maxLength 400
+         */
       name?: string;
       /**
+         * Short description of what the metric measures.
          * @maxLength 400
          * @nullable
          */
       description?: string | null;
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -25983,7 +27032,7 @@ export namespace Schemas {
       * `web` - web
       * `api` - api
       * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: CreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -26497,6 +27546,22 @@ export namespace Schemas {
       readonly display_name?: string;
     }
 
+    export interface PatchedIntervieweeContext {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier?: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context?: string;
+    }
+
     export interface PatchedJsSnippetVersion {
       /**
          * Version pin: null for latest, "1.358.0" for exact, "1" for major, "1.358" for minor
@@ -26620,7 +27685,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
@@ -26745,7 +27810,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -26785,18 +27850,18 @@ export namespace Schemas {
       team?: number;
       property_definition?: string;
       readonly property_definition_details?: PropertyDefinition;
-      property_type?: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index?: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at?: string;
@@ -29356,11 +30421,21 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
       signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
       signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
       subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
       payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
     }
 
     export interface PatchedTeam {
@@ -29396,6 +30471,25 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
+      /** Filters used to identify internal/test users. Each entry is a property filter.
+
+                  Supported entry types and the exact shape each accepts:
+
+                  # Person property — match (or exclude) by a person property
+                  {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+                  # Event property — match by an event property
+                  {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+                  # Cohort membership — match (or exclude) members of a cohort.
+                  # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+                  # `negation` field here — `negation` is specific to cohort *definitions*
+                  # (the inner sub-filters that build a cohort) and is rejected by the
+                  # property-filter schema.
+                  {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+                  Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+                  "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -29777,9 +30871,28 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       interviewee_emails?: string[];
+      readonly interviewee_identifier?: string;
+      /** @nullable */
+      readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
       audio?: string;
+    }
+
+    export interface PatchedUserInterviewTopic {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic?: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
     }
 
     export interface PatchedUserProductList {
@@ -30854,6 +31967,72 @@ export namespace Schemas {
       values: PropertyItem[];
     }
 
+    /**
+     * Serializes a single access control rule DTO.
+     */
+    export interface PropertyAccessControlRule {
+      readonly id: string;
+      /** The access level for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID this rule applies to, if any.
+         * @nullable
+         */
+      organization_member: string | null;
+      /**
+         * The role UUID this rule applies to, if any.
+         * @nullable
+         */
+      role: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * Serializes the aggregate state for a property definition.
+
+    Preserves the existing API shape: ``access_controls`` is the list
+    of rules, plus the available levels and the computed default.
+     */
+    export interface PropertyAccessControlState {
+      /** List of all access control rules for this property definition. */
+      access_controls: PropertyAccessControlRule[];
+      /** Available access levels that can be assigned. */
+      available_access_levels: string[];
+      /** The default access level when no rules match. */
+      default_access_level: string;
+    }
+
+    /**
+     * Request body for upserting a rule (create or update).
+     */
+    export interface PropertyAccessControlUpdate {
+      /** The property definition ID this rule applies to. */
+      property_definition_id: string;
+      /** The access level to set for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID to set an override for.
+         * @nullable
+         */
+      organization_member?: string | null;
+      /**
+         * The role UUID to set an override for.
+         * @nullable
+         */
+      role?: string | null;
+    }
+
     export type PropertyType = typeof PropertyType[keyof typeof PropertyType];
 
 
@@ -30966,11 +32145,36 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    /**
+     * * `ios` - iOS
+    * `android` - Android
+    * `web` - Web
+     */
+    export type PushTokenPlatformEnum = typeof PushTokenPlatformEnum[keyof typeof PushTokenPlatformEnum];
+
+
+    export const PushTokenPlatformEnum = {
+      Ios: 'ios',
+      Android: 'android',
+      Web: 'web',
+    } as const;
+
     export interface QuarantineInput {
-      /** @maxLength 512 */
+      /**
+         * Snapshot identifier to quarantine.
+         * @maxLength 512
+         */
       identifier: string;
-      /** @maxLength 255 */
+      /**
+         * Why this snapshot is being quarantined.
+         * @maxLength 255
+         */
       reason: string;
+      /**
+         * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+         * @nullable
+         */
+      source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
     }
@@ -33014,6 +34218,18 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SendInvitesRequest {
+      /**
+         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * @maxLength 200
+         */
+      subject?: string;
+      /** Email address replies should go to. Defaults to the topic creator's email if blank. */
+      reply_to?: string;
+      /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
+      send_async?: boolean;
+    }
+
     export type SentimentResultScores = {[key: string]: number};
 
     export type SentimentResultMessages = {[key: string]: MessageSentiment};
@@ -33187,8 +34403,10 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** The key of the variant to ship to 100% of users. */
+      /** The key of the variant to ship. */
       variant_key: string;
+      /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
+      release_to_everyone?: boolean;
     }
 
     export interface _User {
@@ -33355,6 +34573,24 @@ export namespace Schemas {
       stats: SurveyGlobalStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyGlobalStatsResponseRates;
+    }
+
+    export interface SurveyQuestionLabel {
+      /** UUID assigned to the survey question. */
+      question_id: string;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** UUID of the survey this question belongs to. */
+      survey_id: string;
+      /** Display name of the survey. */
+      survey_name: string;
+    }
+
+    export interface SurveyQuestionLabelsResponse {
+      /** One entry per question that has an ID assigned, across all the team's surveys. */
+      labels: SurveyQuestionLabel[];
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -34421,6 +35657,25 @@ export namespace Schemas {
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
+      /** Filters used to identify internal/test users. Each entry is a property filter.
+
+                  Supported entry types and the exact shape each accepts:
+
+                  # Person property — match (or exclude) by a person property
+                  {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+                  # Event property — match by an event property
+                  {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+                  # Cohort membership — match (or exclude) members of a cohort.
+                  # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+                  # `negation` field here — `negation` is specific to cohort *definitions*
+                  # (the inner sub-filters that build a cohort) and is rejected by the
+                  # property-filter schema.
+                  {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+                  Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+                  "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -34806,6 +36061,102 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    /**
+     * * `transcript` - transcript
+    * `summary` - summary
+     */
+    export type UserInterviewSearchDocumentTypeEnum = typeof UserInterviewSearchDocumentTypeEnum[keyof typeof UserInterviewSearchDocumentTypeEnum];
+
+
+    export const UserInterviewSearchDocumentTypeEnum = {
+      Transcript: 'transcript',
+      Summary: 'summary',
+    } as const;
+
+    export interface UserInterviewSearchRequest {
+      /**
+         * Natural-language query to match semantically against interview transcripts and summaries.
+         * @maxLength 2000
+         */
+      query: string;
+      /**
+         * Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.
+         * @minItems 1
+         */
+      document_types?: UserInterviewSearchDocumentTypeEnum[];
+      /**
+         * Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.
+         * @nullable
+         */
+      topic_id?: string | null;
+      /**
+         * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    export interface UserInterviewSearchResult {
+      /** ID of the matched UserInterview. */
+      interview_id: string;
+      /** Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.
+
+      * `transcript` - transcript
+      * `summary` - summary */
+      document_type: UserInterviewSearchDocumentTypeEnum;
+      /** Cosine similarity in [0, 1]; higher is closer to the query. Computed as `1 - cosineDistance`. */
+      similarity: number;
+      /** Excerpt of the matched document (first 500 characters). */
+      content_snippet: string;
+      /** Email or PostHog distinct ID of the interviewee. */
+      interviewee_identifier: string;
+      /**
+         * ID of the UserInterviewTopic the interview was conducted for, or null if detached.
+         * @nullable
+         */
+      topic_id: string | null;
+      /** When the interview row was created. */
+      created_at: string;
+    }
+
+    export interface UserPushTokenItem {
+      /** PostHog UserPushToken row id. */
+      id: string;
+      /** Device platform the token was issued for.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+      /** When this token was first registered. */
+      created_at: string;
+      /** Last time the mobile app re-registered this token. */
+      last_seen_at: string;
+    }
+
+    export interface UserPushTokenRegisterRequest {
+      /**
+         * Opaque push token issued by the device's platform push service (e.g. an Expo push token).
+         * @maxLength 512
+         */
+      token: string;
+      /** Device platform the token was issued for. One of `ios`, `android`, or `web`.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+    }
+
+    export interface UserPushTokenUnregisterRequest {
+      /**
+         * The opaque push token to remove for the authenticated user.
+         * @maxLength 512
+         */
+      token: string;
     }
 
     export interface UtmEvent {
@@ -35497,6 +36848,8 @@ export namespace Schemas {
     export interface _TracingTreeQueryBody {
       /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
       spanName: string;
+      /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
+      serviceName: string;
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
       /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
@@ -37294,6 +38647,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -38001,6 +39372,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -38860,13 +40242,63 @@ export namespace Schemas {
 
     export type NotificationsListParams = {
     /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string;
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
     /**
+     * Filter by notification type
+     */
+    notification_type?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
+    resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
+    resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
+    target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
+    target_type?: string;
+    };
+
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
     };
 
     export type QuickFiltersListParams = {
@@ -38948,10 +40380,10 @@ export namespace Schemas {
 
     export type TracingSpansAttributesRetrieveParams = {
     /**
-     * Type of attributes: "span" for span attributes, "resource" for resource attributes.
+     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
-    * `span` - span
-    * `resource` - resource
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
      * @minLength 1
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType;
@@ -38977,8 +40409,8 @@ export namespace Schemas {
 
 
     export const TracingSpansAttributesRetrieveAttributeType = {
-      Span: 'span',
-      Resource: 'resource',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
     export type TracingSpansServiceNamesRetrieveParams = {
@@ -38996,10 +40428,11 @@ export namespace Schemas {
 
     export type TracingSpansValuesRetrieveParams = {
     /**
-     * Type of attribute: "span" or "resource".
+     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
 
     * `span` - span
-    * `resource` - resource
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType;
@@ -39031,8 +40464,35 @@ export namespace Schemas {
 
     export const TracingSpansValuesRetrieveAttributeType = {
       Span: 'span',
-      Resource: 'resource',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type UserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type UserInterviewsListParams = {
     /**
@@ -39043,6 +40503,7 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    topic?: string;
     };
 
     export type VisionLensesListParams = {
@@ -40648,6 +42109,63 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type DeploymentProjectsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsDeploymentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsDeploymentsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type EarlyAccessFeatureListParams = {
     /**
      * Number of results to return per page.
@@ -40935,6 +42453,10 @@ export namespace Schemas {
      */
     order?: string;
     /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
      * Free-text search applied to the experiment name (case-insensitive).
      */
     search?: string;
@@ -40965,6 +42487,12 @@ export namespace Schemas {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string;
+    };
+
+    export type ExperimentsPromptTemplatesRetrieve200Item = {
+      key: string;
+      label: string;
+      description: string;
     };
 
     export type ExportsListParams = {
@@ -42269,6 +43797,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
@@ -42965,6 +44511,10 @@ export namespace Schemas {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean;
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean;
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1

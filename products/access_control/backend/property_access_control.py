@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 
 from ee.models.rbac.role import RoleMembership
@@ -17,14 +17,16 @@ if TYPE_CHECKING:
     from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
-class PropertyAccessLevel(Enum):
-    READ_WRITE = "read_write"
-    READ = "read"
-    NONE = "none"
-
-    def grants_access(self) -> bool:
-        """Returns True if this level allows the property to be read in queries."""
-        return self in (PropertyAccessLevel.READ_WRITE, PropertyAccessLevel.READ)
+# Re-exported for legacy callers; canonical definition lives in facade.contracts.
+__all__ = [
+    "PropertyAccessLevel",
+    "get_default_access_level",
+    "get_non_writable_property_names",
+    "get_property_access_level",
+    "get_restricted_properties_for_team",
+    "get_restricted_property_names",
+    "strip_restricted_properties",
+]
 
 
 def get_default_access_level() -> PropertyAccessLevel:
@@ -69,7 +71,7 @@ def get_property_access_level(
                 user=user,
                 organization_id=property.team.organization_id,
             )
-            .only("id")
+            .only("id", "level")
             .first()
         )
 
@@ -81,6 +83,102 @@ def get_property_access_level(
         )
 
     return _resolve_access_level(rules, membership=membership, user_role_ids=user_role_ids)
+
+
+def strip_restricted_properties(
+    properties: dict,
+    restricted_names: set[str],
+) -> dict:
+    """
+    Returns a copy of the properties dict with restricted keys removed.
+    """
+    if not restricted_names:
+        return properties
+    return {k: v for k, v in properties.items() if k not in restricted_names}
+
+
+def get_restricted_property_names(
+    *,
+    team_id: int,
+    user: User | None,
+    property_type: int,
+) -> set[str]:
+    """
+    Convenience wrapper over get_restricted_properties_for_team that returns just the property names
+    restricted for a specific PropertyDefinition.Type (EVENT or PERSON).
+
+    :param team_id: The team whose restrictions to check.
+    :param user: The user making the request.
+    :param property_type: PropertyDefinition.Type value (e.g., PropertyDefinition.Type.EVENT).
+    :returns: Set of restricted property name strings.
+    """
+    restricted = get_restricted_properties_for_team(team_id=team_id, user=user)
+    return {name for name, ptype in restricted if ptype == property_type}
+
+
+def get_non_writable_property_names(
+    *,
+    team_id: int,
+    user: User | None,
+    property_type: int,
+) -> set[str]:
+    """
+    Returns property names where the user does not have write access (i.e., the effective
+    access level is READ or NONE).
+
+    :param team_id: The team whose restrictions to check.
+    :param user: The user making the request.
+    :param property_type: PropertyDefinition.Type value (e.g., PropertyDefinition.Type.PERSON).
+    :returns: Set of property name strings that the user cannot write to.
+    """
+    from posthog.models import OrganizationMembership
+
+    from products.access_control.backend.models.property_access_control import PropertyAccessControl
+
+    rules = (
+        PropertyAccessControl.objects.filter(team_id=team_id)
+        .select_related("property_definition", "organization_member", "role")
+        .exclude(property_definition__isnull=True)
+        .filter(property_definition__type=property_type)
+    )
+
+    rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
+    for rule in rules:
+        prop_def_id = rule.property_definition_id
+
+        if prop_def_id is None:
+            continue
+
+        if prop_def_id not in rules_by_property:
+            rules_by_property[prop_def_id] = []
+        rules_by_property[prop_def_id].append(rule)
+
+    if len(rules_by_property) == 0:
+        return set()
+
+    membership = None
+    user_role_ids: set[int] = set()
+    if user is not None:
+        from posthog.models.team import Team
+
+        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        membership = OrganizationMembership.objects.filter(user=user, organization_id=org_id).only("id").first()
+
+        from ee.models.rbac.role import RoleMembership
+
+        user_role_ids = set(RoleMembership.objects.filter(user=user).values_list("role_id", flat=True))
+
+    non_writable: set[str] = set()
+    for _prop_def_id, prop_rules in rules_by_property.items():
+        prop_def = prop_rules[0].property_definition
+        if prop_def is None:
+            continue
+
+        level = _resolve_access_level(prop_rules, membership=membership, user_role_ids=user_role_ids)
+        if level != PropertyAccessLevel.READ_WRITE:
+            non_writable.add(prop_def.name)
+
+    return non_writable
 
 
 def get_restricted_properties_for_team(
@@ -126,7 +224,7 @@ def get_restricted_properties_for_team(
         membership_qs = OrganizationMembership.objects.filter(
             user=user,
             organization_id=org_id,
-        ).only("id")
+        ).only("id", "level")
         membership = membership_qs.first()
 
         if membership is None:
@@ -160,7 +258,14 @@ def _resolve_access_level(
     """
     Resolves the effective access level from a set of rules for a single property definition,
     following the hierarchy: user-specific > role-specific > default.
+
+    Org admins bypass member- and role-specific overrides and always get the default access level
+    for the property, mirroring the admin bypass in `UserAccessControl.access_level_for_object`.
     """
+    # Org admins bypass all access control rules and get full access
+    if membership is not None and membership.level >= OrganizationMembership.Level.ADMIN:
+        return get_default_access_level()
+
     # 1. user-specific rule
     if membership is not None:
         for rule in rules:

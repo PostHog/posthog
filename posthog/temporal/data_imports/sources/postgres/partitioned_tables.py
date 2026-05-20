@@ -12,7 +12,10 @@ import pyarrow as pa
 from psycopg import sql
 from structlog.types import FilteringBoundLogger
 
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     QueryTimeoutException,
@@ -20,11 +23,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
-
-# Max rows per FETCH when reading a partitioned parent table. A partitioned
-# parent scan dispatches across every child partition; a large chunk size can
-# blow past the source's statement_timeout even when per-row payload is small.
-PARTITIONED_TABLE_MAX_CHUNK_SIZE = 30_000
 
 # Retry budgets for iterate_date_windows. Counters reset on every successful
 # window. Exhausting QueryCanceled surfaces QueryTimeoutException; exhausting
@@ -519,10 +517,12 @@ def build_partition_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} > {last_value} ORDER BY {field} ASC").format(
+    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
+    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} {op} {last_value} ORDER BY {field} ASC").format(
         schema=sql.Identifier(child_schema),
         table=sql.Identifier(child_name),
         field=sql.Identifier(incremental_field),
+        op=operator,
         last_value=sql.Literal(db_incremental_field_last_value),
     )
 
@@ -637,7 +637,6 @@ def is_supported_incremental_type_for_window(field_type: Optional[IncrementalFie
 
 
 __all__ = [
-    "PARTITIONED_TABLE_MAX_CHUNK_SIZE",
     "WINDOW_MAX_QUERY_CANCELED_RETRIES",
     "WINDOW_MAX_SERIALIZATION_RETRIES",
     "ChildPartition",

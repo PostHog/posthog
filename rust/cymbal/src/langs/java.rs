@@ -79,7 +79,7 @@ impl RawJavaFrame {
     {
         let r = self.get_ref()?;
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
-        let mapper = map.get_mapper();
+        let cache = map.get_cache()?;
 
         let frame = match self.filename.as_ref() {
             Some(file) => StackFrame::with_file(
@@ -95,7 +95,7 @@ impl RawJavaFrame {
             ),
         };
 
-        let res: Vec<Frame> = mapper
+        let res: Vec<Frame> = cache
             .remap_frame(&frame)
             .map(|re| (self, re).into())
             .collect();
@@ -138,9 +138,7 @@ impl RawJavaFrame {
     {
         let r = self.get_ref()?;
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
-        let mapper = map.get_mapper();
-        let result = mapper.remap_class(class).map(|s| s.to_string());
-        Ok(result)
+        Ok(map.remap_class(class)?)
     }
 }
 

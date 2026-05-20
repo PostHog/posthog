@@ -24,7 +24,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -39,7 +42,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
-    PARTITIONED_TABLE_MAX_CHUNK_SIZE,
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
@@ -142,6 +144,10 @@ def _connect_to_postgres(
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5,
             **kwargs,
         )
     except psycopg.OperationalError as e:
@@ -792,30 +798,41 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
+    # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
+    # scans (upper_bound_inclusive set) must keep `>` because consecutive windows use the
+    # previous window's hi as the next window's lo — `>=` would re-fetch every row at the
+    # boundary value, duplicating each window's hi inside a single run.
+    operator = (
+        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
+    )
+
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
+                op=operator,
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
+                op=operator,
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
+            op=operator,
             last_value=sql.Literal(db_incremental_field_last_value),
         )
 
@@ -854,10 +871,12 @@ def _build_count_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
+    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
         incremental_field=sql.Identifier(incremental_field),
+        op=operator,
         last_value=sql.Literal(db_incremental_field_last_value),
     )
 
@@ -1479,6 +1498,10 @@ def postgres_source(
                 sslrootcert="/tmp/no.txt",
                 sslcert="/tmp/no.txt",
                 sslkey="/tmp/no.txt",
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
             )
         except psycopg.OperationalError as e:
             if require_ssl and "SSL" in str(e):
@@ -1554,15 +1577,7 @@ def postgres_source(
                         logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
-                        # Cap chunk size for partitioned tables. Server-cursor FETCH
-                        # on a partitioned parent scans across all child partitions,
-                        # so a large chunk can exceed statement_timeout even when
-                        # per-row size is small.
-                        if is_partitioned and chunk_size > PARTITIONED_TABLE_MAX_CHUNK_SIZE:
-                            logger.debug(
-                                f"Capping chunk_size from {chunk_size} to {PARTITIONED_TABLE_MAX_CHUNK_SIZE} for partitioned table"
-                            )
-                            chunk_size = PARTITIONED_TABLE_MAX_CHUNK_SIZE
+
                     logger.debug("Getting rows to sync...")
                     # For partitioned tables without an incremental cursor (initial
                     # sync, re-sync, or non-incremental), use pg_class.reltuples
@@ -1664,6 +1679,10 @@ def postgres_source(
                         sslcert="/tmp/no.txt",
                         sslkey="/tmp/no.txt",
                         cursor_factory=cursor_factory,
+                        keepalives=1,
+                        keepalives_idle=30,
+                        keepalives_interval=10,
+                        keepalives_count=5,
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):

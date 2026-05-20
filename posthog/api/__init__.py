@@ -11,6 +11,7 @@ from posthog.api import (
     my_notifications,
     project,
     user_integration,
+    user_push_token,
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -29,6 +30,7 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
+import products.deployments.backend.api as deployments
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
@@ -112,7 +114,11 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import UserInterviewViewSet
+from products.user_interviews.backend.api import (
+    IntervieweeContextViewSet,
+    UserInterviewTopicViewSet,
+    UserInterviewViewSet,
+)
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
@@ -312,6 +318,21 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
+)
 
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
@@ -401,6 +422,13 @@ environments_router.register(
     r"customer_journeys",
     customer_analytics.CustomerJourneyViewSet,
     "environment_customer_journeys",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"accounts",
+    customer_analytics.AccountViewSet,
+    "environment_accounts",
     ["team_id"],
 )
 
@@ -746,6 +774,12 @@ users_router.register(
     r"integrations",
     user_integration.UserIntegrationViewSet,
     "user_integration",
+    ["uuid"],
+)
+users_router.register(
+    r"push_tokens",
+    user_push_token.UserPushTokenViewSet,
+    "user_push_token",
     ["uuid"],
 )
 router.register(
@@ -1301,6 +1335,19 @@ environments_router.register(
     UserInterviewViewSet,
     "environment_user_interviews",
     ["team_id"],
+)
+
+user_interview_topics_router = environments_router.register(
+    r"user_interview_topics",
+    UserInterviewTopicViewSet,
+    "environment_user_interview_topics",
+    ["team_id"],
+)
+user_interview_topics_router.register(
+    r"interviewees",
+    IntervieweeContextViewSet,
+    "environment_user_interview_topic_interviewees",
+    ["team_id", "topic_id"],
 )
 
 visual_review_repos_router = projects_router.register(

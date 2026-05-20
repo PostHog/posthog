@@ -1,7 +1,7 @@
 import { RRule } from 'rrule'
 
 import { IconLetter } from '@posthog/icons'
-import { LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
@@ -43,12 +43,14 @@ export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
-export const frequencyOptionsSingular: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'
+
+export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
     { value: 'monthly', label: 'month' },
 ]
-export const frequencyOptionsPlural: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'days' },
     { value: 'weekly', label: 'weeks' },
     { value: 'monthly', label: 'months' },

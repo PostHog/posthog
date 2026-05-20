@@ -3,7 +3,9 @@ import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 
-export type FeedResult = { ok: true } | { ok: false; reason: string }
+export type FeedRejectionKind = 'at_capacity' | 'before_batch_failed'
+
+export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; reason: string }
 
 export interface BatchingContext {
     messageId: number
@@ -123,7 +125,11 @@ export class BatchingPipeline<
 
     async feed(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
         if (this.batches.size >= this.options.concurrentBatches) {
-            return { ok: false, reason: `at concurrent batch capacity (${this.options.concurrentBatches})` }
+            return {
+                ok: false,
+                kind: 'at_capacity',
+                reason: `at concurrent batch capacity (${this.options.concurrentBatches})`,
+            }
         }
 
         const batchId = this.nextBatchId++
@@ -132,7 +138,11 @@ export class BatchingPipeline<
         const beforeResult = await this.beforePipeline.process(createOkContext(beforeInput, {}))
 
         if (!isOkResult(beforeResult.result)) {
-            return { ok: false, reason: `beforeBatch hook returned non-ok result for batch ${batchId}` }
+            return {
+                ok: false,
+                kind: 'before_batch_failed',
+                reason: `beforeBatch hook returned non-ok result for batch ${batchId}`,
+            }
         }
 
         const { elements: mappedElements, batchContext } = beforeResult.result.value
