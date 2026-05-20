@@ -117,7 +117,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
 
         ackLocalSteps: ({ steps, clientID }) => {
             const editor = values.ttEditor
-            if (!editor || !steps.length) {
+            if (!editor || editor.isDestroyed || !steps.length) {
                 return
             }
             try {
@@ -138,7 +138,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
 
         applyRemoteSteps: ({ steps }) => {
             const editor = values.ttEditor
-            if (!editor) {
+            if (!editor || editor.isDestroyed) {
                 return
             }
             const localContent = editor.getJSON()
@@ -183,7 +183,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                     return
                 }
                 const editor = values.ttEditor
-                if (!editor) {
+                if (!editor || editor.isDestroyed) {
                     return
                 }
                 const localContent = editor.getJSON()
