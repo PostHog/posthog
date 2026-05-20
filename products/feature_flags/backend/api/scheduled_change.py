@@ -5,10 +5,10 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 
-from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 

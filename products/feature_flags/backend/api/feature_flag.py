@@ -2855,10 +2855,10 @@ class FeatureFlagViewSet(
 
         from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
         from posthog.rbac.user_access_control import access_level_satisfied_for_resource
-        from posthog.tasks.feature_flags import update_team_flags_cache, update_team_service_flags_cache
         from posthog.tasks.remote_config import update_team_remote_config
 
         from products.feature_flags.backend.models.feature_flag import set_feature_flags_for_team_in_cache
+        from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
 
         filters = request.data.get("filters", {})
         explicit_ids = request.data.get("ids", [])

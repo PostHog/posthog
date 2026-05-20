@@ -2,11 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
-from posthog.tasks.feature_flags import (
+from posthog.tasks.test.utils import PushGatewayTaskTestMixin
+
+from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     refresh_expiring_flag_definitions_cache_entries,
 )
-from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
 
 class TestRefreshExpiringFlagDefinitionsCacheEntries(PushGatewayTaskTestMixin, TestCase):

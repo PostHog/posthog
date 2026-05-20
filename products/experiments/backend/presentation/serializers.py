@@ -290,7 +290,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
     @extend_schema_field(OpenApiTypes.OBJECT)
     def get_feature_flag(self, obj):
-        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+        from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 

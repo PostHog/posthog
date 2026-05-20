@@ -858,7 +858,7 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
     if not settings.FLAGS_REDIS_URL:
         return
 
-    from posthog.tasks.feature_flags import update_team_service_flags_cache
+    from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     # Defer task execution until after the transaction commits to avoid race conditions
     # Note: Metric tracking happens in the task itself to capture actual success/failure result
@@ -876,7 +876,7 @@ def team_created_flags_cache(sender, instance: "Team", created: bool, **kwargs):
     if not created or not settings.FLAGS_REDIS_URL:
         return
 
-    from posthog.tasks.feature_flags import update_team_service_flags_cache
+    from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     # Defer task execution until after the transaction commits
     # Note: Metric tracking happens in the task itself to capture actual success/failure result
@@ -912,7 +912,7 @@ def evaluation_context_changed_flags_cache(sender, instance: "FeatureFlagEvaluat
     if not settings.FLAGS_REDIS_URL:
         return
 
-    from posthog.tasks.feature_flags import update_team_service_flags_cache
+    from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
@@ -935,6 +935,6 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
     if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
         return
 
-    from posthog.tasks.feature_flags import update_team_service_flags_cache
+    from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))

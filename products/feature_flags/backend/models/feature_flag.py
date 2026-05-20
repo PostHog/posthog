@@ -446,7 +446,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         user: Optional[AbstractBaseUser] = None,
         scheduled_change_id: Optional[int] = None,
     ):
-        from posthog.api.feature_flag import FeatureFlagSerializer
+        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
@@ -654,7 +654,7 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
     Returns:
         List of serialized flag dictionaries
     """
-    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 
     serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
     return list(serialized_data)

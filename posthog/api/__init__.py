@@ -77,6 +77,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
+from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
     ClusteringJobViewSet,
@@ -148,8 +149,6 @@ from . import (
     event_definition,
     event_schema,
     exports,
-    feature_flag,
-    flag_value,
     health_issue,
     hog,
     hog_function,
@@ -163,7 +162,6 @@ from . import (
     object_media_preview,
     organization,
     organization_domain,
-    organization_feature_flag,
     organization_integration,
     organization_invite,
     organization_member,
@@ -176,7 +174,6 @@ from . import (
     quick_filters,
     resource_transfer,
     role_external_reference,
-    scheduled_change,
     schema_property_group,
     search,
     sharing,

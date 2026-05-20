@@ -18,10 +18,10 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 
 from posthog import redis
-from posthog.api.feature_flag import _create_usage_dashboard
 from posthog.constants import FlagRequestType
 from posthog.models.team.team import Team
 
+from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
     _extract_sdk_breakdown_from_redis,

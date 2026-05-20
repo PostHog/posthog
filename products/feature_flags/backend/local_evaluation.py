@@ -502,7 +502,7 @@ def _get_flags_response_for_local_evaluation_batch(
     query each regardless of team count), then iterates the materialized flag
     list with itertools.groupby to process one team at a time.
     """
-    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 
     if not teams:
         return {}
@@ -854,7 +854,7 @@ def verify_team_flag_definitions(
 @receiver(post_save, sender=FeatureFlag)
 @receiver(post_delete, sender=FeatureFlag)
 def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
-    from posthog.tasks.feature_flags import update_team_flags_cache
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     # Defer task execution until after the transaction commits
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
@@ -866,7 +866,7 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
         return
 
-    from posthog.tasks.feature_flags import update_team_flags_cache
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
 
@@ -874,7 +874,7 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
 @receiver(post_save, sender=FeatureFlagEvaluationContext)
 @receiver(post_delete, sender=FeatureFlagEvaluationContext)
 def evaluation_context_changed(sender, instance: "FeatureFlagEvaluationContext", **kwargs):
-    from posthog.tasks.feature_flags import update_team_flags_cache
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
@@ -887,6 +887,6 @@ def evaluation_context_name_changed(sender, instance: "EvaluationContext", creat
     if created:
         return  # New contexts can't be referenced by any flags yet
 
-    from posthog.tasks.feature_flags import update_team_flags_cache
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

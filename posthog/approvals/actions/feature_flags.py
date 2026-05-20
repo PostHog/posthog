@@ -3,10 +3,10 @@ from typing import Any, Optional
 
 from django.db import transaction
 
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.approvals.actions.base import BaseAction
 from posthog.approvals.exceptions import ApplyFailed, PreconditionFailed
 
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 

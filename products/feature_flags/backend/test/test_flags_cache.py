@@ -645,7 +645,7 @@ class TestServiceFlagsCeleryTasks(BaseTest):
 
     def test_update_team_service_flags_cache_task(self):
         """Test the Celery task that updates service flags cache."""
-        from posthog.tasks.feature_flags import update_team_service_flags_cache
+        from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
         # Create a flag
         FeatureFlag.objects.create(
@@ -666,7 +666,7 @@ class TestServiceFlagsCeleryTasks(BaseTest):
 
     def test_update_team_service_flags_cache_task_team_not_found(self):
         """Test the Celery task handles missing team gracefully."""
-        from posthog.tasks.feature_flags import update_team_service_flags_cache
+        from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
         # Run task with non-existent team ID
         # Should not raise an exception

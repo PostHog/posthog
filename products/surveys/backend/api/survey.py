@@ -43,11 +43,6 @@ from posthog.schema import ProductKey
 
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
-from posthog.api.feature_flag import (
-    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
-    FeatureFlagSerializer,
-    MinimalFeatureFlagSerializer,
-)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -73,6 +68,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.feature_flags.backend.api.feature_flag import (
+    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    FeatureFlagSerializer,
+    MinimalFeatureFlagSerializer,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses

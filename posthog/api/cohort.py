@@ -1160,7 +1160,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
                 # Avoid circular import: feature_flag imports cohort models
-                from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+                from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}

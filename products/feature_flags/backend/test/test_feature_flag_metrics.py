@@ -5,9 +5,9 @@ from prometheus_client import CollectorRegistry
 
 from posthog.models import Team
 from posthog.models.organization import Organization
-from posthog.tasks.feature_flags import compute_feature_flag_metrics
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.tasks import compute_feature_flag_metrics
 
 
 class TestComputeFeatureFlagMetrics(BaseTest):

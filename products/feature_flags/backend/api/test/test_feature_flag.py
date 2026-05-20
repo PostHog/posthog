@@ -25,7 +25,6 @@ from rest_framework.relations import ManyRelatedField
 
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
-from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
 from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from posthog.models import GroupTypeMapping, TaggedItem, User
@@ -44,6 +43,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
@@ -8409,7 +8409,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.headers["ETag"], etag)
 
     def test_local_evaluation_secret_key_in_body_counter_not_incremented_for_header_auth(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
 
         self.team.secret_api_token = "phs_testtokenforheaderauth"
         self.team.save()
@@ -8433,7 +8433,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
 
     def test_local_evaluation_secret_key_in_body_counter_incremented_for_body_auth(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
 
         self.team.secret_api_token = "phs_testtokenforbodyauth"
         self.team.save()
@@ -8459,7 +8459,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before + 1)
 
     def test_local_evaluation_secret_key_in_body_counter_not_incremented_when_header_wins(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
 
         self.team.secret_api_token = "phs_testtokenforheaderwins"
         self.team.save()
@@ -8494,7 +8494,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     def test_local_evaluation_personal_api_key_source_counter(self, name, source):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
+        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
 
         FeatureFlag.objects.filter(team=self.team).delete()
         FeatureFlag.objects.create(
@@ -8537,7 +8537,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     def test_local_evaluation_personal_api_key_source_counter_not_incremented_for_secret_key(self):
-        from posthog.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
+        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
 
         self.team.secret_api_token = "phs_testtokenforpaksource"
         self.team.save()
@@ -11021,8 +11021,7 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
 
     @pytest.mark.ee
     def test_evaluation_contexts_in_minimal_serializer(self):
-        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-
+        from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
         from products.feature_flags.backend.models.evaluation_context import (
             EvaluationContext,
             FeatureFlagEvaluationContext,

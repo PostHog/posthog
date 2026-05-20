@@ -9,7 +9,6 @@ from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import _FallbackSerializer, extend_schema
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -19,6 +18,7 @@ from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.user_permissions import UserPermissions
 
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange

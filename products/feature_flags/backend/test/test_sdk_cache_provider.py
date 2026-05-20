@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from posthoganalytics.client import Client
 
-from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
+from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
 
 class TestHyperCacheFlagProvider(SimpleTestCase):
