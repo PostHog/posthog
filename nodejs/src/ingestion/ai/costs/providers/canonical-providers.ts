@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-14 10:46:49 UTC
+// Generated at: 2026-05-19 20:29:55 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -16,6 +16,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
@@ -46,7 +47,6 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
-    | 'dekallm-fp4'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -70,7 +70,7 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-bf16'
-    | 'io-net-fp16'
+    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
@@ -86,6 +86,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
@@ -114,6 +115,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sambanova'
     | 'sambanova-bf16'
+    | 'sambanova-dedicated'
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'seed-fp8'
@@ -141,7 +143,6 @@ export type CanonicalProvider =
     | 'wandb-fp4'
     | 'wandb-fp8'
     | 'xai'
-    | 'xai-fast'
     | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

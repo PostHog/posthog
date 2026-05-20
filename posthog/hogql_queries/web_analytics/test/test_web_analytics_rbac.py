@@ -25,7 +25,7 @@ class TestWebAnalyticsRBAC(APIBaseTest):
 
     def test_validate_query_runner_access_with_editor(self):
         AccessControl.objects.create(team=self.team, resource="web_analytics", access_level="editor")
-        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
+        self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
         self.organization.save()
 
         query = WebOverviewQuery(
@@ -38,7 +38,7 @@ class TestWebAnalyticsRBAC(APIBaseTest):
 
     def test_validate_query_runner_access_without_access(self):
         AccessControl.objects.create(team=self.team, resource="web_analytics", access_level="none")
-        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
+        self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
         self.organization.save()
 
         query = WebOverviewQuery(
@@ -52,7 +52,7 @@ class TestWebAnalyticsRBAC(APIBaseTest):
 
     def test_validate_query_runner_access_with_manager(self):
         AccessControl.objects.create(team=self.team, resource="web_analytics", access_level="manager")
-        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
+        self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
         self.organization.save()
 
         query = WebOverviewQuery(

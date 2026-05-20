@@ -87,7 +87,11 @@ function oklch(l: number, c: number, h: number, alpha?: number): string {
 export function buildSemanticColors(): Record<string, ColorTuple> {
     return {
         // ── Surfaces (theme-derived) ──────────────────
-        background: [surface(0.97, 1, 'light'), surface(0.145, 1.5, 'dark'), 'bg-background'],
+        // Matched to PostHog app's --color-bg-primary so quill panels blend
+        // with the surrounding app: light hsl(75 14% 95%), dark hsl(240 8% 8%),
+        // converted to OKLCH. Dark equals `muted` — PostHog uses one token for
+        // both; surfaces separate via `card` / borders, not background tone.
+        background: [surface(0.966, 0.79, 'light'), surface(0.187, 1.1, 'dark'), 'bg-background'],
         foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
 
         card: [surface(0.995, 0.3, 'light'), surface(0.2, 1.2, 'dark'), 'bg-card'],
@@ -95,8 +99,16 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // primitives migrate to plain `text-foreground`.
         'card-foreground': ['var(--foreground)', 'var(--foreground)', 'text-card-foreground'],
 
-        muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
+        // Matched to PostHog app's --color-bg-surface-secondary (subdued cards,
+        // list rows): light hsl(70 16% 93%), dark hsl(240 8% 10%), in OKLCH.
+        muted: [surface(0.953, 1.28, 'light'), surface(0.209, 1.33, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
+
+        // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
+        // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
+        // dark hsl(240 8% 8%), in OKLCH. Hue stays theme-derived; chroma is
+        // near-zero so the hue offset is imperceptible.
+        chrome: [surface(0.923, 1.67, 'light'), surface(0.187, 1.1, 'dark'), 'bg-chrome'],
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
@@ -205,6 +217,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'background',
     'card',
     'muted',
+    'chrome',
     'primary',
     'border',
     'input',

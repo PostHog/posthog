@@ -27,6 +27,7 @@ interface TrendsTooltipProps {
     groupTypeLabel?: string
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
+    showHeader?: boolean
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -46,6 +47,7 @@ export function TrendsTooltip({
     groupTypeLabel,
     formatCompareLabel,
     onRowClick,
+    showHeader,
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(
         () =>
@@ -128,6 +130,7 @@ export function TrendsTooltip({
             renderCount={renderCount}
             onRowClick={onRowClick}
             hideInspectActorsSection={!onRowClick}
+            showHeader={showHeader}
         />
     )
 }

@@ -49,7 +49,6 @@ def resolve_ai_model(ai_config: dict | None, key: str, default: str) -> str:
 # for legitimate phrasings like "ignore null values".
 
 _FREQUENCY_WINDOW_DAYS = {
-    Subscription.SubscriptionFrequency.HOURLY: 1,
     Subscription.SubscriptionFrequency.DAILY: 1,
     Subscription.SubscriptionFrequency.WEEKLY: 7,
     Subscription.SubscriptionFrequency.MONTHLY: 30,
