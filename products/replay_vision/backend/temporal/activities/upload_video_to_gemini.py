@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 _MAX_PROCESSING_WAIT_SECONDS = 300
 
 
-@activity.defn
+@activity.defn(name="replay_vision_upload_video_to_gemini_activity")
 async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     """Read the asset's MP4 bytes, upload to Gemini, poll until ACTIVE, return the file reference."""
     workflow_id = activity.info().workflow_id
