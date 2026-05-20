@@ -20,12 +20,12 @@ export interface Technology {
     name: string
     image: string | null
     docsLink: string
-    envVars: { apiKey: string }
+    envVars: { apiKey: string; projectId: string }
     buildPrompt: (env: { host: string; projectId: number | string }) => string
 }
 
-const PLUGIN_ENV = { apiKey: 'POSTHOG_API_KEY' }
-const CLI_ENV = { apiKey: 'POSTHOG_CLI_API_KEY' }
+const PLUGIN_ENV = { apiKey: 'POSTHOG_API_KEY', projectId: 'POSTHOG_PROJECT_ID' }
+const CLI_ENV = { apiKey: 'POSTHOG_CLI_API_KEY', projectId: 'POSTHOG_CLI_PROJECT_ID' }
 
 const trim = (s: string): string => s.replace(/^\n/, '').replace(/\n+$/, '\n')
 
@@ -46,14 +46,12 @@ Detect the bundler/framework from package.json and apply the matching integratio
 - Android native → apply the \`com.posthog.android\` gradle plugin (AGP 8+).
 - Anything else → install \`@posthog/cli\` and run \`posthog-cli sourcemap inject\` + \`posthog-cli sourcemap upload\` against the build output directory as a CI step.
 
-The only secret the build needs is the personal API key — use whichever name the integration expects:
+Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses) — use the set that matches the chosen integration:
 
-- Plugin integrations (Next.js, Vite, Rollup, Webpack): \`POSTHOG_API_KEY\`.
-- CLI integrations (Nuxt, React Native, iOS, Android, generic): \`POSTHOG_CLI_API_KEY\`.
+- Plugin integrations (Next.js, Vite, Rollup, Webpack): \`POSTHOG_API_KEY\`, \`POSTHOG_PROJECT_ID\`.
+- CLI integrations (Nuxt, React Native, iOS, Android, generic): \`POSTHOG_CLI_API_KEY\`, \`POSTHOG_CLI_PROJECT_ID\`.
 
-This var should already be available to whatever terminal runs the build (\`.env\`, CI secrets, shell exports — whatever this project already uses); do not introduce others.
-
-The PostHog host and project ID are fixed for this project — hardcode them everywhere they're referenced (plugin config \`host\` / \`projectId\` options, CLI \`--host\` / \`--project-id\` flags). Do not introduce env vars for them. Host = \`${host}\`, project ID = \`${projectId}\`.
+The PostHog host is fixed for this project — hardcode \`${host}\` everywhere it's referenced (plugin config \`host\` option, CLI \`--host\` flag). Do not introduce a host env var. The project ID value to set in the env var above is \`${projectId}\`.
 
 After applying changes, trigger a build using whatever command this project actually uses (inspect \`package.json\` scripts, \`Fastfile\`, \`build.gradle\`, CI config, etc. before guessing — don't default to \`npm run build\` / \`./gradlew assembleRelease\` if the project has a custom command).
 
@@ -82,7 +80,7 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
 
     export default withPostHogConfig(nextConfig, {
       personalApiKey: process.env.POSTHOG_API_KEY,
-      projectId: "${projectId}",
+      projectId: process.env.POSTHOG_PROJECT_ID,
       host: "${host}",
       sourcemaps: {
         enabled: true,
@@ -92,8 +90,9 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       },
     });
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host is hardcoded above, don't introduce a host env var):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
+   - \`POSTHOG_PROJECT_ID\` = ${projectId}
 
 4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts (\`build\`, \`build:prod\`, etc.), CI config, or any \`README\`/Makefile before defaulting to \`npm run build\`. Then confirm \`.js.map\` files are produced under \`.next\`.
 
@@ -122,14 +121,15 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       sourcemap: { client: true },
       hooks: {
         close: async () => {
-          execSync("posthog-cli sourcemap inject --directory '.output' --host '${host}' --project-id '${projectId}'", { stdio: 'inherit' })
-          execSync("posthog-cli sourcemap upload --directory '.output' --host '${host}' --project-id '${projectId}'", { stdio: 'inherit' })
+          execSync("posthog-cli sourcemap inject --directory '.output' --host '${host}'", { stdio: 'inherit' })
+          execSync("posthog-cli sourcemap upload --directory '.output' --host '${host}'", { stdio: 'inherit' })
         },
       },
     })
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are passed as CLI flags above, only the API key needs to be in env):
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host is passed as a CLI flag above, don't introduce a host env var):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
+   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
 
 4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config before defaulting to \`nuxt build\`. Confirm the build runs the \`close\` hook and that \`.mjs.map\` files are produced under \`.output\`.
 
@@ -159,7 +159,7 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       plugins: [
         posthog({
           personalApiKey: process.env.POSTHOG_API_KEY,
-          projectId: "${projectId}",
+          projectId: process.env.POSTHOG_PROJECT_ID,
           host: '${host}',
           sourcemaps: {
             enabled: true,
@@ -171,8 +171,9 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       ],
     })
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host is hardcoded above, don't introduce a host env var):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
+   - \`POSTHOG_PROJECT_ID\` = ${projectId}
 
 4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config before defaulting to \`npm run build\`.
 
@@ -203,7 +204,7 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       plugins: [
         posthog({
           personalApiKey: process.env.POSTHOG_API_KEY,
-          projectId: "${projectId}",
+          projectId: process.env.POSTHOG_PROJECT_ID,
           host: '${host}',
           sourcemaps: {
             enabled: true,
@@ -215,8 +216,9 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       ],
     }
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host is hardcoded above, don't introduce a host env var):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
+   - \`POSTHOG_PROJECT_ID\` = ${projectId}
 
 4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config to find the real build command (e.g. \`rollup -c\`, a custom \`build\` script).
 
@@ -246,7 +248,7 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       plugins: [
         new PostHogPlugin({
           personalApiKey: process.env.POSTHOG_API_KEY,
-          projectId: "${projectId}",
+          projectId: process.env.POSTHOG_PROJECT_ID,
           host: '${host}',
           sourcemaps: {
             enabled: true,
@@ -258,8 +260,9 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
       ],
     }
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host is hardcoded above, don't introduce a host env var):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
+   - \`POSTHOG_PROJECT_ID\` = ${projectId}
 
 4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config to find the real build command (e.g. \`webpack --mode production\`, a custom \`build\` script).
 
@@ -300,8 +303,9 @@ Use this project's package manager — detect it from the lockfile (\`pnpm-lock.
 
 5. iOS — in the "Bundle React Native code" build phase, call \`posthog-xcode.sh\` then \`react-native-xcode.sh\`. Disable User Script Sandboxing (\`ENABLE_USER_SCRIPT_SANDBOXING=NO\`).
 
-6. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; pass \`--host '${host}' --project-id '${projectId}'\` directly to the upload commands the Metro / gradle / Xcode integrations invoke — don't introduce env vars for host or project ID):
+6. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; use \`--host '${host}'\` directly in the upload commands the Metro / gradle / Xcode integrations invoke — don't introduce a host env var):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
+   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
 
 7. Trigger a release build for both iOS and Android using whatever commands this project uses (e.g. \`eas build\`, \`expo run\`, native \`xcodebuild\` / \`./gradlew assembleRelease\`, or a custom script — check \`package.json\`, \`eas.json\`, and CI config).
 
@@ -340,8 +344,9 @@ If this project also has a JS side (React Native, Capacitor, etc.) and a lockfil
 
     $(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)
 
-5. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; pass \`--host '${host}' --project-id '${projectId}'\` to \`upload-symbols.sh\` rather than introducing env vars for host or project ID):
+5. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; pass \`--host '${host}'\` to \`upload-symbols.sh\` rather than introducing a host env var):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\`
+   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
 
 6. Trigger an archive / release build using whatever command this project uses (Xcode Archive, \`xcodebuild archive\`, fastlane, or a CI script — check \`Fastfile\`, CI config, and any \`README\` first).
 
@@ -365,10 +370,11 @@ Set up PostHog ProGuard/R8 mapping uploads for my Android app.
         id("com.posthog.android") version "<latest>"
     }
 
-3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; hardcode both \`postHogHost = "${host}"\` and \`postHogProjectId = "${projectId}"\` on \`PostHogCliExecTask\` — don't introduce env vars for host or project ID):
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; hardcode the host as \`postHogHost = "${host}"\` on \`PostHogCliExecTask\` — don't introduce a host env var):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
+   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
 
-   (The plugin also exposes \`postHogApiKey\` on \`PostHogCliExecTask\` for inline configuration if you'd rather not use env at all.)
+   (The plugin also exposes \`postHogApiKey\` / \`postHogProjectId\` on \`PostHogCliExecTask\` for inline configuration.)
 
 4. Trigger a release build using whatever command this project uses (e.g. \`./gradlew assembleRelease\`, \`./gradlew bundleRelease\`, or a fastlane lane — check the project's \`Fastfile\`, CI config, and any \`README\` first). The plugin uploads the mapping automatically as part of the release build.
 

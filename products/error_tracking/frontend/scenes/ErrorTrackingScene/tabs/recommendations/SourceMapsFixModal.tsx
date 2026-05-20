@@ -244,79 +244,58 @@ function Step3Prompt(): JSX.Element {
 }
 
 function Step2Configure(): JSX.Element {
-    const { selectedTechnology, createdApiKey, isCreatingApiKey, apiKeyError } = useValues(sourceMapsFixWizardLogic)
+    const { projectId, selectedTechnology, createdApiKey, isCreatingApiKey, apiKeyError } =
+        useValues(sourceMapsFixWizardLogic)
     const { createApiKey } = useActions(sourceMapsFixWizardLogic)
     const { envVars } = selectedTechnology
 
-    return (
-        <div className="flex flex-col gap-4">
-            <p className="text-sm text-secondary m-0">
-                The only secret the build needs is a personal API key. Make it available to whatever terminal runs the
-                build — usually that means a <span className="font-mono font-medium text-default">.env</span> file plus
-                your CI provider's secrets, but use whatever setup this project already has (shell exports, doppler,
-                direnv, etc.). The variable name matches the {selectedTechnology.name} integration and the prompt in the
-                next step references it verbatim.
-            </p>
+    const apiKeyValue = createdApiKey?.value ?? '<your-api-key-or-press-generate>'
+    const envContent = `${envVars.apiKey}=${apiKeyValue}\n${envVars.projectId}=${projectId}`
 
-            <section className="flex flex-col gap-2">
-                <SectionLabel>Secret · keep private</SectionLabel>
-                <div className="rounded-md border border-primary bg-surface-primary p-3 flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-2">
-                        <div>
-                            <div className="text-sm font-mono font-semibold">{envVars.apiKey}</div>
-                            <div className="text-xs text-secondary">
-                                Personal API key with <code>error_tracking:write</code>.
-                            </div>
-                        </div>
+    return (
+        <div className="flex flex-col gap-3">
+            <p className="text-sm text-secondary m-0">
+                Make sure your local and CI build processes have access to these env variables.
+            </p>
+            <div className="rounded-md border border-primary bg-surface-primary overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-primary bg-surface-secondary">
+                    <div className="text-xs font-mono text-secondary">.env</div>
+                    <div className="flex items-center gap-1">
                         {!createdApiKey?.value && (
                             <LemonButton
+                                size="small"
                                 type="primary"
                                 icon={isCreatingApiKey ? <Spinner /> : <IconMagicWand />}
                                 disabled={isCreatingApiKey}
                                 onClick={createApiKey}
                             >
-                                {isCreatingApiKey ? 'Creating…' : 'Generate'}
+                                {isCreatingApiKey ? 'Creating…' : 'Generate API key'}
                             </LemonButton>
                         )}
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconCopy />}
+                            onClick={() => copyToClipboard(envContent, '.env contents')}
+                        />
                     </div>
-                    {createdApiKey?.value ? (
-                        <>
-                            <div className="flex items-center gap-1 text-xs text-success">
-                                <IconCheckCircle className="size-4" />
-                                Created — copy now, this is the only time it'll be shown.
-                            </div>
-                            <CopyableRow value={createdApiKey.value} label="API key" hideValue />
-                        </>
-                    ) : (
-                        apiKeyError && <div className="text-xs text-danger">{apiKeyError}</div>
-                    )}
                 </div>
-            </section>
-        </div>
-    )
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="text-[10px] uppercase tracking-wider font-semibold text-muted">{children}</div>
-}
-
-function CopyableRow({ value, label, hideValue }: { value: string; label: string; hideValue?: boolean }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2">
-            <code
-                className={cn(
-                    'flex-1 text-xs bg-surface-secondary border rounded px-2 py-1 font-mono truncate',
-                    hideValue && 'ph-no-capture'
-                )}
-            >
-                {value}
-            </code>
-            <LemonButton
-                size="small"
-                type="primary"
-                icon={<IconCopy />}
-                onClick={() => copyToClipboard(value, label)}
-            />
+                <pre
+                    className={cn(
+                        'text-xs font-mono p-3 m-0 whitespace-pre-wrap',
+                        createdApiKey?.value && 'ph-no-capture'
+                    )}
+                >
+                    {envContent}
+                </pre>
+            </div>
+            {createdApiKey?.value && (
+                <div className="flex items-center gap-1 text-xs text-success">
+                    <IconCheckCircle className="size-4" />
+                    Key created — copy these now, the key won't be shown again.
+                </div>
+            )}
+            {apiKeyError && <div className="text-xs text-danger">{apiKeyError}</div>}
         </div>
     )
 }
