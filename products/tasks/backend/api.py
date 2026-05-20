@@ -445,7 +445,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-            archived_param = params.get("archived")
+            archived_param = getattr(self.request, "validated_query_data", {}).get("archived")
             if archived_param == "true":
                 qs = qs.filter(archived=True)
             elif archived_param == "all":

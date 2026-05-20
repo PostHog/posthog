@@ -819,6 +819,12 @@ class TestTaskAPI(BaseTaskAPITest):
             expected_ids.add(str(archived_task.id))
         self.assertEqual({task["id"] for task in results}, expected_ids)
 
+    def test_list_tasks_rejects_invalid_archived_value(self):
+        self.create_task("Active")
+
+        response = self.client.get("/api/projects/@current/tasks/?archived=foo")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_retrieve_archived_task_still_works(self):
         task = self.create_task("Archived")
         task.archived = True
