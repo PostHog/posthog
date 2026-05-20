@@ -6,7 +6,7 @@ from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 class MaterializedViewFailureCheck(HealthCheck):

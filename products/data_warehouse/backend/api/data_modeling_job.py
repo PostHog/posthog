@@ -9,7 +9,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
 
 DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
 

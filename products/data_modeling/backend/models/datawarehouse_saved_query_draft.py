@@ -16,7 +16,7 @@ class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDTMo
     name = models.CharField(max_length=255, null=True, blank=True, help_text="Name of the draft")
 
     saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
+        "data_modeling.DataWarehouseSavedQuery",
         # if a team member deletes the saved query, check if null and provide option to create view again
         on_delete=models.SET_NULL,
         null=True,

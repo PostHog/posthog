@@ -79,9 +79,9 @@ from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import (
     MaterializedSeriesMismatchError,
     transform_materialized_insight_response,

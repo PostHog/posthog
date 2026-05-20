@@ -22,7 +22,7 @@ from posthog.hogql.database.models import (
 )
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -33,7 +33,7 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]

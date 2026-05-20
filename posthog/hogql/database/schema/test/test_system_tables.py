@@ -33,8 +33,8 @@ from posthog.models.project import Project
 
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet

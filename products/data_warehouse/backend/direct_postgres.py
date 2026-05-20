@@ -222,7 +222,7 @@ def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_n
     if old_name == new_name:
         return
 
-    from products.data_warehouse.backend.models.join import DataWarehouseJoin
+    from products.data_tools.backend.models.join import DataWarehouseJoin
 
     DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=old_name).update(source_table_name=new_name)
     DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)

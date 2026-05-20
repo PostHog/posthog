@@ -5,8 +5,8 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 
 
 class DataWarehouseSavedQueryDraftPagination(pagination.LimitOffsetPagination):

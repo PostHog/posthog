@@ -96,7 +96,7 @@ from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
 from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists

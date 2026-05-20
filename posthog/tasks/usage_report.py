@@ -48,7 +48,7 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (

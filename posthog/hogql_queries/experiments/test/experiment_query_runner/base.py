@@ -14,7 +14,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig

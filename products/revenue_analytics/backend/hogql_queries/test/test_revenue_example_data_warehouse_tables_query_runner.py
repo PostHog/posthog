@@ -14,7 +14,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
 
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (

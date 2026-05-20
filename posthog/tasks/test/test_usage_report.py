@@ -63,7 +63,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob

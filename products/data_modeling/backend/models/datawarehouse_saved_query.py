@@ -100,14 +100,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     # If this view is managed by a DataWarehouseManagedViewSet, this will be set
     managed_viewset = models.ForeignKey(
-        "data_warehouse.DataWarehouseManagedViewSet",
+        "data_modeling.DataWarehouseManagedViewSet",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="saved_queries",
     )
     folder = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQueryFolder",
+        "data_tools.DataWarehouseSavedQueryFolder",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -149,7 +149,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return self.name.split(".")
 
     def setup_model_paths(self):
-        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+        from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
         if not DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self).exists():
             DataWarehouseModelPath.objects.create_from_saved_query(self)
@@ -192,8 +192,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.save(update_fields=["is_materialized"])
 
     def revert_materialization(self):
+        from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
         from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
-        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
         self.sync_frequency_interval = None
         self.last_run_at = None

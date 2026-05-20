@@ -5,13 +5,13 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from products.data_warehouse.backend.models import ExternalDataSourceType
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.modeling import (
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import (
     DataWarehouseModelPath,
     NodeType,
     get_parents_from_model_query,
 )
+from products.data_warehouse.backend.models import ExternalDataSourceType
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

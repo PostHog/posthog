@@ -5,7 +5,7 @@ from posthog.test.base import NonAtomicTestMigrations
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import (
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery as DataWarehouseSavedQueryModel,
 )
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential as DataWarehouseCredentialModel

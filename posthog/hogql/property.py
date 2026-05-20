@@ -56,7 +56,7 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 

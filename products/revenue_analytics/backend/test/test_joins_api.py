@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

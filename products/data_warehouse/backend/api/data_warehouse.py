@@ -33,8 +33,8 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema

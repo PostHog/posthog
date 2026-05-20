@@ -57,7 +57,7 @@ from posthog.storage import object_storage
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,

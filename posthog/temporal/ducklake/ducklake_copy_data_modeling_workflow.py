@@ -48,7 +48,7 @@ from posthog.temporal.ducklake.metrics import (
 )
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 LOGGER = get_logger(__name__)
 DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX = "data_modeling"

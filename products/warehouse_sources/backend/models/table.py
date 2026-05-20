@@ -157,7 +157,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return self.options.get("csv_allow_double_quotes")
 
     def soft_delete(self):
-        from products.data_warehouse.backend.models.join import DataWarehouseJoin
+        from products.data_tools.backend.models.join import DataWarehouseJoin
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))

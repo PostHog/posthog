@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from django.db.models.query import QuerySet as DjangoQuerySet
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 

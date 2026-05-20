@@ -13,7 +13,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -30,7 +31,7 @@ STRIPE_SCHEMA_NAMES = [
 
 DUMMY_COLUMNS = {"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}}
 SCHEDULE_MATERIALIZATION = (
-    "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+    "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
 )
 
 

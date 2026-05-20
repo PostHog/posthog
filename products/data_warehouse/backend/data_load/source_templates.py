@@ -2,7 +2,7 @@ from django.db import close_old_connections
 
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob

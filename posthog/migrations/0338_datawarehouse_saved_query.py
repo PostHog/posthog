@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
-import products.data_warehouse.backend.models.datawarehouse_saved_query
+import products.data_modeling.backend.models.datawarehouse_saved_query
 
 
 class Migration(migrations.Migration):
@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
                     models.CharField(
                         max_length=128,
                         validators=[
-                            products.data_warehouse.backend.models.datawarehouse_saved_query.validate_saved_query_name
+                            products.data_modeling.backend.models.datawarehouse_saved_query.validate_saved_query_name
                         ],
                     ),
                 ),

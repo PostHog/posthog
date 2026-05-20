@@ -18,9 +18,9 @@ from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseModelPath
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.models.table import DataWarehouseTable

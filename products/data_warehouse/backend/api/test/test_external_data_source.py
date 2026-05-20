@@ -50,12 +50,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name

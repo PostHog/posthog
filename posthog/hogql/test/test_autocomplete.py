@@ -19,7 +19,7 @@ from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
 from posthog.models.insight_variable import InsightVariable
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential

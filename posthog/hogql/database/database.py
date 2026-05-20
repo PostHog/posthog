@@ -604,7 +604,7 @@ class Database(BaseModel):
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
-        from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -844,7 +844,8 @@ class Database(BaseModel):
 
         from posthog.models import Team
 
-        from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_tools.backend.models.join import DataWarehouseJoin
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:

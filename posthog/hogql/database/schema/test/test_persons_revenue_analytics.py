@@ -23,7 +23,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 

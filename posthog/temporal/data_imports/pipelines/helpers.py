@@ -57,7 +57,7 @@ def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDat
     """
     import structlog
 
-    from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+    from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
     from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
     from products.revenue_analytics.backend.views.orchestrator import SUPPORTED_SOURCES
 
