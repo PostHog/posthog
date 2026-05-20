@@ -207,7 +207,11 @@ def _run_shadow_comparison(
     error tracking and the primary result is returned untouched.
 
     In TEST: every parse runs through the shadow AND any divergence is
-    raised so a unit test that hits a divergence fails loudly.
+    raised so a unit test that hits a divergence fails loudly. Positions
+    are stripped via `clear_locations` on both sides — position parity is
+    enforced at the explicit test-suite assertion sites instead, so that
+    module-import-time parses don't crash on a single positional diff in
+    a constant expression.
     """
     if random.random() >= _shadow_sample_rate():
         return
