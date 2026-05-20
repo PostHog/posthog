@@ -163,7 +163,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
 
                     return {
                         forceBackTo,
-                        name: activeTab?.name || editingInsight.derived_name || 'Untitled',
+                        name: activeTab?.name || editingInsight.derived_name || '',
                         description: activeTab?.description ?? editingInsight.description ?? '',
                         resourceType: { type: 'insight/hog' },
                     }

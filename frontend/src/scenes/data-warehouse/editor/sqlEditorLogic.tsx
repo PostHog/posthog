@@ -41,6 +41,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
@@ -1741,6 +1742,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         insight: savedInsight,
                     })
                 }
+                insightsModel.findMounted()?.actions.renameInsightSuccess(savedInsight)
                 const loadedLogic = insightLogic.findMounted({
                     dashboardItemId: values.editingInsight.short_id,
                     dashboardId: undefined,
