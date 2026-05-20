@@ -8,7 +8,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import DAILY, FR, HOURLY, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
+from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
@@ -51,7 +51,6 @@ class Subscription(models.Model):
         WEBHOOK = "webhook"
 
     class SubscriptionFrequency(models.TextChoices):
-        HOURLY = "hourly"
         DAILY = "daily"
         WEEKLY = "weekly"
         MONTHLY = "monthly"
@@ -69,7 +68,6 @@ class Subscription(models.Model):
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
-        SubscriptionFrequency.HOURLY: HOURLY,
         SubscriptionFrequency.DAILY: DAILY,
         SubscriptionFrequency.WEEKLY: WEEKLY,
         SubscriptionFrequency.MONTHLY: MONTHLY,
@@ -227,7 +225,6 @@ class Subscription(models.Model):
     def summary(self):
         try:
             human_frequency = {
-                "hourly": "hour",
                 "daily": "day",
                 "weekly": "week",
                 "monthly": "month",

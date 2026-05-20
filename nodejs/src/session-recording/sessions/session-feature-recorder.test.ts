@@ -249,6 +249,23 @@ describe('SessionFeatureRecorder', () => {
 
             expect(result.mousePositionCount).toBe(0)
         })
+
+        it('should skip null entries in positions array', () => {
+            const event = {
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp: 1000,
+                data: {
+                    source: RRWebEventSource.MouseMove,
+                    positions: [null, { x: 5, y: 10, id: 1, timeOffset: 0 }, null],
+                },
+            } as unknown as SnapshotEvent
+            recorder.recordMessage(createMessage([event]))
+            const result = recorder.end()!
+
+            expect(result.mousePositionCount).toBe(1)
+            expect(result.mouseSumX).toBe(5)
+            expect(result.mouseSumY).toBe(10)
+        })
     })
 
     describe('Mouse movement - distance and direction changes', () => {

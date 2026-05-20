@@ -71,8 +71,8 @@
             "type": "boolean"
         },
         "frequency": {
-            "description": "How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
-            "enum": ["hourly", "daily", "weekly", "monthly", "yearly"],
+            "description": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "enum": ["daily", "weekly", "monthly", "yearly"],
             "type": "string"
         },
         "insight": {
