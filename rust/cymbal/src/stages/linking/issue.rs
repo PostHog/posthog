@@ -74,50 +74,91 @@ impl ValueOperator for IssueLinker {
         ctx: LinkingStage,
     ) -> OperatorResult<Self> {
         let fingerprint = input.fingerprint.clone().unwrap();
-        let key = (input.team_id, fingerprint.clone());
+        let key = (input.team_id, fingerprint);
 
-        // The cache holds only the stable `(team_id, fingerprint) -> issue_id` mapping
-        // across requests. We deliberately do NOT cache the Issue itself: status changes
-        // (suppression, resolution) made in PG would otherwise be ignored by
-        // `IssueSuppression` and `maybe_reopen` until the cache TTL expired.
+        // Two-layer cache: per-batch dedup wraps the cross-request `issue_id` cache.
+        // - Per-batch cache (this `try_get_with`): events with the same fingerprint in
+        //   the same batch resolve the Issue exactly once. moka serializes concurrent
+        //   misses for the same key inside the batch.
+        // - Cross-batch `issue_id` cache (inside `resolve_via_id_cache`): keeps the
+        //   `(team_id, fingerprint) -> issue_id` mapping warm across batches and
+        //   skips the expensive fingerprint JOIN on warm fingerprints.
+        // Status is always read fresh from PG inside the loader, so `IssueSuppression`
+        // and `maybe_reopen` never see stale state.
         let cloned_input = input.clone();
         let ctx_for_load = ctx.clone();
-        let issue_id: Uuid = ctx
-            .issue_cache
-            .try_get_with(key.clone(), async move {
-                let issue =
-                    Self::fetch_or_create_issue(cloned_input, ctx_for_load.app_context.clone())
-                        .await?;
-                Ok::<Uuid, UnhandledError>(issue.id)
+        let issue: Issue = ctx
+            .batch_issue_cache
+            .try_get_with(key, async move {
+                resolve_via_id_cache(cloned_input, &ctx_for_load).await
             })
             .await
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
-
-        // Always re-read current state. On the cache-miss path this is one redundant PK
-        // lookup; on the cache-hit path it's the whole point — we replace the expensive
-        // fingerprint JOIN with a cheap PK lookup while keeping status fresh.
-        let issue = match load_and_maybe_reopen(
-            ctx.app_context.as_ref(),
-            input.team_id,
-            issue_id,
-            &fingerprint,
-            &input,
-        )
-        .await?
-        {
-            Some(issue) => issue,
-            None => {
-                // The cached id no longer exists in PG (deleted issue). Invalidate and
-                // run the full slow path, which will create a new issue if needed.
-                ctx.issue_cache.invalidate(&key).await;
-                Self::fetch_or_create_issue(input.clone(), ctx.app_context.clone()).await?
-            }
-        };
 
         input.issue_id = Some(issue.id);
         input.issue = Some(issue);
 
         Ok(Ok(input))
+    }
+}
+
+// Resolves an issue by going through the cross-batch `issue_id` cache:
+// - On cache miss we run `fetch_or_create_issue` (the only place that fires
+//   `created` / `reopened` alerts) and return the freshly-loaded Issue directly,
+//   avoiding a redundant PK lookup.
+// - On cache hit we re-read by id (cheap PK lookup) and call `maybe_reopen` so
+//   suppression and reopen always see current PG state.
+async fn resolve_via_id_cache(
+    input: ExceptionProperties,
+    ctx: &LinkingStage,
+) -> Result<Issue, UnhandledError> {
+    let fingerprint = input.fingerprint.clone().unwrap();
+    let key = (input.team_id, fingerprint.clone());
+
+    // `try_get_with` only returns the cached value (`Uuid`), so we stash the freshly
+    // resolved Issue in a slot when we run the loader ourselves. That lets us reuse it
+    // below and skip a redundant `Issue::load` on the cache-miss path.
+    let just_resolved: Arc<std::sync::Mutex<Option<Issue>>> = Default::default();
+    let slot = just_resolved.clone();
+    let app_ctx = ctx.app_context.clone();
+    let cloned_input = input.clone();
+
+    let issue_id: Uuid = ctx
+        .issue_cache
+        .try_get_with(key.clone(), async move {
+            let issue = IssueLinker::fetch_or_create_issue(cloned_input, app_ctx).await?;
+            let id = issue.id;
+            *slot.lock().expect("just_resolved mutex poisoned") = Some(issue);
+            Ok::<Uuid, UnhandledError>(id)
+        })
+        .await
+        .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+
+    // If we ran the loader, the just-resolved Issue is current — return it directly.
+    if let Some(issue) = just_resolved
+        .lock()
+        .expect("just_resolved mutex poisoned")
+        .take()
+    {
+        return Ok(issue);
+    }
+
+    // Cache hit (or we were deduped against a concurrent caller). Refresh by id.
+    match load_and_maybe_reopen(
+        ctx.app_context.as_ref(),
+        input.team_id,
+        issue_id,
+        &fingerprint,
+        &input,
+    )
+    .await?
+    {
+        Some(issue) => Ok(issue),
+        None => {
+            // Cached id no longer exists in PG. Invalidate and run the slow path.
+            ctx.issue_cache.invalidate(&key).await;
+            IssueLinker::fetch_or_create_issue(input, ctx.app_context.clone()).await
+        }
     }
 }
 
