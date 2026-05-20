@@ -183,6 +183,16 @@ pub(crate) struct Parser<'a> {
     /// strand the second `:=`; the probe mirrors the backtrack.
     /// Saved/restored around each statement-RHS parse.
     pub(crate) stop_postfix_call_before_colon_equals: bool,
+    /// When set, the Pratt loop's infix-RHS parse is wrapped with
+    /// checkpoint-restore: a failing RHS parse rolls back to before
+    /// the infix operator and the loop breaks (returning the LHS
+    /// built so far). cpp's ALL(*) handles `let x := {} * ()` by
+    /// splitting into two statements (`let x := {}` plus
+    /// `ExprStatement(Call(Field("*"), []))`) — the `* ()` infix
+    /// can't extend the rhs because `()` isn't a valid expression,
+    /// so the operator + failing operand become the next statement.
+    /// `parse_stmt_rhs_expr` sets this flag.
+    pub(crate) stmt_rhs_recover_on_pratt_rhs_failure: bool,
     /// Non-zero while the Pratt loop is parsing the compound body of a
     /// `LIMIT` clause. `%` is overloaded as both the modulo operator
     /// and the `LIMIT … PERCENT` marker; inside the limit body the
@@ -233,6 +243,7 @@ impl<'a> Parser<'a> {
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
             stop_postfix_call_before_colon_equals: false,
+            stmt_rhs_recover_on_pratt_rhs_failure: false,
             limit_body_depth: 0,
             pivot_in_stop: None,
             hogqlx_text_lookahead_depth: 0,

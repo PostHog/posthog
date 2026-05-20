@@ -1789,6 +1789,38 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_stmt_rhs_pratt_recovers_on_infix_rhs_failure(self):
+        # cpp's ALL(*) splits `let x := {} * ()` into two declarations
+        # because the `* ()` infix would need a valid columnExpr RHS,
+        # and the empty `()` rejects. The trailing operator and its
+        # operand become the next statement (`*` as Field, `()` as a
+        # postfix call → `Call(Field("*"), [])`). The Rust Pratt loop
+        # used to hard-error on the RHS-parse failure and abort the
+        # entire varDecl.
+        cases = (
+            "let x := {} * ()",
+            "{ let x := {} * () }",
+            "a := {} * ()",
+            "return {} * ()",
+            "let x := f() * ()",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: the recovery only fires when the RHS actually fails.
+        # A valid full expression still parses greedily.
+        for src in (
+            "let x := {} * (1)",
+            "let x := 1 + 2",
+            "let x := 1",
+        ):
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_bare_assignment_lead_chains_through_second_colon_equals(self):
         # `IDENT := <rhs> := <outer_rhs>` — cpp's grammar resolves the
         # *second* `:=` as the statement-level varAssignment, with the

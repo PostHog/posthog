@@ -64,10 +64,13 @@ impl<'a> Parser<'a> {
     /// guard active, so a trailing `(…) :=` opens the NEXT statement
     /// instead of folding into this expression as a postfix call.
     fn parse_stmt_rhs_expr(&mut self) -> Result<Value, ParseError> {
-        let prev = self.stop_postfix_call_before_colon_equals;
+        let prev_postfix = self.stop_postfix_call_before_colon_equals;
         self.stop_postfix_call_before_colon_equals = true;
+        let prev_recover = self.stmt_rhs_recover_on_pratt_rhs_failure;
+        self.stmt_rhs_recover_on_pratt_rhs_failure = true;
         let result = self.parse_expr_bp(0);
-        self.stop_postfix_call_before_colon_equals = prev;
+        self.stop_postfix_call_before_colon_equals = prev_postfix;
+        self.stmt_rhs_recover_on_pratt_rhs_failure = prev_recover;
         result
     }
 

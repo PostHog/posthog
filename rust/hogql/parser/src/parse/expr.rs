@@ -87,6 +87,29 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
+                // Statement-rhs recovery: when this Pratt loop is the
+                // rhs of a statement-level `:=` / `let X := …` /
+                // `return …` parse, an infix operator whose RHS fails
+                // to parse (e.g. `{} * ()` where `()` is an empty
+                // paren) is cpp's "split into two statements" shape:
+                // the rhs ends at the LHS so far, and the operator +
+                // failing RHS becomes the next statement. Mirror that
+                // via checkpoint-restore — without the flag the
+                // behaviour is the historical immediate error.
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    let cp = self.checkpoint();
+                    self.bump()?;
+                    match self.parse_expr_bp(rbp) {
+                        Ok(rhs) => {
+                            lhs = build_infix(op, lhs, rhs);
+                            continue;
+                        }
+                        Err(_) => {
+                            self.restore(cp)?;
+                            break;
+                        }
+                    }
+                }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(rbp)?;
                 lhs = build_infix(op, lhs, rhs);
