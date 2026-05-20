@@ -94,9 +94,9 @@ tools:
             idempotent: true
         title: Get account
         description: >
-            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
-            (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id,
-            sfdc_id, zendesk_id external identifiers).
+            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
+            account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
+            zendesk_id external identifiers).
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
