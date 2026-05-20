@@ -16,7 +16,8 @@ PostHog uses `depot-ubuntu-*` runners across ~20 workflows. The upstream SKILL.m
 SHA=$(curl -s https://api.github.com/repos/depot/skills/commits/main | jq -r .sha)
 curl -sL "https://raw.githubusercontent.com/depot/skills/$SHA/skills/depot-github-runners/SKILL.md" \
   -o .agents/skills/depot-github-runners/SKILL.md
-# then update the commit SHA above
+# Then update the `Commit:` line above (both the short SHA in the link text
+# and the full SHA in the URL) and bump the date.
 ```
 
 Audit the diff before committing — runner sizes, pricing, and label tables drift, and we may want to trim sections we don't use (e.g. Windows/macOS).

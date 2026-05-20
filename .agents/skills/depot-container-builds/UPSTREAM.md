@@ -16,7 +16,8 @@ PostHog uses `depot/build-push-action` and `depot/setup-action` across the conta
 SHA=$(curl -s https://api.github.com/repos/depot/skills/commits/main | jq -r .sha)
 curl -sL "https://raw.githubusercontent.com/depot/skills/$SHA/skills/depot-container-builds/SKILL.md" \
   -o .agents/skills/depot-container-builds/SKILL.md
-# then update the commit SHA above
+# Then update the `Commit:` line above (both the short SHA in the link text
+# and the full SHA in the URL) and bump the date.
 ```
 
 Audit the diff before committing — CLI flags and registry syntax drift; trim sections we don't use.
