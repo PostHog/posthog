@@ -4,22 +4,14 @@
  * mark types.
  *
  * The canonical schema for any product using TipTap/ProseMirror lives in
- * the frontend's extension config. Reproducing that schema in the MCP
- * worker would couple us to every frontend addition; instead we walk the
- * doc JSON, collect every node and mark type we encounter, and register a
- * generic spec for each. The result accepts `Node.fromJSON` for any
- * well-formed document the agent might have just fetched.
- *
- * What this schema is good for:
- *   - `Node.fromJSON(schema, content)` round-tripping the agent's input.
- *   - Constructing `ReplaceStep` / `Slice` against block-shaped content.
- *
- * What it deliberately doesn't model:
- *   - Validation of content rules (e.g. `<table><row><cell>` ordering). The
- *     server side typically doesn't validate steps either — peers apply them
- *     via `receiveTransaction`, and the canonical schema is what gets
- *     enforced there. If our generated step JSON applies cleanly against
- *     the same `version` on a peer, we're good.
+ * the frontend's extension config. Reproducing that schema in the MCP worker
+ * would couple us to every frontend addition; instead we walk the doc JSON,
+ * collect every node and mark type we encounter, and register a generic
+ * spec for each. The result accepts `Node.fromJSON` round-trips and can
+ * build `ReplaceStep` / `Slice` against block-shaped content, but it
+ * deliberately doesn't validate content rules (e.g. `<table><row><cell>`
+ * ordering) — the server doesn't either, and the canonical schema on each
+ * peer is what gets enforced when steps are applied via `receiveTransaction`.
  */
 import { type MarkSpec, type NodeSpec, Schema } from 'prosemirror-model'
 
@@ -61,21 +53,8 @@ const TEXT_NODE = 'text'
 /**
  * Build a ProseMirror Schema that accepts the given doc's full node/mark
  * vocabulary. Always includes `doc` and `text` even if the doc is empty.
- *
- * Group strategy:
- *   - Top-level children of `doc` go into `block`.
- *   - Anything that contains `text` becomes `content: 'inline*'` with group
- *     `block` (so it can sit inside `doc` and inside its own kind alike).
- *   - Pure containers (no text node but with children) get `content: 'block+'`
- *     and group `block`.
- *   - Leaves with no content become atomic block leaves — the safest default
- *     for unknown `ph-*` widgets so they round-trip without losing attrs.
- *   - `text` is always group `inline`.
- *
- * Attribute strategy:
- *   - Every non-text node accepts a single `attrs` object passthrough. We
- *     don't introspect attribute keys — the agent's input is rebuilt from the
- *     original JSON we just parsed, so attrs flow through unchanged.
+ * Each non-text node accepts a single `attrs` object passthrough — attribute
+ * keys aren't introspected, so attrs flow through unchanged.
  */
 export function buildSchemaForDoc(doc: ProseMirrorNodeJSON | ProseMirrorNodeJSON[]): Schema {
     const discovered: DiscoveredTypes = { nodes: new Map(), marks: new Set() }

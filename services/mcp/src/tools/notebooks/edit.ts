@@ -4,26 +4,17 @@
  * Substring-replacement editor against the notebook's content JSON. The
  * caller supplies `{ short_id, old_string, new_string, replace_all? }`; the
  * tool finds `old_string` in the notebook's serialized content and replaces
- * it with `new_string`. The chosen serialization is
- * `JSON.stringify(content, null, 2)` (2-space indent), so callers can match
- * against pretty-printed JSON keys, attribute values, and inline text.
- *
- * Pipeline:
- *   1. GET notebook → current content + version
- *   2. Serialize content with 2-space indent, run the substring replacement,
- *      and parse the result back to JSON
- *   3. Parse old and new content into ProseMirror via a dynamic schema
- *      covering both documents
- *   4. Build one ReplaceStep via Transform.replaceWith — PM's idiomatic way
- *      to express "make this doc become that one"
- *   5. POST to /collab/save so the edit streams live to other connected
- *      clients over SSE
+ * it with `new_string`. The serialization the caller matches against is
+ * `JSON.stringify(content, null, 2)` (2-space indent), so callers can target
+ * pretty-printed JSON keys, attribute values, and inline text. The resulting
+ * diff is expressed as a single ProseMirror ReplaceStep and POSTed to
+ * `/collab/save` so the edit streams live to other connected clients over SSE.
  *
  * Server errors (409 concurrent edit, 410 stale buffer, etc.) flow through
  * `context.api.request` → PostHogApiError → `handleToolError`, which surfaces
- * the URL, status, and Django response body verbatim to the agent. The
- * 409 body already includes the latest version + rebased steps from the
- * server, which the agent can use to retry without an extra read.
+ * the URL, status, and Django response body verbatim to the agent. The 409
+ * body already includes the latest version + rebased steps, which the agent
+ * can use to retry without an extra read.
  */
 import { Node as PMNode } from 'prosemirror-model'
 import { Transform } from 'prosemirror-transform'
@@ -104,7 +95,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = `/api/projects/${encodeURIComponent(projectId)}/notebooks/${encodeURIComponent(params.short_id)}/`
 
-    // 1. Load current notebook.
+    // Load current notebook.
     const notebook = await context.api.request<Schemas.Notebook>({ method: 'GET', path: notebookPath })
 
     if (
@@ -123,7 +114,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         throw new Error(`Notebook ${params.short_id} has no numeric version — required for optimistic concurrency.`)
     }
 
-    // 2. Serialize the content and apply the substring replacement.
+    // Serialize the content and apply the substring replacement.
     const serialized = JSON.stringify(notebook.content, null, JSON_INDENT)
     const occurrences = countOccurrences(serialized, params.old_string)
 
@@ -166,7 +157,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         )
     }
 
-    // 3. Parse old + new into PM.
+    // Parse old + new into ProseMirror.
     const rawContent = notebook.content as unknown as Parameters<typeof packDocAttrs>[0]
     const newContentObj = newContent as Parameters<typeof packDocAttrs>[0]
     const schema = buildSchemaForDoc([rawContent, newContentObj])
@@ -183,9 +174,9 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         )
     }
 
-    // 4. Build steps via PM's canonical Transform API. Empty steps means the
-    //    str_replace round-tripped to an identical PM tree (e.g. whitespace
-    //    inside an attrs object that serializes back the same).
+    // Build steps via ProseMirror's canonical Transform API. Empty steps means
+    // the str_replace round-tripped to an identical ProseMirror tree (e.g. whitespace
+    // inside an attrs object that serializes back the same).
     const steps = oldDoc.eq(newDoc)
         ? []
         : new Transform(oldDoc).replaceWith(0, oldDoc.content.size, newDoc.content).steps.slice()
@@ -193,11 +184,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         return notebook
     }
 
-    // 5. POST to collab/save. Non-2xx responses (including 409 concurrent
-    //    edit and 410 stale buffer) are thrown as PostHogApiError by
-    //    `request()` and surfaced verbatim by `handleToolError` — the agent
-    //    sees the URL, status, and the Django response body (which for 409
-    //    already includes the latest version + rebased steps).
+    // POST to collab/save. Non-2xx responses are thrown as PostHogApiError by `request()`.
     const unpackedContent = unpackDocAttrs(newDoc.toJSON() as Parameters<typeof unpackDocAttrs>[0])
     return await context.api.request<Schemas.Notebook>({
         method: 'POST',
