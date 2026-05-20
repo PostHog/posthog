@@ -149,12 +149,14 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
                   restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-
+                      mypy-cache-${{ runner.os }}-3.12-mypy2-
 
             - name: Check static typing
               shell: bash -e {0}
+              env:
+                  MYPY_NUM_WORKERS: 2
               run: |
                   mypy --version && mypy --cache-fine-grained .
 
@@ -163,7 +165,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
 
             - name: Check if "schema.py" is up to date
               shell: bash

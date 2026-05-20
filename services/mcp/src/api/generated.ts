@@ -3955,7 +3955,8 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
-     * * `hourly` - hourly
+     * * `every_15_minutes` - every_15_minutes
+    * `hourly` - hourly
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly
@@ -3964,6 +3965,7 @@ export namespace Schemas {
 
 
     export const CalculationIntervalEnum = {
+      Every15Minutes: 'every_15_minutes',
       Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
@@ -4030,6 +4032,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -15738,6 +15741,12 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
@@ -15878,6 +15887,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -15919,6 +15935,11 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Columns to sync. Null means sync all columns.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -25187,6 +25208,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -25485,6 +25508,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -26934,6 +26958,12 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -27006,6 +27036,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -30841,6 +30878,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;

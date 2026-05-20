@@ -2,7 +2,7 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -182,9 +182,13 @@ export class ApiClient {
             const response = await this.fetch(url, fetchOptions)
             if (!response.ok) {
                 const errorText = await response.text()
-                throw new Error(
-                    `Request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-                )
+                throw new PostHogApiError({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText,
+                    url,
+                    method: opts.method,
+                })
             }
             return (await response.text()) as T
         }
@@ -381,9 +385,13 @@ export class ApiClient {
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
-                    throw new Error(
-                        `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-                    )
+                    throw new PostHogApiError({
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: errorText,
+                        url,
+                        method,
+                    })
                 }
 
                 const rawText = await response.text()

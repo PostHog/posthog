@@ -421,7 +421,7 @@
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "AlertCondition": {
