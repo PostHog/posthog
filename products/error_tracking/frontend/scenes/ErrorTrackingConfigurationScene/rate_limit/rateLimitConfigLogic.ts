@@ -123,8 +123,8 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
             submit: async ({ project_rate_limit_value, project_rate_limit_bucket_size_minutes }) => {
                 try {
                     const payload = { project_rate_limit_value, project_rate_limit_bucket_size_minutes }
-                    const updated = await api.errorTracking.updateSettings(payload)
-                    actions.loadConfigSuccess(updated)
+                    await api.errorTracking.updateSettings(payload)
+                    actions.resetConfigForm(payload)
                     posthog.capture('error_tracking_settings_updated', payload)
                     lemonToast.success('Settings saved')
                 } catch (e) {

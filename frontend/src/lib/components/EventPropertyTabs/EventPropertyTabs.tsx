@@ -40,6 +40,7 @@ type EventPropertyTabKey =
     | 'debug_properties'
     | 'metadata'
     | 'survey_response'
+    | 'mcp'
 
 export const EventPropertyTabs = ({
     event,
@@ -59,6 +60,8 @@ export const EventPropertyTabs = ({
 
     const isErrorEvent = event.event === '$exception'
     const isSurveyResponseEvent = event.event === 'survey sent'
+    const isMcpEvent =
+        typeof event.event === 'string' && (event.event.startsWith('mcp_') || event.event.startsWith('mcp '))
 
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
@@ -73,7 +76,9 @@ export const EventPropertyTabs = ({
                   ? 'error_display'
                   : isSurveyResponseEvent
                     ? 'survey_response'
-                    : 'properties'
+                    : isMcpEvent
+                      ? 'mcp'
+                      : 'properties'
     )
 
     const promotedKeys = isKeyOf(event.event, POSTHOG_EVENT_PROMOTED_PROPERTIES)
@@ -119,6 +124,11 @@ export const EventPropertyTabs = ({
             key: 'survey_response',
             label: 'Survey response',
             content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'survey_response' }),
+        },
+        isMcpEvent && {
+            key: 'mcp',
+            label: 'MCP analytics',
+            content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'mcp' }),
         },
         isAIConversationEvent
             ? {

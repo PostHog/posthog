@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { HogQLQueryResponse, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -132,6 +132,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                             properties: (values.insightsFilterGroup.values[0] as UniversalFiltersGroup)
                                 .values as AnyPropertyFilter[],
                         },
+                        tags: { productKey: ProductKey.ERROR_TRACKING },
                     })
                     const row = (response as HogQLQueryResponse)?.results?.[0]
                     if (!row) {

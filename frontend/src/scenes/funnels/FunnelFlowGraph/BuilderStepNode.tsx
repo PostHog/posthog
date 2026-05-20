@@ -177,6 +177,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                         fullWidth
                         truncate
                         placeholder="Select event or action"
+                        selectingKeyOnly
                     />
                 </div>
             }

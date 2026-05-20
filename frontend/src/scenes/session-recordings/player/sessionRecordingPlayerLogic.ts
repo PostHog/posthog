@@ -31,7 +31,6 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -489,7 +488,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMetadataFooter'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -514,7 +513,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             exportsLogic,
@@ -1135,13 +1134,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (logicProps): boolean => logicProps.mode === SessionRecordingPlayerMode.Kiosk,
         ],
         hoverModeIsEnabled: [
-            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
-            (logicProps, isCommenting, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams, s.playerControlsOverlay],
+            (logicProps, isCommenting, showingClipParams, playerControlsOverlay): boolean => {
                 return (
                     !!logicProps.mode &&
                     ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
-                    !showingClipParams
+                    !showingClipParams &&
+                    playerControlsOverlay
                 )
             },
         ],
@@ -1337,7 +1337,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                     replayer.on('fullsnapshot-rebuilded', () => {
                         const iframeContentWindow = replayer.iframe.contentWindow
-                        const iframeDocument = iframeContentWindow?.document
                         const iframeFetch = iframeContentWindow?.fetch
 
                         const setupErrorHandlers = (): void => {
@@ -1376,44 +1375,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             }
                         }
 
-                        if (
-                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                            iframeDocument &&
-                            iframeDocument.readyState === 'loading'
-                        ) {
-                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                            const onReady = (): void => {
-                                setupErrorHandlers()
-
-                                if (
-                                    replayer &&
-                                    values.currentTimestamp !== undefined &&
-                                    values.sessionPlayerData.start
-                                ) {
-                                    const currentTime =
-                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                    replayer.pause(currentTime)
-                                    pauseTimeoutId = setTimeout(() => {
-                                        if (replayer) {
-                                            replayer.pause(currentTime)
-                                        }
-                                    }, 0)
-                                }
-
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                            }
-                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
-
-                            iframeCleanups.push(() => {
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                                if (pauseTimeoutId !== null) {
-                                    clearTimeout(pauseTimeoutId)
-                                }
-                            })
-                        } else {
-                            setupErrorHandlers()
-                        }
+                        setupErrorHandlers()
                     })
 
                     actions.setPlayer({ replayer, windowId })

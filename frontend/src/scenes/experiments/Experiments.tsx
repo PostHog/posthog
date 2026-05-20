@@ -71,7 +71,7 @@ export const scene: SceneExport = {
 }
 
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
-    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.'
 
 // Component for the survey button using QuickSurveyModal
 const ExperimentSurveyButton = ({

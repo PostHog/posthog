@@ -14,7 +14,7 @@ import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
 import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
-import { normalizeRole, safeStringify } from '../utils'
+import { isOTelPartsMessage, normalizeMessage, normalizeRole, safeStringify } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 
@@ -941,6 +941,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             lemonToast.error('Could not determine team')
                             return
                         }
+                        // nosemgrep: prefer-codegen-api
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
@@ -973,9 +974,22 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 if (input) {
                     try {
+                        // OTel `parts` messages (Gemini auto-instrumentor and any other gen_ai.* OTel
+                        // provider that follows the OpenTelemetry AI semantic conventions) carry their
+                        // text in `parts: [{type, content}]` instead of `content`. Expand only those
+                        // entries via the shared normalizer the Conversation tab uses, so non-parts
+                        // shapes keep their existing handling and we don't change behavior for
+                        // OpenAI / Anthropic / Vercel / Traceloop / Pydantic traces.
+                        const expandedInput = Array.isArray(input)
+                            ? input.flatMap((msg) =>
+                                  isOTelPartsMessage(msg)
+                                      ? normalizeMessage(msg, normalizeRole(msg.role, 'user'))
+                                      : [msg]
+                              )
+                            : input
                         if (
-                            Array.isArray(input) &&
-                            input.every(
+                            Array.isArray(expandedInput) &&
+                            expandedInput.every(
                                 (msg) =>
                                     // Standard chat message: must have role + content/tool_calls
                                     (msg.role && (msg.content != null || msg.tool_calls)) ||
@@ -984,7 +998,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                     msg.type === 'function_call_output'
                             )
                         ) {
-                            const systemContents = input
+                            const systemContents = expandedInput
                                 .filter((msg) => msg.role === 'system')
                                 .map((msg) => msg.content)
                                 .filter(
@@ -996,7 +1010,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                 systemPromptContent = systemContents.join('\n\n')
                             }
 
-                            for (const msg of input as RawMessage[]) {
+                            for (const msg of expandedInput as RawMessage[]) {
                                 if (msg.role === 'system') {
                                     continue
                                 }
@@ -1118,6 +1132,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
@@ -1197,6 +1212,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',

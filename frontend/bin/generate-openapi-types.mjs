@@ -194,6 +194,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     const grouped = new Map()
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
+    const allParameters = schema.components?.parameters ?? {}
     const skippedTags = new Map()
     let skippedNoTags = 0
     let routedByTag = 0
@@ -307,6 +308,19 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
     // Build final schemas with only referenced components
     for (const [outputDir, entry] of grouped.entries()) {
+        const filteredParameters = {}
+        for (const ref of entry._refs) {
+            if (!ref.startsWith('#/components/parameters/')) {
+                continue
+            }
+            const paramName = ref.replace('#/components/parameters/', '')
+            const paramDef = allParameters[paramName]
+            if (paramDef) {
+                filteredParameters[paramName] = paramDef
+                collectSchemaRefs(paramDef, entry._refs)
+            }
+        }
+
         const allRefs = resolveNestedRefs(allSchemas, entry._refs)
         const filteredSchemas = {}
 
@@ -317,19 +331,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
         }
 
-        // Inline the full `components.parameters` (and any other top-level
-        // component buckets we don't slice) verbatim. The per-product paths
-        // reference shared parameter objects like `#/components/parameters/
-        // ProjectIdPath` — without these, orval validation fails with
-        // INVALID_REFERENCE and silently writes nothing. The parameter set
-        // is small and reused across products, so the duplication is fine.
+        // Inline non-schema component buckets (securitySchemes, responses,
+        // headers, etc.) verbatim — per-product paths reference shared
+        // objects like `#/components/parameters/ProjectIdPath`, and without
+        // them orval validation fails with INVALID_REFERENCE and silently
+        // writes nothing. Parameters specifically are slicing-friendly and
+        // tracked via `_refs`, so we override with the filtered subset.
         const sharedComponents = { ...schema.components }
         delete sharedComponents.schemas
+        delete sharedComponents.parameters
+
+        const components = { ...sharedComponents, schemas: filteredSchemas }
+        if (Object.keys(filteredParameters).length > 0) {
+            components.parameters = filteredParameters
+        }
+
         grouped.set(outputDir, {
             openapi: entry.openapi,
             info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: { ...sharedComponents, schemas: filteredSchemas },
+            components,
         })
     }
 
@@ -541,20 +562,95 @@ function opaqueDeepSchemas(schema) {
         return size
     }
 
-    // Compute expanded sizes and collect schemas that exceed the limit
-    const opaqued = new Set()
-    for (const name of Object.keys(allSchemas)) {
-        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
-            opaqued.add(name)
+    // Direct $refs out of a single schema's definition, ignoring traversal order
+    // (used to detect cycles via the ref graph, not via the size walk which
+    // pessimistically returns Infinity to any caller that *transitively* sees a
+    // cycle).
+    function directRefs(name) {
+        const refs = new Set()
+        const defn = allSchemas[name]
+        if (!defn) {
+            return refs
         }
+        function walk(obj) {
+            if (!obj || typeof obj !== 'object') {
+                return
+            }
+            if (Array.isArray(obj)) {
+                obj.forEach(walk)
+                return
+            }
+            if (obj.$ref) {
+                refs.add(obj.$ref.replace('#/components/schemas/', ''))
+                return
+            }
+            for (const v of Object.values(obj)) {
+                walk(v)
+            }
+        }
+        walk(defn)
+        return refs
     }
 
-    // Replace with opaque object type
-    for (const name of opaqued) {
+    // A schema is a cycle member iff it's reachable from itself via the ref
+    // graph. Schemas that merely *reference* a cycle are NOT members — they
+    // expand to a finite tree once the cycle members are opaqued, so we must
+    // not opaque them just because they touch a recursive component.
+    function isCycleMember(start) {
+        const stack = [...directRefs(start)]
+        const visited = new Set()
+        while (stack.length > 0) {
+            const name = stack.pop()
+            if (name === start) {
+                return true
+            }
+            if (visited.has(name)) {
+                continue
+            }
+            visited.add(name)
+            for (const r of directRefs(name)) {
+                stack.push(r)
+            }
+        }
+        return false
+    }
+
+    const opaqued = new Set()
+    const opaqueSchema = (name) => {
+        opaqued.add(name)
         allSchemas[name] = {
             type: 'object',
             description: `Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)`,
             additionalProperties: true,
+        }
+    }
+
+    // Pass 1: opaque only true cycle members.
+    //
+    // Collect *all* cycle members first, then opaque in a second loop —
+    // `isCycleMember` reads from the live `allSchemas`, and opaquing a schema
+    // erases its $refs. In a mutual cycle A↔B with iteration order [A, B],
+    // opaquing A as we go would make `isCycleMember("B")` walk B → A → ∅ and
+    // return false, misclassifying B as a non-member.
+    const cycleMembers = new Set()
+    for (const name of Object.keys(allSchemas)) {
+        if (isCycleMember(name)) {
+            cycleMembers.add(name)
+        }
+    }
+    for (const name of cycleMembers) {
+        opaqueSchema(name)
+    }
+
+    // Pass 2: with cycle members now opaque, recompute sizes; opaque anything
+    // still over the limit (deeply nested unions, large response envelopes).
+    cache.clear()
+    for (const name of Object.keys(allSchemas)) {
+        if (opaqued.has(name)) {
+            continue
+        }
+        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
+            opaqueSchema(name)
         }
     }
 

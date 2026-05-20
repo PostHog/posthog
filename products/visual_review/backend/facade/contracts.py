@@ -3,11 +3,22 @@ Contract types for visual_review.
 
 Stable, framework-free frozen dataclasses that define what this product
 exposes to the rest of the codebase. No Django imports.
+
+These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant — same
+syntax, same ``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps
+working), but with runtime validation on construction. Pydantic v2 coerces where
+the conversion is unambiguous (string→UUID/datetime, int→str) and raises
+``ValidationError`` otherwise, so structural mistakes from mappers or internal
+callers (None for a required int, a dict where a list is expected, an
+unparseable UUID) surface at the facade boundary instead of producing a
+malformed JSON payload twelve stack frames later.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
+
+from pydantic.dataclasses import dataclass
 
 # --- Input DTOs ---
 
@@ -136,6 +147,38 @@ class UserBasicInfo:
 
 
 @dataclass(frozen=True)
+class DiffCluster:
+    """One connected region of differing pixels in a snapshot diff.
+
+    Wire shape — verbose key names for frontend consumption. Storage uses
+    a compact form (see `diff_metadata.DiffCluster`).
+    """
+
+    x: int
+    y: int
+    width: int
+    height: int
+    pixel_count: int
+    centroid_x: float
+    centroid_y: float
+
+
+@dataclass(frozen=True)
+class ClusterSummary:
+    """Spatial clustering of differing pixels for a snapshot.
+
+    `total` is the count before any per-snapshot cap (so the FE can show
+    "+N more" or pick a categorical label like 'Perceptible change' for highly
+    scattered diffs even when only the top-N items are shipped).
+    `truncated` is True when `len(items) < total`.
+    """
+
+    items: list[DiffCluster]
+    total: int
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -157,6 +200,17 @@ class Snapshot:
     reviewed_by: UserBasicInfo | None = None
     # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
     metadata: dict = field(default_factory=dict)
+    # Diff classification details — see ChangeKind enum and the diff
+    # pipeline. `change_kind` is the categorical signal the UI renders
+    # ('pixel' / 'structural'); `ssim_score` and `cluster_summary` are
+    # details available alongside. `size_mismatch` flags the case where
+    # baseline and current had different dimensions (composes with any
+    # change_kind — pixelhog padded the smaller image and ran metrics
+    # against the padded buffers).
+    ssim_score: float | None = None
+    change_kind: str = ""
+    cluster_summary: ClusterSummary | None = None
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -229,6 +283,22 @@ class ToleratedHashEntry:
 
 
 @dataclass(frozen=True)
+class QuarantineSourceRun:
+    """Pointer back to the run whose failing snapshot prompted a quarantine.
+
+    Enough fields to render a "View the failing run" link without a second
+    fetch: the run id for routing, plus branch / commit / PR / time for the
+    one-liner the UI shows above the link.
+    """
+
+    id: UUID
+    branch: str
+    commit_sha: str
+    created_at: datetime
+    pr_number: int | None = None
+
+
+@dataclass(frozen=True)
 class QuarantinedIdentifierEntry:
     """A quarantined snapshot identifier."""
 
@@ -240,6 +310,10 @@ class QuarantinedIdentifierEntry:
     created_at: datetime
     updated_at: datetime
     created_by: UserBasicInfo | None = None
+    # Set when the quarantine was created from the run scene (we knew which
+    # failing snapshot prompted it). None for quarantines opened from the
+    # snapshot history page or pre-dating this column.
+    source_run: QuarantineSourceRun | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +323,11 @@ class QuarantineInput:
     identifier: str
     reason: str
     expires_at: datetime | None = None
+    # Optional pointer to the run whose failing snapshot prompted this
+    # quarantine. Passed by the run scene so reviewers can jump back to
+    # "what was wrong" later. Omitted when quarantining from the snapshot
+    # history page where no run is in context.
+    source_run_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +361,14 @@ class SnapshotHistoryEntry:
     diff_percentage: float | None = None
     review_state: str = ""
     current_artifact: Artifact | None = None
+    # Diff classification — see ChangeKind enum. Lets the history view
+    # render categorical chips ('Perceptible change' / 'Size changed') instead
+    # of conflating SSIM dissimilarity with pixel diff %. `cluster_summary`
+    # deliberately omitted here — bbox overlays don't apply to a
+    # list-of-history-rows view; load the full snapshot for those.
+    ssim_score: float | None = None
+    change_kind: str = ""
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -308,6 +395,22 @@ BASELINE_OVERVIEW_MAX_ENTRIES = 5000
 # so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
 # to wash out a single jittery render while staying responsive on real changes.
 BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+
+@dataclass(frozen=True)
+class BaselineQuarantineSummary:
+    """Compact view of the active quarantine attached to a baseline entry.
+
+    Embedded on `BaselineEntry` so the overview grid can render rich details
+    (reason, expiry, who, source run) without a per-card fetch.
+    """
+
+    id: UUID
+    reason: str
+    expires_at: datetime | None
+    created_at: datetime
+    created_by: UserBasicInfo | None = None
+    source_run: QuarantineSourceRun | None = None
 
 
 @dataclass(frozen=True)
@@ -339,6 +442,9 @@ class BaselineEntry:
     # non-zero diff. Drives the drift-severity sort. None when no signal in
     # the window.
     recent_drift_avg: float | None
+    # Populated when `is_quarantined` is true. Lets the overview grid show
+    # reason / expiry / who / source-run inline instead of just a yellow icon.
+    quarantine: BaselineQuarantineSummary | None = None
 
 
 @dataclass(frozen=True)

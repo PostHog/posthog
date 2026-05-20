@@ -148,7 +148,7 @@ from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
 )
-from posthog.temporal.usage_reports import (
+from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
@@ -165,9 +165,17 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.deployments.backend.temporal import (
+    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
+    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+)
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -214,7 +222,6 @@ _task_queue_specs = [
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
         + DELETE_PERSONS_WORKFLOWS
-        + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
@@ -226,7 +233,6 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
-        + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
@@ -270,8 +276,8 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES + USAGE_REPORTS_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -302,6 +308,11 @@ _task_queue_specs = [
         + SESSION_SUMMARY_ACTIVITIES
         + SESSION_SUMMARY_GROUP_ACTIVITIES
         + SUMMARIZATION_SWEEP_ACTIVITIES,
+    ),
+    (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -337,6 +348,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.DEPLOYMENTS_TASK_QUEUE,
+        DEPLOYMENTS_WORKFLOWS,
+        DEPLOYMENTS_ACTIVITIES,
     ),
 ]
 

@@ -1,10 +1,13 @@
+import { useMemo } from 'react'
+
 import { IconFlag, IconPulse, IconWarning } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import type { BaselineEntryApi } from '../generated/api.schemas'
+import type { BaselineEntryApi, BaselineQuarantineSummaryApi } from '../generated/api.schemas'
 import { parseArea, parseTheme } from '../lib/parseIdentifier'
 
 // Drift is shown as a percentage with one decimal — anything less is sub-pixel
@@ -14,6 +17,54 @@ function formatDriftPct(value: number): string {
         return `${value.toFixed(0)}%`
     }
     return `${value.toFixed(1)}%`
+}
+
+// Compact "12d left" / "today" / "expired" hint for the card. The exact date
+// is in the tooltip so the strip stays readable inside a 220px-wide thumb.
+function formatExpiryShort(expiresAt: string | null | undefined): string {
+    if (!expiresAt) {
+        return 'no expiry'
+    }
+    const now = dayjs()
+    const expiry = dayjs(expiresAt)
+    if (expiry.isBefore(now)) {
+        return 'expired'
+    }
+    const days = expiry.diff(now, 'day')
+    if (days === 0) {
+        return 'today'
+    }
+    if (days < 30) {
+        return `${days}d left`
+    }
+    return `${Math.round(days / 7)}w left`
+}
+
+function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): JSX.Element {
+    // One <div> per line so the tooltip renders multi-line — the default
+    // Tooltip container has `white-space: normal`, which would collapse `\n`.
+    const lines: string[] = []
+    if (quarantine.reason) {
+        lines.push(quarantine.reason)
+    }
+    lines.push(
+        quarantine.expires_at ? `Expires ${dayjs(quarantine.expires_at).format('MMM D, YYYY')}` : 'No expiry set'
+    )
+    if (quarantine.created_by) {
+        const name = quarantine.created_by.first_name || quarantine.created_by.email
+        lines.push(`By ${name} · ${dayjs(quarantine.created_at).fromNow()}`)
+    }
+    if (quarantine.source_run) {
+        const prSuffix = quarantine.source_run.pr_number ? ` · PR #${quarantine.source_run.pr_number}` : ''
+        lines.push(`From ${quarantine.source_run.commit_sha.slice(0, 8)} on ${quarantine.source_run.branch}${prSuffix}`)
+    }
+    return (
+        <>
+            {lines.map((line, i) => (
+                <div key={i}>{line}</div>
+            ))}
+        </>
+    )
 }
 
 // Anything below this rounds to "0.0%" via the formatter above, which would
@@ -57,13 +108,25 @@ export function SnapshotCard({
     const href = urls.visualReviewSnapshotHistory(repoId, entry.run_type, entry.identifier)
     const hasMeta = driftVisible || tolerateCount > 0 || entry.baseline_change_count > 0
 
+    const quarantine = entry.quarantine ?? null
+    // Yellow ring (not a 1px border) so the card pulls the eye in a grid
+    // of hundreds — quarantine means "system stopped trusting this".
+    const cardClassName = entry.is_quarantined
+        ? 'border border-warning rounded bg-bg-light overflow-hidden flex flex-col text-default hover:border-warning-dark transition-colors shadow-[0_0_0_1px_var(--warning)]'
+        : 'border border-border rounded bg-bg-light overflow-hidden flex flex-col text-default hover:border-primary transition-colors'
+
+    // Tooltip body is only consumed on hover — compute once per render of
+    // a quarantined card, not on every mouse-enter, and avoid building it
+    // at all for non-quarantined cards (most cards in a typical grid).
+    const quarantineTooltip = useMemo(() => (quarantine ? buildQuarantineTooltip(quarantine) : null), [quarantine])
+
     return (
         <Link
             to={href}
             // Without an explicit border-color, Tailwind's `border` falls back
             // to `currentColor` — and Link sets `currentColor` to the primary
             // orange. That painted every card with an orange frame.
-            className="border border-border rounded bg-bg-light overflow-hidden flex flex-col text-default hover:border-primary transition-colors"
+            className={cardClassName}
             data-attr="visual-review-snapshot-card"
         >
             <div
@@ -87,19 +150,32 @@ export function SnapshotCard({
                 ) : (
                     <span className="text-muted text-xs my-auto">No thumbnail</span>
                 )}
-                {/* Corner is reserved for severity-only signals: quarantine
-                    means "broken, system stopped trusting this". Activity
-                    metrics (tolerate / drift / baseline-change) live in the
-                    meta row below where they can be compared on the same axis. */}
-                {entry.is_quarantined && (
-                    <div className="absolute top-1.5 right-1.5">
-                        <Tooltip title="Currently quarantined — excluded from gating">
-                            <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full text-white text-[10px] font-semibold leading-none bg-warning">
-                                <IconWarning className="w-3 h-3" />
-                            </span>
+                {/* Strip surfaces reason + expiry inline so the overview is
+                    assessable at a glance — not just a color and icon. The
+                    fallback corner badge handles old API responses that
+                    don't yet return the summary. */}
+                {entry.is_quarantined &&
+                    (quarantine ? (
+                        <Tooltip title={quarantineTooltip}>
+                            <div className="absolute top-0 left-0 right-0 bg-warning text-white flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold leading-tight">
+                                <IconWarning className="w-3 h-3 shrink-0" />
+                                <span className="truncate min-w-0 flex-1" title={quarantine.reason}>
+                                    {quarantine.reason || 'Quarantined'}
+                                </span>
+                                <span className="shrink-0 opacity-90 tabular-nums">
+                                    {formatExpiryShort(quarantine.expires_at)}
+                                </span>
+                            </div>
                         </Tooltip>
-                    </div>
-                )}
+                    ) : (
+                        <div className="absolute top-1.5 right-1.5">
+                            <Tooltip title="Currently quarantined — excluded from gating">
+                                <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full text-white text-[10px] font-semibold leading-none bg-warning">
+                                    <IconWarning className="w-3 h-3" />
+                                </span>
+                            </Tooltip>
+                        </div>
+                    ))}
             </div>
 
             <div className="p-2 flex flex-col gap-1 min-w-0">
@@ -152,6 +228,22 @@ export function SnapshotCard({
                         </div>
                     )}
                 </div>
+                {quarantine && (
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-muted truncate">
+                        <span className="truncate">
+                            {quarantine.created_by
+                                ? `by ${quarantine.created_by.first_name || quarantine.created_by.email}`
+                                : 'quarantined'}
+                        </span>
+                        {quarantine.source_run && (
+                            <span className="font-mono shrink-0" title={`From run ${quarantine.source_run.commit_sha}`}>
+                                {quarantine.source_run.pr_number
+                                    ? `PR #${quarantine.source_run.pr_number}`
+                                    : quarantine.source_run.commit_sha.slice(0, 7)}
+                            </span>
+                        )}
+                    </div>
+                )}
             </div>
         </Link>
     )

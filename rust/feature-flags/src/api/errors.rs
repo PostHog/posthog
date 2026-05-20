@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use common_cookieless::CookielessManagerError;
+use common_cookieless::{CookielessManagerError, SaltCacheError};
 use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
@@ -58,6 +58,8 @@ pub enum FlagError {
     Internal(String),
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
+    #[error("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)")]
+    PayloadTooLarge { decompressed: usize, limit: usize },
     #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
     #[error("No distinct_id in request")]
@@ -160,6 +162,7 @@ impl FlagError {
             FlagError::RequestDecodingError(_) => ("request_decoding_error", 400),
             FlagError::RequestParsingError(_) => ("request_parsing_error", 400),
             FlagError::MissingDistinctId => ("missing_distinct_id", 400),
+            FlagError::PayloadTooLarge { .. } => ("payload_too_large", 413),
 
             // Authentication errors (401)
             FlagError::NoTokenError => ("missing_token", 401),
@@ -203,7 +206,10 @@ impl FlagError {
             FlagError::CookielessError(err) => match err {
                 CookielessManagerError::MissingProperty(_)
                 | CookielessManagerError::UrlParseError(_)
-                | CookielessManagerError::InvalidTimestamp(_) => ("cookieless_error", 400),
+                | CookielessManagerError::InvalidTimestamp(_)
+                | CookielessManagerError::SaltCacheError(SaltCacheError::DateOutOfRange) => {
+                    ("cookieless_error", 400)
+                }
                 _ => ("cookieless_error", 500),
             },
         }
@@ -310,46 +316,7 @@ impl FlagError {
     }
 
     pub fn is_5xx(&self) -> bool {
-        let status = match self {
-            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
-            FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
-            FlagError::Internal(_)
-            | FlagError::DeserializeFiltersError
-            | FlagError::DatabaseError(_, _)
-            | FlagError::NoGroupTypeMappings
-            | FlagError::GroupTypeMappingFetchFailed
-            | FlagError::RowNotFound
-            | FlagError::DependencyNotFound(_, _)
-            | FlagError::CohortFiltersParsingError
-            | FlagError::DependencyCycle(_, _)
-            | FlagError::DataParsingError
-            | FlagError::BatchEvaluationPanicked
-            | FlagError::DataParsingErrorWithContext(_)
-            | FlagError::HashKeyOverrideError => StatusCode::INTERNAL_SERVER_ERROR,
-
-            FlagError::RayonSemaphoreTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
-
-            FlagError::RedisUnavailable
-            | FlagError::DatabaseUnavailable
-            | FlagError::TimeoutError(_)
-            | FlagError::CacheMiss
-            | FlagError::PersonNotFound
-            | FlagError::PropertiesNotInCache
-            | FlagError::StaticCohortMatchesNotCached => StatusCode::SERVICE_UNAVAILABLE,
-
-            FlagError::CookielessError(
-                CookielessManagerError::HashError(_)
-                | CookielessManagerError::ChronoError(_)
-                | CookielessManagerError::RedisError(_, _)
-                | CookielessManagerError::SaltCacheError(_)
-                | CookielessManagerError::InvalidIdentifyCount(_),
-            ) => StatusCode::INTERNAL_SERVER_ERROR,
-            FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
-            _ => return false,                             // Everything else is 4XX
-        };
-        status.is_server_error()
+        self.status_code() >= 500
     }
 }
 
@@ -390,6 +357,16 @@ impl IntoResponse for FlagError {
             }
             FlagError::RequestDecodingError(msg) => {
                 (StatusCode::BAD_REQUEST, format!("Failed to decode request: {msg}. Please check your request format and try again."))
+            }
+            FlagError::PayloadTooLarge { decompressed, limit } => {
+                tracing::warn!(decompressed, limit, "Decompressed request body exceeded cap");
+                (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "Decompressed request body exceeded {limit} bytes (got {decompressed}). \
+                         If this is a legitimate workload, contact PostHog support."
+                    ),
+                )
             }
             FlagError::RequestParsingError(err) => {
                 (StatusCode::BAD_REQUEST, format!("Failed to parse request: {err}. Please ensure your request is properly formatted and all required fields are present."))
@@ -566,6 +543,15 @@ impl IntoResponse for FlagError {
                         tracing::warn!("Cookieless invalid timestamp: {}", msg);
                         (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {msg}"))
                     },
+                    // sent_at resolved to a date outside the salt-cache validity window
+                    // (e.g. crawlers with frozen Date.now()) — bad input, not a server fault.
+                    CookielessManagerError::SaltCacheError(SaltCacheError::DateOutOfRange) => {
+                        tracing::warn!("Cookieless date out of range - sent_at outside salt-cache validity window");
+                        (
+                            StatusCode::BAD_REQUEST,
+                            "Invalid sent_at: timestamp resolves to a date outside the accepted ingestion window".to_string(),
+                        )
+                    },
 
                     // 500 Internal Server Error - server-side issues
                     err @ (CookielessManagerError::HashError(_) |
@@ -580,6 +566,21 @@ impl IntoResponse for FlagError {
             }
         }
         .into_response()
+    }
+}
+
+impl From<common_compression::CompressionError> for FlagError {
+    fn from(e: common_compression::CompressionError) -> Self {
+        match e {
+            common_compression::CompressionError::OutputTooLarge {
+                decompressed,
+                limit,
+            } => FlagError::PayloadTooLarge {
+                decompressed,
+                limit,
+            },
+            other => FlagError::RequestDecodingError(other.to_string()),
+        }
     }
 }
 
@@ -679,6 +680,47 @@ mod tests {
         assert!(!FlagError::MissingDistinctId.is_5xx());
         assert!(!FlagError::NoTokenError.is_5xx());
         assert!(!FlagError::TokenValidationError.is_5xx());
+
+        // Cookieless: DateOutOfRange is client-data (4xx); other SaltCache errors are server faults (5xx).
+        let salt_cache_cases = [
+            (SaltCacheError::DateOutOfRange, false),
+            (SaltCacheError::SaltRetrievalFailed, true),
+            (SaltCacheError::RedisError("boom".to_string()), true),
+        ];
+        for (variant, expected_5xx) in salt_cache_cases {
+            let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(variant));
+            assert_eq!(err.is_5xx(), expected_5xx, "is_5xx() mismatch for {err:?}");
+        }
+    }
+
+    #[test]
+    fn test_date_out_of_range_is_400() {
+        // is_5xx() for this variant is covered by the SaltCacheError table in test_is_5xx.
+        let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+            SaltCacheError::DateOutOfRange,
+        ));
+        assert_eq!(err.status_code(), 400);
+        assert_eq!(err.error_code(), "cookieless_error");
+    }
+
+    #[test]
+    fn test_date_out_of_range_response_body() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(
+            SaltCacheError::DateOutOfRange,
+        ));
+
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body_bytes = rt
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(
+            body.contains("Invalid sent_at"),
+            "body should describe the bad sent_at, got: {body}"
+        );
     }
 
     #[test]
@@ -761,6 +803,10 @@ mod tests {
                 .unwrap_err()
                 .into(), // RequestParsingError
             FlagError::MissingDistinctId,
+            FlagError::PayloadTooLarge {
+                decompressed: 5_000_000,
+                limit: 4 * 1024 * 1024,
+            },
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
             FlagError::PersonalApiKeyInvalid,
@@ -824,6 +870,14 @@ mod tests {
         assert_eq!(FlagError::MissingDistinctId.status_code(), 400);
         assert_eq!(FlagError::NoTokenError.status_code(), 401);
         assert_eq!(FlagError::TokenValidationError.status_code(), 401);
+        assert_eq!(
+            FlagError::PayloadTooLarge {
+                decompressed: 5_000_000,
+                limit: 4 * 1024 * 1024
+            }
+            .status_code(),
+            413
+        );
 
         // 5xx errors (server errors)
         assert_eq!(FlagError::Internal("".into()).status_code(), 500);
@@ -983,6 +1037,10 @@ mod tests {
                 .unwrap_err()
                 .into(), // RequestParsingError
             FlagError::MissingDistinctId,
+            FlagError::PayloadTooLarge {
+                decompressed: 5_000_000,
+                limit: 4 * 1024 * 1024,
+            },
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
             FlagError::PersonalApiKeyInvalid,

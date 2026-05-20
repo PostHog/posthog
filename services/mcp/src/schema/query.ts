@@ -10,9 +10,12 @@ const ChartDisplayType = z.enum([
     'ActionsTable',
     'ActionsPie',
     'ActionsBar',
+    'ActionsStackedBar',
+    'ActionsAreaGraph',
     'ActionsBarValue',
     'WorldMap',
     'BoldNumber',
+    'TwoDimensionalHeatmap',
 ])
 
 // NOTE: Breakdowns are restricted to either person or event for simplicity
@@ -66,6 +69,54 @@ const HogQLFilters = z.object({
     properties: z.array(AnyPropertyFilter).optional(),
     dateRange: DateRange.optional(),
     filterTestAccounts: z.boolean().optional(),
+})
+
+const ChartAxis = z.object({
+    column: z.string().describe('Name of a column returned by the SQL query.'),
+    settings: z
+        .object({
+            formatting: z
+                .object({
+                    style: z.enum(['none', 'number', 'short', 'percent']).optional(),
+                    decimalPlaces: z.number().optional(),
+                    prefix: z.string().optional(),
+                    suffix: z.string().optional(),
+                })
+                .optional()
+                .describe('Display formatting for this axis, such as percent, decimals, prefix, or suffix.'),
+            display: z
+                .object({
+                    label: z.string().optional(),
+                    displayType: z.enum(['auto', 'line', 'bar', 'area']).optional(),
+                    yAxisPosition: z.enum(['left', 'right']).optional(),
+                })
+                .optional(),
+        })
+        .optional(),
+})
+
+const ChartSettings = z.object({
+    xAxis: ChartAxis.optional().describe('Column used as the X axis, usually a time bucket or category.'),
+    yAxis: z
+        .array(ChartAxis)
+        .optional()
+        .describe(
+            'Numeric columns plotted as Y series. Include only final metrics the user cares about, not helper columns such as numerators or denominators.'
+        ),
+    seriesBreakdownColumn: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Column that splits a single Y metric into multiple colored series.'),
+    showLegend: z.boolean().optional(),
+    showNullsAsZero: z.boolean().optional(),
+    stackBars100: z.boolean().optional(),
+})
+
+const TableSettings = z.object({
+    columns: z.array(ChartAxis).optional().describe('Columns to display and their order.'),
+    pinnedColumns: z.array(z.string()).optional(),
+    transpose: z.boolean().optional(),
 })
 
 // Math types that don't require a property
@@ -236,6 +287,11 @@ const InsightVizNodeSchema = z.object({
 const DataVisualizationNodeSchema = z.object({
     kind: z.literal('DataVisualizationNode'),
     source: HogQLQuerySchema,
+    display: ChartDisplayType.optional().describe(
+        'Visualization type. Time series should usually use ActionsLineGraph or ActionsAreaGraph; use ActionsTable only when table rows are the intended output.'
+    ),
+    chartSettings: ChartSettings.optional(),
+    tableSettings: TableSettings.optional(),
 })
 
 // Any insight query
@@ -263,6 +319,9 @@ export {
     PropertyFilter,
     PropertyGroupFilter,
     AnyPropertyFilter,
+    ChartAxis,
+    ChartSettings,
+    TableSettings,
     // Entity nodes
     EventsNode,
     AnyEntityNode,

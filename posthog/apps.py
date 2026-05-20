@@ -146,7 +146,22 @@ class PostHogConfig(AppConfig):
                     self._loaded = True
                     register_all_admin()
 
-            # Override only the essential methods that trigger loading
+            # `dict.items()`, `dict.values()`, and `dict.keys()` iterate the
+            # underlying storage at the C level — they DO NOT call `__iter__`
+            # or `__getitem__`. Django admin's `AdminSite.get_urls()` and
+            # `_build_app_dict()` use `self._registry.items()` /
+            # `self._registry.values()`, so without explicit overrides the
+            # lazy load never fires from those code paths and admin URLs /
+            # sidebar entries silently come back empty.
+            #
+            # Read methods are listed out explicitly rather than wrapped via
+            # metaprogramming. The set is small, exhaustive against what
+            # Django's admin actually calls, and grep-friendly. Wrapping
+            # every dict method via `__getattribute__` or a class-time loop
+            # would also have to carefully skip the write methods
+            # (`__setitem__`, `__delitem__`) that `register_all_admin()`
+            # depends on, plus our own `_ensure_loaded` / `_loaded` — adding
+            # recursion footguns without removing real boilerplate.
             def __getitem__(self, key):
                 self._ensure_loaded()
                 return super().__getitem__(key)
@@ -163,6 +178,36 @@ class PostHogConfig(AppConfig):
                 self._ensure_loaded()
                 return super().__contains__(key)
 
+            def keys(self):
+                self._ensure_loaded()
+                return super().keys()
+
+            def values(self):
+                self._ensure_loaded()
+                return super().values()
+
+            def items(self):
+                self._ensure_loaded()
+                return super().items()
+
+            def get(self, key, default=None):
+                self._ensure_loaded()
+                return super().get(key, default)
+
         # Don't use lazy loading in tests and migrations
         if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
-            admin.site._registry = LazyAdminRegistry()
+            # Wrap the existing _registry rather than overwriting it. With
+            # `SimpleAdminConfig` the dict is normally empty here (Django's
+            # autodiscover is deferred to inside `register_all_admin()`), but
+            # a third-party `AppConfig.ready()` could populate it before
+            # `PostHogConfig.ready()` runs. The dict-copy constructor preserves
+            # any such entries and only adds lazy-load semantics on top.
+            admin.site._registry = LazyAdminRegistry(admin.site._registry)
+
+        # Install the OAuth sidebar regrouping override eagerly. It must wrap
+        # `get_app_list` before the first admin request — if it were installed
+        # from inside `register_all_admin()` it would only land mid-call, after
+        # the original method had already started executing.
+        from posthog.admin import install_admin_app_list_overrides
+
+        install_admin_app_list_overrides()

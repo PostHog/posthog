@@ -130,14 +130,14 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
                 if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
                     const groupName = TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME[groupType] ?? groupType
-                    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                    recentTaxonomicFiltersLogic.actions.recordRecentFilter({
                         groupType,
                         groupName,
-                        property.key,
-                        { name: property.key },
-                        teamLogic.values.currentTeamId ?? undefined,
-                        property
-                    )
+                        value: property.key,
+                        item: { name: property.key },
+                        teamId: teamLogic.values.currentTeamId ?? undefined,
+                        propertyFilter: property,
+                    })
                 }
             }
         },

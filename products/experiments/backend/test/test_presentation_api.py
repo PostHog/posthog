@@ -1904,10 +1904,83 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Feature flag variants must contain a control variant",
+        detail = response.json()["detail"]
+        self.assertIn("must contain a variant with key 'control'", detail)
+        self.assertIn("'test_0'", detail)
+        self.assertIn("'test_1'", detail)
+        self.assertIn("'test_2'", detail)
+
+    @parameterized.expand(
+        [
+            ("Control",),
+            ("CONTROL",),
+            ("cOnTrOl",),
+        ]
+    )
+    def test_creating_experiment_normalizes_capitalized_control_key(self, control_key: str):
+        # LLM callers often emit `Control` or `CONTROL` from natural-language input.
+        # The serializer should rewrite it to lowercase `control` instead of rejecting,
+        # since intent is unambiguous and the runtime treats `control` as a reserved key.
+        ff_key = f"case-insensitive-{control_key.lower()}-{control_key}"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": f"Capitalized control {control_key}",
+                "description": "",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": control_key, "name": "Control", "split_percent": 50},
+                        {"key": "test", "name": "Test", "split_percent": 50},
+                    ]
+                },
+            },
+            format="json",
         )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        variants = response.json()["parameters"]["feature_flag_variants"]
+        self.assertEqual([v["key"] for v in variants], ["control", "test"])
+        # The persisted flag should also use lowercase `control`.
+        flag = FeatureFlag.objects.get(key=ff_key)
+        flag_keys = [v["key"] for v in flag.filters["multivariate"]["variants"]]
+        self.assertEqual(flag_keys, ["control", "test"])
+
+    def test_creating_experiment_does_not_collapse_when_control_already_present(self):
+        # If both `control` and `Control` are passed, normalization must NOT run —
+        # otherwise it would rewrite `Control` → `control` and produce two duplicate
+        # entries. The downstream FeatureFlagSerializer may then accept (variants
+        # preserved) or reject (duplicate-key error) — both prove the normalization
+        # path was skipped. The signal we actively check against: the response must
+        # not be the missing-control error, since that would only fire if our
+        # rewrite logic got confused.
+        ff_key = "control-and-capital-control"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Both controls",
+                "description": "",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "lowercase", "split_percent": 50},
+                        {"key": "Control", "name": "Capitalized", "split_percent": 50},
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        # Must land on a deterministic outcome — not silently bypass.
+        self.assertIn(response.status_code, [status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST])
+        if response.status_code == status.HTTP_201_CREATED:
+            variants = response.json()["parameters"]["feature_flag_variants"]
+            self.assertEqual([v["key"] for v in variants], ["control", "Control"])
+        else:
+            # 400 path: the error must NOT be the missing-control message,
+            # which would only fire if normalization had wrongly rewritten things.
+            detail = str(response.json())
+            self.assertNotIn("must contain a variant with key 'control'", detail)
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -4278,9 +4351,10 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_ship_variant_endpoint(self):
+    def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
         experiment_id = data["id"]
+        original_groups = data["feature_flag"]["filters"].get("groups", [])
 
         ship_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
@@ -4293,7 +4367,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(ship_response.json()["conclusion"], "won")
         self.assertEqual(ship_response.json()["conclusion_comment"], "Test won")
 
-        # Verify flag filters were rewritten
+        # Variant distribution was flipped
         flag_filters = ship_response.json()["feature_flag"]["filters"]
         variants = flag_filters["multivariate"]["variants"]
         test_variant = next(v for v in variants if v["key"] == "test")
@@ -4301,9 +4375,29 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(test_variant["rollout_percentage"], 100)
         self.assertEqual(control_variant["rollout_percentage"], 0)
 
-        # Verify catch-all group prepended
+        # Default behavior: existing groups preserved, no catch-all prepended
+        self.assertEqual(flag_filters["groups"], original_groups)
+
+    def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
+        data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "release_to_everyone": True, "conclusion": "won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+
+        flag_filters = ship_response.json()["feature_flag"]["filters"]
+        variants = flag_filters["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+
+        # release_to_everyone: catch-all prepended
         self.assertEqual(flag_filters["groups"][0]["rollout_percentage"], 100)
         self.assertEqual(flag_filters["groups"][0]["properties"], [])
+        self.assertIn("Added automatically", flag_filters["groups"][0].get("description", ""))
 
     def test_ship_variant_on_stopped_experiment(self):
         data = self._create_running_experiment(name="Ship Stopped Endpoint", flag_key="ship-stopped-endpoint-flag")

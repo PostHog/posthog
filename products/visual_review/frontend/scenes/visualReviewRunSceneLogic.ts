@@ -48,10 +48,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveSnapshotSuccess: true,
         approveSnapshotFailure: true,
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
-        quarantineSnapshot: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+        quarantineSnapshot: (
+            reason: string,
+            identifiers: string[],
+            expiresAt: string | null,
+            sourceRunId: string | null = null
+        ) => ({
             reason,
             identifiers,
             expiresAt,
+            sourceRunId,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
@@ -200,10 +206,26 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     groups.set(base, group)
                 }
 
-                // Sort groups by max diff% descending
+                // Severity score for ordering. Pixel-tier rows have a real
+                // diff_percentage; structural-tier rows had it nulled by the
+                // split-diff-metrics migration (legacy diff_percentage was
+                // SSIM-as-percentage and would mislead now). Fall back to
+                // SSIM dissimilarity scaled to a comparable percent so
+                // structural shifts surface alongside pixel diffs instead
+                // of sinking to the bottom as 0.
+                const severity = (s: SnapshotApi): number => {
+                    if (s.diff_percentage != null) {
+                        return s.diff_percentage
+                    }
+                    if (s.ssim_score != null) {
+                        return (1 - s.ssim_score) * 100
+                    }
+                    return 0
+                }
+
                 const sortedGroups = [...groups.values()].sort((a, b) => {
-                    const maxA = Math.max(...a.map((s) => s.diff_percentage ?? 0))
-                    const maxB = Math.max(...b.map((s) => s.diff_percentage ?? 0))
+                    const maxA = Math.max(...a.map(severity))
+                    const maxB = Math.max(...b.map(severity))
                     return maxB - maxA
                 })
 
@@ -353,11 +375,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
             const { run } = values
             if (!run) {
                 return
             }
+            // Default to the current run when the caller didn't supply a source
+            // (the diff viewer doesn't have one for new quarantines). Extending
+            // an existing quarantine passes through the prior source so the
+            // "what was wrong" link survives across renewals.
+            const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
                     identifiers.map((identifier) =>
@@ -365,6 +392,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                             identifier,
                             reason,
                             expires_at: expiresAt,
+                            source_run_id: effectiveSourceRunId,
                         })
                     )
                 )

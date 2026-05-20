@@ -29,7 +29,16 @@ from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .diff_metadata import DiffMetadata
+from .facade.enums import (
+    ChangeKind,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+    ToleratedReason,
+)
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -855,7 +864,7 @@ def complete_run(run_id: UUID) -> Run:
     mark_run_processing(run_id)
     from .tasks.tasks import process_run_diffs
 
-    process_run_diffs.delay(str(run_id))
+    process_run_diffs.delay(run.team_id, str(run_id))
     return get_run(run_id)
 
 
@@ -1952,7 +1961,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             entries=[],
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
-            quarantined_ids=set(),
+            active_quarantines_by_key={},
             change_count_by_key={},
             recent_drift_by_key={},
             totals_all=0,
@@ -2033,17 +2042,30 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
 
     # 3b. Active quarantines for this repo, scoped to the universe identifiers
     # AND the run_types they live on (quarantine is per (repo, run_type, id)).
-    quarantined_pairs: set[tuple[str, str]] = set()
+    # We hydrate the full row (not just identity) so the overview can render
+    # reason / expiry / who / source-run inline without a per-card fetch.
+    # `select_related("source_run")` is a single JOIN, capped by
+    # `BASELINE_OVERVIEW_MAX_ENTRIES`. `Run.metadata` (JSONField) and
+    # `Run.error_message` (TextField) can be large and aren't needed by the
+    # summary — defer them to keep the response light.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier] = {}
     if universe_identifiers:
-        quarantined_pairs = {
-            (run_type, identifier)
-            for run_type, identifier in QuarantinedIdentifier.objects.filter(
+        for q in (
+            QuarantinedIdentifier.objects.filter(
                 repo_id=repo_id,
                 identifier__in=universe_identifiers,
             )
             .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-            .values_list("run_type", "identifier")
-        }
+            .select_related("source_run")
+            .defer("source_run__metadata", "source_run__error_message")
+            .order_by("-created_at")
+        ):
+            key = (q.run_type, q.identifier)
+            # Multiple active rows for the same key shouldn't happen — create
+            # auto-supersedes prior — but if it does, keep the latest (sorted
+            # above) and ignore the rest.
+            if key not in active_quarantines_by_key:
+                active_quarantines_by_key[key] = q
 
     # 3c. Per-baseline stability signals: a lifetime baseline-flip count and a
     # smoothed recent-drift average. Replaces a daily-bucket sparkline that
@@ -2157,7 +2179,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         )
         frequent_ids = set(frequent_grouped)
 
-    # `quarantined_pairs` was built from the truncated set above (per-entry
+    # `active_quarantines_by_key` was built from the truncated set above (per-entry
     # attached). Re-query for the totals so they cover the full universe.
     if truncated and full_universe_identifiers:
         quarantined_id_count = (
@@ -2171,7 +2193,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .count()
         )
     else:
-        quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
+        quarantined_id_count = len({identifier for _, identifier in active_quarantines_by_key})
 
     # by_run_type counts every entry in the universe. Aggregate query under
     # truncation so it doesn't undercount; in-memory Counter when not truncated
@@ -2190,7 +2212,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
-        quarantined_ids=quarantined_pairs,
+        active_quarantines_by_key=active_quarantines_by_key,
         change_count_by_key=change_count_by_key,
         recent_drift_by_key=recent_drift_by_key,
         totals_all=totals_all,
@@ -2213,7 +2235,11 @@ class _BaselineOverviewRaw:
     entries: list[RunSnapshot]
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
-    quarantined_ids: set[tuple[str, str]]
+    # Latest active QuarantinedIdentifier (with `source_run` preloaded) for each
+    # `(run_type, identifier)` in the universe — lets the facade build the rich
+    # quarantine summary embedded on each BaselineEntry. Membership doubles as
+    # the "is_quarantined" signal — no separate set needed.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier]
     # Stability signals keyed by `(run_type, identifier)` because the same
     # identifier in different run types is a different baseline; merging would
     # bleed storybook stability into playwright stability.
@@ -2247,13 +2273,16 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     if not snapshot.current_hash:
         raise ValueError("Snapshot has no current hash")
 
+    # Explicit team_id in the lookup (not just defaults) so the IDOR audit
+    # rule sees the scope; ProductTeamManager also auto-filters by canonical
+    # team — both belt and suspenders.
     tolerated, _ = ToleratedHash.objects.get_or_create(
+        team_id=team_id,
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
         alternate_hash=snapshot.current_hash,
         defaults={
-            "team_id": team_id,
             "reason": ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
@@ -2291,7 +2320,16 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 def list_quarantined_identifiers(
     repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
 ) -> list[QuarantinedIdentifier]:
-    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    qs = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=repo_id, team_id=team_id)
+        # Preload `source_run` so the facade can render the "what was wrong"
+        # link without an extra fetch per row. `Run.metadata` (JSONField) and
+        # `Run.error_message` (TextField) can be large and aren't needed for
+        # the summary — defer to keep response payloads tight.
+        .select_related("source_run")
+        .defer("source_run__metadata", "source_run__error_message")
+    )
     if run_type:
         qs = qs.filter(run_type=run_type)
     if identifier:
@@ -2311,9 +2349,18 @@ def quarantine_identifier(
     user_id: int,
     team_id: int,
     expires_at: datetime | None = None,
+    source_run_id: UUID | None = None,
 ) -> QuarantinedIdentifier:
     get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    # Resolve the source run inside the team scope so a malicious caller can't
+    # attach a quarantine to an unrelated run. Silently drop on mismatch — the
+    # quarantine itself still wins; we just lose the "what was wrong" pointer.
+    # We fetch (not just .exists()) so the facade can serialize source_run
+    # without a lazy-load on the freshly-created row.
+    source_run: Run | None = None
+    if source_run_id is not None:
+        source_run = Run.objects.using(WRITER_DB).filter(id=source_run_id, repo_id=repo_id, team_id=team_id).first()
     QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
         repo_id=repo_id,
         identifier=identifier,
@@ -2328,6 +2375,7 @@ def quarantine_identifier(
         reason=reason,
         expires_at=expires_at,
         created_by_id=user_id,
+        source_run=source_run,
     )
 
 
@@ -2363,6 +2411,9 @@ def update_snapshot_diff(
     diff_artifact: Artifact,
     diff_percentage: float,
     diff_pixel_count: int,
+    ssim_score: float,
+    change_kind: ChangeKind,
+    diff_metadata: DiffMetadata,
     team_id: int | None = None,
 ) -> RunSnapshot:
     qs = RunSnapshot.objects.select_related("run")
@@ -2379,7 +2430,22 @@ def update_snapshot_diff(
     snapshot.diff_artifact = diff_artifact
     snapshot.diff_percentage = diff_percentage
     snapshot.diff_pixel_count = diff_pixel_count
-    snapshot.save(update_fields=["diff_artifact", "diff_percentage", "diff_pixel_count"])
+    snapshot.ssim_score = ssim_score
+    snapshot.change_kind = change_kind.value
+    # The Pydantic dump is the only legal write path into this column; reads
+    # go through DiffMetadata.model_validate. Storage is JSONB; the schema
+    # lives in diff_metadata.py.
+    snapshot.diff_metadata = diff_metadata.model_dump(mode="json")
+    snapshot.save(
+        update_fields=[
+            "diff_artifact",
+            "diff_percentage",
+            "diff_pixel_count",
+            "ssim_score",
+            "change_kind",
+            "diff_metadata",
+        ]
+    )
     return snapshot
 
 

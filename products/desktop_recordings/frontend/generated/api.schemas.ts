@@ -170,11 +170,11 @@ export const CreateRecordingRequestPlatformEnumApi = {
 export interface CreateRecordingRequestApi {
     /** Meeting platform being recorded
 
-* `zoom` - zoom
-* `teams` - teams
-* `meet` - meet
-* `desktop_audio` - desktop_audio
-* `slack` - slack */
+  * `zoom` - zoom
+  * `teams` - teams
+  * `meet` - meet
+  * `desktop_audio` - desktop_audio
+  * `slack` - slack */
     platform?: CreateRecordingRequestPlatformEnumApi
 }
 

@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -6,8 +5,9 @@ from pydantic import BaseModel, Field
 from posthog.schema import AssistantTool
 
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.tool import MaxTool
@@ -57,14 +57,20 @@ class RunHogEvalTestTool(MaxTool):
 
         team = self._team
 
+        # Read from ai_events with native heavy columns so the Hog body still
+        # sees `event.properties.$ai_input` etc. for post-strip rows. Falls
+        # back to the events table when ai_events returns nothing — only
+        # legacy paths still write heavy props into events.properties on the
+        # fallback side.
         query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["uuid"]),
                 ast.Field(chain=["event"]),
                 ast.Field(chain=["properties"]),
                 ast.Field(chain=["distinct_id"]),
+                *[ast.Field(chain=[col]) for col in HEAVY_COLUMN_NAMES],
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
             where=ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -87,7 +93,12 @@ class RunHogEvalTestTool(MaxTool):
             limit=ast.Constant(value=sample_count),
         )
 
-        response = await database_sync_to_async(execute_hogql_query)(query=query, team=team, limit_context=None)
+        response = await database_sync_to_async(execute_with_ai_events_fallback)(
+            query=query,
+            placeholders={},
+            team=team,
+            query_type="RunHogEvalTest",
+        )
 
         if not response.results:
             return (
@@ -95,13 +106,19 @@ class RunHogEvalTestTool(MaxTool):
                 None,
             )
 
-        # Parse all events first to collect property keys and build event data
+        # Parse all events first to collect property keys and build event data.
+        # Heavy columns trail the four base columns in row order — re-merge them
+        # into `properties` so the Hog body can read `properties.$ai_input` etc.
+        # On the events fallback the rewriter rewrites the heavy slots back to
+        # `properties.$ai_*`, so the merge is *idempotent*: pre-strip rows
+        # re-merge values already in `properties`; post-strip rows have NULL
+        # heavy slots that `merge_heavy_properties` skips.
         parsed_events: list[dict[str, Any]] = []
         all_property_keys: set[str] = set()
         for row in response.results:
-            properties = row[2]
-            if isinstance(properties, str):
-                properties = json.loads(properties)
+            heavy_values = row[4 : 4 + len(HEAVY_COLUMN_NAMES)]
+            heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values))
+            properties = merge_heavy_properties(row[2], heavy_columns)
             all_property_keys.update(properties.keys())
             parsed_events.append(
                 {

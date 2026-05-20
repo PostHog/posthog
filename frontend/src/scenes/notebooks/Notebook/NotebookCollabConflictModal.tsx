@@ -1,0 +1,50 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
+import { notebookLogic } from './notebookLogic'
+import { NotebookPreview } from './NotebookPreview'
+
+export function NotebookCollabConflictModal(): JSX.Element {
+    const { collabConflict } = useValues(notebookLogic)
+    const { dismissCollabConflict, discardLocalChanges, copyUnsavedToNewNotebook } = useActions(notebookLogic)
+
+    return (
+        <LemonModal
+            isOpen={!!collabConflict}
+            onClose={dismissCollabConflict}
+            title="We couldn't sync your changes"
+            description="The notebook has changed too much since you started typing. We can't reconcile the changes automatically."
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={copyUnsavedToNewNotebook}>
+                        Copy unsaved version to a new notebook
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={discardLocalChanges}>
+                        Discard unsaved changes and reload
+                    </LemonButton>
+                </>
+            }
+            width={1200}
+        >
+            <div className="grid grid-cols-2 border rounded overflow-hidden">
+                <div className="min-w-0 border-r">
+                    <div className="p-2 border-b text-xs font-medium text-secondary bg-surface-secondary">
+                        Last saved version
+                    </div>
+                    <div className="p-3 max-h-[30rem] overflow-y-auto overflow-x-hidden break-words">
+                        <NotebookPreview content={collabConflict?.serverContent ?? null} />
+                    </div>
+                </div>
+                <div className="min-w-0">
+                    <div className="p-2 border-b text-xs font-medium text-secondary bg-surface-secondary">
+                        Your unsaved changes
+                    </div>
+                    <div className="p-3 max-h-[30rem] overflow-y-auto overflow-x-hidden break-words">
+                        <NotebookPreview content={collabConflict?.localContent ?? null} />
+                    </div>
+                </div>
+            </div>
+        </LemonModal>
+    )
+}

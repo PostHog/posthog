@@ -87,7 +87,11 @@ from posthog.temporal.data_imports.workflow_activities.calculate_table_size impo
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    ExternalDataSourceType,
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
 from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -633,6 +637,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,
@@ -3341,6 +3346,12 @@ async def test_postgres_deleting_schemas(team, postgres_config, postgres_connect
 
         return list(schemas)
 
+    # Schema discovery now runs on its own per-source schedule — simulate a tick
+    # of that schedule to discover the second table.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
+    )
+
     schemas = await get_schemas()
     assert len(schemas) == 2
 
@@ -3349,6 +3360,11 @@ async def test_postgres_deleting_schemas(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    # Simulate the next tick of the per-source discovery schedule.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
+    )
 
     schemas = await get_schemas()
 
@@ -3397,6 +3413,11 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
 
         return list(schemas)
 
+    # Schema discovery now runs on its own per-source schedule — simulate a tick.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
+    )
+
     schemas = await get_schemas()
     assert len(schemas) == 2
 
@@ -3404,7 +3425,6 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
     await postgres_connection.execute("DROP TABLE {schema}.table_1".format(schema=postgres_config["schema"]))
     await postgres_connection.commit()
 
-    # Sync the second table - this will trigger `sync_new_schemas_activity`
     unsynced_schema_ids = [s.id for s in schemas if s.id != inputs.external_data_schema_id]
     assert len(unsynced_schema_ids) == 1
     unsynced_schema_id = unsynced_schema_ids[0]
@@ -3417,6 +3437,11 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
             billable=inputs.billable,
         ),
         [],
+    )
+
+    # Simulate the next tick of the per-source discovery schedule.
+    await sync_to_async(sync_new_schemas_activity)(
+        SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id)
     )
 
     schemas = await get_schemas()

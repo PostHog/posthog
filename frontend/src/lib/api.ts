@@ -18,10 +18,11 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
+    AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
@@ -56,6 +57,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    SpanTreeNode,
     TileFilters,
     UserProductListItem,
 } from '~/queries/schema/schema-general'
@@ -280,6 +282,10 @@ export interface PaginatedResponse<T> {
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
+    count: number
+}
+
+export interface CountResponse {
     count: number
 }
 
@@ -952,6 +958,22 @@ export class ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
 
+    public notebookSharing(notebookShortId: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebook(notebookShortId, teamId).addPathComponent('sharing')
+    }
+
+    public notebookSharingPasswords(notebookShortId: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebookSharing(notebookShortId, teamId).addPathComponent('passwords')
+    }
+
+    public notebookSharingPassword(
+        notebookShortId: NotebookType['short_id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.notebookSharingPasswords(notebookShortId, teamId).addPathComponent(passwordId)
+    }
+
     public dashboardSharingPasswords(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardSharing(dashboardId, teamId).addPathComponent('passwords')
     }
@@ -1422,6 +1444,10 @@ export class ApiRequest {
     // # Data Modeling DAGs
     public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
+    }
+
+    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingDags(teamId).addPathComponent(id)
     }
 
     // # Data Modeling Nodes
@@ -1914,6 +1940,10 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
+    public messagingPreferencesAddOptOut(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -2200,24 +2230,17 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
-        async getSuggestions(id: number, context?: string): Promise<any> {
-            if (context) {
-                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
-            }
-            return await new ApiRequest().insight(id).withAction('suggestions').get()
-        },
-        async analyze(id: number): Promise<{ result: string }> {
-            return await new ApiRequest().insight(id).withAction('analyze').get()
-        },
         async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {
             return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
         async trending(params?: { days?: number; limit?: number }): Promise<InsightModel[]> {
-            return await new ApiRequest()
+            const response = await new ApiRequest()
                 .insights()
                 .withAction('trending')
                 .withQueryString(toParams(params || {}))
                 .get()
+            // Endpoint returns the standard {count, next, previous, results} envelope.
+            return response.results ?? response
         },
     },
 
@@ -2402,7 +2425,7 @@ const api = {
                 })
                 .get()
         },
-        async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        async unfiled(type?: string): Promise<CountResponse | null> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
@@ -2603,6 +2626,7 @@ const api = {
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
+                    ActivityScope.COHORT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2722,6 +2746,20 @@ const api = {
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
         },
+
+        async complete(
+            id: CommentType['id'],
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withAction('complete').create()
+        },
+
+        async reopen(
+            id: CommentType['id'],
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withAction('reopen').create()
+        },
     },
 
     logs: {
@@ -2779,21 +2817,24 @@ const api = {
     },
 
     tracing: {
-        async listSpans(query: {
-            dateRange?: { date_from?: string | null; date_to?: string | null }
-            serviceNames?: string[]
-            statusCodes?: number[]
-            filterGroup?: PropertyGroupFilter
-            orderBy?: 'latest' | 'earliest'
-            limit?: number
-            after?: string
-            prefetchSpans?: number
-        }): Promise<{
+        async listSpans(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                orderBy?: 'latest' | 'earliest'
+                limit?: number
+                after?: string
+                prefetchSpans?: number
+            },
+            signal?: AbortSignal
+        ): Promise<{
             results: Record<string, any>[]
             hasMore: boolean
             nextCursor?: string
         }> {
-            return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
+            return new ApiRequest().tracingSpans().withAction('query').create({ signal, data: { query } })
         },
         async getTrace(
             traceId: string,
@@ -2814,15 +2855,48 @@ const api = {
                     },
                 })
         },
-        async sparkline(query: {
-            dateRange?: { date_from?: string | null; date_to?: string | null }
-            serviceNames?: string[]
-            statusCodes?: number[]
-            filterGroup?: PropertyGroupFilter
-        }): Promise<{
+        async sparkline(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{
             results: { time: string; service: string; count: number }[]
         }> {
-            return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+            return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
+        },
+        async aggregate(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                filterGroup?: PropertyGroupFilter
+                compareFilter?: { compare?: boolean; compare_to?: string | null }
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            results: AggregatedSpanRow[]
+            compare?: AggregatedSpanRow[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('aggregate').create({ signal, data: { query } })
+        },
+        async tree(
+            query: {
+                spanName: string
+                serviceName: string
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                filterGroup?: PropertyGroupFilter
+                compareFilter?: { compare?: boolean; compare_to?: string | null }
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            results: SpanTreeNode[]
+            compare?: SpanTreeNode[] | null
+        }> {
+            return new ApiRequest().tracingSpans().withAction('tree').create({ signal, data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
             return new ApiRequest()
@@ -3587,10 +3661,12 @@ const api = {
             dashboardId,
             insightId,
             recordingId,
+            notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: QueryBasedInsightModel['id']
             recordingId?: SessionRecordingType['id']
+            notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
@@ -3598,7 +3674,9 @@ const api = {
                   ? new ApiRequest().insightSharing(insightId).get()
                   : recordingId
                     ? new ApiRequest().recordingSharing(recordingId).get()
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharing(notebookShortId).get()
+                      : null
         },
 
         async update(
@@ -3606,10 +3684,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -3619,7 +3699,9 @@ const api = {
                   ? new ApiRequest().insightSharing(insightId).update({ data })
                   : recordingId
                     ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      : null
         },
 
         async createPassword(
@@ -3627,10 +3709,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: { raw_password?: string; note?: string }
         ): Promise<SharingConfigurationType | null> {
@@ -3640,7 +3724,9 @@ const api = {
                   ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
                   : recordingId
                     ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharingPasswords(notebookShortId).create({ data })
+                      : null
         },
 
         async deletePassword(
@@ -3648,10 +3734,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             passwordId: string
         ): Promise<void> {
@@ -3661,7 +3749,9 @@ const api = {
                   ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
                   : recordingId
                     ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
+                      : null
         },
     },
 
@@ -4054,8 +4144,10 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
-        async listRecommendations(): Promise<{ results: ErrorTrackingRecommendation[] }> {
-            return await new ApiRequest().errorTrackingRecommendations().get()
+        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
+            results: ErrorTrackingRecommendation[]
+        }> {
+            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
         },
 
         async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
@@ -4946,6 +5038,17 @@ const api = {
                 .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
                 .get()
         },
+        async questionLabels(): Promise<{
+            labels: {
+                question_id: string
+                question_text: string
+                question_index: number
+                survey_id: string
+                survey_name: string
+            }[]
+        }> {
+            return await new ApiRequest().surveys().withAction('question_labels').get()
+        },
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
@@ -5069,8 +5172,11 @@ const api = {
     },
 
     productTours: {
-        async list(): Promise<PaginatedResponse<ProductTour>> {
-            return await new ApiRequest().productTours().get()
+        async list({ search }: { search?: string } = {}): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest()
+                .productTours()
+                .withQueryString(search ? { search } : {})
+                .get()
         },
         async get(tourId: ProductTour['id']): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).get()
@@ -5232,6 +5338,15 @@ const api = {
         },
         async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
             return await new ApiRequest().dataModelingDags().create({ data })
+        },
+        async update(
+            dagId: DataModelingDAG['id'],
+            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
+        ): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDag(dagId).update({ data })
+        },
+        async delete(dagId: DataModelingDAG['id']): Promise<void> {
+            await new ApiRequest().dataModelingDag(dagId).delete()
         },
     },
 
@@ -6049,6 +6164,11 @@ const api = {
                 })
                 .get()
         },
+        async addOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
+            return await new ApiRequest().messagingPreferencesAddOptOut().create({
+                data: { identifier, category_key: categoryKey },
+            })
+        },
     },
     hogFlows: {
         async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
@@ -6125,39 +6245,6 @@ const api = {
         },
         async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
-        },
-        async getBlockedRuns(
-            hogFlowId: HogFlow['id'],
-            limit = 100,
-            offset = 0
-        ): Promise<{
-            results: {
-                instance_id: string
-                timestamp: string
-                action_id: string | null
-                event_uuid: string | null
-                message: string
-            }[]
-            has_next: boolean
-            limit: number
-            offset: number
-        }> {
-            return await new ApiRequest()
-                .hogFlow(hogFlowId)
-                .withAction('blocked_runs')
-                .withQueryString(`limit=${limit}&offset=${offset}`)
-                .get()
-        },
-        async replayBlockedRun(
-            hogFlowId: HogFlow['id'],
-            data: { event_uuid: string; action_id: string; instance_id: string }
-        ): Promise<{ status: string }> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_blocked_run').create({ data })
-        },
-        async replayAllBlockedRuns(
-            hogFlowId: HogFlow['id']
-        ): Promise<{ succeeded: number; failed: number; skipped: number }> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_all_blocked_runs').create()
         },
     },
     hogFlowTemplates: {
@@ -6486,6 +6573,17 @@ const api = {
 
         async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
             return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
+        },
+
+        async compose(data: {
+            message: string
+            recipient_email: string
+            email_config_id: string
+            recipient_distinct_id?: string
+            email_subject?: string
+            rich_content?: Record<string, unknown> | null
+        }): Promise<{ id: string; ticket_number: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
         },
     },
 
@@ -6870,6 +6968,8 @@ const api = {
     },
 } as const
 
+const warnedSharedViewLeaks = new Set<string>()
+
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -6893,6 +6993,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     if (!response.ok) {
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
+        const inSharedView = isSharedView()
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -6901,7 +7002,15 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
                 method,
                 duration,
                 status: response.status,
+                is_shared_view: inSharedView,
             })
+        }
+        if (inSharedView && (response.status === 401 || response.status === 403)) {
+            const leakKey = `${method} ${pathname}`
+            if (!warnedSharedViewLeaks.has(leakKey)) {
+                warnedSharedViewLeaks.add(leakKey)
+                console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
+            }
         }
 
         const data = await getJSONOrNull(response)
@@ -6913,6 +7022,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
+            }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
             }
         }
 

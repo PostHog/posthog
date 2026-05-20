@@ -2,12 +2,38 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+import pytest
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import get_manifest
 
 runner = CliRunner()
+
+
+def _manifest_click_commands() -> list[str]:
+    manifest = get_manifest()
+    return [
+        cmd_name
+        for cmd_name in manifest.get_all_commands()
+        if (config := manifest.get_command_config(cmd_name)) and config.get("click")
+    ]
+
+
+def _manifest_click_modules() -> list[str]:
+    manifest = get_manifest()
+    modules: set[str] = set()
+    for cmd_name in _manifest_click_commands():
+        click_target = (manifest.get_command_config(cmd_name) or {}).get("click", "")
+        module_name = click_target.split(":", 1)[0]
+        if module_name:
+            modules.add(module_name)
+    return sorted(modules)
 
 
 class TestMainCommand:
@@ -102,6 +128,40 @@ class TestDynamicCommandRegistration:
         assert result.exit_code in (0, 2)
 
 
+class TestLazyClickCommands:
+    @pytest.mark.parametrize("command_name", _manifest_click_commands())
+    def test_lazy_click_command_help_loads(self, command_name: str) -> None:
+        # Click's recommended sanity check: every lazy command's --help must
+        # succeed. Catches bad `click:` import strings, missing modules,
+        # missing attrs, wrong types, and Click-name drift in one shot.
+        result = runner.invoke(cli, [command_name, "--help"])
+        assert result.exit_code == 0, f"{command_name}: {result.output}"
+        assert "Usage:" in result.output
+
+    def test_top_level_help_does_not_import_lazy_command_modules(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        lazy_modules = _manifest_click_modules()
+        assert lazy_modules, "expected at least one lazy click module in the manifest"
+        for module_name in lazy_modules:
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+
+        result = runner.invoke(cli, ["--help"])
+
+        assert result.exit_code == 0
+        for module_name in lazy_modules:
+            assert module_name not in sys.modules, f"{module_name} was imported during top-level --help"
+
+    def test_hidden_lazy_commands_are_hidden_from_help_and_listing(self) -> None:
+        hidden_command = "dev:list-units"
+
+        result = runner.invoke(cli, ["--help"])
+
+        assert result.exit_code == 0
+        assert hidden_command not in result.output
+        with click.Context(cli) as ctx:
+            assert hidden_command not in cli.list_commands(ctx)
+            assert isinstance(cli.get_command(ctx, hidden_command), click.Command)
+
+
 class TestCommandInjectionPrevention:
     """Test that command argument handling is secure."""
 
@@ -141,3 +201,66 @@ class TestHelpText:
         lines = result.output.split("\n")
         # Look for section headers (typically uppercase or titled)
         assert len(lines) > 10
+
+
+class TestLoadEnvFile:
+    """Test _load_env_file behavior — esp. graceful handling of op:// refs."""
+
+    def _write_env(self, tmp_path, content: str):
+        env_file = tmp_path / ".env.test"
+        env_file.write_text(content)
+        return env_file
+
+    @pytest.mark.parametrize(
+        "op_line",
+        [
+            "OPENAI_API_KEY=op://General/abc/credential",
+            'OPENAI_API_KEY="op://General/abc/credential"',
+            "OPENAI_API_KEY= op://General/abc/credential",
+        ],
+        ids=["bare", "double-quoted", "leading-space"],
+    )
+    def test_skips_op_refs_so_they_dont_leak_as_literals(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch, op_line: str
+    ) -> None:
+        """op:// values must never be set as literal env vars — they'd break downstream services.
+
+        Covers bare, quoted, and space-padded forms (op run itself accepts all three,
+        so users may write any of them).
+        """
+        from hogli.cli import _load_env_file
+
+        env_file = self._write_env(tmp_path, f"{op_line}\nLITERAL_VAR=actual_value\n")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("LITERAL_VAR", raising=False)
+
+        _load_env_file(env_file)
+
+        assert "OPENAI_API_KEY" not in os.environ
+        assert os.environ["LITERAL_VAR"] == "actual_value"
+
+    def test_missing_file_is_silent(self, tmp_path) -> None:
+        """Missing env files should not raise — caller may pass an optional file."""
+        from hogli.cli import _load_env_file
+
+        _load_env_file(tmp_path / "does_not_exist.env")
+
+    def test_only_if_unset_preserves_shell_env(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from hogli.cli import _load_env_file
+
+        env_file = self._write_env(tmp_path, "MY_VAR=from_file\n")
+        monkeypatch.setenv("MY_VAR", "from_shell")
+
+        _load_env_file(env_file, only_if_unset=True)
+
+        assert os.environ["MY_VAR"] == "from_shell"
+
+    def test_ignores_comments_and_blanks(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from hogli.cli import _load_env_file
+
+        env_file = self._write_env(tmp_path, "# comment\n\nREAL_VAR=42\n# another\n")
+        monkeypatch.delenv("REAL_VAR", raising=False)
+
+        _load_env_file(env_file)
+
+        assert os.environ["REAL_VAR"] == "42"

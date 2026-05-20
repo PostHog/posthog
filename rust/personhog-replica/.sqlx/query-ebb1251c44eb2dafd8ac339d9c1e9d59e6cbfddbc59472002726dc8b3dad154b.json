@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT l.person_id, l.distinct_id, l.version\n                    FROM UNNEST($2::bigint[]) AS pid(id)\n                    CROSS JOIN LATERAL (\n                        SELECT person_id, distinct_id, version\n                        FROM posthog_persondistinctid\n                        WHERE team_id = $1 AND person_id = pid.id\n                        LIMIT $3\n                    ) l\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ebb1251c44eb2dafd8ac339d9c1e9d59e6cbfddbc59472002726dc8b3dad154b"
+}
