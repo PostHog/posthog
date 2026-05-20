@@ -11,14 +11,11 @@ Example eval case pattern:
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-@pytest.mark.django_db
 async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         SandboxedEvalCase(

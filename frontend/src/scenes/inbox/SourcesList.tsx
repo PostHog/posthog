@@ -12,6 +12,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
+import { PgAnalyzeIcon as IconPgAnalyze } from './PgAnalyzeIcon'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceConfigStatus } from './types'
 
@@ -95,7 +96,7 @@ function Source(props: SourceProps): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-                <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
+                <p className="text-xs text-secondary mt-0.25 mb-0 pr-8">{props.description}</p>
                 {!isComingSoon && props.checked && props.config !== undefined && (
                     <>
                         <div className="mt-2 border rounded">
@@ -144,11 +145,13 @@ export function SourcesList(): JSX.Element {
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
+        pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
+        isPgAnalyzeIssuesToggling,
         isErrorTrackingToggling,
     } = useValues(signalSourcesLogic)
     const {
@@ -236,6 +239,17 @@ export function SourcesList(): JSX.Element {
                 loading={isGithubIssuesToggling}
                 requiresSetup
                 onToggle={() => initiateDataWarehouseSourceToggle('Github')}
+            />
+
+            <Source
+                icon={<IconPgAnalyze className="size-5" />}
+                title="pganalyze"
+                description="Postgres performance findings, slow queries, and index recommendations → Signals"
+                variant="available"
+                checked={!!pgAnalyzeIssuesConfig?.enabled}
+                loading={isPgAnalyzeIssuesToggling}
+                requiresSetup
+                onToggle={() => initiateDataWarehouseSourceToggle('PgAnalyze')}
             />
 
             <Source

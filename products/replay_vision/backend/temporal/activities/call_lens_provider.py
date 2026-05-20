@@ -55,7 +55,7 @@ async def call_lens_provider_activity(inputs: CallLensProviderInputs) -> LensCal
     finalized = await _call_with_retry(
         lens=lens, model=snapshot.model.value, prompt_parts=prompt_parts, team_id=inputs.team_id
     )
-    return LensCallOutput(model_output=finalized.model_dump())
+    return LensCallOutput(model_output=finalized)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> LensSnapshot:
@@ -91,6 +91,7 @@ async def _call_with_retry(*, lens: BaseLens, model: str, prompt_parts: list[typ
     """One Gemini call, plus at most one retry that appends the validation error to the prompt."""
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     schema_class = lens.llm_response_schema
+    response_schema = schema_class.model_json_schema()
     parts = list(prompt_parts)
     last_error: str | None = None
 
@@ -100,7 +101,7 @@ async def _call_with_retry(*, lens: BaseLens, model: str, prompt_parts: list[typ
             contents=parts,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_json_schema=schema_class.model_json_schema(),
+                response_json_schema=response_schema,
             ),
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_groups={"project": str(team_id)},
