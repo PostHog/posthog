@@ -274,6 +274,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+        # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
+        # HogQLFilters instead emits a strict `timestamp < date_to`, so when date_from and date_to land on the same
+        # day this events subquery collapses to an impossible range and returns no sessions. Add a day so the
+        # events subquery covers the same date window as the main heatmap query.
+        events_date_to = (date_to or date.today()) + timedelta(days=1)
         events_select = replace_filters(
             parse_select(
                 "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
@@ -282,7 +287,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filterTestAccounts=True,
                 dateRange=DateRange(
                     date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
+                    date_to=events_date_to.strftime("%Y-%m-%d"),
                 ),
             ),
             self.team,

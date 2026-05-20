@@ -38,8 +38,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.1
@@ -888,6 +888,7 @@
          "posthog_sharingconfiguration"."insight_id",
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."notebook_id",
+         "posthog_sharingconfiguration"."interviewee_context_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
@@ -906,6 +907,7 @@
          "posthog_sharingconfiguration"."insight_id",
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."notebook_id",
+         "posthog_sharingconfiguration"."interviewee_context_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
@@ -1017,8 +1019,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.27
@@ -1616,8 +1618,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.9

@@ -29,6 +29,7 @@ class Repo(ProductTeamModel):
     repo_full_name is kept for API calls and display, auto-updated on rename detection.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # GitHub identity: numeric ID is stable, full_name is for API calls + display
@@ -85,6 +86,7 @@ class Artifact(ProductTeamModel):
     Same hash = same artifact. Deduplicated across all runs in a repo.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
 
@@ -115,6 +117,7 @@ class Run(ProductTeamModel):
     Created when CI posts a manifest. Tracks status through diff processing.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
 
@@ -187,6 +190,7 @@ class RunSnapshot(ProductTeamModel):
     Links current captured image to baseline. Stores diff results.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
 
@@ -304,6 +308,7 @@ class ToleratedHash(ProductTeamModel):
     baseline_hash no longer matches.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="tolerated_hashes")
 
@@ -355,6 +360,7 @@ class QuarantinedIdentifier(ProductTeamModel):
     runs remain stable even if quarantine policy changes later.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
 

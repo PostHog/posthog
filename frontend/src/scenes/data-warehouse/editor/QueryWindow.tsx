@@ -28,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
+import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
@@ -87,6 +88,7 @@ export function QueryWindow({
         setMetadataLoading,
         setSendRawQuery,
         openMaterializationModal,
+        setSourceQuery,
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
@@ -211,15 +213,19 @@ export function QueryWindow({
                                 buttonClassName="size-[26px]"
                                 maxToolProps={{
                                     identifier: 'execute_sql',
-                                    context: {
-                                        current_query: queryInput,
-                                    },
+                                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
                                     contextDescription: {
                                         text: 'Current query',
                                         icon: iconForType('sql_editor'),
                                     },
-                                    callback: (toolOutput: string) => {
-                                        setSuggestedQueryInput(toolOutput, 'max_ai')
+                                    callback: (toolOutput: unknown) => {
+                                        applyExecuteSqlToolOutput({
+                                            toolOutput,
+                                            queryInput,
+                                            sourceQuery,
+                                            setSourceQuery,
+                                            setSuggestedQueryInput,
+                                        })
                                     },
                                     suggestions: [],
                                     onMaxOpen: () => {

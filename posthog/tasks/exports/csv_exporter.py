@@ -33,7 +33,7 @@ from posthog.utils import absolute_uri
 from ...exceptions import ClickHouseQuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
-from ...hogql_queries.insights.trends.breakdown import (
+from ...hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,

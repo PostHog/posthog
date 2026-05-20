@@ -786,6 +786,7 @@ mod tests {
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             kafka_traces_topic: "traces_ingestion".to_string(),
+            kafka_metrics_topic: "metrics_ingestion".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
@@ -816,6 +817,18 @@ mod tests {
             kafka_traces_producer_max_retries: None,
             kafka_traces_topic_metadata_refresh_interval_ms: None,
             kafka_traces_metadata_max_age_ms: None,
+            kafka_metrics_hosts: None,
+            kafka_metrics_tls: None,
+            kafka_metrics_client_id: None,
+            kafka_metrics_compression_codec: None,
+            kafka_metrics_producer_acks: None,
+            kafka_metrics_producer_linger_ms: None,
+            kafka_metrics_producer_queue_mib: None,
+            kafka_metrics_message_timeout_ms: None,
+            kafka_metrics_producer_message_max_bytes: None,
+            kafka_metrics_producer_max_retries: None,
+            kafka_metrics_topic_metadata_refresh_interval_ms: None,
+            kafka_metrics_metadata_max_age_ms: None,
         };
         let sink = KafkaSink::new(config, handle)
             .await

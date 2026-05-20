@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -337,18 +337,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -654,18 +657,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -762,6 +768,40 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Test feature flag evaluation against a specific user at an optional point in time.
+
+This endpoint allows testing how a feature flag would evaluate for a specific user,
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
+ */
+export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
+    distinct_id: zod
+        .string()
+        .optional()
+        .describe('User distinct ID to test against (mutually exclusive with person_id)'),
+    person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
+    timestamp: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
+        ),
+    groups: zod
+        .unknown()
+        .optional()
+        .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
+})
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -781,6 +821,28 @@ export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ 
     groups: zod
         .string()
         .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsMyFlagsRetrieveQueryGroupsDefault = `{}`
+
+export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    groups: zod
+        .string()
+        .default(featureFlagsMyFlagsRetrieveQueryGroupsDefault)
         .describe('Groups for feature flag evaluation (JSON object string)'),
 })
 
@@ -859,7 +921,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
@@ -870,15 +932,15 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })
@@ -931,7 +993,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
@@ -943,15 +1005,15 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
     cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })

@@ -10,17 +10,17 @@ from posthog.slo.types import SloCompletedProperties, SloStartedProperties
 OPERATION_STARTED_COUNTER = Counter(
     "slo_operation_started",
     "A counter keeping track of when a slo-measured operation has started.",
-    labelnames=["area", "operation"],
+    labelnames=["area", "operation", "sample_rate"],
 )
 OPERATION_COMPLETED_COUNTER = Counter(
     "slo_operation_completed",
     "A counter keeping track of when a slo-measured operation has completed.",
-    labelnames=["area", "operation", "outcome"],
+    labelnames=["area", "operation", "outcome", "sample_rate"],
 )
 OPERATION_DURATION = Histogram(
     "slo_operation_duration_seconds",
     "Time spent for a slo-measured operation",
-    labelnames=["area", "operation", "outcome"],
+    labelnames=["area", "operation", "outcome", "sample_rate"],
     buckets=(
         0.005,
         0.01,
@@ -75,12 +75,16 @@ def emit_slo_started(
     properties: SloStartedProperties,
     extra_properties: dict | None = None,
     capture: Callable | None = None,
+    sample_rate: float = 1.0,
 ) -> None:
     try:
         all_properties = properties.to_dict()
         all_properties["deploy_sha"] = get_git_commit_short()
         if extra_properties:
             all_properties.update(extra_properties)
+        # Only stamp sample_rate when sampling is on; dashboards coalesce missing values to 1.0.
+        if sample_rate < 1.0:
+            all_properties["sample_rate"] = sample_rate
 
         _capture = capture or posthoganalytics.capture
         _capture(
@@ -91,6 +95,7 @@ def emit_slo_started(
         OPERATION_STARTED_COUNTER.labels(
             area=properties.area,
             operation=properties.operation,
+            sample_rate=sample_rate,
         ).inc()
     except Exception as exc:
         _capture_emit_exception(
@@ -106,12 +111,16 @@ def emit_slo_completed(
     properties: SloCompletedProperties,
     extra_properties: dict | None = None,
     capture: Callable | None = None,
+    sample_rate: float = 1.0,
 ) -> None:
     try:
         all_properties = properties.to_dict()
         all_properties["deploy_sha"] = get_git_commit_short()
         if extra_properties:
             all_properties.update(extra_properties)
+        # Only stamp sample_rate when sampling is on; dashboards coalesce missing values to 1.0.
+        if sample_rate < 1.0:
+            all_properties["sample_rate"] = sample_rate
 
         _capture = capture or posthoganalytics.capture
         _capture(
@@ -123,6 +132,7 @@ def emit_slo_completed(
             area=properties.area,
             operation=properties.operation,
             outcome=properties.outcome,
+            sample_rate=sample_rate,
         ).inc()
 
         if properties.duration_ms is not None:
@@ -130,6 +140,7 @@ def emit_slo_completed(
                 area=properties.area,
                 operation=properties.operation,
                 outcome=properties.outcome,
+                sample_rate=sample_rate,
             ).observe(properties.duration_ms / 1000)
     except Exception as exc:
         _capture_emit_exception(

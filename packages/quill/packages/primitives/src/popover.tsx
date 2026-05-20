@@ -18,11 +18,22 @@ function PopoverContent({
     alignOffset = 0,
     side = 'bottom',
     sideOffset = 4,
+    container,
     ...props
 }: PopoverPrimitive.Popup.Props &
-    Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
+    Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'> &
+    Pick<PopoverPrimitive.Portal.Props, 'container'>): React.ReactElement {
+    /*
+     * `container` opt-in lets consumers mount the popover inside a
+     * specific DOM subtree instead of `document.body`. Useful when
+     * popover content needs to inherit ancestor context that doesn't
+     * survive a portal jump — most notably CSS container queries
+     * (`@container/<name>`), which only follow DOM ancestors. Pass a
+     * ref to the container-query host and the portaled content can
+     * read its size as if it were a direct child.
+     */
     return (
-        <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Portal container={container}>
             <PopoverPrimitive.Positioner
                 data-quill
                 data-quill-portal="popover"

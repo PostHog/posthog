@@ -9,9 +9,15 @@ import { z } from 'zod'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type Tool,
+    type ZodObjectAny,
+} from '@/tools/types'
 
 function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObjectAny> {
     return {
@@ -71,6 +77,50 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+        })
+
+        it('returns ONLY the formatted table when result has __formatted_results_override and mode is optimized', async () => {
+            const tool = makeMockTool({
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).toBe('Date|count\n2026-05-07|6')
+            // Raw fields and the override key itself must not leak into optimized output
+            expect(result).not.toContain('_posthogUrl')
+            expect(result).not.toContain('results')
+            expect(result).not.toContain('__formatted_results_override')
+        })
+
+        it('still TOON-encodes when __formatted_results_override is absent', async () => {
+            const tool = makeMockTool({
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
+            expect(result).toContain('_posthogUrl')
+            expect(result).toContain('results')
+        })
+
+        it('returns raw JSON (with override key) when --json flag is passed even if override is present', async () => {
+            const tool = makeMockTool({
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3] }],
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed.results).toEqual([{ data: [1, 2, 3] }])
+            expect(parsed[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('Date|count\n2026-05-07|6')
         })
 
         it('throws usage error for bare call', async () => {
@@ -287,6 +337,33 @@ describe('exec tool', () => {
             const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
+    })
+
+    describe('parseExecCallInnerToolName', () => {
+        it.each([
+            ['call my-tool {}', 'my-tool'],
+            ['call my-tool', 'my-tool'],
+            ['call --json my-tool {}', 'my-tool'],
+            ['  call   my-tool   {}  ', 'my-tool'],
+        ])('extracts inner tool name from "%s"', (command, expected) => {
+            expect(parseExecCallInnerToolName(command)).toBe(expected)
+        })
+
+        // Non-call verbs (info/schema/search/tools) are intentionally undefined —
+        // the resolver only fires for real invocations, not for browsing/inspection.
+        it.each([
+            ['info my-tool'],
+            ['schema my-tool'],
+            ['search query-'],
+            ['tools'],
+            ['call'],
+            ['call '],
+            ['call --json'],
+            [''],
+            ['   '],
+        ])('returns undefined for "%s"', (command) => {
+            expect(parseExecCallInnerToolName(command)).toBeUndefined()
         })
     })
 

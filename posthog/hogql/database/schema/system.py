@@ -417,7 +417,8 @@ integration_repository_cache: PostgresTable = PostgresTable(
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
-        "integration_id": IntegerDatabaseField(name="integration_id"),
+        "integration_id": IntegerDatabaseField(name="integration_id", nullable=True),
+        "user_integration_id": IntegerDatabaseField(name="user_integration_id", nullable=True),
         "full_name": StringDatabaseField(name="full_name"),
         "description": StringDatabaseField(name="description", nullable=True),
         "topics": StringJSONDatabaseField(name="topics"),

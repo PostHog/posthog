@@ -28,12 +28,14 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
     ExternalConfig,
     GoogleAdsConfig,
+    HierarchicalNativeAdsConfig,
     LinkedinAdsConfig,
     MarketingSourceAdapter,
     MetaAdsConfig,
     PinterestAdsConfig,
     QueryContext,
     RedditAdsConfig,
+    SnapchatAdsConfig,
     TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
@@ -49,6 +51,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.self_managed im
     CloudflareR2Adapter,
     GoogleCloudAdapter,
 )
+from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 # Test Constants
@@ -1259,6 +1262,310 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             f"At {level}, _get_match_key_expr() expected to be {'empty Constant' if expected_empty else 'a real expression'}, "
             f"got {match_key!r}"
         )
+
+    # Table-name suffixes match what the warehouse import pipelines produce; the
+    # `levels` tuple marks which drill-down levels the source supports.
+    _ALL_AD_LEVELS = (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+    _NATIVE_HIERARCHY_FIXTURES: ClassVar[list] = [
+        (
+            "google",
+            GoogleAdsAdapter,
+            GoogleAdsConfig,
+            "GoogleAds",
+            {
+                "campaign": "googleads_campaign",
+                "stats": "googleads_campaign_stats",
+                "adset": "googleads_ad_group",
+                "adset_stats": "googleads_ad_group_stats",
+                "ad": "googleads_ad",
+                "ad_stats": "googleads_ad_stats",
+            },
+            _ALL_AD_LEVELS,
+        ),
+        (
+            "google_no_adset",
+            GoogleAdsAdapter,
+            GoogleAdsConfig,
+            "GoogleAds",
+            {
+                "campaign": "googleads_campaign",
+                "stats": "googleads_campaign_stats",
+                "ad": "googleads_ad",
+                "ad_stats": "googleads_ad_stats",
+            },
+            (MarketingAnalyticsDrillDownLevel.AD,),
+        ),
+        (
+            "tiktok",
+            TikTokAdsAdapter,
+            TikTokAdsConfig,
+            "TikTokAds",
+            {
+                "campaign": "tiktokads_campaigns",
+                "stats": "tiktokads_campaign_report",
+                "adset": "tiktokads_ad_groups",
+                "adset_stats": "tiktokads_ad_group_report",
+                "ad": "tiktokads_ads",
+                "ad_stats": "tiktokads_ad_report",
+            },
+            _ALL_AD_LEVELS,
+        ),
+        (
+            "reddit",
+            RedditAdsAdapter,
+            RedditAdsConfig,
+            "RedditAds",
+            {
+                "campaign": "redditads_campaigns",
+                "stats": "redditads_campaign_report",
+                "adset": "redditads_ad_groups",
+                "adset_stats": "redditads_ad_group_report",
+                "ad": "redditads_ads",
+                "ad_stats": "redditads_ad_report",
+            },
+            _ALL_AD_LEVELS,
+        ),
+        (
+            "pinterest",
+            PinterestAdsAdapter,
+            PinterestAdsConfig,
+            "PinterestAds",
+            {
+                "campaign": "pinterestads_campaigns",
+                "stats": "pinterestads_campaign_analytics",
+                "adset": "pinterestads_ad_groups",
+                "adset_stats": "pinterestads_ad_group_analytics",
+                "ad": "pinterestads_ads",
+                "ad_stats": "pinterestads_ad_analytics",
+            },
+            _ALL_AD_LEVELS,
+        ),
+        (
+            "snapchat",
+            SnapchatAdsAdapter,
+            SnapchatAdsConfig,
+            "SnapchatAds",
+            {
+                "campaign": "snapchatads_campaigns",
+                "stats": "snapchatads_campaign_stats_daily",
+                "adset": "snapchatads_ad_squads",
+                "adset_stats": "snapchatads_ad_squad_stats_daily",
+                "ad": "snapchatads_ads",
+                "ad_stats": "snapchatads_ad_stats_daily",
+            },
+            _ALL_AD_LEVELS,
+        ),
+        (
+            # LinkedIn's `campaigns` resource is conceptually an ad group; `creatives` an ad.
+            "linkedin",
+            LinkedinAdsAdapter,
+            LinkedinAdsConfig,
+            "LinkedinAds",
+            {
+                "campaign": "linkedinads_campaign_groups",
+                "stats": "linkedinads_campaign_group_stats",
+                "adset": "linkedinads_campaigns",
+                "adset_stats": "linkedinads_campaign_stats",
+                "ad": "linkedinads_creatives",
+                "ad_stats": "linkedinads_creative_stats",
+            },
+            _ALL_AD_LEVELS,
+        ),
+        (
+            # Bing: entity and stats slots share one table (unified-report mode).
+            "bing",
+            BingAdsAdapter,
+            BingAdsConfig,
+            "BingAds",
+            {
+                "campaign": "bingads_campaigns",
+                "stats": "bingads_campaign_performance_report",
+                "adset": "bingads_ad_group_performance_report",
+                "adset_stats": "bingads_ad_group_performance_report",
+                "ad": "bingads_ad_performance_report",
+                "ad_stats": "bingads_ad_performance_report",
+            },
+            _ALL_AD_LEVELS,
+        ),
+    ]
+
+    def _build_hierarchical_adapter_at_level(
+        self,
+        adapter_class: type[MarketingSourceAdapter],
+        config_class: type[HierarchicalNativeAdsConfig],
+        source_type: str,
+        table_names: dict[str, str],
+        level: MarketingAnalyticsDrillDownLevel,
+    ) -> MarketingSourceAdapter:
+        config = config_class(
+            campaign_table=self._create_mock_table(table_names["campaign"], source_type),
+            stats_table=self._create_mock_table(table_names["stats"], source_type),
+            adset_table=self._create_mock_table(table_names["adset"], source_type) if "adset" in table_names else None,
+            adset_stats_table=self._create_mock_table(table_names["adset_stats"], source_type)
+            if "adset_stats" in table_names
+            else None,
+            ad_table=self._create_mock_table(table_names["ad"], source_type) if "ad" in table_names else None,
+            ad_stats_table=self._create_mock_table(table_names["ad_stats"], source_type)
+            if "ad_stats" in table_names
+            else None,
+            source_type=source_type,
+            source_id=f"{source_type}_hierarchy_test",
+        )
+        context = replace(self.context, drill_down_level=level)
+        return adapter_class(config=config, context=context)
+
+    @parameterized.expand(
+        [
+            (f"{name}_{level.value}", adapter_class, config_class, source_type, table_names, level)
+            for (name, adapter_class, config_class, source_type, table_names, levels) in _NATIVE_HIERARCHY_FIXTURES
+            for level in levels
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_native_adapter_query_at_hierarchy_levels(
+        self, _name, adapter_class, config_class, source_type, table_names, level
+    ):
+        """Snapshot the AST emitted at AD_GROUP / AD for every hierarchical native adapter.
+        Captures FROM chain (entity → stats → parent joins), 13-column SELECT with hierarchy
+        fields, GROUP BY covering every non-aggregate column, and orphan-fallback coalesce on
+        LEFT JOINed parents — any regression surfaces as a snapshot diff."""
+        adapter = self._build_hierarchical_adapter_at_level(
+            adapter_class, config_class, source_type, table_names, level
+        )
+        query = adapter.build_query()
+        assert query is not None
+        assert pretty_print_in_tests(query.to_hogql(), self.team.pk) == self.snapshot
+
+    def test_partial_hierarchy_supports_ad_but_not_ad_group(self):
+        adapter = self._build_hierarchical_adapter_at_level(
+            GoogleAdsAdapter,
+            GoogleAdsConfig,
+            "GoogleAds",
+            {
+                "campaign": "googleads_campaign",
+                "stats": "googleads_campaign_stats",
+                "ad": "googleads_ad",
+                "ad_stats": "googleads_ad_stats",
+            },
+            MarketingAnalyticsDrillDownLevel.AD,
+        )
+        assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.CAMPAIGN)
+        assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD)
+        assert not adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD_GROUP)
+
+    @parameterized.expand(
+        [
+            # (name, ad_table_columns, expected fallback columns in priority order)
+            (
+                "all_columns_present",
+                [
+                    "ad_group_ad_ad_id",
+                    "ad_group_ad_ad_name",
+                    "ad_group_ad_ad_expanded_text_ad_headline_part1",
+                    "ad_group_ad_ad_text_ad_headline",
+                    "ad_group_ad_ad_image_ad_name",
+                ],
+                [
+                    "ad_group_ad_ad_name",
+                    "ad_group_ad_ad_expanded_text_ad_headline_part1",
+                    "ad_group_ad_ad_text_ad_headline",
+                    "ad_group_ad_ad_image_ad_name",
+                ],
+            ),
+            # Legacy sync missing the optional headline columns — only the
+            # always-present id and whatever exists should be coalesced.
+            (
+                "only_name_and_id",
+                ["ad_group_ad_ad_id", "ad_group_ad_ad_name"],
+                ["ad_group_ad_ad_name"],
+            ),
+        ]
+    )
+    def test_google_ad_name_falls_back_when_ad_name_empty(self, _name, ad_columns, expected_label_columns):
+        # Google leaves `ad.name` empty for search/text/responsive ads, so the
+        # Ad column coalesces across the type-specific headline columns and
+        # finally the ad id — never rendering blank.
+        ad_table = self._create_mock_table("googleads_ad", "GoogleAds")
+        ad_table.columns = {col: {"clickhouse": "Nullable(String)"} for col in ad_columns}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("googleads_campaign", "GoogleAds"),
+            stats_table=self._create_mock_table("googleads_campaign_stats", "GoogleAds"),
+            ad_table=ad_table,
+            ad_stats_table=self._create_mock_table("googleads_ad_stats", "GoogleAds"),
+            source_type="GoogleAds",
+            source_id="google_ad_name_test",
+        )
+        context = replace(self.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD)
+        adapter = GoogleAdsAdapter(config=config, context=context)
+
+        name_hogql = adapter._get_ad_name_field().to_hogql()
+
+        # Coalesces, in declared priority order, every label column that exists.
+        assert "coalesce(" in name_hogql
+        for column in expected_label_columns:
+            assert column in name_hogql, f"expected {column} in fallback: {name_hogql}"
+        # The ad id is always the last-resort fallback so the column is never blank.
+        assert name_hogql.rstrip().endswith("toString(googleads_ad.ad_group_ad_ad_id))")
+
+    def test_google_ad_name_extracts_responsive_search_ad_headline(self):
+        # RSA headlines live in a double-encoded JSON column; the first
+        # headline's `text` is pulled out via two nested JSONExtractString
+        # calls and joins the fallback chain ahead of the ad id.
+        ad_table = self._create_mock_table("googleads_ad", "GoogleAds")
+        ad_table.columns = {
+            "ad_group_ad_ad_id": {"clickhouse": "Nullable(String)"},
+            "ad_group_ad_ad_responsive_search_ad_headlines": {"clickhouse": "Nullable(String)"},
+        }
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("googleads_campaign", "GoogleAds"),
+            stats_table=self._create_mock_table("googleads_campaign_stats", "GoogleAds"),
+            ad_table=ad_table,
+            ad_stats_table=self._create_mock_table("googleads_ad_stats", "GoogleAds"),
+            source_type="GoogleAds",
+            source_id="google_ad_name_rsa_test",
+        )
+        context = replace(self.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD)
+        adapter = GoogleAdsAdapter(config=config, context=context)
+
+        name_hogql = adapter._get_ad_name_field().to_hogql()
+
+        assert (
+            "JSONExtractString(JSONExtractString("
+            "googleads_ad.ad_group_ad_ad_responsive_search_ad_headlines, 1), 'text')" in name_hogql
+        )
+        assert name_hogql.rstrip().endswith("toString(googleads_ad.ad_group_ad_ad_id))")
+
+    def _build_google_ad_level_adapter(
+        self, ad_columns: list[str], level: MarketingAnalyticsDrillDownLevel
+    ) -> GoogleAdsAdapter:
+        ad_table = self._create_mock_table("googleads_ad", "GoogleAds")
+        ad_table.columns = {col: {"clickhouse": "Nullable(String)"} for col in ad_columns}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("googleads_campaign", "GoogleAds"),
+            stats_table=self._create_mock_table("googleads_campaign_stats", "GoogleAds"),
+            ad_table=ad_table,
+            ad_stats_table=self._create_mock_table("googleads_ad_stats", "GoogleAds"),
+            source_type="GoogleAds",
+            source_id="google_ad_name_test",
+        )
+        return GoogleAdsAdapter(config=config, context=replace(self.context, drill_down_level=level))
+
+    @parameterized.expand(
+        [
+            # At AD level with only the id column present, the coalesce
+            # collapses to a bare toString — no one-argument coalesce wrapper.
+            ("at_ad_level", MarketingAnalyticsDrillDownLevel.AD, "toString(googleads_ad.ad_group_ad_ad_id)"),
+            # Below the AD drill-down, the ad-name field must be NULL, mirroring
+            # the base adapter contract for hierarchy fields.
+            ("below_ad_level", MarketingAnalyticsDrillDownLevel.CAMPAIGN, None),
+        ]
+    )
+    def test_google_ad_name_with_only_id_column(self, _name, level, expected_hogql):
+        field = self._build_google_ad_level_adapter(["ad_group_ad_ad_id"], level)._get_ad_name_field()
+        if expected_hogql is None:
+            assert isinstance(field, ast.Constant) and field.value is None
+        else:
+            assert field.to_hogql() == expected_hogql
 
     def test_tiktok_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
