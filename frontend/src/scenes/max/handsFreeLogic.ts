@@ -4,6 +4,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { handsFreeLogicType } from './handsFreeLogicType'
@@ -50,11 +51,16 @@ async function loadScribeSdk(): Promise<{
     CommitStrategy: CommitStrategyEnum
 }> {
     if (!cachedSdkPromise) {
-        cachedSdkPromise = import(/* webpackChunkName: "elevenlabs-client" */ '@elevenlabs/client').then((mod) => ({
-            Scribe: (mod as unknown as { Scribe: ScribeNamespace }).Scribe,
-            RealtimeEvents: (mod as unknown as { RealtimeEvents: RealtimeEventsEnum }).RealtimeEvents,
-            CommitStrategy: (mod as unknown as { CommitStrategy: CommitStrategyEnum }).CommitStrategy,
-        }))
+        cachedSdkPromise = import(/* webpackChunkName: "elevenlabs-client" */ '@elevenlabs/client')
+            .then((mod) => ({
+                Scribe: (mod as unknown as { Scribe: ScribeNamespace }).Scribe,
+                RealtimeEvents: (mod as unknown as { RealtimeEvents: RealtimeEventsEnum }).RealtimeEvents,
+                CommitStrategy: (mod as unknown as { CommitStrategy: CommitStrategyEnum }).CommitStrategy,
+            }))
+            .catch((err) => {
+                cachedSdkPromise = undefined
+                throw err
+            })
     }
     return cachedSdkPromise
 }
@@ -428,6 +434,13 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
     afterMount(({ actions, cache }) => {
         // Probe the SDK once on mount so the mic button can decide whether to render itself.
         // We capture failures to PostHog instead of surfacing dev-facing errors to end users.
+        // Skip the probe entirely when the feature flag is off — the logic mounts for every
+        // Max session, so an unconditional dynamic import would download the SDK chunk for
+        // every user even though only flagged users can ever use it.
+        if (!posthog.isFeatureEnabled(FEATURE_FLAGS.MAX_HANDS_FREE)) {
+            actions.setSdkAvailable(false)
+            return
+        }
         cache.disposables.add(() => {
             let cancelled = false
             void loadScribeSdk()

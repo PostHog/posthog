@@ -2,9 +2,9 @@
 
 Hands-free mode lets a user talk to Max with their hands and eyes off the screen — built
 for mobile-web (gym, walking, driving). Speech-to-text runs via ElevenLabs Scribe directly
-from the browser; this module's only job is to mint single-use Scribe tokens so the
-ElevenLabs API key never reaches the client. TTS is handled by the browser's native
-speechSynthesis API and needs no backend at all.
+from the browser using single-use tokens minted here so the ElevenLabs API key never
+reaches the client. Text-to-speech is proxied through the synthesize endpoint, again to
+keep the API key server-side; mp3 bytes stream back to the browser.
 """
 
 from typing import Any
