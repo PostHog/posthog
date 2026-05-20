@@ -79,6 +79,78 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertEqual(result.query.chartSettings.yAxis[0].column, "events")
         self.assertEqual(result.query.chartSettings.yAxis[0].settings.formatting.style, "short")
 
+    def test_parse_output_propagates_show_values_on_series(self):
+        mixin = self._node
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT browser, count() AS sessions FROM events GROUP BY browser",
+                "display": "ActionsBar",
+                "x_axis": "browser",
+                "y_axis": ["sessions"],
+                "series_breakdown_column": None,
+                "y_axis_format": "short",
+                "y_axis_decimal_places": 0,
+                "y_axis_prefix": None,
+                "y_axis_suffix": None,
+                "show_legend": False,
+                "show_values_on_series": True,
+                "show_percent_stack_view": False,
+            }
+        )
+
+        self.assertEqual(result.query.display, ChartDisplayType.ACTIONS_BAR)
+        self.assertTrue(result.query.chartSettings.showValuesOnSeries)
+        # stackBars100 is only meaningful for stacked bars, so a plain bar chart should not set it
+        self.assertIsNone(result.query.chartSettings.stackBars100)
+
+    def test_parse_output_propagates_stack_bars_for_stacked_bar(self):
+        mixin = self._node
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT day, plan, count() AS users FROM events GROUP BY day, plan",
+                "display": "ActionsStackedBar",
+                "x_axis": "day",
+                "y_axis": ["users"],
+                "series_breakdown_column": "plan",
+                "y_axis_format": "short",
+                "y_axis_decimal_places": 0,
+                "y_axis_prefix": None,
+                "y_axis_suffix": None,
+                "show_legend": True,
+                "show_values_on_series": True,
+                "show_percent_stack_view": True,
+            }
+        )
+
+        self.assertEqual(result.query.display, ChartDisplayType.ACTIONS_STACKED_BAR)
+        self.assertTrue(result.query.chartSettings.showValuesOnSeries)
+        self.assertTrue(result.query.chartSettings.stackBars100)
+
+    def test_parse_output_ignores_percent_stack_view_outside_stacked_bar(self):
+        mixin = self._node
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT day, count() AS events FROM events GROUP BY day",
+                "display": "ActionsLineGraph",
+                "x_axis": "day",
+                "y_axis": ["events"],
+                "series_breakdown_column": None,
+                "y_axis_format": "short",
+                "y_axis_decimal_places": 0,
+                "y_axis_prefix": None,
+                "y_axis_suffix": None,
+                "show_legend": False,
+                "show_values_on_series": False,
+                "show_percent_stack_view": True,
+            }
+        )
+
+        # show_percent_stack_view only applies to ActionsStackedBar; ignored elsewhere
+        self.assertIsNone(result.query.chartSettings.stackBars100)
+
     def test_parse_output_with_none_axis_format_omits_empty_formatting(self):
         mixin = self._node
 

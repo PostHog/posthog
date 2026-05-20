@@ -74,6 +74,21 @@ def generate_sql_schema() -> dict:
                     "type": "boolean",
                     "description": "Whether the chart should show a legend. Use true for multiple y-axis series or breakdowns.",
                 },
+                "show_values_on_series": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether to render the numeric value of each data point directly on the chart (for example, "
+                        "as labels on top of bars or next to points on a line). Set this to true whenever the user "
+                        "asks for labels, value labels, data labels, annotated bars, or numbers on bars/points."
+                    ),
+                },
+                "show_percent_stack_view": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether a stacked bar chart should display each segment as a percentage of the total so "
+                        "the stack always fills to 100%. Only meaningful for ActionsStackedBar; use false otherwise."
+                    ),
+                },
             },
             "additionalProperties": False,
             "required": [
@@ -87,6 +102,8 @@ def generate_sql_schema() -> dict:
                 "y_axis_prefix",
                 "y_axis_suffix",
                 "show_legend",
+                "show_values_on_series",
+                "show_percent_stack_view",
             ],
         },
     }

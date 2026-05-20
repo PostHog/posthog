@@ -58,6 +58,8 @@ class RawSQLSchemaGeneratorOutput(BaseModel):
     y_axis_prefix: str | None = None
     y_axis_suffix: str | None = None
     show_legend: bool | None = None
+    show_values_on_series: bool | None = None
+    show_percent_stack_view: bool | None = None
 
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[DataVisualizationNode]
@@ -108,6 +110,10 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 yAxis=y_axis or None,
                 seriesBreakdownColumn=result.series_breakdown_column,
                 showLegend=result.show_legend,
+                showValuesOnSeries=result.show_values_on_series,
+                stackBars100=(
+                    result.show_percent_stack_view if result.display == ChartDisplayType.ACTIONS_STACKED_BAR else None
+                ),
             )
 
         return SQLSchemaGeneratorOutput(

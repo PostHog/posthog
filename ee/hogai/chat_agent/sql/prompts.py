@@ -113,6 +113,8 @@ Axis guidance:
 - Set `series_breakdown_column` when a result column should create multiple colored series, such as plan, country, browser, model, or status.
 - For rates and percentages, return decimal/rate values in SQL when practical and set `y_axis_format` to `percent`; use decimal places and suffix/prefix when they make the chart readable.
 - Show a legend when there is more than one y-axis series or when `series_breakdown_column` is set.
+- Set `show_values_on_series` to true whenever the user asks for labels, value labels, data labels, numbers on bars/points, or annotated bars — this draws the numeric value of each data point directly on the chart. Leave it false otherwise to keep the chart uncluttered.
+- Set `show_percent_stack_view` to true only with `ActionsStackedBar` when the user wants each x-axis category to fill to 100% so segments display as percentages of the total. Leave it false (or omit it) for any other display type.
 
 ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
 - Do NOT use double curly braces (`{{` or `}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{variables.org}`).<%={{ }}=%>
