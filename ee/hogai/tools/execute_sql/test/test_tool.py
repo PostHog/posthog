@@ -23,6 +23,46 @@ from ee.hogai.utils.types.base import NodePath
 from ee.models import AgentArtifact, Conversation
 
 
+class TestMergePriorChartSettings:
+    def test_returns_new_settings_when_no_prior(self) -> None:
+        new = {"seriesBreakdownColumn": "country"}
+        assert ExecuteSQLTool._merge_prior_chart_settings(new, None) == new
+        assert ExecuteSQLTool._merge_prior_chart_settings(None, None) is None
+
+    def test_fills_missing_breakdown_legend_and_axis_label(self) -> None:
+        merged = ExecuteSQLTool._merge_prior_chart_settings(
+            {"xAxis": {"column": "day"}},
+            {"seriesBreakdownColumn": "country", "showLegend": True, "xAxisLabel": "Day"},
+        )
+        assert merged == {
+            "xAxis": {"column": "day"},
+            "seriesBreakdownColumn": "country",
+            "showLegend": True,
+            "xAxisLabel": "Day",
+        }
+
+    def test_does_not_override_explicit_new_values(self) -> None:
+        merged = ExecuteSQLTool._merge_prior_chart_settings(
+            {"seriesBreakdownColumn": "browser", "showLegend": False},
+            {"seriesBreakdownColumn": "country", "showLegend": True},
+        )
+        assert merged == {"seriesBreakdownColumn": "browser", "showLegend": False}
+
+    def test_merges_axis_label_into_existing_axis_settings(self) -> None:
+        merged = ExecuteSQLTool._merge_prior_chart_settings(
+            {"leftYAxisSettings": {"showTicks": True}},
+            {"leftYAxisSettings": {"label": "Events", "scale": "linear"}},
+        )
+        assert merged == {"leftYAxisSettings": {"showTicks": True, "label": "Events"}}
+
+    def test_merges_axis_label_when_axis_missing(self) -> None:
+        merged = ExecuteSQLTool._merge_prior_chart_settings(
+            None,
+            {"rightYAxisSettings": {"label": "People"}},
+        )
+        assert merged == {"rightYAxisSettings": {"label": "People"}}
+
+
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 

@@ -14,6 +14,7 @@ from posthog.schema import (
     HogQLQuery,
     Settings,
     Style,
+    YAxisSettings,
 )
 
 from posthog.hogql import ast
@@ -58,6 +59,9 @@ class RawSQLSchemaGeneratorOutput(BaseModel):
     y_axis_prefix: str | None = None
     y_axis_suffix: str | None = None
     show_legend: bool | None = None
+    x_axis_label: str | None = None
+    left_y_axis_label: str | None = None
+    right_y_axis_label: str | None = None
 
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[DataVisualizationNode]
@@ -108,6 +112,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 yAxis=y_axis or None,
                 seriesBreakdownColumn=result.series_breakdown_column,
                 showLegend=result.show_legend,
+                xAxisLabel=result.x_axis_label,
+                leftYAxisSettings=YAxisSettings(label=result.left_y_axis_label) if result.left_y_axis_label else None,
+                rightYAxisSettings=YAxisSettings(label=result.right_y_axis_label) if result.right_y_axis_label else None,
             )
 
         return SQLSchemaGeneratorOutput(

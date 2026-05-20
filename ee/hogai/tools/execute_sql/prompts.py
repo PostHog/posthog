@@ -61,6 +61,9 @@ JOIN persons p ON e.person_id = p.id
 WHERE e.event IN (SELECT event FROM events WHERE ...)
 ```
 
+# Chart presentation
+- Whenever you request a chart `display` other than `ActionsTable` or `BoldNumber`, populate `chart_settings.xAxisLabel` and `chart_settings.leftYAxisSettings.label` (and `chart_settings.rightYAxisSettings.label` if you use a right Y axis) with short human-readable labels (e.g. `Day`, `Events`, `Conversion rate`). Charts without axis labels are hard to read, especially when the underlying SQL columns are technical (`day_bucket`, `cnt`). Set `chart_settings.showLegend` to `true` whenever you set `chart_settings.seriesBreakdownColumn` so the user can tell the colored series apart.
+
 # Other constraints
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>

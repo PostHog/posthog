@@ -79,6 +79,28 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertEqual(result.query.chartSettings.yAxis[0].column, "events")
         self.assertEqual(result.query.chartSettings.yAxis[0].settings.formatting.style, "short")
 
+    def test_parse_output_with_axis_labels(self):
+        mixin = self._node
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT toStartOfDay(timestamp) AS day, count() AS events FROM events GROUP BY day",
+                "display": "ActionsLineGraph",
+                "x_axis": "day",
+                "y_axis": ["events"],
+                "x_axis_label": "Day",
+                "left_y_axis_label": "Events",
+                "right_y_axis_label": "Conversion rate",
+            }
+        )
+
+        chart_settings = result.query.chartSettings
+        self.assertEqual(chart_settings.xAxisLabel, "Day")
+        self.assertIsNotNone(chart_settings.leftYAxisSettings)
+        self.assertEqual(chart_settings.leftYAxisSettings.label, "Events")
+        self.assertIsNotNone(chart_settings.rightYAxisSettings)
+        self.assertEqual(chart_settings.rightYAxisSettings.label, "Conversion rate")
+
     def test_parse_output_with_none_axis_format_omits_empty_formatting(self):
         mixin = self._node
 

@@ -126,6 +126,9 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             else:
                 chart_settings_data = None
 
+            prior_chart_settings = self._get_prior_chart_settings()
+            chart_settings_data = self._merge_prior_chart_settings(chart_settings_data, prior_chart_settings)
+
             artifact_query = DataVisualizationNode(
                 source=source_query,
                 display=ChartDisplayType(display) if display else None,
@@ -176,3 +179,42 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                 ),
             ]
         )
+
+    def _get_prior_chart_settings(self) -> dict[str, object] | None:
+        """Return the chart settings from the currently focused SQL editor node, if any."""
+        current_query_node = self.context.get("current_query_node")
+        if not isinstance(current_query_node, dict):
+            return None
+        prior = current_query_node.get("chartSettings")
+        return prior if isinstance(prior, dict) else None
+
+    @staticmethod
+    def _merge_prior_chart_settings(
+        new_settings: dict[str, object] | None, prior_settings: dict[str, object] | None
+    ) -> dict[str, object] | None:
+        """Preserve presentation fields the model omits.
+
+        The LLM rebuilds chart settings on every turn and frequently drops the breakdown
+        column, legend toggle, or axis labels the user had already configured. We fill in
+        the prior value when the model does not re-assert the field, mirroring the
+        editor-filter preservation introduced in #57619.
+        """
+        if not prior_settings:
+            return new_settings
+        merged: dict[str, object] = dict(new_settings or {})
+        for field in ("seriesBreakdownColumn", "showLegend", "xAxisLabel"):
+            if field not in merged and prior_settings.get(field) is not None:
+                merged[field] = prior_settings[field]
+        for axis_key in ("leftYAxisSettings", "rightYAxisSettings"):
+            prior_axis = prior_settings.get(axis_key)
+            if not isinstance(prior_axis, dict):
+                continue
+            prior_label = prior_axis.get("label")
+            if prior_label is None:
+                continue
+            new_axis = merged.get(axis_key)
+            if not isinstance(new_axis, dict):
+                merged[axis_key] = {"label": prior_label}
+            elif "label" not in new_axis:
+                merged[axis_key] = {**new_axis, "label": prior_label}
+        return merged or None

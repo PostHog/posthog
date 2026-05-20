@@ -70,6 +70,7 @@ Our signup funnel shows the following conversion rates:
 
 # Updating existing notebooks:
 - If you want to update an existing notebook, use the `artifact_id` parameter to specify the ID of the existing artifact
+- When the user is viewing a notebook (it appears in the "Notebooks" context section), set `artifact_id` to that notebook's `short_id` to update it. Omitting `artifact_id` here creates a separate new notebook and leaves the user's open notebook untouched.
 - *IMPORTANT*: Updating a notebook will replace the existing content with the new content
 
 # Transient vs saved notebooks:
@@ -90,7 +91,13 @@ class CreateNotebookToolArgs(BaseModel):
     )
     title: str = Field(description="A descriptive title for the notebook.")
     artifact_id: str | None = Field(
-        default=None, description="The ID of an existing notebook artifact that you want to update."
+        default=None,
+        description=(
+            "The ID of an existing notebook artifact that you want to update. "
+            "If the user is currently viewing a notebook (it appears in the notebooks context), "
+            "pass that notebook's `short_id` here so the update lands on the open notebook instead "
+            "of creating a separate new one."
+        ),
     )
     save_to_notebook: bool = Field(
         default=False,

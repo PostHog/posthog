@@ -448,7 +448,7 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
 }
 
 // Remove deprecated display types.
-export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 'ActionsStackedBar'>
+export type AssistantTrendsDisplayType = TrendsFilterLegacy['display']
 
 export interface AssistantTrendsFilter {
     /**
@@ -473,6 +473,7 @@ export interface AssistantTrendsFilter {
      * Visualization type. Available values:
      * `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time.
      * `ActionsBar` - time-series bar chart.
+     * `ActionsStackedBar` - time-series bar chart stacked by breakdown values or by series. Use this when the user explicitly asks for a "stacked bar" chart, or when comparing how multiple categories sum to a total over time.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.

@@ -113,6 +113,7 @@ Axis guidance:
 - Set `series_breakdown_column` when a result column should create multiple colored series, such as plan, country, browser, model, or status.
 - For rates and percentages, return decimal/rate values in SQL when practical and set `y_axis_format` to `percent`; use decimal places and suffix/prefix when they make the chart readable.
 - Show a legend when there is more than one y-axis series or when `series_breakdown_column` is set.
+- Whenever you produce a chart that isn't a table or bold number, set `x_axis_label` and `left_y_axis_label` (and `right_y_axis_label` if you plot a right-axis series) to short human-readable labels. Don't leave them blank: technical column names like `day_bucket` or `cnt` are hard to read on a chart, and users have repeatedly asked Max to add labels.
 
 ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
 - Do NOT use double curly braces (`{{` or `}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{variables.org}`).<%={{ }}=%>
