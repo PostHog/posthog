@@ -127,9 +127,8 @@ class SignalScoutRunAdmin(admin.ModelAdmin):
 
 @admin.register(SignalScratchpad)
 class SignalScratchpadAdmin(admin.ModelAdmin):
-    list_display = ("id", "team_link", "key", "scope", "authority", "created_at", "expires_at")
+    list_display = ("id", "team_link", "key", "created_at")
     list_display_links = ("id",)
-    list_filter = ("authority", "scope")
     search_fields = ("id", "team__name", "team__organization__name", "key", "content")
     raw_id_fields = ("team", "created_by_run")
     ordering = ("-created_at",)

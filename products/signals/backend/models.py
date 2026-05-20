@@ -1,7 +1,6 @@
 import logging
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 
@@ -477,29 +476,24 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
-    """Scout working notes — ephemeral by default, durable when explicitly scoped to the team.
+    """Narrow per-team memory surface for the Signals scout fleet — MCP-readable across agents.
 
-    Scratchpads are the scout's place to write down things mid-run (and across runs) that
-    don't belong in the run summary itself — classifications it doesn't want to re-derive,
-    dedupe fingerprints, allowlists. The `scope` field is the lever: `RUN` entries are
-    tied to a single run and are safe to garbage-collect when that run finalizes; `TEAM`
-    entries persist as durable steering until they expire or are manually deleted.
+    Scratchpad entries are keyed prose notes the scout fleet writes during runs and
+    reads back on future runs (intra-fleet memory) — classifications, dedupe
+    fingerprints, learned team quirks the scout decided not to re-emit. The MCP
+    read surface is intentional product design: any agent (PostHog AI, ad-hoc
+    investigators, other scouts) can read what the scout fleet has learned about
+    a team.
+
+    Distinct in shape from PostHog AI's memory primitives (`CoreMemory`,
+    `AgentMemory`) — those are singleton-per-team blob or per-conversation
+    embedded snippets, neither of which fits the scout's per-key cross-agent
+    read pattern. Kept narrow to the scouts feature on purpose; not a shared
+    primitive.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
-
-    class Authority(models.TextChoices):
-        SCOUT_INFERENCE = "scout_inference", "Scout inference"
-        HUMAN_CONFIRMED = "human_confirmed", "Human confirmed"
-
-    class Scope(models.TextChoices):
-        # Tied to a specific run. Default. Cleaned up once the run finalizes (or after
-        # `expires_at`, whichever comes first). Cheap to write, expected to churn.
-        RUN = "run", "Run"
-        # Persisted as durable cross-run steering for the team. Use sparingly — these
-        # entries shape every future run's prompt and erode trust fast if wrong.
-        TEAM = "team", "Team"
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -510,10 +504,8 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     key = models.CharField(max_length=300)
     # Prose for prompt injection — the scout reads this verbatim.
     content = models.TextField()
-    authority = models.CharField(max_length=30, choices=Authority, default=Authority.SCOUT_INFERENCE)
-    scope = models.CharField(max_length=10, choices=Scope, default=Scope.RUN)
-    tags = ArrayField(base_field=models.CharField(max_length=100), default=list, blank=True)
-    # null = human-authored. Scout-written entries point back to the run that created them.
+    # The run that wrote this entry. SET_NULL so deleting a run row doesn't
+    # destroy the memory it left behind.
     created_by_run = models.ForeignKey(
         SignalScoutRun,
         on_delete=models.SET_NULL,
@@ -523,8 +515,6 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # null = no expiry (only allowed for HUMAN_CONFIRMED entries; harness enforces).
-    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Signal scratchpad"
@@ -532,8 +522,4 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "expires_at"], name="signal_scratchpad_expiry_idx"),
-            GinIndex(fields=["tags"], name="signal_scratchpad_tags_gin"),
         ]

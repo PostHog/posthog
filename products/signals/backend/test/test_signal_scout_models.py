@@ -1,11 +1,9 @@
 from contextlib import AbstractContextManager
-from datetime import timedelta
 
 import pytest
 from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
-from django.utils import timezone
 
 from posthog.models.scoping import team_scope
 
@@ -128,27 +126,13 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             team=self.team,
             key="known-flaky/checkout-error",
             content="The /checkout 500s on Mondays during the partner cron — not actionable.",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            scope=SignalScratchpad.Scope.TEAM,
-            tags=["error_tracking", "known-flaky"],
             created_by_run=run,
-            expires_at=timezone.now() + timedelta(days=7),
         )
 
         loaded = SignalScratchpad.objects.get(pk=scratchpad.pk)
         assert loaded.team_id == self.team.id
         assert loaded.key == "known-flaky/checkout-error"
-        assert loaded.authority == SignalScratchpad.Authority.SCOUT_INFERENCE
-        assert loaded.scope == SignalScratchpad.Scope.TEAM
-        assert loaded.tags == ["error_tracking", "known-flaky"]
         assert loaded.created_by_run_id == run.id
-        assert loaded.expires_at is not None
-
-    def test_signal_scratchpad_defaults_to_run_scope(self) -> None:
-        # `scope` defaults to RUN — ephemeral working notes, not durable steering.
-        sp = SignalScratchpad.objects.create(team=self.team, key="cheap-note", content="something")
-        loaded = SignalScratchpad.objects.get(pk=sp.pk)
-        assert loaded.scope == SignalScratchpad.Scope.RUN
 
     def test_signal_scratchpad_unique_per_team_key(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="dup", content="first")

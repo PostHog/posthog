@@ -3,7 +3,6 @@
 import django.db.models.manager
 import django.db.models.deletion
 import django.contrib.postgres.fields
-import django.contrib.postgres.indexes
 from django.conf import settings
 from django.db import migrations, models
 
@@ -137,40 +136,8 @@ class Migration(migrations.Migration):
                 ),
                 ("key", models.CharField(max_length=300)),
                 ("content", models.TextField()),
-                (
-                    "authority",
-                    models.CharField(
-                        choices=[
-                            ("scout_inference", "Scout inference"),
-                            ("human_confirmed", "Human confirmed"),
-                        ],
-                        default="scout_inference",
-                        max_length=30,
-                    ),
-                ),
-                (
-                    "scope",
-                    models.CharField(
-                        choices=[
-                            ("run", "Run"),
-                            ("team", "Team"),
-                        ],
-                        default="run",
-                        max_length=10,
-                    ),
-                ),
-                (
-                    "tags",
-                    django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=100),
-                        blank=True,
-                        default=list,
-                        size=None,
-                    ),
-                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("expires_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "created_by_run",
                     models.ForeignKey(
@@ -202,14 +169,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="signalscoutrun",
             index=models.Index(fields=["team", "skill_name"], name="signal_scout_run_team_skill_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="signalscratchpad",
-            index=models.Index(fields=["team", "expires_at"], name="signal_scratchpad_expiry_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="signalscratchpad",
-            index=django.contrib.postgres.indexes.GinIndex(fields=["tags"], name="signal_scratchpad_tags_gin"),
         ),
         migrations.AddConstraint(
             model_name="signalscratchpad",
