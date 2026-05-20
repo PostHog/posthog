@@ -1015,7 +1015,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             createTab: async ({ query = '', view, insight, draft }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
-                const tabName = draft?.name ?? view?.name ?? insight?.name ?? NEW_QUERY
+                const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
                 const tabDescription = insight?.description ?? ''
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
                 const insightVisualizationQuery = rawInsightVisualizationQuery
