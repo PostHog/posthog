@@ -33,7 +33,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^4.3.4",
         "jest-image-snapshot": "^6.4.0",
-        "storybook": "^7.6.4",
+        "storybook": "^7.6.21",
         "storybook-addon-pseudo-states": "2.1.2",
         "storybook-dark-mode": "3.0.3",
         "typescript": "catalog:",
