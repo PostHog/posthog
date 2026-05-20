@@ -776,6 +776,23 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(false)
         })
 
+        it('preserves an empty insight name instead of falling back to NEW_QUERY', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const insightWithEmptyName = { ...MOCK_INSIGHT, name: '' } as QueryBasedInsightModel
+            logic.actions.createTab(MOCK_INSIGHT_QUERY.source.query, undefined, insightWithEmptyName)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.activeTab?.name).toEqual('')
+        })
+
         it.each([
             ['name', 'setEditingInsightName' as const, 'Renamed Insight'],
             ['description', 'setEditingInsightDescription' as const, 'A new description'],
