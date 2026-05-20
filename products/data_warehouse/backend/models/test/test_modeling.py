@@ -719,6 +719,8 @@ class TestResolverFactoryInjection(BaseTest):
         assert r1.deadline_anchor == [None]
 
         r1.visit(parse_select("select * from events"))
+        assert r1.deadline_anchor is not None
+        assert r2.deadline_anchor is not None
         assert r1.deadline_anchor[0] is not None
         # second resolver inherits the anchor set by the first
         assert r2.deadline_anchor[0] == r1.deadline_anchor[0]

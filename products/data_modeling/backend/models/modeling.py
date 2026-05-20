@@ -172,18 +172,17 @@ class BoundedResolver(Resolver):
         self.deadline_violated = False
 
     def visit(self, node: ast.AST | None):
-        is_outermost = self.start_time is None
-        if is_outermost:
-            now = time.monotonic()
-            self.start_time = now
-            # first resolver from a shared factory seeds the deadline clock
-            if self.deadline_anchor is not None and self.deadline_anchor[0] is None:
-                self.deadline_anchor[0] = now
-        self._check_deadline()
-        if not is_outermost:
+        if self.start_time is not None:
+            self._check_deadline()
             return super().visit(node)
 
-        # outermost call owns metric emission
+        # outermost call owns deadline seeding and metric emission
+        start_time = time.monotonic()
+        self.start_time = start_time
+        # first resolver from a shared factory seeds the deadline clock
+        if self.deadline_anchor is not None and self.deadline_anchor[0] is None:
+            self.deadline_anchor[0] = start_time
+        self._check_deadline()
         status: str = "ok"
         try:
             return super().visit(node)
@@ -195,7 +194,7 @@ class BoundedResolver(Resolver):
             raise
         finally:
             DAG_RESOLUTION_TOTAL.labels(status=status).inc()
-            DAG_RESOLUTION_DURATION_SECONDS.observe(time.monotonic() - self.start_time)
+            DAG_RESOLUTION_DURATION_SECONDS.observe(time.monotonic() - start_time)
             if status == "ok":
                 DAG_RESOLUTION_VIEW_DEPTH.observe(self.max_view_depth_observed)
             if self.deadline_violated:
