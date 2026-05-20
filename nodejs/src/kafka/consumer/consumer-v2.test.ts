@@ -869,11 +869,17 @@ describe('KafkaConsumerV2', () => {
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
 
+        // A backgroundTask failure latches `fatalError` and crashes the loop on the
+        // next iteration (by design — see consumer-v2.ts runLoop). The loopDone
+        // rejection is awaited and re-thrown by disconnect() in afterEach, but the
+        // brief window where it's unhandled fails the test under CI's strict mode.
+        // Suppress it explicitly — the assertions below still verify the contract
+        // we actually care about (offsetsStore gated, captureException fired).
+        ;(consumer as any).loopDone?.catch(() => {})
+
         const task = triggerablePromise()
-        // Defensive: attach a no-op handler immediately so the rejection is never
-        // briefly-unhandled if the consumer hasn't subscribed yet under CI timing
-        // pressure. The consumer's own `.then(_, reject)` inside raceWithTimeout still
-        // runs, fires captureException, and skips the offset store.
+        // Same reason for the raw task: it rejects before the consumer's subscriber
+        // is guaranteed to be attached under CI timing pressure.
         task.promise.catch(() => {})
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], task.promise)
         await delay(2)
@@ -891,9 +897,12 @@ describe('KafkaConsumerV2', () => {
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
 
+        // Same reason as the rejecting test: a timeout latches fatalError and crashes
+        // the loop; suppress the now-deliberate loopDone rejection.
+        ;(consumer as any).loopDone?.catch(() => {})
+
         // Never resolves — guaranteed to trip backgroundTaskTimeoutMs.
         const stuck = triggerablePromise()
-        // Defensive no-op handler (see the rejecting test for the rationale).
         stuck.promise.catch(() => {})
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], stuck.promise)
 
