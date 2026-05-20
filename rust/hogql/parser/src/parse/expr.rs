@@ -220,13 +220,13 @@ impl<'a> Parser<'a> {
                         self.bump()?;
                         let n = self.bump()?;
                         let src = self.consume_optional_fractional(self.text(n));
-                        return parse_number_literal(&src, false);
+                        parse_number_literal(&src, false)
                     }
                     TokenKind::Dot => {
                         if let Some(num) = self.consume_signed_dot_float(false)? {
                             return Ok(num);
                         }
-                        return Err(self.err("unary `+` only applies to a number literal"));
+                        Err(self.err("unary `+` only applies to a number literal"))
                     }
                     TokenKind::Keyword(Kw::Inf) => {
                         // cpp 1.3.45 strips a leading `+` before the
@@ -234,15 +234,15 @@ impl<'a> Parser<'a> {
                         // `+infinity` → "infinity" — both → "Infinity".
                         self.bump()?;
                         self.bump()?;
-                        return Ok(emit::constant_special_number("Infinity"));
+                        Ok(emit::constant_special_number("Infinity"))
                     }
                     TokenKind::Keyword(Kw::Nan) => {
                         self.bump()?;
                         self.bump()?;
-                        return Ok(emit::constant_special_number("NaN"));
+                        Ok(emit::constant_special_number("NaN"))
                     }
                     _ => {
-                        return Err(self.err("unary `+` only applies to a number literal"));
+                        Err(self.err("unary `+` only applies to a number literal"))
                     }
                 }
             }
@@ -503,8 +503,7 @@ impl<'a> Parser<'a> {
                 parse_template_body(body)
             }
             TokenKind::Keyword(Kw::True | Kw::False)
-                if self.peek_next() == TokenKind::LParen
-                    || self.peek_next() == TokenKind::Dot =>
+                if self.peek_next() == TokenKind::LParen || self.peek_next() == TokenKind::Dot =>
             {
                 // `true`/`false` are not lexer tokens in the grammar —
                 // they are ordinary identifiers, and become Bool
@@ -1141,13 +1140,8 @@ impl<'a> Parser<'a> {
         // `string: STRING_LITERAL | templateString`. cpp rejects any
         // other expression (Field, Call, etc.) here. The earlier comment
         // claiming `string` resolves to columnExpr was wrong.
-        if !matches!(
-            self.peek(),
-            TokenKind::String | TokenKind::TemplateString,
-        ) {
-            return Err(self.err(
-                "TRIM substring must be a string literal or template string",
-            ));
+        if !matches!(self.peek(), TokenKind::String | TokenKind::TemplateString,) {
+            return Err(self.err("TRIM substring must be a string literal or template string"));
         }
         let str_value = self.parse_expr_bp(0)?;
         self.expect_kw(Kw::From, "FROM")?;
@@ -1167,9 +1161,7 @@ impl<'a> Parser<'a> {
         loop {
             let t = self.bump()?;
             let name = match t.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent => {
-                    identifier_text(self.text(t), t.kind)
-                }
+                TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(t), t.kind),
                 // Lambda params route through the grammar's
                 // `identifier` rule, which omits NULL / INF / NAN and
                 // the Hog-statement keywords.
@@ -1360,7 +1352,10 @@ impl<'a> Parser<'a> {
                 let mut parts: Vec<String> = Vec::new();
                 let first = self.bump()?;
                 parts.push(match first.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(first), first.kind)
+                    }
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(first), first.kind)
                     }
                     _ => {
@@ -1374,7 +1369,10 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     let part = self.bump()?;
                     parts.push(match part.kind {
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                        TokenKind::Ident | TokenKind::QuotedIdent => {
+                            identifier_text(self.text(part), part.kind)
+                        }
+                        TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                             identifier_text(self.text(part), part.kind)
                         }
                         _ => {
@@ -1417,7 +1415,10 @@ impl<'a> Parser<'a> {
                 self.expect_kw(Kw::As, "AS")?;
                 let t = self.bump()?;
                 let name = match t.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(t), t.kind)
+                    }
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(t), t.kind)
                     }
                     _ => {
@@ -1648,10 +1649,8 @@ impl<'a> Parser<'a> {
                 // `(select) -> body`; but not `(null) -> body` — cpp's
                 // `identifier` rule omits NULL / INF / NAN and the
                 // Hog-statement keywords).
-                let is_ident_kind = matches!(
-                    next.kind,
-                    TokenKind::Ident | TokenKind::QuotedIdent
-                ) || matches!(next.kind, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+                let is_ident_kind = matches!(next.kind, TokenKind::Ident | TokenKind::QuotedIdent)
+                    || matches!(next.kind, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
                 if !is_ident_kind {
                     ok = false;
                     break;
@@ -3747,7 +3746,8 @@ impl<'a> Parser<'a> {
         // here used to gate on IDENT / QUOTED_IDENTIFIER only, so
         // `f(true := 1)` fell through to `parse_expr_bp` and choked on
         // the trailing `:=`.
-        let name_kw_ok = matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+        let name_kw_ok =
+            matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
         if (matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent) || name_kw_ok)
             && self.peek_next() == TokenKind::ColonEquals
         {
@@ -3812,15 +3812,16 @@ impl<'a> Parser<'a> {
             // Pratt loop, so call them out here too.
             let starts_kw_infix = matches!(
                 self.peek(),
-                TokenKind::Keyword(
-                    Kw::In | Kw::Like | Kw::Ilike | Kw::Is | Kw::Between
-                )
+                TokenKind::Keyword(Kw::In | Kw::Like | Kw::Ilike | Kw::Is | Kw::Between)
             ) || (matches!(self.peek(), TokenKind::Keyword(Kw::Not))
                 && matches!(
                     self.peek_next(),
                     TokenKind::Keyword(Kw::In | Kw::Like | Kw::Ilike | Kw::Between)
                 ));
-            if infix_bp(self.peek()).is_some() || postfix_bp(self.peek()).is_some() || starts_kw_infix {
+            if infix_bp(self.peek()).is_some()
+                || postfix_bp(self.peek()).is_some()
+                || starts_kw_infix
+            {
                 return Err(self.err("select-set-stmt call argument is followed by an operator"));
             }
             Ok(v)
@@ -3932,15 +3933,11 @@ impl<'a> Parser<'a> {
                         // decimal (`a.0123` → TupleAccess(a, 123)).
                         let text = self.text(part);
                         if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
-                            return Err(self.err(format!(
-                                "expected decimal integer after '.', got {text:?}"
-                            )));
+                            return Err(self
+                                .err(format!("expected decimal integer after '.', got {text:?}")));
                         }
                         let n: i64 = text.parse().map_err(|_| {
-                            self.err(format!(
-                                "expected integer after '.', got {:?}",
-                                text
-                            ))
+                            self.err(format!("expected integer after '.', got {:?}", text))
                         })?;
                         Ok(emit::tuple_access(lhs, n, false))
                     }
@@ -3994,10 +3991,7 @@ impl<'a> Parser<'a> {
                             )));
                         }
                         let n: i64 = text.parse().map_err(|_| {
-                            self.err(format!(
-                                "expected integer after '?.', got {:?}",
-                                text
-                            ))
+                            self.err(format!("expected integer after '?.', got {:?}", text))
                         })?;
                         Ok(emit::tuple_access(lhs, n, true))
                     }
@@ -4310,8 +4304,7 @@ impl<'a> Parser<'a> {
                 let next_is_alias_target = match self.peek_next() {
                     TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::String => true,
                     TokenKind::Keyword(kw) => {
-                        kw_valid_as_identifier(kw)
-                            || matches!(kw, Kw::True | Kw::False | Kw::Null)
+                        kw_valid_as_identifier(kw) || matches!(kw, Kw::True | Kw::False | Kw::Null)
                     }
                     _ => false,
                 };
