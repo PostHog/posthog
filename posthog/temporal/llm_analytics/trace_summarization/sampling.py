@@ -124,6 +124,12 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             trace_filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
         if analysis_level == "generation":
+            # Sample generations directly: get the last generation per trace
+            # with the trace's first_timestamp for navigation.
+            # We query all AI event types to get accurate trace_first_timestamp,
+            # but use argMaxIf to only pick generation UUIDs.
+            # Also filters by event count and total properties size to prevent
+            # oversized traces from reaching the CPU-intensive formatting activity.
             generations_query = parse_select(
                 """
                 SELECT
