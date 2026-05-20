@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { PostHogApiError } from '@/lib/errors'
-import { editHandler, JSON_INDENT, NotebookEditSchema } from '@/tools/notebooks/edit'
+import { editHandler, NotebookEditSchema } from '@/tools/notebooks/edit'
 import type { Context } from '@/tools/types'
 
 const sampleDoc = {
@@ -17,25 +17,30 @@ const sampleDoc = {
 // ---------- Input schema -----------------------------------------------------
 
 describe('NotebookEditSchema', () => {
-    it('rejects identical old_string and new_string', () => {
+    it('rejects identical old_value and new_value (deep-equal)', () => {
         const result = NotebookEditSchema.safeParse({
             short_id: 'abc',
-            old_string: 'same',
-            new_string: 'same',
+            old_value: { type: 'text', text: 'same' },
+            // Different key order, same value — must still be rejected as deep-equal.
+            new_value: { text: 'same', type: 'text' },
         })
         expect(result.success).toBe(false)
     })
 
     it('accepts a minimal valid payload', () => {
-        const result = NotebookEditSchema.safeParse({ short_id: 'abc', old_string: 'a', new_string: 'b' })
+        const result = NotebookEditSchema.safeParse({
+            short_id: 'abc',
+            old_value: { type: 'text', text: 'a' },
+            new_value: { type: 'text', text: 'b' },
+        })
         expect(result.success).toBe(true)
     })
 
     it('accepts replace_all', () => {
         const result = NotebookEditSchema.safeParse({
             short_id: 'abc',
-            old_string: 'a',
-            new_string: 'b',
+            old_value: { type: 'text', text: 'a' },
+            new_value: { type: 'text', text: 'b' },
             replace_all: true,
         })
         expect(result.success).toBe(true)
@@ -90,7 +95,7 @@ function createMockContext(state: MockState): Context {
 }
 
 describe('editHandler', () => {
-    it('happy path: returns the updated notebook with new content', async () => {
+    it('happy path: replaces a text node by value and returns the updated notebook', async () => {
         const updatedNotebook = {
             short_id: 'aBcD1234',
             content: sampleDoc,
@@ -108,8 +113,8 @@ describe('editHandler', () => {
 
         const result = await editHandler(context, {
             short_id: 'aBcD1234',
-            old_string: '"First paragraph."',
-            new_string: '"First paragraph EDITED."',
+            old_value: { type: 'text', text: 'First paragraph.' },
+            new_value: { type: 'text', text: 'First paragraph EDITED.' },
         })
 
         // Returns the full notebook from the server (already includes new content + bumped version).
@@ -119,7 +124,34 @@ describe('editHandler', () => {
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('First paragraph EDITED.')
     })
 
-    it('throws not-found error when old_string does not appear', async () => {
+    it('matches by deep equality regardless of key order in the agent input', async () => {
+        const updatedNotebook = {
+            short_id: 'aBcD1234',
+            content: sampleDoc,
+            version: 8,
+            title: 'Original',
+        }
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [{ ok: true, body: updatedNotebook }],
+        }
+        const context = createMockContext(state)
+
+        const result = await editHandler(context, {
+            short_id: 'aBcD1234',
+            // Reverse key order from how the doc stores it (`type` then `text`):
+            old_value: { text: 'First paragraph.', type: 'text' },
+            new_value: { type: 'text', text: 'First paragraph EDITED.' },
+        })
+
+        expect(result).toEqual(updatedNotebook)
+        expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('First paragraph EDITED.')
+    })
+
+    it('throws not-found error when old_value matches no subtree', async () => {
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
@@ -131,14 +163,14 @@ describe('editHandler', () => {
         await expect(
             editHandler(context, {
                 short_id: 'aBcD1234',
-                old_string: '"This text does not exist anywhere"',
-                new_string: '"replacement"',
+                old_value: { type: 'text', text: 'This text does not exist anywhere' },
+                new_value: { type: 'text', text: 'replacement' },
             })
-        ).rejects.toThrow(/old_string was not found/)
+        ).rejects.toThrow(/old_value was not found/)
         expect(state.saveCalls).toHaveLength(0)
     })
 
-    it('throws ambiguous error when old_string matches more than once without replace_all', async () => {
+    it('throws ambiguous error when old_value matches more than one subtree without replace_all', async () => {
         const dupDoc = {
             type: 'doc',
             content: [
@@ -157,14 +189,14 @@ describe('editHandler', () => {
         await expect(
             editHandler(context, {
                 short_id: 'aBcD1234',
-                old_string: '"duplicate"',
-                new_string: '"unique"',
+                old_value: { type: 'text', text: 'duplicate' },
+                new_value: { type: 'text', text: 'unique' },
             })
-        ).rejects.toThrow(/matches 2 places/)
+        ).rejects.toThrow(/matches 2 subtrees/)
         expect(state.saveCalls).toHaveLength(0)
     })
 
-    it('replaces every occurrence when replace_all is true', async () => {
+    it('replaces every matching subtree when replace_all is true', async () => {
         const dupDoc = {
             type: 'doc',
             content: [
@@ -183,32 +215,13 @@ describe('editHandler', () => {
         const context = createMockContext(state)
         const result = await editHandler(context, {
             short_id: 'aBcD1234',
-            old_string: '"duplicate"',
-            new_string: '"unique"',
+            old_value: { type: 'text', text: 'duplicate' },
+            new_value: { type: 'text', text: 'unique' },
             replace_all: true,
         })
         expect(result).toEqual(updated)
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('"text":"unique"')
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).not.toContain('"text":"duplicate"')
-    })
-
-    it('throws when the replacement breaks JSON syntax', async () => {
-        const state: MockState = {
-            notebookContent: sampleDoc,
-            version: 7,
-            saveCalls: [],
-            getCalls: 0,
-            saveResponses: [],
-        }
-        const context = createMockContext(state)
-        await expect(
-            editHandler(context, {
-                short_id: 'aBcD1234',
-                old_string: '"First paragraph."',
-                new_string: '"First paragraph."}}}',
-            })
-        ).rejects.toThrow(/no longer valid JSON/)
-        expect(state.saveCalls).toHaveLength(0)
     })
 
     it('lets server errors (e.g. 409 conflict) propagate verbatim for handleToolError to format', async () => {
@@ -246,8 +259,8 @@ describe('editHandler', () => {
         await expect(
             editHandler(context, {
                 short_id: 'aBcD1234',
-                old_string: '"First paragraph."',
-                new_string: '"First paragraph EDITED."',
+                old_value: { type: 'text', text: 'First paragraph.' },
+                new_value: { type: 'text', text: 'First paragraph EDITED.' },
             })
         ).rejects.toMatchObject({
             name: 'PostHogApiError',
@@ -268,17 +281,12 @@ describe('editHandler', () => {
             saveResponses: [],
         }
         const context = createMockContext(state)
-        await expect(editHandler(context, { short_id: 'aBcD1234', old_string: 'a', new_string: 'b' })).rejects.toThrow(
-            /no editable content/
-        )
-    })
-
-    it('uses 2-space indent for the serialization the agent matches against', () => {
-        // Sanity check that JSON_INDENT is exposed and the tool description
-        // accurately reflects what the agent will see.
-        expect(JSON_INDENT).toBe(2)
-        const serialized = JSON.stringify(sampleDoc, null, JSON_INDENT)
-        expect(serialized).toContain('  "type"')
-        expect(serialized).toContain('      "type"')
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_value: { type: 'text', text: 'a' },
+                new_value: { type: 'text', text: 'b' },
+            })
+        ).rejects.toThrow(/no editable content/)
     })
 })

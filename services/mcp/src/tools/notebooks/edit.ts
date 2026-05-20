@@ -1,13 +1,14 @@
 /**
  * `notebook-edit` tool.
  *
- * Substring-replacement editor against the notebook's content JSON. The
- * caller supplies `{ short_id, old_string, new_string, replace_all? }`; the
- * tool finds `old_string` in the notebook's serialized content and replaces
- * it with `new_string`. The serialization the caller matches against is
- * `JSON.stringify(content, null, 2)` (2-space indent), so callers can target
- * pretty-printed JSON keys, attribute values, and inline text. The resulting
- * diff is expressed as a single ProseMirror ReplaceStep and POSTed to
+ * Subtree replacement against the notebook's content tree. The caller supplies
+ * `{ short_id, old_value, new_value, replace_all? }` where `old_value` and
+ * `new_value` are JSON values describing the subtree to find and the subtree
+ * to put in its place. Match is by deep equality of the parsed values, so
+ * whitespace, key order, and indentation do not matter — the agent never has
+ * to imagine the tool's serialization format.
+ *
+ * The diff is expressed as a single ProseMirror ReplaceStep and POSTed to
  * `/collab/save` so the edit streams live to other connected clients over SSE.
  *
  * Server errors (409 concurrent edit, 410 stale buffer, etc.) flow through
@@ -16,6 +17,7 @@
  * body already includes the latest version + rebased steps, which the agent
  * can use to retry without an extra read.
  */
+import { isDeepStrictEqual } from 'node:util'
 import { Node as PMNode } from 'prosemirror-model'
 import { Transform } from 'prosemirror-transform'
 import { v4 as uuidv4 } from 'uuid'
@@ -25,49 +27,83 @@ import type { Schemas } from '@/api/generated'
 import { buildSchemaForDoc, packDocAttrs, unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
-/**
- * Indent (in spaces) used when serializing the notebook content before the
- * substring replacement. Exposed so tests can assert that the description
- * shown to the agent matches what the tool actually serializes.
- */
-export const JSON_INDENT = 2
-
 export const NotebookEditSchema = z
     .object({
         short_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
-        old_string: z
-            .string()
+        old_value: z
+            .unknown()
             .describe(
-                'Exact text to find in the notebook content. The notebook content is serialized as ' +
-                    '`JSON.stringify(notebook.content, null, 2)` (2-space indent). ' +
-                    'old_string must match a substring exactly, including whitespace and indentation. ' +
-                    'Must be unique unless replace_all is true; widen surrounding context to disambiguate. ' +
+                'JSON value to find inside the notebook content. Match is by deep equality of the parsed ' +
+                    'subtree, so whitespace, key order, and indentation do not matter — pass any node ' +
+                    'literal, e.g. `{"type":"text","text":"Hello"}` or a nested `{"type":"paragraph",...}`. ' +
+                    'Must match exactly one subtree unless replace_all is true; widen by including the ' +
+                    'parent node (e.g. wrap a text node in its containing paragraph) to disambiguate. ' +
                     'Call `notebooks-retrieve` first to see the current content.'
             ),
-        new_string: z.string().describe('Replacement text. Must differ from old_string.'),
+        new_value: z
+            .unknown()
+            .describe(
+                'Replacement JSON value. Must differ from old_value. Pass the full replacement subtree, ' +
+                    'including any keys you want preserved (the entire matched subtree is replaced).'
+            ),
         replace_all: z
             .boolean()
             .optional()
-            .describe('Replace every occurrence. Default false (requires unique match).'),
+            .describe('Replace every matching subtree. Default false (requires unique match).'),
     })
-    .refine((v) => v.old_string !== v.new_string, {
-        message: 'old_string and new_string must differ',
-        path: ['new_string'],
+    .refine((v) => !isDeepStrictEqual(v.old_value, v.new_value), {
+        message: 'old_value and new_value must differ',
+        path: ['new_value'],
     })
 
 type Params = z.infer<typeof NotebookEditSchema>
 
-function countOccurrences(haystack: string, needle: string): number {
-    if (needle.length === 0) {
-        return 0
-    }
+/**
+ * Counts subtrees within `tree` that deep-equal `target`. Stops descending into
+ * a matched subtree (so a target that itself contains the same target nested
+ * inside isn't double-counted), matching the replace semantics below.
+ */
+function countMatches(tree: unknown, target: unknown): number {
     let count = 0
-    let i = 0
-    while ((i = haystack.indexOf(needle, i)) !== -1) {
-        count++
-        i += needle.length
+    const walk = (node: unknown): void => {
+        if (isDeepStrictEqual(node, target)) {
+            count++
+            return
+        }
+        if (Array.isArray(node)) {
+            node.forEach(walk)
+        } else if (node !== null && typeof node === 'object') {
+            Object.values(node).forEach(walk)
+        }
     }
+    walk(tree)
     return count
+}
+
+/**
+ * Walks `tree` and replaces every subtree that deep-equals `target` with a
+ * fresh structured clone of `replacement`. When `replaceAll` is false, only
+ * the first match is replaced; subsequent matches are left untouched.
+ */
+function deepReplace<T>(tree: T, target: unknown, replacement: unknown, replaceAll: boolean): T {
+    let replaced = 0
+    const walk = (node: unknown): unknown => {
+        if (isDeepStrictEqual(node, target)) {
+            if (!replaceAll && replaced > 0) {
+                return node
+            }
+            replaced++
+            return structuredClone(replacement)
+        }
+        if (Array.isArray(node)) {
+            return node.map(walk)
+        }
+        if (node !== null && typeof node === 'object') {
+            return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, walk(v)]))
+        }
+        return node
+    }
+    return walk(tree) as T
 }
 
 /**
@@ -114,52 +150,38 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         throw new Error(`Notebook ${params.short_id} has no numeric version — required for optimistic concurrency.`)
     }
 
-    // Serialize the content and apply the substring replacement.
-    const serialized = JSON.stringify(notebook.content, null, JSON_INDENT)
-    const occurrences = countOccurrences(serialized, params.old_string)
-
-    if (occurrences === 0) {
+    // Find target subtree(s) and apply the replacement.
+    const matches = countMatches(notebook.content, params.old_value)
+    if (matches === 0) {
         throw new Error(
-            'old_string was not found in the notebook content. ' +
-                'The content is serialized with `JSON.stringify(content, null, 2)` (2-space indent). ' +
-                'Common causes: indentation does not match (each nesting level is 2 spaces); ' +
-                'content has changed since you last read it (call `notebooks-retrieve` to refresh); ' +
-                'or quoting/escaping mismatch in old_string.'
+            'old_value was not found in the notebook content. ' +
+                'Match is by deep equality — every key/value/index in old_value must be present in the ' +
+                'target subtree, with no extras. Common causes: missing or extra fields (e.g. an explicit ' +
+                '`attrs: null` vs. omitted attrs); content has changed since you last read it (call ' +
+                '`notebooks-retrieve` to refresh); or you passed a partial subtree where the full one is ' +
+                'stored.\n\nCurrent notebook content:\n' +
+                JSON.stringify(notebook.content, null, 2)
         )
     }
 
-    if (occurrences > 1 && params.replace_all !== true) {
+    if (matches > 1 && params.replace_all !== true) {
         throw new Error(
-            `old_string matches ${occurrences} places. ` +
-                'Either widen old_string with surrounding context until exactly one location matches, ' +
-                'or set `replace_all: true`.'
+            `old_value matches ${matches} subtrees in the notebook content. ` +
+                'Either widen old_value with surrounding structural context (e.g. wrap a text node in its ' +
+                'containing paragraph so siblings disambiguate), or set `replace_all: true`.'
         )
     }
 
-    const newSerialized =
-        params.replace_all === true
-            ? serialized.split(params.old_string).join(params.new_string)
-            : serialized.replace(params.old_string, params.new_string)
-
-    let newContent: unknown
-    try {
-        newContent = JSON.parse(newSerialized)
-    } catch (e) {
+    const newContent = deepReplace(notebook.content, params.old_value, params.new_value, params.replace_all === true)
+    if (newContent === null || typeof newContent !== 'object' || Array.isArray(newContent)) {
         throw new Error(
-            `After applying the replacement, the notebook content is no longer valid JSON: ${
-                e instanceof Error ? e.message : String(e)
-            }. Check balanced braces, brackets, and quotes.`
-        )
-    }
-    if (newContent === null || typeof newContent !== 'object') {
-        throw new Error(
-            'Replacement result is not a JSON object. A ProseMirror doc must be `{"type":"doc","content":[...]}` at the top level.'
+            'Replacement produced a non-object root. A ProseMirror doc must be `{"type":"doc","content":[...]}` at the top level.'
         )
     }
 
     // Parse old + new into ProseMirror.
     const rawContent = notebook.content as unknown as Parameters<typeof packDocAttrs>[0]
-    const newContentObj = newContent as Parameters<typeof packDocAttrs>[0]
+    const newContentObj = newContent as unknown as Parameters<typeof packDocAttrs>[0]
     const schema = buildSchemaForDoc([rawContent, newContentObj])
 
     const oldDoc = PMNode.fromJSON(schema, packDocAttrs(rawContent) as Parameters<typeof PMNode.fromJSON>[1])
@@ -175,11 +197,11 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     }
 
     // Build steps via ProseMirror's canonical Transform API. Empty steps means
-    // the str_replace round-tripped to an identical ProseMirror tree (e.g. whitespace
-    // inside an attrs object that serializes back the same).
+    // the deep-replace round-tripped to an identical ProseMirror tree (e.g.
+    // attrs key order changed but the parsed result is structurally equal).
     const steps = oldDoc.eq(newDoc)
         ? []
-        : new Transform(oldDoc).replaceWith(0, oldDoc.content.size, newDoc.content).steps.slice()
+        : new Transform(oldDoc).replaceWith(0, oldDoc.content.size, newDoc.content).steps
     if (steps.length === 0) {
         return notebook
     }
