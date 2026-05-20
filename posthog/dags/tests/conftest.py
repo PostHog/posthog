@@ -28,15 +28,15 @@ def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
     (192.168.x.x) which aren't routable from the host. Using host_name returns
     "clickhouse" which resolves via /etc/hosts (set up by flox) to 127.0.0.1.
     """
-    return client.execute(
+    rows = client.execute(
         """
         SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
         FROM clusterAllReplicas(%(name)s, system.clusters)
         WHERE name = %(name)s and is_local
-        ORDER BY shard_num, replica_num
         """,
         {"name": cluster},
     )
+    return sorted(rows, key=lambda row: (row[2], row[3], row[0], row[1]))
 
 
 @pytest.fixture

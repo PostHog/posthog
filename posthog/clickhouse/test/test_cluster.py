@@ -418,6 +418,22 @@ def test_map_hosts_by_role() -> None:
         times_called.clear()
 
 
+def test_cluster_discovery_does_not_sort_inside_distributed_system_clusters_query() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("host2", "9000", "2", "1", "online", "data"),
+            ("host1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    query = bootstrap_client_mock.execute.call_args[0][0]
+    assert "ORDER BY" not in query
+    assert cluster.num_shards == 2
+
+
 def test_map_hosts_with_satellite_clusters() -> None:
     main_cluster_hosts = [
         ("host1", "9000", "1", "1", "online", "data"),
