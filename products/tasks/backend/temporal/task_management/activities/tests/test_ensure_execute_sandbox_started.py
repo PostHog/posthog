@@ -30,7 +30,7 @@ class TestEnsureExecuteSandboxStarted:
                 parent_workflow_id="parent-wf-id",
                 create_pr=False,
                 slack_thread_context={"channel": "C1"},
-                posthog_mcp_scopes="read_write",
+                posthog_mcp_scopes="full",
             ),
             bootstrap_ack_id="ack-bootstrap",
         )

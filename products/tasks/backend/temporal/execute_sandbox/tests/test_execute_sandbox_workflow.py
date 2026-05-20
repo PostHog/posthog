@@ -134,7 +134,7 @@ class TestParseInputs:
     def test_parses_required_and_optional_fields(self):
         raw = (
             '{"run_id":"r","parent_workflow_id":"p","create_pr":false,'
-            '"slack_thread_context":{"channel":"C1"},"posthog_mcp_scopes":"read_write"}'
+            '"slack_thread_context":{"channel":"C1"},"posthog_mcp_scopes":"full"}'
         )
         parsed = ExecuteSandboxWorkflow.parse_inputs([raw])
         assert parsed == ExecuteSandboxInput(
@@ -142,7 +142,7 @@ class TestParseInputs:
             parent_workflow_id="p",
             create_pr=False,
             slack_thread_context={"channel": "C1"},
-            posthog_mcp_scopes="read_write",
+            posthog_mcp_scopes="full",
         )
 
     def test_applies_defaults_for_missing_optional_fields(self):
@@ -794,42 +794,33 @@ class TestRunStatusTransitions:
     inactivity timeout — it stays followable. Only an explicit failure or
     cancellation propagated via complete_task transitions it out."""
 
-    async def test_does_not_write_status_on_successful_completion(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize(
+        "completion_status, expected_call",
+        [
+            ("completed", None),
+            ("failed", ("failed", "details")),
+            ("cancelled", ("cancelled", "details")),
+        ],
+    )
+    async def test_only_records_failed_or_cancelled(
+        self, monkeypatch, silent_workflow_logger, completion_status, expected_call
+    ):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
         workflow._task_completed = True
-        workflow._completion_status = "completed"
-
-        update_status_mock = AsyncMock()
-        monkeypatch.setattr(workflow, "_update_task_run_status", update_status_mock)
-
-        # Exercise the post-loop status block directly. Mirrors the logic in
-        # `run()` after the main loop exits — the rule is "stay in_progress
-        # unless failed or cancelled".
-        if workflow._task_completed and workflow._completion_status in {"failed", "cancelled"}:
-            await workflow._update_task_run_status(
-                workflow._completion_status, error_message=workflow._completion_error
-            )
-
-        update_status_mock.assert_not_awaited()
-
-    @pytest.mark.parametrize("status", ["failed", "cancelled"])
-    async def test_writes_status_on_failed_or_cancelled(self, monkeypatch, silent_workflow_logger, status):
-        workflow = ExecuteSandboxWorkflow()
-        workflow._context = _build_context()
-        workflow._task_completed = True
-        workflow._completion_status = status
+        workflow._completion_status = completion_status
         workflow._completion_error = "details"
 
         update_status_mock = AsyncMock()
         monkeypatch.setattr(workflow, "_update_task_run_status", update_status_mock)
 
-        if workflow._task_completed and workflow._completion_status in {"failed", "cancelled"}:
-            await workflow._update_task_run_status(
-                workflow._completion_status, error_message=workflow._completion_error
-            )
+        await workflow._maybe_record_terminal_status()
 
-        update_status_mock.assert_awaited_once_with(status, error_message="details")
+        if expected_call is None:
+            update_status_mock.assert_not_awaited()
+        else:
+            status, message = expected_call
+            update_status_mock.assert_awaited_once_with(status, error_message=message)
 
 
 class TestCompletionStatusOnExceptionPaths:

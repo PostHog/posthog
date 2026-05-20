@@ -10,7 +10,7 @@ from products.tasks.backend.temporal.constants import (
     MAX_ACK_RETRIES,
     MAX_CI_REPETITIONS,
 )
-from products.tasks.backend.temporal.execute_sandbox.workflow import ChildCompletionPayload
+from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ChildCompletionPayload
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.task_management import workflow as task_management_workflow_module
@@ -76,15 +76,13 @@ def fixed_now(monkeypatch):
 
 class TestParseInputs:
     def test_parses_required_and_optional_fields(self):
-        raw = (
-            '{"run_id":"r","create_pr":false,"slack_thread_context":{"channel":"C1"},"posthog_mcp_scopes":"read_write"}'
-        )
+        raw = '{"run_id":"r","create_pr":false,"slack_thread_context":{"channel":"C1"},"posthog_mcp_scopes":"full"}'
         parsed = TaskManagementWorkflow.parse_inputs([raw])
         assert parsed == TaskRunManagementInput(
             run_id="r",
             create_pr=False,
             slack_thread_context={"channel": "C1"},
-            posthog_mcp_scopes="read_write",
+            posthog_mcp_scopes="full",
         )
 
     def test_applies_defaults(self):
@@ -750,7 +748,7 @@ class TestRetryStaleAcks:
         workflow._run_id = "run-id"
         workflow._sandbox_workflow_id = "sandbox-wf"
         workflow._pending_ack_slots["bootstrap-ack"] = PendingAckSlot(
-            signal_name="parent_attached",
+            signal_name=PARENT_ATTACHED_SIGNAL,
             sent_at=fixed_now.now,
         )
         fixed_now.advance(ACK_TIMEOUT + timedelta(seconds=1))
@@ -909,7 +907,7 @@ class TestSandboxSessionCompletionReset:
     """The orchestrator is persistent across sandbox sessions: when one ends
     we reset per-session state but stay alive for the next external signal."""
 
-    async def test_session_completion_does_not_close_orchestrator(self, monkeypatch, silent_workflow_logger):
+    async def test_session_completion_does_not_close_orchestrator(self, monkeypatch, fixed_now, silent_workflow_logger):
         # Hardest assertion to lose: after `_on_sandbox_session_completed`,
         # the workflow has *not* returned and is ready for more work.
         workflow = TaskManagementWorkflow()
@@ -919,7 +917,7 @@ class TestSandboxSessionCompletionReset:
         workflow._ci_repetitions = 2
         workflow._pr_fingerprint = "fp-1"
         workflow._heartbeat_received = True
-        workflow._last_active_time = workflow._last_active_time  # noqa
+        workflow._last_active_time = fixed_now.now
         monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
 
         await workflow._on_sandbox_session_completed()

@@ -26,6 +26,7 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     FOLLOWUP_SOURCE_USER,
     HEARTBEAT_SIGNAL,
     PARENT_ACK_SIGNAL,
+    PARENT_ATTACHED_SIGNAL,
     PARENT_COMPLETED_SIGNAL,
     PARENT_HEARTBEAT_SIGNAL,
     SEND_FOLLOWUP_SIGNAL,
@@ -228,7 +229,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
         # External completion request. Stash it; the main loop forwards a
-        # complete_task signal to the child and exits when the child returns.
+        # complete_task signal to the child, which ends the current sandbox
+        # session. The orchestrator keeps running so subsequent follow-ups
+        # can re-bootstrap a fresh sandbox.
         self._pending_external_complete = (status, error_message)
 
     @temporalio.workflow.signal
@@ -425,8 +428,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 or self._child_completion is not None
             )
         )
-        # Completion wins outright — short-circuits any pending work because
-        # the run is over.
+        # Session-completion wins outright — short-circuits any pending work
+        # because the current sandbox session is ending. The orchestrator
+        # itself keeps running; the next follow-up will re-bootstrap a
+        # fresh sandbox.
         if self._child_completion is not None:
             return TaskEvent.CHILD_COMPLETED
         # Prefer external signals when both classes are pending — the child
@@ -734,7 +739,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         parent_workflow_id = workflow.info().workflow_id
         ack_id = self._new_ack_id()
         self._pending_ack_slots[ack_id] = PendingAckSlot(
-            signal_name="parent_attached",
+            signal_name=PARENT_ATTACHED_SIGNAL,
             sent_at=workflow.now(),
         )
         await workflow.execute_activity(

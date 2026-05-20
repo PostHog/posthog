@@ -444,13 +444,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # parent never waits on a signal we silently dropped.
             await self._flush_pending_outbound()
 
-            # TaskRun stays in_progress on successful completion *and* on
-            # inactivity timeout — the run is always followable, so neither
-            # path is terminal. Only an explicit failure or cancellation
-            # transitions out of in_progress; that happens here (failure
-            # bubbled through complete_task) and in the except blocks below.
-            if self._task_completed and self._completion_status in {"failed", "cancelled"}:
-                await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+            await self._maybe_record_terminal_status()
 
             return ExecuteSandboxOutput(
                 success=True,
@@ -790,6 +784,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             return
         # Snapshot + clear before awaiting so a signal landing mid-flush
         # doesn't lose its delivery on the next iteration.
+        #
+        # Ordering note: we keep iterating after a failure, so a later
+        # signal that succeeds is delivered before an earlier one that
+        # failed and was re-queued. The protocol tolerates this — ACKs
+        # match by `ack_id` and PARENT_COMPLETED_SIGNAL is always enqueued
+        # last (from the finally block), so it trails any failed signals
+        # in the snapshot. Don't "fix" this by breaking after the first
+        # failure: that would drop the rest of the snapshot on the floor.
         to_send = self._pending_outbound
         self._pending_outbound = []
         parent = workflow.get_external_workflow_handle(self._parent_workflow_id)
@@ -1077,6 +1079,15 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _maybe_record_terminal_status(self) -> None:
+        # TaskRun stays in_progress on successful completion *and* on
+        # inactivity timeout — the run is always followable, so neither
+        # path is terminal. Only an explicit failure or cancellation
+        # propagated through complete_task transitions out of in_progress;
+        # the except blocks in run() cover the other terminal paths.
+        if self._task_completed and self._completion_status in {"failed", "cancelled"}:
+            await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
 
     # `log_on_fail` only catches `Exception`, so `asyncio.CancelledError`
     # (a `BaseException`) still propagates — required for cooperative
