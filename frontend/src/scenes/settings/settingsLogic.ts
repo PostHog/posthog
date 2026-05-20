@@ -24,6 +24,10 @@ import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, S
 // Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
 const FUSE_THRESHOLD = 0.2
 
+// Sentinel settingId for the synthetic "Log out" search result. Logging out is not a real setting
+// (it lives in the account menu) but users commonly search for it here.
+export const LOGOUT_SETTING_ID = '__logout__' as SettingId
+
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface SettingsFuse extends FuseClass<Setting & { searchValue: string }> {}
 export interface SectionsFuse extends FuseClass<
@@ -228,6 +232,12 @@ export const settingsLogic = kea<settingsLogicType>([
             }, 100)
         },
         navigateToSetting: ({ sectionId, settingId }) => {
+            // Synthetic "Log out" entry: trigger logout instead of routing to a real setting.
+            if (settingId === LOGOUT_SETTING_ID) {
+                actions.setSearchTerm('')
+                userLogic.actions.logout()
+                return
+            }
             const section = values.sections.find((s) => s.id === sectionId)
             if (section) {
                 actions.setSearchTerm('')
@@ -557,6 +567,19 @@ export const settingsLogic = kea<settingsLogicType>([
                         })
                     }
                 }
+
+                // Synthetic "Log out" entry — logout is an account-menu action, not a setting,
+                // but users frequently look for it here. Selecting it triggers userLogic.logout
+                // via the navigateToSetting listener.
+                entries.push({
+                    settingId: LOGOUT_SETTING_ID,
+                    settingTitle: 'Log out',
+                    sectionId: 'user-account' as SettingSectionId,
+                    sectionTitle: 'Account',
+                    level: 'user',
+                    keywords: 'log out logout sign out signout exit',
+                    description: 'Sign out of your PostHog account',
+                })
 
                 return createFuse(entries, {
                     keys: [

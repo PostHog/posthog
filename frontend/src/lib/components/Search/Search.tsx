@@ -16,7 +16,7 @@ import {
     useState,
 } from 'react'
 
-import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
+import { IconDay, IconLeave, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { filterSearchItems } from 'lib/components/Search/utils'
@@ -71,6 +71,10 @@ const PLACEHOLDER_CYCLE_INTERVAL = 3000
 const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
+
+const LOGOUT_ITEM_ID = '__logout__'
+
+const LOGOUT_ITEM_QUERY = ['logout', 'log out', 'sign out', 'signout']
 
 const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
 
@@ -400,7 +404,7 @@ function SearchRoot({
     const { setSearch } = useActions(searchLogic({ logicKey }))
     const { isDarkModeOn } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
-    const { updateUser } = useActions(userLogic)
+    const { updateUser, logout } = useActions(userLogic)
     const debounceEnabled = useFeatureFlag('SEARCH_DEBOUNCE_ALL')
     const reRankEnabled = useFeatureFlag('SEARCH_RE_RANK')
 
@@ -472,6 +476,23 @@ function SearchRoot({
             }
         }
 
+        // Add a direct shortcut for logging out — logout lives in the account menu, not Settings,
+        // so users searching for "logout" / "sign out" otherwise get no results here.
+        if (normalizedQuery && LOGOUT_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
+            const logoutItem: SearchItem = {
+                id: LOGOUT_ITEM_ID,
+                name: 'Log out',
+                displayName: 'Log out',
+                category: 'misc',
+                searchKeywords: LOGOUT_ITEM_QUERY,
+                icon: <IconLeave />,
+            }
+            const hasLogoutItemAlready = items.some((item) => item.id === logoutItem.id)
+            if (!hasLogoutItemAlready) {
+                items = [logoutItem, ...items]
+            }
+        }
+
         return [...normalizedSuggestedItems, ...items]
     }, [allItems, searchValue, suggestedItems, isDarkModeOn])
 
@@ -514,13 +535,17 @@ function SearchRoot({
                     return
                 }
             }
+            if (item.id === LOGOUT_ITEM_ID) {
+                logout()
+                return
+            }
             if (onItemSelect) {
                 onItemSelect(item)
             } else if (item.href) {
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme, logout]
     )
 
     const groupedItems = useMemo(() => {
