@@ -1,13 +1,6 @@
 import { getPostHogClient } from './client'
 
-/**
- * Group context for posthog-node flag evaluation. The keys are PostHog group
- * types (e.g. `organization`, `project`) and the values are the group keys —
- * same shape we already use for `$groups` on analytics events
- * (`buildMCPAnalyticsGroups`). Lets per-organization (and per-project) feature
- * flags resolve correctly when the rollout is keyed off a group instead of the
- * user.
- */
+// Group type → group key, matching the `$groups` shape from `buildMCPAnalyticsGroups`.
 export type FlagGroups = Record<string, string>
 
 export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, groups?: FlagGroups): Promise<boolean> {
@@ -25,11 +18,8 @@ export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, 
 
 /**
  * Evaluate multiple feature flags in parallel for the given user.
- * Returns a map of flag key → boolean.
- *
- * `groups` is forwarded to posthog-node so flags rolled out at a group level
- * (e.g. per-organization) evaluate against the resolved workspace context
- * rather than the user alone.
+ * Returns a map of flag key → boolean. `groups` is forwarded to posthog-node
+ * so group-scoped rollouts (e.g. per-organization) evaluate correctly.
  */
 export async function evaluateFeatureFlags(
     flagKeys: string[],

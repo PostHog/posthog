@@ -564,9 +564,8 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // Start user-level feature flag resolution in parallel with cache seeding.
-        // Tool-level flags are deferred until orgId is known so per-organization
-        // gating can evaluate against the right group context.
+        // User-level flags resolve in parallel with cache seeding. Tool flags are
+        // deferred until orgId is known so org-group rollouts evaluate correctly.
         const flagPromise = this.resolveVersionFlag()
         const singleExecPromise = this.resolveSingleExecFlag()
 
@@ -597,11 +596,8 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        // Resolve the active organization id (header → cache → default resolution
-        // above) and use it as the `organization` group when evaluating
-        // tool-gating feature flags. This makes per-organization rollouts
-        // (e.g. `notebooks-collaboration`) consistent across every user in
-        // that org instead of being keyed off the individual distinct_id.
+        // Header → cache → default resolution above. Passed as the `organization`
+        // group so per-org tool flag rollouts evaluate consistently across the org.
         const resolvedOrgId = organizationId || (await this.cache.get('orgId')) || undefined
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, resolvedOrgId)
 
@@ -932,9 +928,6 @@ export class MCP extends McpAgent<Env> {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            // Tool-gating flags are sometimes scoped to an organization (e.g.
-            // `notebooks-collaboration`). Forward the `organization` group so
-            // posthog-node matches the rollout against the right entity.
             const groups = orgId ? { organization: orgId } : undefined
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {

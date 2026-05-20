@@ -44,20 +44,17 @@ describe('isFeatureFlagEnabled', () => {
         expect(result).toBe(false)
     })
 
-    it('should forward groups when provided so per-organization rollouts evaluate correctly', async () => {
+    it('should forward groups as options when provided', async () => {
         mockIsFeatureEnabled.mockResolvedValue(true)
 
-        const result = await isFeatureFlagEnabled('notebooks-collaboration', 'user-123', {
-            organization: 'org-abc',
-        })
+        await isFeatureFlagEnabled('notebooks-collaboration', 'user-123', { organization: 'org-abc' })
 
-        expect(result).toBe(true)
         expect(mockIsFeatureEnabled).toHaveBeenCalledWith('notebooks-collaboration', 'user-123', {
             groups: { organization: 'org-abc' },
         })
     })
 
-    it('should omit the options arg when groups is empty so user-level eval is unchanged', async () => {
+    it('should omit the options arg when groups is empty', async () => {
         mockIsFeatureEnabled.mockResolvedValue(true)
 
         await isFeatureFlagEnabled('flag-x', 'user-123', {})
@@ -72,13 +69,9 @@ describe('evaluateFeatureFlags', () => {
     })
 
     it('should evaluate multiple flags and forward groups on each call', async () => {
-        mockIsFeatureEnabled.mockImplementation((flagKey: string) => {
-            return Promise.resolve(flagKey === 'flag-on')
-        })
+        mockIsFeatureEnabled.mockImplementation((flagKey: string) => Promise.resolve(flagKey === 'flag-on'))
 
-        const result = await evaluateFeatureFlags(['flag-on', 'flag-off'], 'user-123', {
-            organization: 'org-abc',
-        })
+        const result = await evaluateFeatureFlags(['flag-on', 'flag-off'], 'user-123', { organization: 'org-abc' })
 
         expect(result).toEqual({ 'flag-on': true, 'flag-off': false })
         expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-on', 'user-123', {
