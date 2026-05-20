@@ -10,6 +10,11 @@ describe('isChunkLoadError', () => {
         ],
         ['Safari native TypeError: Load failed', { name: 'TypeError', message: 'Load failed' }, true],
         [
+            'Safari module-loader TypeError',
+            { name: 'TypeError', message: 'Importing a module script failed.' },
+            true,
+        ],
+        [
             'Firefox native TypeError: NetworkError',
             { name: 'TypeError', message: 'NetworkError when attempting to fetch resource.' },
             true,

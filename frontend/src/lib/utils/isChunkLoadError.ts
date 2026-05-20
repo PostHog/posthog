@@ -3,6 +3,7 @@
  *   - webpack: `Error` with `name === 'ChunkLoadError'`
  *   - esbuild/Vite: message contains `'Failed to fetch dynamically imported module'`
  *   - Safari: native `TypeError: Load failed` (no JS stack — see load-failed.tsx known exception)
+ *   - Safari (module loader): `TypeError: Importing a module script failed.`
  *   - Firefox: native `TypeError: NetworkError when attempting to fetch resource.`
  */
 export function isChunkLoadError(error: unknown): boolean {
@@ -16,6 +17,7 @@ export function isChunkLoadError(error: unknown): boolean {
         err.name === 'ChunkLoadError' ||
         message.includes('Failed to fetch dynamically imported module') ||
         (isTypeError && message.includes('Load failed')) ||
+        (isTypeError && message.includes('Importing a module script failed')) ||
         (isTypeError && message.includes('NetworkError when attempting to fetch resource'))
     )
 }
