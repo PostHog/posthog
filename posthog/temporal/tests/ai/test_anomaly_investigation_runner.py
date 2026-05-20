@@ -1,5 +1,8 @@
+from unittest.mock import MagicMock, patch
+
 from posthog.temporal.ai.anomaly_investigation.runner import (
     FINAL_REPORT_TOOL_NAME,
+    _build_callbacks,
     _parse_report,
     _report_from_tool_calls,
 )
@@ -56,3 +59,56 @@ def test_parse_report_keeps_plain_json_fallback() -> None:
 
     assert report.verdict == "inconclusive"
     assert report.summary == "Need manual review."
+
+
+def test_build_callbacks_tags_ai_product_for_llm_analytics() -> None:
+    team = MagicMock(id=314)
+    alert = MagicMock(id="alert-uuid")
+    sentinel_client = MagicMock(name="default_client")
+
+    with (
+        patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
+        patch("posthog.temporal.ai.anomaly_investigation.runner.CallbackHandler") as mock_handler,
+    ):
+        mock_module.default_client = sentinel_client
+
+        callbacks = _build_callbacks(team=team, alert=alert)
+
+    assert callbacks == [mock_handler.return_value]
+    mock_handler.assert_called_once()
+    args, kwargs = mock_handler.call_args
+    assert args[0] is sentinel_client
+    assert kwargs["distinct_id"] == "314"
+    assert kwargs["trace_id"].startswith("alert-investigation-")
+    assert kwargs["properties"] == {
+        "ai_product": "alert_investigation_agent",
+        "team_id": 314,
+        "alert_id": "alert-uuid",
+    }
+
+
+def test_build_callbacks_skips_when_default_client_missing() -> None:
+    team = MagicMock(id=1)
+
+    with patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module:
+        mock_module.default_client = None
+        callbacks = _build_callbacks(team=team, alert=None)
+
+    assert callbacks == []
+
+
+def test_build_callbacks_omits_alert_id_when_alert_missing() -> None:
+    team = MagicMock(id=42)
+    sentinel_client = MagicMock(name="default_client")
+
+    with (
+        patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
+        patch("posthog.temporal.ai.anomaly_investigation.runner.CallbackHandler") as mock_handler,
+    ):
+        mock_module.default_client = sentinel_client
+
+        _build_callbacks(team=team, alert=None)
+
+    _args, kwargs = mock_handler.call_args
+    assert "alert_id" not in kwargs["properties"]
+    assert kwargs["properties"]["ai_product"] == "alert_investigation_agent"
