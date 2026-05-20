@@ -10,6 +10,7 @@ import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
 import { VariantProps } from '../types'
 import { WizardCommandBlock } from '../WizardCommandBlock'
+import { WizardProgressTracker } from '../WizardProgressTracker'
 import { WizardOnlyIntro } from './WizardOnlyIntro'
 
 /**
@@ -69,6 +70,7 @@ export function WizardOnlyVariant({
 
                 <div className="max-w-xl mx-auto">
                     <WizardCommandBlock />
+                    <WizardProgressTracker />
                 </div>
 
                 <div className="text-center">
