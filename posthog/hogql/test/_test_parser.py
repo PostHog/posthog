@@ -1193,6 +1193,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Same in a GROUP BY list — `window` is the second grouping
             # key, not the start of a WINDOW clause.
             grouped = self._select("select count() from events group by tool, window")
+            assert isinstance(grouped, ast.SelectQuery)
             self.assertEqual(
                 grouped.group_by,
                 [ast.Field(chain=["tool"]), ast.Field(chain=["window"])],
