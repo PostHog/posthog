@@ -5026,7 +5026,28 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
     export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -6400,6 +6421,33 @@ export namespace Schemas {
       DistinctId: 'distinct_id',
       DeviceId: 'device_id',
     } as const;
+
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
+    }
 
     export interface BulkNotificationIdsRequest {
       /**
@@ -16930,6 +16978,22 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitHubTeam {
+      /** GitHub team numeric identifier. */
+      id: number;
+      /** GitHub team slug. */
+      slug: string;
+      /** GitHub team display name. */
+      name: string;
+    }
+
+    export interface GitHubTeamsResponse {
+      /** List of GitHub teams available to the installation organization. */
+      teams: GitHubTeam[];
+      /** Whether more teams are available beyond this page. */
+      has_more: boolean;
+    }
+
     export interface GitProviderFileLinkResolveResponse {
       /** Whether a matching file URL was found. */
       found: boolean;
@@ -22695,6 +22759,8 @@ export namespace Schemas {
 
     export interface QuarantinedIdentifierEntry {
       created_by?: UserBasicInfo | null;
+      /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+      source_run?: QuarantineSourceRun | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -32045,10 +32111,21 @@ export namespace Schemas {
     } as const;
 
     export interface QuarantineInput {
-      /** @maxLength 512 */
+      /**
+         * Snapshot identifier to quarantine.
+         * @maxLength 512
+         */
       identifier: string;
-      /** @maxLength 255 */
+      /**
+         * Why this snapshot is being quarantined.
+         * @maxLength 255
+         */
       reason: string;
+      /**
+         * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+         * @nullable
+         */
+      source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
     }
@@ -38521,6 +38598,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -43639,6 +43734,24 @@ export namespace Schemas {
     offset?: number;
     /**
      * Optional case-insensitive repository name search query.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string;
     };
