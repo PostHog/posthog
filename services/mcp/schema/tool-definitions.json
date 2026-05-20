@@ -228,7 +228,7 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit a notebook by replacing an exact substring of its serialized content. Same shape as `str_replace_editor` for code files: provide `old_string` (must match exactly, including whitespace and indentation) and `new_string` (must differ). The notebook content is serialized as `JSON.stringify(notebook.content, null, 2)` (2-space indent) — call `notebooks-retrieve` first to see what to match against. `old_string` must be unique in the serialization unless `replace_all: true`. Edits stream live to other connected clients via the collab/save endpoint. On a concurrent conflict the tool rebases and retries up to 3 times; on a stale buffer or unresolvable rebase it returns a structured error explaining what to do (typically: refetch and retry).",
+        "description": "Edit a notebook by replacing an exact substring of its serialized content. Same shape as `str_replace_editor` for code files: provide `old_string` (must match exactly, including whitespace and indentation) and `new_string` (must differ). The notebook content is serialized as `JSON.stringify(notebook.content, null, 2)` (2-space indent) — call `notebooks-retrieve` first to see what to match against. `old_string` must be unique in the serialization unless `replace_all: true`. Edits stream live to other connected clients via the collab/save endpoint. On a concurrent conflict the tool refetches and re-runs the replacement against the new state, up to 3 times; on a stale buffer or unresolvable conflict it returns a structured error explaining what to do (typically: refetch and retry).",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "String replacement against a notebook's serialized content, with live streaming.",
@@ -239,7 +239,7 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
-            "openWorldHint": false,
+            "openWorldHint": true,
             "readOnlyHint": false
         }
     },
