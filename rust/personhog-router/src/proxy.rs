@@ -38,12 +38,12 @@ const KNOWN_METHODS: &[&str] = &[
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
     "GetGroup",
-    "GetGroups",
     "GetGroupTypeMappingByDashboardId",
     "GetGroupTypeMappingsByProjectId",
     "GetGroupTypeMappingsByProjectIds",
     "GetGroupTypeMappingsByTeamId",
     "GetGroupTypeMappingsByTeamIds",
+    "GetGroups",
     "GetGroupsBatch",
     "GetHashKeyOverrideContext",
     "GetPerson",
@@ -472,6 +472,44 @@ mod tests {
         assert!(is_known_method("CheckCohortMembership"));
         assert!(!is_known_method("FakeMethod"));
         assert!(!is_known_method(""));
+    }
+
+    #[test]
+    fn known_methods_is_sorted() {
+        for window in KNOWN_METHODS.windows(2) {
+            assert!(
+                window[0] < window[1],
+                "KNOWN_METHODS is not sorted: {:?} should come after {:?}",
+                window[0],
+                window[1],
+            );
+        }
+    }
+
+    #[test]
+    fn known_methods_matches_service_proto() {
+        let proto = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../proto/personhog/service/v1/service.proto"
+        ))
+        .expect("failed to read service.proto — is the proto directory present?");
+
+        let mut proto_methods: Vec<&str> = proto
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("rpc ")
+                    .and_then(|rest| rest.split('(').next())
+                    .map(|name| name.trim())
+            })
+            .collect();
+        proto_methods.sort();
+
+        let known: Vec<&str> = KNOWN_METHODS.to_vec();
+        assert_eq!(
+            known, proto_methods,
+            "KNOWN_METHODS is out of sync with service.proto — add/remove entries to match"
+        );
     }
 
     #[test]
