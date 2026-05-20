@@ -13,10 +13,10 @@ use serde_json::{json, Value};
 use super::template::parse_template_body;
 use super::{
     build_infix, fold_call_or_exprcall, identifier_text, infix_bp, interval_call_name,
-    is_reserved_alias_name, kw_acts_as_ident_in_primary, kw_valid_as_identifier,
-    kw_valid_type_cast_ident, parse_number_literal, postfix_bp, unquote_single_string, Parser,
-    BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM,
-    BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
+    interval_call_name_case_sensitive, is_reserved_alias_name, kw_acts_as_ident_in_primary,
+    kw_valid_as_identifier, kw_valid_type_cast_ident, parse_number_literal, postfix_bp,
+    unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS,
+    BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
 };
 use crate::emit;
 use crate::error::ParseError;
@@ -896,14 +896,55 @@ impl<'a> Parser<'a> {
             let str_tok = self.peek0;
             let raw = unquote_single_string(self.text(str_tok));
             if let Some((count_str, unit)) = raw.split_once(' ') {
-                if let Some(unit_name) = interval_call_name(unit) {
+                // cpp's `visitColumnExprIntervalString` requires the
+                // count to be a non-negative decimal integer (`isdigit`
+                // per char, `stoi` for the convert), and matches the
+                // unit against a literal-lowercase set (so `SECOND`
+                // rejects with "Unsupported interval unit: SECOND").
+                // Rust used to lowercase the unit and silently
+                // substitute `Constant(0)` for any unparseable count
+                // — `INTERVAL 'twenty days'` quietly became "0 days".
+                let count_valid =
+                    !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
+                if !count_valid {
                     self.bump()?;
-                    let count: i64 = count_str.parse().unwrap_or(0);
+                    return Err(ParseError::not_implemented_fatal(
+                        format!("Unsupported interval count: {count_str}"),
+                        str_tok.start,
+                        str_tok.end,
+                    ));
+                }
+                let count: i64 = match count_str.parse() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        self.bump()?;
+                        return Err(ParseError::not_implemented_fatal(
+                            "Unknown error: stoi: out of range",
+                            str_tok.start,
+                            str_tok.end,
+                        ));
+                    }
+                };
+                // cpp's unit check is literal-lowercase — case-sensitive
+                // against the lowercase singular / plural forms. Match
+                // that here rather than `interval_call_name`'s
+                // case-insensitive helper.
+                let unit_name = interval_call_name_case_sensitive(unit);
+                if let Some(unit_name) = unit_name {
+                    self.bump()?;
                     return Ok(emit::call(
                         unit_name,
                         vec![emit::constant(Value::from(count))],
                     ));
                 }
+                // Unit not lowercase / not recognised — cpp errors
+                // here even though the count was valid.
+                self.bump()?;
+                return Err(ParseError::not_implemented_fatal(
+                    format!("Unsupported interval unit: {unit}"),
+                    str_tok.start,
+                    str_tok.end,
+                ));
             }
             // Fall through to the expr+unit form: parse the string as
             // the value expression and let the trailing unit keyword

@@ -1789,6 +1789,36 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_interval_combined_string_validates_count_and_unit(self):
+        # cpp's `visitColumnExprIntervalString` only accepts a count
+        # made of ASCII digits and matches the unit against a literal-
+        # lowercase set. Rust used to do `count_str.parse::<i64>()
+        # .unwrap_or(0)`, silently substituting `Constant(0)` for any
+        # unparseable count ("twenty", "-1", "1.5", overflowing
+        # integers), and used `interval_call_name`'s case-insensitive
+        # lowercasing so `INTERVAL '1 SECOND'` accepted.
+        # Each input must error with the same message in both parsers.
+        cases = (
+            ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
+            ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
+            ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
+            ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi: out of range"),
+            ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
+        )
+        for src, expected_msg in cases:
+            with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src) as rust_cm:
+                parse_expr(src, backend="rust-json")
+            self.assertIn(expected_msg, str(cpp_cm.exception), msg=src)
+            self.assertIn(expected_msg, str(rust_cm.exception), msg=src)
+        # Guard: valid combined-string and expr+unit forms still parse.
+        for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
         # cpp's `(NOT)? IN COHORT? columnExpr` only takes the COHORT
         # alternative when a columnExpr follows. With an empty rhs (EOF
