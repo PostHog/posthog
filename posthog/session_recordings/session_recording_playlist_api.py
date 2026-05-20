@@ -644,11 +644,10 @@ class SessionRecordingPlaylistViewSet(
 
         serializer = self.get_serializer(combined, many=True)
 
-        # Use the paginator only for next/previous link construction; we feed
-        # it the total (DB + synthetic) count so the links span the merged list.
-        paginator = self.paginator
-        if paginator is None:
-            raise RuntimeError("paginator must not be None")
+        # Build next/previous links over the merged list. We construct the
+        # paginator directly (rather than via self.paginator, typed as the
+        # attribute-less BasePagination) and seed it with the total count.
+        paginator = SessionRecordingPlaylistPagination()
         paginator.count = total_count
         paginator.limit = limit
         paginator.offset = offset
