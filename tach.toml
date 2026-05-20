@@ -86,6 +86,7 @@ depends_on = [
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
+    "products.product_analytics",
     "products.product_tours",
     "products.replay_vision",
     "products.revenue_analytics",
@@ -378,7 +379,9 @@ layer = "modules"
 
 [[modules]]
 path = "products.product_analytics"
-depends_on = []
+depends_on = [
+    "posthog",
+]
 layer = "modules"
 
 [[modules]]
@@ -537,6 +540,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
@@ -580,6 +584,16 @@ depends_on = [
 ]
 layer = "modules"
 
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee) still imports these internals directly.
 [[interfaces]]
 expose = [
     "backend\\.models.*",

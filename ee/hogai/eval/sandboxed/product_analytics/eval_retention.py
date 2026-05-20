@@ -12,8 +12,6 @@ To run:
 
 from __future__ import annotations
 
-import pytest
-
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
@@ -41,7 +39,6 @@ def _retention_case(
     )
 
 
-@pytest.mark.django_db
 async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         _retention_case(

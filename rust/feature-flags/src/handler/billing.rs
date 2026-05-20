@@ -1,6 +1,6 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    billing::{aggregator::classify_redis_error, BillingAggregator},
+    billing::{aggregator::classify_redis_error, AggregatorMode, BillingAggregator},
     flags::{
         flag_analytics::{increment_request_count, is_billable_flag_key},
         flag_models::FeatureFlagList,
@@ -56,20 +56,31 @@ pub async fn check_limits(
     Ok(None)
 }
 
-/// Issues the authoritative synchronous billing HINCRBY plus, when present,
-/// the shadow-keyspace tee via the aggregator.
+/// Records a billable request against the production billing keyspace.
 ///
 /// Caller is responsible for the predicate (skip_writes, billable flags,
 /// internal requests, etc.) — by the time this is called the request is
 /// known to be billable.
 ///
-/// The shadow tee only fires when the synchronous write succeeds. Recording
-/// a request the production keyspace did not capture would surface as a
-/// false "aggregator over-counted" signal during reconciliation — masking
-/// any real over-count bug in the aggregator behind whatever Redis-error
-/// noise was happening at the same time. Tying the two writes together
-/// keeps the reconciliation invariant a strict equality: if shadow > prod
-/// and `flag_request_redis_error` is flat, the aggregator is the cause.
+/// Behavior depends on the aggregator's mode:
+///
+/// - **No aggregator, or `AggregatorMode::Shadow`**: the authoritative write
+///   is the synchronous per-request `increment_request_count`. The shadow
+///   tee fires only when the synchronous write succeeds — recording a
+///   request the production keyspace did not capture would surface as a
+///   false "aggregator over-counted" signal during reconciliation, masking
+///   any real over-count bug in the aggregator. Tying the two writes
+///   together keeps the reconciliation invariant a strict equality: if
+///   shadow > prod and `flag_request_redis_error` is flat, the aggregator
+///   is the cause.
+/// - **`AggregatorMode::Authoritative`**: the aggregator *is* the
+///   authoritative writer. We skip `increment_request_count` (no
+///   per-request Redis I/O on this path) and `aggregator.record()` is the
+///   only billing write. The reconciliation invariant from shadow mode no
+///   longer applies — pending records live in process memory until the
+///   next flush, so `flags_billing_pending_records` and
+///   `flags_billing_seconds_since_successful_flush` become
+///   billing-critical signals.
 pub async fn record_billing_increment(
     redis: Arc<dyn RedisClient + Send + Sync>,
     aggregator: Option<&Arc<BillingAggregator>>,
@@ -77,6 +88,18 @@ pub async fn record_billing_increment(
     request_type: FlagRequestType,
     library: Library,
 ) {
+    if let Some(aggregator) = aggregator {
+        if aggregator.mode() == AggregatorMode::Authoritative {
+            // billing_duration_ms measures in-process record latency (not Redis
+            // RTT) for dashboard continuity across cutover.
+            let start = Instant::now();
+            aggregator.record(team_id, request_type, Some(library));
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            with_canonical_log(|log| log.billing_duration_ms = Some(elapsed_ms));
+            return;
+        }
+    }
+
     let start = Instant::now();
     let result = increment_request_count(redis, team_id, 1, request_type, Some(library)).await;
     let elapsed_ms = start.elapsed().as_millis() as u64;
@@ -154,6 +177,7 @@ fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::billing::BillingAggregatorConfig;
     use crate::flags::feature_flag_list::PreparedFlags;
     use crate::flags::flag_analytics::{
         PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX,
@@ -161,8 +185,51 @@ mod tests {
     use crate::flags::flag_models::FeatureFlag;
     use crate::mock;
     use crate::utils::mock::MockInto;
+    use common_redis::MockRedisClient;
+    use rstest::rstest;
 
     use std::collections::HashSet;
+
+    /// Pins the cutover branch in `record_billing_increment`: in `Authoritative`
+    /// mode the per-request HINCRBY is skipped (aggregator is the only writer);
+    /// in `Shadow` mode the per-request HINCRBY runs and the aggregator tees the
+    /// record on success.
+    #[rstest]
+    #[case::authoritative(AggregatorMode::Authoritative, false)]
+    #[case::shadow(AggregatorMode::Shadow, true)]
+    #[tokio::test]
+    async fn record_billing_increment_routes_by_mode(
+        #[case] mode: AggregatorMode,
+        #[case] expect_per_request_redis_call: bool,
+    ) {
+        let per_request_redis = Arc::new(MockRedisClient::new());
+        let aggregator_redis = Arc::new(MockRedisClient::new());
+        let aggregator = BillingAggregator::for_tests_with_mode(
+            aggregator_redis,
+            BillingAggregatorConfig::default(),
+            mode,
+        );
+
+        record_billing_increment(
+            per_request_redis.clone(),
+            Some(&aggregator),
+            42,
+            FlagRequestType::Decide,
+            Library::PosthogJs,
+        )
+        .await;
+
+        assert_eq!(
+            !per_request_redis.get_calls().is_empty(),
+            expect_per_request_redis_call,
+            "per-request Redis call expectation mismatch for mode {mode:?}"
+        );
+        assert_eq!(
+            aggregator.pending_total(),
+            1,
+            "aggregator must hold the recorded count regardless of mode"
+        );
+    }
 
     #[test]
     fn test_contains_billable_flags_only_survey_flags() {

@@ -53,6 +53,8 @@ logger = structlog.get_logger(__name__)
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
 
+SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
+
 # Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -1027,6 +1029,10 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             # can link back to the session recording that originated the trace.
             "$session_id": source_props.get("$session_id"),
         }
+
+        for property_name in SOURCE_AI_PROPERTIES_TO_COPY:
+            if source_props.get(property_name) is not None:
+                properties[property_name] = source_props[property_name]
 
         if result.get("skipped"):
             properties["$ai_evaluation_skipped"] = True

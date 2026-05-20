@@ -256,3 +256,166 @@ if ("${variant}".equals(flagValue)) {
         </>
     )
 }
+
+export interface PromptSnippetProps {
+    flagKey: string
+}
+
+export function PromptExperimentPythonSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Python} wrap>
+            {`import json
+import os
+
+from posthog import Posthog
+from posthog.ai.openai import OpenAI
+from posthog.ai.prompts import Prompts
+
+posthog = Posthog(
+    os.environ["POSTHOG_API_KEY"],
+    host="https://us.posthog.com",  # Replace with your PostHog host (e.g. https://eu.posthog.com for EU Cloud, or your self-hosted URL)
+    personal_api_key=os.environ["POSTHOG_PERSONAL_API_KEY"],
+)
+
+distinct_id = "<your-user-id>"
+flag_key = "${flagKey}"
+
+# 1. Evaluate the flag and pull the variant payload — each variant carries its own
+#    {"prompt_name", "prompt_version"} payload set when the experiment was created.
+flags = posthog.evaluate_flags(distinct_id, flag_keys=[flag_key])
+payload = flags.get_flag_payload(flag_key)
+if not payload:
+    raise RuntimeError(f"No payload set for flag {flag_key}; was this experiment created via /create_from_prompt/?")
+if isinstance(payload, str):
+    payload = json.loads(payload)
+
+prompt_name = payload["prompt_name"]
+prompt_version = int(payload["prompt_version"])
+
+# 2. Fetch and compile the prompt
+prompts = Prompts(posthog)
+prompt = prompts.get(prompt_name, version=prompt_version)
+system_prompt = prompts.compile(prompt, {})
+
+# 3. Call the LLM — the wrapper auto-emits $ai_generation
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], posthog_client=posthog)
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "system", "content": system_prompt}],
+    posthog_distinct_id=distinct_id,
+    posthog_properties={
+        "$ai_prompt_name": prompt_name,
+        "$ai_prompt_version": prompt_version,
+    },
+)
+
+print(response.choices[0].message.content)
+`}
+        </CodeSnippet>
+    )
+}
+
+export function PromptExperimentJSSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
+    return (
+        <CodeSnippet language={Language.TypeScript} wrap>
+            {`import { PostHog } from 'posthog-node'
+import { OpenAI } from '@posthog/ai/openai'
+import { Prompts } from '@posthog/ai/prompts'
+
+const posthog = new PostHog(process.env.POSTHOG_API_KEY!, {
+    host: 'https://us.posthog.com', // Replace with your PostHog host (e.g. https://eu.posthog.com for EU Cloud, or your self-hosted URL)
+    personalApiKey: process.env.POSTHOG_PERSONAL_API_KEY,
+})
+
+const distinctId = '<your-user-id>'
+const flagKey = '${flagKey}'
+
+// 1. Evaluate the flag and read the variant payload — each variant carries its own
+//    { prompt_name, prompt_version } payload set when the experiment was created.
+const flags = await posthog.evaluateFlags({ distinctId, flagKeys: [flagKey] })
+let payload = flags.getFlagPayload(flagKey)
+if (!payload) {
+    throw new Error(\`No payload set for flag \${flagKey}; was this experiment created via /create_from_prompt/?\`)
+}
+if (typeof payload === 'string') {
+    payload = JSON.parse(payload)
+}
+
+const promptName: string = payload.prompt_name
+const promptVersion: number = Number(payload.prompt_version)
+
+// 2. Fetch and compile the prompt
+const prompts = new Prompts(posthog)
+const prompt = await prompts.get(promptName, { version: promptVersion })
+const systemPrompt = prompts.compile(prompt, {})
+
+// 3. Call the LLM — the wrapper auto-emits $ai_generation
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!, posthog })
+const response = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'system', content: systemPrompt }],
+    posthogDistinctId: distinctId,
+    posthogProperties: {
+        $ai_prompt_name: promptName,
+        $ai_prompt_version: promptVersion,
+    },
+})
+
+console.log(response.choices[0].message.content)
+`}
+        </CodeSnippet>
+    )
+}
+
+export function PromptExperimentAgentPromptSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Text} wrap>
+            {`Wire up a PostHog prompt experiment in this project.
+
+Context
+- A feature flag with key "${flagKey}" controls variant assignment for this experiment.
+- Each variant's payload is JSON of shape { "prompt_name": string, "prompt_version": number }.
+- The experiment's metric filters events on the $ai_prompt_name property — every LLM
+  generation event MUST include $ai_prompt_name for the experiment to attribute it.
+
+What to do
+1. Detect the language and framework from existing project files. Use the PostHog SDK
+   that matches (posthog-python, posthog-node, etc.). Check the existing package manifest
+   before installing a new SDK.
+2. Make sure POSTHOG_API_KEY, POSTHOG_PERSONAL_API_KEY, and the LLM provider's API key
+   (e.g. OPENAI_API_KEY) are loaded from env. Add to .env / env example if missing,
+   following the project's existing env conventions.
+3. Find where the project makes LLM calls (route handler, service module, agent loop,
+   background job — match the existing structure). For each LLM call, before invoking
+   the model:
+   a) Evaluate the feature flag "${flagKey}" for the current user.
+   b) Read the variant's payload via the flag-payload API. Parse JSON if it returns a
+      string. Extract prompt_name and prompt_version.
+   c) Use PostHog's prompt management API to fetch the prompt by name + version, then
+      compile it. Pass the compiled prompt as the system message.
+   d) Wrap the LLM client with PostHog's AI tracing wrapper (e.g. @posthog/ai for
+      Node, posthog.ai for Python) so $ai_generation events are auto-emitted with
+      cost, latency, and tokens.
+   e) Pass posthog_distinct_id / posthogDistinctId and attach event properties:
+      $ai_prompt_name = prompt_name and $ai_prompt_version = prompt_version. The
+      $ai_prompt_name property is REQUIRED — this is how the experiment metric
+      attributes events to this prompt.
+4. Do NOT also call posthog.capture('$ai_generation', ...) — the wrapper already emits
+   it. Double-capturing inflates metrics.
+
+Constraints
+- Follow conventions already established in this project (framework, config layout,
+  testing patterns, error handling). Don't introduce new frameworks or invent config.
+- Verify SDK names and method signatures against the docs below before generating code;
+  the SDK surface evolves.
+
+Reference docs
+- LLM analytics overview:        https://posthog.com/docs/llm-analytics
+- Prompt management:             https://posthog.com/docs/llm-analytics/prompt-management
+- Feature flag payloads:         https://posthog.com/docs/feature-flags/payloads
+- Experiments:                   https://posthog.com/docs/experiments
+- PostHog AI wrappers (OpenAI, Anthropic, Gemini): https://posthog.com/docs/ai-engineering
+`}
+        </CodeSnippet>
+    )
+}

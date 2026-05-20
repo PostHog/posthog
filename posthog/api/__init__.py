@@ -425,6 +425,13 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"accounts",
+    customer_analytics.AccountViewSet,
+    "environment_accounts",
+    ["team_id"],
+)
+
 projects_router.register(
     r"data_management",
     DataManagementViewSet,
