@@ -79,7 +79,14 @@ impl<'a> Parser<'a> {
         self.expect_kw(Kw::Let, "let")?;
         let name_tok = self.bump()?;
         let name = match name_tok.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(name_tok), name_tok.kind)
+            }
+            // cpp's `varDecl: LET identifier …` routes through the
+            // grammar's `identifier` rule, which omits NULL / INF / NAN
+            // and the Hog-statement keywords. `kw_valid_as_identifier`
+            // is exactly that filter.
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(name_tok), name_tok.kind)
             }
             _ => {
@@ -306,7 +313,10 @@ impl<'a> Parser<'a> {
             self.bump()?; // LET
             let first_tok = self.bump()?;
             let first = match first_tok.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    identifier_text(self.text(first_tok), first_tok.kind)
+                }
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                     identifier_text(self.text(first_tok), first_tok.kind)
                 }
                 _ => {
@@ -324,7 +334,10 @@ impl<'a> Parser<'a> {
             let (key_var, value_var) = if self.eat(TokenKind::Comma)? {
                 let v_tok = self.bump()?;
                 let v = match v_tok.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(v_tok), v_tok.kind)
+                    }
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(v_tok), v_tok.kind)
                     }
                     _ => {
@@ -428,7 +441,10 @@ impl<'a> Parser<'a> {
         self.expect_kw(Kw::Let, "let")?;
         let name_tok = self.bump()?;
         let name = match name_tok.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(name_tok), name_tok.kind)
+            }
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(name_tok), name_tok.kind)
             }
             _ => {
@@ -459,11 +475,11 @@ impl<'a> Parser<'a> {
         ) {
             return false;
         }
+        // Loop-var positions route through `identifier`, so a Keyword
+        // is only valid here when `kw_valid_as_identifier` admits it
+        // (excludes Null/Inf/Nan and the Hog-statement keywords).
         let id = probe.next_token().ok();
-        if !matches!(
-            id.as_ref().map(|t| t.kind),
-            Some(TokenKind::Ident) | Some(TokenKind::QuotedIdent) | Some(TokenKind::Keyword(_))
-        ) {
+        if !is_hog_identifier_kind(id.as_ref().map(|t| t.kind)) {
             return false;
         }
         let next = probe.next_token().ok();
@@ -471,12 +487,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::In)) => true,
             Some(TokenKind::Comma) => {
                 let id2 = probe.next_token().ok();
-                if !matches!(
-                    id2.as_ref().map(|t| t.kind),
-                    Some(TokenKind::Ident)
-                        | Some(TokenKind::QuotedIdent)
-                        | Some(TokenKind::Keyword(_))
-                ) {
+                if !is_hog_identifier_kind(id2.as_ref().map(|t| t.kind)) {
                     return false;
                 }
                 matches!(
@@ -493,7 +504,10 @@ impl<'a> Parser<'a> {
         self.bump()?;
         let name_tok = self.bump()?;
         let name = match name_tok.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(name_tok), name_tok.kind)
+            }
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(name_tok), name_tok.kind)
             }
             _ => {
@@ -541,7 +555,10 @@ impl<'a> Parser<'a> {
             let (var, ty) = if self.eat(TokenKind::LParen)? {
                 let v_tok = self.bump()?;
                 let v = match v_tok.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(v_tok), v_tok.kind)
+                    }
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(v_tok), v_tok.kind)
                     }
                     _ => {
@@ -554,7 +571,10 @@ impl<'a> Parser<'a> {
                 let ty = if self.eat(TokenKind::Colon)? {
                     let t_tok = self.bump()?;
                     let t = match t_tok.kind {
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                        TokenKind::Ident | TokenKind::QuotedIdent => {
+                            identifier_text(self.text(t_tok), t_tok.kind)
+                        }
+                        TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                             identifier_text(self.text(t_tok), t_tok.kind)
                         }
                         _ => {
@@ -721,7 +741,10 @@ impl<'a> Parser<'a> {
         loop {
             let t = self.bump()?;
             let part = match t.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    identifier_text(self.text(t), t.kind)
+                }
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                     identifier_text(self.text(t), t.kind)
                 }
                 _ => {
@@ -783,4 +806,17 @@ fn peek_starts_return_expr(tok: TokenKind) -> bool {
                     | Kw::Finally
             )
     )
+}
+
+/// `true` when `kind` can stand in for the grammar's `identifier`
+/// rule — Ident / QuotedIdent / any keyword admitted by
+/// `kw_valid_as_identifier` (the `keyword` rule omits NULL / INF / NAN
+/// and the Hog-statement keywords). Used by probe sites that look
+/// ahead for an identifier shape (for-in, lambda heads).
+pub(crate) fn is_hog_identifier_kind(kind: Option<TokenKind>) -> bool {
+    match kind {
+        Some(TokenKind::Ident) | Some(TokenKind::QuotedIdent) => true,
+        Some(TokenKind::Keyword(kw)) => kw_valid_as_identifier(kw),
+        _ => false,
+    }
 }

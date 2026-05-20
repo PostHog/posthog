@@ -1789,6 +1789,59 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_null_inf_nan_rejected_in_hog_identifier_slots(self):
+        # cpp's `varDecl`, `funcStmt`, `catchBlock`, `forInStmt`, and the
+        # lambda heads (`columnLambdaExpr` arrow + `ColumnExprColonLambda`)
+        # all use the grammar's `identifier` rule, which OMITS NULL / INF /
+        # NAN (and the Hog-statement keywords) from its keyword alternative.
+        # cpp rejects these positions; Rust used to match `Keyword(_)`
+        # indiscriminately and accept them, producing a divergent AST.
+        program_cases = (
+            "let null := 1",
+            "let inf := 1",
+            "let nan := 1",
+            "for (let null in xs) {}",
+            "for (let a, null in xs) {}",
+            "fn null() {}",
+            "fn f(null) {}",
+            "fn f(inf) {}",
+            "fn f(nan) {}",
+            "fun null() {}",
+            "fun f(null) {}",
+            "try {} catch (null) {}",
+            "try {} catch (e: null) {}",
+            "try {} catch (null: T) {}",
+            "try {} catch (inf) {}",
+            "(null) -> 1",
+            "(a, null) -> 1",
+            "null -> 1",
+            "lambda null: 1",
+            "lambda a, null: 1",
+        )
+        for src in program_cases:
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_program(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_program(src, backend="rust-json")
+        # And ensure the still-valid identifier-shaped slots keep parsing.
+        valid_cases = (
+            ("let true := 1", "program"),
+            ("let select := 1", "program"),
+            ("for (let k, v in xs) {}", "program"),
+            ("fn f(x, y) {}", "program"),
+            ("try {} catch (e) {}", "program"),
+            ("try {} catch (e: T) {}", "program"),
+            ("(x, y) -> x + y", "expr"),
+            ("x -> x", "expr"),
+            ("lambda x: x", "expr"),
+        )
+        for src, kind in valid_cases:
+            parse_fn = parse_program if kind == "program" else parse_expr
+            oracle = clear_locations(parse_fn(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_fn(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_true_false_admitted_as_identifier_in_chain_and_table_positions(self):
         # cpp's lexer has no TRUE/FALSE tokens; those source spellings are plain
         # IDENTIFIERs that the visitor lifts into Bool Constants only in the

@@ -1063,7 +1063,13 @@ impl<'a> Parser<'a> {
         loop {
             let t = self.bump()?;
             let name = match t.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    identifier_text(self.text(t), t.kind)
+                }
+                // Lambda params route through the grammar's
+                // `identifier` rule, which omits NULL / INF / NAN and
+                // the Hog-statement keywords.
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                     identifier_text(self.text(t), t.kind)
                 }
                 _ => return Err(self.err(format!("expected lambda parameter, got {:?}", t.kind))),
@@ -1462,21 +1468,21 @@ impl<'a> Parser<'a> {
     pub(crate) fn try_bare_list_lambda(&mut self) -> Result<Option<Value>, ParseError> {
         // `IDENT (, IDENT)* COMMA? -> body`. A lambda parameter is an
         // `identifier`: a plain Ident, a QuotedIdent, or any keyword
-        // standing in for one (`name -> 1`, `select -> 1`).
-        if !matches!(
-            self.peek(),
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-        ) {
+        // admitted by `kw_valid_as_identifier` (`name -> 1`,
+        // `select -> 1`; but not `null -> 1` — cpp's `identifier`
+        // rule omits NULL / INF / NAN and the Hog-statement keywords).
+        let is_ident_kind = |k: TokenKind| -> bool {
+            matches!(k, TokenKind::Ident | TokenKind::QuotedIdent)
+                || matches!(k, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw))
+        };
+        if !is_ident_kind(self.peek()) {
             return Ok(None);
         }
         // Probe with a shadow lexer that doesn't disturb the parser state.
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let mut names: Vec<String> = Vec::new();
         let first = probe.next_token()?;
-        if !matches!(
-            first.kind,
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-        ) {
+        if !is_ident_kind(first.kind) {
             return Ok(None);
         }
         names.push(identifier_text(
@@ -1503,7 +1509,7 @@ impl<'a> Parser<'a> {
                             let body = self.parse_lambda_body()?;
                             return Ok(Some(emit::lambda(names, body)));
                         }
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                        k if is_ident_kind(k) => {
                             names.push(identifier_text(
                                 &self.src[after.start..after.end],
                                 after.kind,
@@ -1533,14 +1539,16 @@ impl<'a> Parser<'a> {
         } else {
             loop {
                 // The grammar's lambda head admits any `identifier` —
-                // plain IDENT, quoted idents (`"x"`), and any keyword
-                // standing in for one (`(name) -> body`). Accept all so
-                // the head parses as a lambda rather than falling
-                // through to a tuple and choking on the arrow.
-                if !matches!(
+                // plain IDENT, quoted idents (`"x"`), or any keyword
+                // admitted by `kw_valid_as_identifier` (`(name) -> body`,
+                // `(select) -> body`; but not `(null) -> body` — cpp's
+                // `identifier` rule omits NULL / INF / NAN and the
+                // Hog-statement keywords).
+                let is_ident_kind = matches!(
                     next.kind,
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                ) {
+                    TokenKind::Ident | TokenKind::QuotedIdent
+                ) || matches!(next.kind, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+                if !is_ident_kind {
                     ok = false;
                     break;
                 }
