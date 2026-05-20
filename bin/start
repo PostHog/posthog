@@ -64,7 +64,9 @@ source_env_defaults() {
     # where some of the trailing env vars happened to already be in the shell.
     while IFS='=' read -r name value; do
         [[ -z "$name" || "$name" == \#* ]] && continue
-        [[ "$value" == op://* ]] && continue
+        # Substring match so quoted ("op://...") and space-padded values are
+        # also caught — mirrors what op run itself accepts.
+        [[ "$value" == *op://* ]] && continue
         if [[ -z "${!name:-}" ]]; then
             export "$name=$value"
         fi

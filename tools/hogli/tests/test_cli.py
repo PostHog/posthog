@@ -211,14 +211,26 @@ class TestLoadEnvFile:
         env_file.write_text(content)
         return env_file
 
-    def test_skips_op_refs_so_they_dont_leak_as_literals(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """op:// values must never be set as literal env vars — they'd break downstream services."""
+    @pytest.mark.parametrize(
+        "op_line",
+        [
+            "OPENAI_API_KEY=op://General/abc/credential",
+            'OPENAI_API_KEY="op://General/abc/credential"',
+            "OPENAI_API_KEY= op://General/abc/credential",
+        ],
+        ids=["bare", "double-quoted", "leading-space"],
+    )
+    def test_skips_op_refs_so_they_dont_leak_as_literals(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch, op_line: str
+    ) -> None:
+        """op:// values must never be set as literal env vars — they'd break downstream services.
+
+        Covers bare, quoted, and space-padded forms (op run itself accepts all three,
+        so users may write any of them).
+        """
         from hogli.cli import _load_env_file
 
-        env_file = self._write_env(
-            tmp_path,
-            "OPENAI_API_KEY=op://General/abc/credential\nLITERAL_VAR=actual_value\n",
-        )
+        env_file = self._write_env(tmp_path, f"{op_line}\nLITERAL_VAR=actual_value\n")
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("LITERAL_VAR", raising=False)
 

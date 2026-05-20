@@ -272,7 +272,11 @@ def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         name, _, value = line.partition("=")
-        if value.startswith("op://"):
+        # Substring match so quoted (`KEY="op://..."`) and space-padded
+        # (`KEY= op://...`) forms are also skipped — matches what op run itself
+        # accepts. Leaking these as literals would break downstream services
+        # with cryptic API errors.
+        if "op://" in value:
             continue
         if only_if_unset and name in os.environ:
             continue
@@ -301,8 +305,11 @@ def run_with_env(command: tuple[str, ...]) -> None:
     has_op_refs = env_local.exists() and "op://" in env_local.read_text()
 
     if has_op_refs and shutil.which("op"):
-        # Load .env.development and .env.services first (only if not already set in shell).
-        # op run then layers .env.local on top — overriding our files but not shell.
+        # Pre-load .env.development and .env.services (only if not already set in shell)
+        # so op run's child inherits them. op run then layers .env.local on top,
+        # overriding any variable it defines — including ones from shell. That's
+        # the precedence the docstring above promises: shell env > .env.local
+        # only applies to vars NOT defined in .env.local.
         _load_env_file(env_dev, only_if_unset=True)
         _load_env_file(env_services, only_if_unset=True)
         os.execvp("op", ["op", "run", f"--env-file={env_local}", "--", *command])
