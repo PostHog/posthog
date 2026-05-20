@@ -47,7 +47,7 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 180
+MAX_PRECOMPUTE_DAYS = 90
 
 
 WEB_OVERVIEW_LAZY_FAILED = Counter(
