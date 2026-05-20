@@ -1,4 +1,5 @@
 from unittest import TestCase
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
@@ -13,25 +14,30 @@ from ..user_interview import (
 )
 
 
+def _make_toolkit(toolkit_class):
+    # The `tools` property only imports and returns classes — it never touches `_team`,
+    # `_user`, or `_context_manager`, so mocks are sufficient and keep the test DB-free.
+    return toolkit_class(team=MagicMock(), user=MagicMock(), context_manager=MagicMock())
+
+
 class TestUserInterviewAgentToolkit(TestCase):
     def test_toolkit_includes_both_user_interview_tools(self):
-        # The `tools` property only imports and returns classes — it does not touch instance state,
-        # so we can resolve it via the descriptor without constructing a full toolkit.
-        tool_classes = UserInterviewAgentToolkit.tools.fget(None)  # type: ignore[union-attr]
-        tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
+        tool_class_names = [tool_class.__name__ for tool_class in _make_toolkit(UserInterviewAgentToolkit).tools]
 
         self.assertIn("CreateUserInterviewTopicTool", tool_class_names)
         self.assertIn("AnalyzeUserInterviewsTool", tool_class_names)
 
     def test_read_only_toolkit_excludes_create_tool(self):
-        tool_classes = ReadOnlyUserInterviewAgentToolkit.tools.fget(None)  # type: ignore[union-attr]
-        tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
+        tool_class_names = [
+            tool_class.__name__ for tool_class in _make_toolkit(ReadOnlyUserInterviewAgentToolkit).tools
+        ]
 
         self.assertEqual(tool_class_names, ["AnalyzeUserInterviewsTool"])
 
     def test_toolkit_has_trajectory_examples(self):
-        self.assertIsNotNone(UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES)
-        self.assertGreater(len(UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES), 0)  # type: ignore[arg-type]
+        examples = UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES
+        self.assertIsNotNone(examples)
+        self.assertGreater(len(examples), 0)
 
     @parameterized.expand(
         [
