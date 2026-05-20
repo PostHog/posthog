@@ -6253,7 +6253,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
-    def test_update_with_survey_write_only_logs_warning(self):
+    def test_update_payload_only_does_not_log(self):
         self.key.scopes = ["*"]
         self.key.save()
         survey_id = self._create_survey().json()["id"]
@@ -6268,9 +6268,48 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
                 headers=self.auth_headers,
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_update_targeting_flag_filters_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey().json()["id"]
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 75}]}},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
         events = self._warning_events(mock_logger)
         assert len(events) == 1
-        assert events[0].kwargs["action"] == "survey.update"
+        assert events[0].kwargs["action"] == "survey.update.targeting_flag_filters"
+
+    def test_update_remove_targeting_flag_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey(
+            targeting_flag_filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        ).json()["id"]
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                data={"remove_targeting_flag": True},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "survey.update.remove_targeting_flag"
 
     def test_destroy_with_targeting_flag_logs_warning(self):
         self.key.scopes = ["*"]

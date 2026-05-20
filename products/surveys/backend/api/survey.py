@@ -1256,15 +1256,14 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         user = self.context["request"].user
         changes = []
 
-        warn_if_missing_feature_flag_write_scope(
-            self.context["request"],
-            action="survey.update",
-            team_id=self.context["team_id"],
-            feature_flag_id=instance.targeting_flag_id,
-        )
-
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                warn_if_missing_feature_flag_write_scope(
+                    self.context["request"],
+                    action="survey.update.remove_targeting_flag",
+                    team_id=self.context["team_id"],
+                    feature_flag_id=instance.targeting_flag_id,
+                )
                 # Manually delete the flag and log the change
                 # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
                 # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
@@ -1280,6 +1279,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
+            warn_if_missing_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.update.targeting_flag_filters",
+                team_id=self.context["team_id"],
+                feature_flag_id=instance.targeting_flag_id,
+            )
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
