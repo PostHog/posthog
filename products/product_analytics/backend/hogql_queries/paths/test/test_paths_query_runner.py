@@ -12,6 +12,7 @@ from posthog.test.base import (
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.schema import CachedPathsQueryResponse
 
@@ -934,13 +935,20 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             response[2].dict().items() >= {"source": "2_/pricing", "target": "3_/about", "value": 1}.items()
         )
 
-    def test_paths_start_and_end_trailing_slashes(self):
-        # When both startPoint and endPoint are set, the query goes through
-        # `get_target_clause`, which interpolates the values directly into
-        # `indexOf` calls against URLs that have already been stripped of
-        # trailing slashes by `construct_event_hogql`. The runner must strip
-        # trailing slashes from the filter values too — otherwise queries with
-        # `/pricing/` silently return zero results even though `/pricing` would.
+    @parameterized.expand(
+        [
+            ("both", "/pricing/", "/checkout/"),
+            ("start_only", "/pricing/", "/checkout"),
+            ("end_only", "/pricing", "/checkout/"),
+        ]
+    )
+    def test_paths_start_and_end_trailing_slashes(self, _name: str, start_point: str, end_point: str) -> None:
+        # `construct_event_hogql` strips trailing slashes from `$current_url`
+        # before paths runs its `indexOf` checks. The runner must apply the same
+        # normalization to `startPoint`/`endPoint` — otherwise a filter like
+        # `/pricing/` silently returns zero results even though `/pricing` would.
+        # Each endpoint goes through its own strip, so a trailing slash on only
+        # one side is a distinct code path worth asserting.
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
 
@@ -970,8 +978,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "startPoint": "/pricing/",
-                    "endPoint": "/checkout/",
+                    "startPoint": start_point,
+                    "endPoint": end_point,
                 },
             },
             team=self.team,
