@@ -224,7 +224,7 @@ class BatchConsumer:
             return
 
         logger.info(
-            f"batch_picked_up: batch_id={batch.id} batch_index={batch.batch_index} final={batch.is_final_batch}",
+            "batch_picked_up",
             batch_id=batch.id,
             run_uuid=batch.run_uuid,
             batch_index=batch.batch_index,
@@ -256,7 +256,7 @@ class BatchConsumer:
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
             logger.info(
-                f"batch_processed_ok: batch_id={batch.id} batch_index={batch.batch_index} duration={round(duration, 3)}s",
+                "batch_processed_ok",
                 batch_id=batch.id,
                 run_uuid=batch.run_uuid,
                 batch_index=batch.batch_index,

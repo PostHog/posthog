@@ -165,11 +165,14 @@ class LogMessagesRenderer:
                 log_source = event_dict.pop("log_source", log_source)
                 log_source_id = event_dict.pop("log_source_id", log_source_id)
 
-                # Append resource to message so the Syncs UI distinguishes parallel batches.
+                # Append resource + batch_index so the Syncs UI distinguishes parallel batches.
                 message_text = event_dict[self.event_key]
                 resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
                 if resource_marker:
                     message_text = f"{message_text} [{resource_marker}]"
+                batch_index = event_dict.get("batch_index")
+                if batch_index is not None:
+                    message_text = f"{message_text} #{batch_index}"
 
                 message_dict = {
                     "instance_id": event_dict["workflow_run_id"],

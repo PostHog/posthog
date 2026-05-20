@@ -859,6 +859,27 @@ def test_log_messages_renderer_appends_resource_to_message():
     payload3 = json.loads(produced3.decode("utf-8"))
     assert payload3["message"] == "cdc_extract_completed"
 
+    # `batch_index` appends after the resource marker so consecutive batches are distinct.
+    event_dict4 = dict(event_dict)
+    event_dict4["msg"] = "batch_picked_up"
+    event_dict4["batch_index"] = 2
+    rendered4 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict4)
+    produced4 = rendered4["produce_message"]
+    assert produced4 is not None
+    payload4 = json.loads(produced4.decode("utf-8"))
+    assert payload4["message"] == "batch_picked_up [example_table_cdc] #2"
+
+    # `batch_index` alone (no resource) still appends.
+    event_dict5 = dict(event_dict)
+    event_dict5.pop("resource")
+    event_dict5["msg"] = "batch_failed_will_retry"
+    event_dict5["batch_index"] = 0
+    rendered5 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict5)
+    produced5 = rendered5["produce_message"]
+    assert produced5 is not None
+    payload5 = json.loads(produced5.decode("utf-8"))
+    assert payload5["message"] == "batch_failed_will_retry #0"
+
 
 def test_resolve_log_source_cdc_extraction():
     # CDC schedule fires workflows with id `cdc-extraction-{source_uuid}-{iso_ts}`. The renderer
