@@ -130,7 +130,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const showCreateMenu = canEditDashboard // notebook + subscribe both gated on canEdit
     const showEditMenu = true // duplicate always
     const showFileMenu = true
-    const showViewMenu = isMinimalViewFeatureEnabled
+    const showViewMenu = true
     const showMetadataMenu = true
 
     return (
@@ -308,6 +308,19 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     >
                         Pinned
                     </SceneMenuBarCheckboxItem>
+                </SceneMenuBarMenu>
+            )}
+            {showViewMenu && (
+                <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
+                    {isMinimalViewFeatureEnabled && (
+                        <SceneMenuBarCheckboxItem
+                            checked={minimalViewEnabled}
+                            onCheckedChange={(checked) => setMinimalViewEnabled(checked)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-minimal-view`}
+                        >
+                            Minimal view
+                        </SceneMenuBarCheckboxItem>
+                    )}
                     <SceneMenuBarCheckboxItem
                         checked={dashboardMode === DashboardMode.Fullscreen}
                         onCheckedChange={(checked) => {
@@ -319,17 +332,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         data-attr={`${RESOURCE_TYPE}-menubar-fullscreen`}
                     >
                         Fullscreen
-                    </SceneMenuBarCheckboxItem>
-                </SceneMenuBarMenu>
-            )}
-            {showViewMenu && (
-                <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                    <SceneMenuBarCheckboxItem
-                        checked={minimalViewEnabled}
-                        onCheckedChange={(checked) => setMinimalViewEnabled(checked)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-minimal-view`}
-                    >
-                        Minimal view
                     </SceneMenuBarCheckboxItem>
                 </SceneMenuBarMenu>
             )}
