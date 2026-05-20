@@ -50,7 +50,7 @@ def import_agent_class(agent_path: str) -> type[CustomSignalAgent]:
 def validate_agent_class_identity(agent_class: type[CustomSignalAgent], product: str, type_: str) -> tuple[str, str]:
     """Validate that an imported class matches the workflow input identity."""
     expected = validate_identifier(product, type_)
-    actual = agent_class.validated_identifier()
+    actual = agent_class._validated_identifier()
     if actual != expected:
         raise CustomAgentLoadError(
             f"Custom signal agent identity mismatch: workflow requested {expected!r}, "

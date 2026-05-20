@@ -21,18 +21,25 @@ Pick this layer (instead of writing your own Temporal workflow) when you want on
 ```text
 products/signals/backend/
   custom_agent/
-    __init__.py              # public re-exports
-    base.py                  # CustomSignalAgent base class
+    __init__.py              # public re-exports (includes run_agent / arun_agent)
+    base.py                  # CustomSignalAgent base class — Temporal-free SDK
     schemas.py               # workflow IO, identifier validation, assignee schema
     loader.py                # dotted-path import + identity validation for the activity
     persistence.py           # direct READY-report creation + artefacts + task link
     examples/
       cookie_poem_agent.py   # canonical minimal example (NO_REPO, one send())
   auto_start.py              # shared with the agentic signals pipeline
-  temporal/custom_agent.py   # signals-custom-agent workflow + activity
+  temporal/custom_agent.py   # workflow + activity + run_agent/arun_agent launchers
   management/commands/
     run_cookie_poem_agent.py # CLI smoke test
 ```
+
+`base.py` has zero `temporalio` / `posthog.temporal` imports. The agent is a
+plain async Python object that you construct, drive via :py:meth:`start`, and
+discard. The Temporal workflow + activity + launcher functions in
+`temporal/custom_agent.py` are _one_ way to wrap that lifecycle — future
+wrappers (in-process runners, Temporal schedules, queue consumers) can live
+alongside without touching the SDK.
 
 ## Public API
 
@@ -46,26 +53,33 @@ class MyAgent(CustomSignalAgent):
     def identifier(cls) -> tuple[str, str]:
         return ("my_product", "my_type")  # both must match [a-z0-9][a-z0-9_-]*
 
-    async def run(self) -> None:
+    async def run(self) -> bool:
         result = await self.send("Do the thing.", MyOutputModel)
         self.register_title(result.title)
         self.register_description(result.body)
         self.register_actionability(ActionabilityAssessment(...))
         self.register_priority(PriorityAssessment(...))
         self.register_assignees([CustomAgentAssignee(github_login="oliver")])
+        return True  # finalize and persist a trailing report
 ```
 
-The class must live in an importable top-level module (no nested classes, no `__main__`); `arun_agent` captures the dotted path automatically.
+`run()` returns a bool: `True` finalizes a trailing report from the registered components; any falsy value emits no trailing report (use this when all reports were already emitted via `report_and_continue()`, or when the run intentionally produces nothing). `title` and `description` must be registered before any finalization point — they have **no default resolver**. Missing either raises `MissingReportComponentError` before any default-resolver LLM calls run.
 
-### Starting an agent
+The class must live in an importable top-level module (no nested classes, no `__main__`); the Temporal launcher captures the dotted path automatically.
+
+### Starting an agent (Temporal-backed)
 
 ```python
-MyAgent.run_agent(team, initial_prompt, *, repository=None, id=None, model=None) -> CustomAgentRunHandle
-# or
-await MyAgent.arun_agent(...)  # same shape
+from products.signals.backend.temporal.custom_agent import run_agent, arun_agent
+
+handle = run_agent(MyAgent, team, initial_prompt, *, repository=None, id=None, model=None)
+# or, in async code:
+handle = await arun_agent(MyAgent, team, initial_prompt, *, repository=None, id=None, model=None)
 ```
 
-Both are fire-and-forget: they start the shared `signals-custom-agent` Temporal workflow and return a `CustomAgentRunHandle(workflow_id, run_id, product, type, team_id, started, already_running)`. Reusing the same optional `id` returns `already_running=True` instead of erroring.
+Both are fire-and-forget module-level functions defined in `temporal/custom_agent.py`. They are **not** re-exported from `custom_agent/__init__.py` — doing so would create a circular import (the SDK package is Temporal-free; the Temporal wrapper depends on it, not the other way around). Import them from `temporal.custom_agent` directly. They start the shared `signals-custom-agent` Temporal workflow and return a `CustomAgentRunHandle(workflow_id, run_id, started)`. Reusing the same optional `id` while a workflow with that id is still running returns `started=False` instead of erroring; all other identity bits (`product`, `type`, `team_id`) are already known to the caller.
+
+The base class itself does not know about Temporal. Other framework wrappers (in-process runners for tests/scripts, Temporal schedules for periodic runs) can be added next to `run_agent` / `arun_agent` without changing the SDK.
 
 ### `send()`
 
@@ -76,7 +90,6 @@ async def send(
     output_model: type[T],            # pydantic BaseModel
     *,
     label: str | None = None,
-    include_report_context: bool = True,
     validation_retries: int | None = None,
 ) -> T
 ```
@@ -98,43 +111,66 @@ register_priority(PriorityAssessment)
 register_assignees(list[CustomAgentAssignee])
 ```
 
-`register_title` enforces `self.max_title_length` (default 255) as a hard backstop; the soft limit lives in the schema given to the LLM (`_TitleResolution.title` has `max_length=96`). Two limits are intentional — the LLM tends to ignore the soft one.
+`register_title` enforces `self.max_title_length` (default 255) as a hard cap. `title` and `description` have no default resolver, so they must be registered explicitly before any finalization point.
 
 If you call the same `register_*` twice, the second call silently wins. That's fine; build your `run()` so it doesn't happen accidentally.
+
+### `report_and_continue()`
+
+```python
+async def report_and_continue(self) -> PersistedCustomAgentReport
+```
+
+Call mid-`run()` to finalize and persist the _current_ report state, then reset the title/description/actionability/priority/assignees so `run()` can produce another report against the same sandbox session and conversation. Requires `title` and `description` already registered — if either is missing, raises `MissingReportComponentError` _before_ any default-resolver LLM calls. Resolves remaining unregistered components (actionability → priority → assignees), persists the report + artefacts + task link, fires autostart when there's a selected repo, then clears the component slots. Repository, `MultiTurnSession`, and run identity stay intact.
+
+Use this when one `run()` should emit multiple independent reports against shared research context (e.g. "audit five different feature flags and file a report for each"). After the last `report_and_continue`, return `False` (or just not `True`) from `run()` so no empty trailing report is attempted.
 
 ### Class attributes
 
 - `default_validation_retries = 3`
-- `continue_without_repository = False` — when `True`, free-form repo selection that returns no repo still proceeds with `repository=None`. `NO_REPO` callers don't need this.
 - `max_title_length = 255`
+
+## Base class layout
+
+`CustomSignalAgent` is organized into six sections, in this order:
+
+1. **Init** — class attributes and `__init__`.
+2. **Mandatory overrides** — `identifier`, `run`.
+3. **Likely called by subclasses** — `send`, `report_and_continue`, `register_*`.
+4. **Likely overridden (prompt customization)** — `repository_request_section`, `resolve_*_prompt` (three of them: actionability/priority/assignees).
+5. **Unlikely overridden (default resolver implementations)** — `resolve_actionability`/`priority`/`assignees`.
+6. **Internal — do not override** — `start` (framework entry point called by the activity), plus all private helpers (`_validated_identifier`, `_normalize_repository`, `_resolve_repository`, `_resolve_missing_report_components`, `_task`, `_finalize_and_persist_current_report`, `_maybe_autostart`, `_reset_report_components`, `_final_report`, `_build_turn_prompt`, `_initial_session_preamble`, `_build_validation_retry_prompt`, `_send_raw`, `_parse_and_validate`).
+
+Methods in sections 4 and 5 can be overridden by subclasses to customize behavior; section 6 underscore-prefixed methods are internal-by-convention but callable from overrides if needed.
+
+Notably absent from the class: anything Temporal-aware. `run_agent` / `arun_agent` are module-level functions in `temporal/custom_agent.py`; the workflow-ID and import-path helpers they need live next to them.
 
 ## Lifecycle
 
-1. `run_agent` validates identifier, captures `agent_path` via `cls.import_path()`, computes a workflow ID, starts `signals-custom-agent`, returns a handle.
+1. `run_agent(MyAgent, team, ...)` (Temporal launcher in `temporal/custom_agent.py`) validates identifier, captures `agent_path` via `_agent_import_path`, computes a workflow ID, starts `signals-custom-agent`, returns a handle.
 2. Workflow runs `run_custom_signal_agent_activity` (single attempt, 85-min start-to-close).
-3. Activity:
+3. Activity (thin wrapper):
    1. Imports the agent class from `agent_path`; rejects nested/local classes and class-identity mismatch.
-   2. Resolves the team and a `user_id` via `resolve_user_id_for_team`. This **requires a GitHub integration on the team** and raises otherwise — by design.
-   3. Resolves the repository (see "Repository modes" below).
-   4. If repo selection found nothing and `continue_without_repository` is `False`, persists a final "Repository selection required" READY report and stops.
-   5. Constructs the agent and calls `agent.start()`, which:
+   2. Loads the team and constructs the agent with `team`, `initial_prompt`, `repository`, `model`. User and repository resolution happen inside `agent.start()`.
+   3. Calls `agent.start()`, which:
+      - Resolves `user_id` via `resolve_user_id_for_team(team_id)` if the caller didn't supply one. This **requires a GitHub integration on the team** and raises otherwise.
+      - Calls `self._resolve_repository()` (see "Repository modes" below). Free-form selection that returns no repo raises `CustomAgentRepositorySelectionError` and fails the activity.
       - Calls subclass `run()`.
-      - Calls `resolve_missing_report_components()` for any unregistered field.
+      - For every `report_and_continue()` and (when `run()` returns `True`) for the trailing finalization: verifies `title`+`description` are registered, resolves the remaining components, persists the report + artefacts + task link, fires autostart.
       - Closes the `MultiTurnSession` in `finally`.
-   6. Persists the final report + artefacts + research-task link in one transaction.
-   7. Calls `maybe_autostart_implementation_task(...)` when there's a selected repo (skipped for `NO_REPO` and "no selected repo" cases).
+   4. Returns `CustomAgentWorkflowOutput(report_ids=[...], ...)`.
 
-The sandbox `Task` only exists if `send()` was called at least once. The `SignalReportTask(RESEARCH)` link only happens when a task exists.
+The sandbox `Task` only exists if `send()` was called at least once. The `SignalReportTask(RESEARCH)` link only happens when a task exists. Each persisted report links to the same task when there are multiple per run.
 
 ## Repository modes
 
-The `repository` argument to `run_agent` has three modes, resolved in `CustomSignalAgent.resolve_repository` (classmethod, overridable per subclass):
+The `repository` argument to `run_agent` has three modes, resolved in `CustomSignalAgent._resolve_repository` (internal, not overridable):
 
-| Caller value     | Mode       | Sandbox repo                  | Selected report repo    |
-| ---------------- | ---------- | ----------------------------- | ----------------------- |
-| `"owner/repo"`   | `explicit` | `owner/repo` lowercased       | same                    |
-| `NO_REPO`        | `no_repo`  | `None`                        | `None`                  |
-| `None` (omitted) | `selected` | result of free-form selection | selected repo or `None` |
+| Caller value     | Mode       | Sandbox repo                  | Selected report repo                                           |
+| ---------------- | ---------- | ----------------------------- | -------------------------------------------------------------- |
+| `"owner/repo"`   | `explicit` | `owner/repo` lowercased       | same                                                           |
+| `NO_REPO`        | `no_repo`  | `None`                        | `None`                                                         |
+| `None` (omitted) | `selected` | result of free-form selection | selected repo, or raises `CustomAgentRepositorySelectionError` |
 
 Free-form selection (`select_repository_for_prompt`) reuses the existing repo cache (`system.integration_repository_cache`) and the `PostHog/.github` dummy clone for the selection sandbox. It uses `MultiTurnSession.start()` (no validation retry — if the model returns malformed JSON, the activity fails and produces no report).
 
@@ -151,16 +187,18 @@ The activity uses `RetryPolicy(maximum_attempts=1)` for the whole agent run. Ret
 
 ## Default resolvers
 
-If you skip a `register_*` call, the corresponding `resolve_*` method on the base class fills it in after `run()` returns. Order: title → description → actionability → priority (skipped when `actionability == not_actionable`) → assignees.
+`title` and `description` have **no** default resolver — they must be registered by `run()` before finalization. Missing either at finalization raises `MissingReportComponentError` _before_ any default-resolver LLM calls.
+
+The remaining components have default resolvers that fire only when not registered. Order: actionability → priority (skipped when `actionability == not_actionable`) → assignees.
 
 Each resolver is a pair on `CustomSignalAgent`:
 
 - `resolve_x_prompt() -> str` — returns the prompt body. Override this to tweak wording without touching the wiring.
-- `resolve_x() -> None` — wraps the prompt with finalization + current-report context, calls `send(...)` with the right output schema, and calls `register_x(...)`. Override this for full control over the schema or the resolution flow.
+- `resolve_x() -> None` — calls `send(...)` with the prompt body and the right output schema, then `register_x(...)`. Override for full control over schema or flow.
 
-The first resolver invoked prepends a one-time "final report preparation" block via `consume_finalization_context()`. Subsequent resolvers just get the current report context plus their schema-specific prompt.
+Default resolvers send their prompt + schema and nothing else — no per-call report-state preamble. They rely entirely on the in-session conversation history (initial prompt, repo context, all prior turns) for context.
 
-To skip all default resolution, register everything in `run()`.
+To skip all default resolution, register everything in `run()` (and before each `report_and_continue` call when emitting multiple reports).
 
 ## Persistence
 
@@ -183,11 +221,11 @@ To skip all default resolution, register everything in `run()`.
 - Task queue: `settings.VIDEO_EXPORT_TASK_QUEUE` (shared Signals worker).
 - Workflow ID: `signals-custom-agent:{team_id}:{product}:{type}-{run_id}`, where `run_id` is the caller-provided `id` or a UUID.
 - Input: `CustomAgentWorkflowInput(team_id, agent_path, product, type, run_id, initial_prompt, repository, model)`.
-- Output: `CustomAgentWorkflowOutput(report_id, status, repository, task_id)`.
+- Output: `CustomAgentWorkflowOutput(status, report_ids: list[str], repository, task_id)`.
 
 ## Auto-start (shared with the signals pipeline)
 
-`products/signals/backend/auto_start.py::maybe_autostart_implementation_task` is the shared entry point. The custom agent activity calls it after persistence (wrapped in try/except so autostart failures don't fail the report). It's skipped entirely when there's no selected repo. Custom-agent assignees are mapped to `ReviewerContent` dicts at the call site.
+`products/signals/backend/auto_start.py::maybe_autostart_implementation_task` is the shared entry point. The custom agent's `_finalize_and_persist_current_report` calls it after persistence (wrapped in try/except so autostart failures don't fail the report). It's skipped entirely when there's no selected repo. Custom-agent assignees are mapped to `ReviewerContent` dicts in the agent's `_maybe_autostart` helper.
 
 Any future fix to the autostart hacks (assignment-by-self-opt-in, GitHub-login → PostHog-user resolution, `interaction_origin="signal_report"` magic string, non-transactional task creation) lands in that one module and benefits both code paths.
 
@@ -210,15 +248,37 @@ Any future fix to the autostart hacks (assignment-by-self-opt-in, GitHub-login �
 
 ## Gotchas
 
-- `repository=NO_REPO` is a sentinel string that must never reach `Task.repository`. `CustomSignalAgent.resolve_repository` translates it; don't hand-roll a different path.
+- `repository=NO_REPO` is a sentinel string that must never reach `Task.repository`. `CustomSignalAgent._resolve_repository` translates it; don't hand-roll a different path.
 - `agent.task` is `None` until the first `send()`. Skip the task link if it's still `None` at persistence time (the persistence layer already does this).
-- The workflow name `"signals-custom-agent"` is referenced by string in `arun_agent` to avoid an import cycle with `temporal/custom_agent.py`. Keep them in sync.
+- The workflow name `"signals-custom-agent"` is referenced by string in `arun_agent` (matching `@workflow.defn(name=...)` on `CustomSignalAgentWorkflow`). Keep them in sync.
 - Workflow input must stay primitive/dataclass; never pass `Team` objects, agent classes, or pydantic instances through Temporal.
+
+## Identified simplifications (not yet applied)
+
+Review pass found these over-engineered spots. None are bugs; all are candidates for a follow-up cleanup pass.
+
+1. **Collapse `ResolvedCustomAgentRepository` into `RepoSelectionResult`.** All three fields of the wrapper are derivable from `repo_selection`:
+   - `selected_repository` is always `repo_selection.repository` (verified across all three construction sites in `_resolve_repository`).
+   - `mode` is no longer read by anyone (activity short-circuit is gone).
+   - `RepositoryMode` Literal goes away with `mode`.
+     `_resolve_repository` would return `RepoSelectionResult`; `self._resolved_repository` becomes a `RepoSelectionResult`. ~40 lines + one dataclass + one Literal type removed.
+
+2. **Drop `CustomAgentWorkflowOutput.status`.** Always `SignalReport.Status.READY`. Add back if/when we have a non-ready outcome. Pair this with (1) since both touch the workflow boundary.
+
+3. **Reconsider `validate_agent_class_identity` defense-in-depth.** The launcher encodes `(product, type)` in the workflow ID, so a mismatch at start-time is impossible. The check only catches `identifier()` changing between launch and activity execution on a long-running workflow that survives a deploy. If dropped, `CustomAgentWorkflowInput` loses `product` and `type` (derivable from the imported class). Judgment call.
+
+4. **Make `_validated_identifier` a module-level function in `schemas.py`.** It's tiny (tuple-shape check + `validate_identifier(*identifier)`) and called from two places (loader + launcher). Removes one private classmethod from the base class. Marginal.
+
+5. ~~**Move `_repository_selection_required_report` onto the agent class**.~~ Done differently: the synthetic "Repository selection required" report is gone; `_resolve_repository` now raises `CustomAgentRepositorySelectionError` and the activity fails. Subclasses that want the soft-landing behaviour can override `__init__` to coerce inputs, or override `_resolve_repository` (it's internal-by-convention, not enforced).
+
+6. **Inline `_normalize_repository`.** Five-line static method called once from `_resolve_repository`. Trivial.
+
+7. **Convert `self.repository` to a `@property`** that reads `self._resolved_repository.repository` (after (1) lands). Removes the "two sources of truth" smell.
 
 ## Open questions / future work
 
-- Whether to make `continue_without_repository` per-call (currently a class attribute).
 - Whether to add `SignalReport.metadata` (or a `CUSTOM_AGENT_METADATA` artefact) for product/type/run_id.
 - Whether custom-agent reports should emit synthetic signals to participate in source-product filters.
 - Whether to support updating an existing custom-agent report vs always creating a new one.
 - Whether to expose `posthog_mcp_scopes` and sandbox env choice on the public API. Currently locked to `read_only` + `SIGNALS_REPORT_RESEARCH`.
+- Whether to add Temporal-schedule and in-process runners next to `arun_agent` / `run_agent` (the base SDK is already Temporal-free in anticipation of this).

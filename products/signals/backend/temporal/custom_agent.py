@@ -1,50 +1,37 @@
 from __future__ import annotations
 
+import uuid
+import importlib
 from datetime import timedelta
 
+from django.conf import settings
+
 import structlog
-import posthoganalytics
+from asgiref.sync import async_to_sync
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
-from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.custom_agent.base import CustomSignalAgent
 from products.signals.backend.custom_agent.loader import import_agent_class, validate_agent_class_identity
-from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import (
-    CustomAgentFinalReport,
+    CustomAgentRunHandle,
     CustomAgentWorkflowInput,
     CustomAgentWorkflowOutput,
-    ResolvedCustomAgentRepository,
+    validate_run_id,
 )
 from products.signals.backend.models import SignalReport
-from products.signals.backend.report_generation.research import (
-    ActionabilityAssessment,
-    ActionabilityChoice,
-    Priority,
-    PriorityAssessment,
-)
-from products.signals.backend.temporal.agentic import (
-    SIGNALS_REPO_DISCOVERY_ENV_NAME,
-    get_or_create_signals_sandbox_env,
-    resolve_user_id_for_team,
-)
-from products.signals.backend.temporal.agentic.select_repository import GITHUB_ONLY_DOMAINS
-from products.tasks.backend.models import SandboxEnvironment
 
 logger = structlog.get_logger(__name__)
 
 
 @workflow.defn(name="signals-custom-agent")
 class CustomSignalAgentWorkflow:
-    @staticmethod
-    def workflow_id_for(team_id: int, product: str, type_: str, run_id: str) -> str:
-        return f"signals-custom-agent:{team_id}:{product}:{type_}-{run_id}"
-
     @workflow.run
     async def run(self, inputs: CustomAgentWorkflowInput) -> CustomAgentWorkflowOutput:
         return await workflow.execute_activity(
@@ -55,24 +42,96 @@ class CustomSignalAgentWorkflow:
         )
 
 
-def _repository_selection_required_report(initial_prompt: str) -> CustomAgentFinalReport:
-    return CustomAgentFinalReport(
-        title="Repository selection required",
-        description=(
-            "A custom Signals agent was started, but no connected GitHub repository could be confidently selected "
-            "for the request. Choose the repository explicitly and rerun the agent.\n\n"
-            f"Initial request:\n{initial_prompt}"
-        ),
-        actionability=ActionabilityAssessment(
-            actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
-            explanation="The agent needs a human to pick the subject repository before it can do useful code research.",
-            already_addressed=False,
-        ),
-        priority=PriorityAssessment(
-            priority=Priority.P2,
-            explanation="The request may be actionable, but repository selection must be resolved first.",
-        ),
-        assignees=[],
+# ----------------------------------------------------------------------
+# Public Temporal launchers (the "convenient pre-built utilities")
+# ----------------------------------------------------------------------
+
+
+def _workflow_id_for(agent_class: type[CustomSignalAgent], team_id: int, run_id: str) -> str:
+    product, type_ = agent_class._validated_identifier()
+    return f"signals-custom-agent:{team_id}:{product}:{type_}-{validate_run_id(run_id)}"
+
+
+def _agent_import_path(agent_class: type[CustomSignalAgent]) -> str:
+    module_name = agent_class.__module__
+    class_name = agent_class.__qualname__
+    if module_name == "__main__":
+        raise RuntimeError("Custom signal agents must live in an importable module, not __main__")
+    if "." in class_name:
+        raise RuntimeError(
+            f"Custom signal agent {module_name}.{class_name} is nested/local. Define it as a top-level class."
+        )
+    module = importlib.import_module(module_name)
+    if getattr(module, class_name, None) is not agent_class:
+        raise RuntimeError(f"Custom signal agent path {module_name}.{class_name} does not import this class")
+    return f"{module_name}.{class_name}"
+
+
+async def arun_agent(
+    agent_class: type[CustomSignalAgent],
+    team: Team,
+    initial_prompt: str,
+    *,
+    repository: str | None = None,
+    id: str | None = None,
+    model: str | None = None,
+) -> CustomAgentRunHandle:
+    """Start the shared ``signals-custom-agent`` Temporal workflow for an agent class.
+
+    Fire-and-forget: returns immediately with a :py:class:`CustomAgentRunHandle`
+    carrying the workflow id, run id, and whether this call actually started a
+    new workflow. Reusing the same ``id`` while a workflow is already running
+    returns ``started=False`` instead of raising.
+    """
+    product, type_ = agent_class._validated_identifier()
+    run_id = validate_run_id(id) if id is not None else str(uuid.uuid4())
+    team_id = int(team.id)
+    workflow_id = _workflow_id_for(agent_class, team_id, run_id)
+    input_data = CustomAgentWorkflowInput(
+        team_id=team_id,
+        agent_path=_agent_import_path(agent_class),
+        product=product,
+        type=type_,
+        run_id=run_id,
+        initial_prompt=initial_prompt,
+        repository=repository,
+        model=model,
+    )
+
+    client = await async_connect()
+    try:
+        await client.start_workflow(
+            "signals-custom-agent",
+            input_data,
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            execution_timeout=timedelta(minutes=90),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        started = True
+    except WorkflowAlreadyStartedError:
+        started = False
+
+    return CustomAgentRunHandle(workflow_id=workflow_id, run_id=run_id, started=started)
+
+
+def run_agent(
+    agent_class: type[CustomSignalAgent],
+    team: Team,
+    initial_prompt: str,
+    *,
+    repository: str | None = None,
+    id: str | None = None,
+    model: str | None = None,
+) -> CustomAgentRunHandle:
+    """Sync wrapper around :func:`arun_agent`. Returns immediately."""
+    return async_to_sync(arun_agent)(
+        agent_class,
+        team,
+        initial_prompt,
+        repository=repository,
+        id=id,
+        model=model,
     )
 
 
@@ -90,105 +149,27 @@ async def run_custom_signal_agent_activity(inputs: CustomAgentWorkflowInput) -> 
         async with Heartbeater():
             agent_class = import_agent_class(inputs.agent_path)
             validate_agent_class_identity(agent_class, inputs.product, inputs.type)
-
             team = await Team.objects.select_related("organization").aget(pk=inputs.team_id)
-            user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(inputs.team_id)
-
-            repo_selection_env_id: str | None = None
-            if inputs.repository is None:
-                repo_selection_env_id = await database_sync_to_async(
-                    get_or_create_signals_sandbox_env,
-                    thread_sensitive=False,
-                )(
-                    inputs.team_id,
-                    SIGNALS_REPO_DISCOVERY_ENV_NAME,
-                    SandboxEnvironment.NetworkAccessLevel.CUSTOM,
-                    allowed_domains=GITHUB_ONLY_DOMAINS,
-                )
-
-            resolved_repo: ResolvedCustomAgentRepository = await agent_class.resolve_repository(
-                team_id=inputs.team_id,
-                user_id=user_id,
-                initial_prompt=inputs.initial_prompt,
-                repository=inputs.repository,
-                sandbox_environment_id=repo_selection_env_id,
-            )
-
-            if (
-                resolved_repo.mode == "selected"
-                and resolved_repo.selected_repository is None
-                and not agent_class.continue_without_repository
-            ):
-                persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
-                    team_id=inputs.team_id,
-                    final_report=_repository_selection_required_report(inputs.initial_prompt),
-                    repo_selection=resolved_repo.repo_selection,
-                    task_id=None,
-                )
-                log.info("custom signal agent stopped for repository selection", report_id=persisted.report_id)
-                return CustomAgentWorkflowOutput(
-                    report_id=persisted.report_id,
-                    status=SignalReport.Status.READY,
-                    repository=None,
-                    task_id=None,
-                )
-
             agent = agent_class(
                 team=team,
                 initial_prompt=inputs.initial_prompt,
-                repository=resolved_repo.selected_repository,
-                run_id=inputs.run_id,
-                user_id=user_id,
+                repository=inputs.repository,
                 model=inputs.model,
             )
-            final_report = await agent.start()
-            task_id = str(agent.task.id) if agent.task is not None else None
-            persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
-                team_id=inputs.team_id,
-                final_report=final_report,
-                repo_selection=resolved_repo.repo_selection,
-                task_id=task_id,
-            )
+            persisted_reports = await agent.start()
+            report_ids = [r.report_id for r in persisted_reports]
+            task_id = persisted_reports[0].task_id if persisted_reports else None
             log.info(
                 "custom signal agent completed",
-                report_id=persisted.report_id,
-                repository=resolved_repo.selected_repository,
+                report_ids=report_ids,
+                report_count=len(report_ids),
+                repository=agent.repository,
                 task_id=task_id,
             )
-
-            if resolved_repo.selected_repository is not None:
-                reviewers_content: list[ReviewerContent] = [
-                    ReviewerContent(
-                        github_login=assignee.github_login,
-                        github_name=assignee.github_name,
-                        relevant_commits=list(assignee.relevant_commits),
-                    )
-                    for assignee in final_report.assignees
-                ]
-                try:
-                    await maybe_autostart_implementation_task(
-                        team_id=inputs.team_id,
-                        report_id=persisted.report_id,
-                        repository=resolved_repo.selected_repository,
-                        title=final_report.title,
-                        summary=final_report.description,
-                        actionability=final_report.actionability,
-                        priority=final_report.priority,
-                        reviewers_content=reviewers_content,
-                    )
-                except Exception as error:
-                    posthoganalytics.capture_exception(error)
-                    log.exception(
-                        "custom signal agent auto-start task failed",
-                        report_id=persisted.report_id,
-                        repository=resolved_repo.selected_repository,
-                        error=str(error),
-                    )
-
             return CustomAgentWorkflowOutput(
-                report_id=persisted.report_id,
                 status=SignalReport.Status.READY,
-                repository=resolved_repo.selected_repository,
+                report_ids=report_ids,
+                repository=agent.repository,
                 task_id=task_id,
             )
     except Exception as exc:

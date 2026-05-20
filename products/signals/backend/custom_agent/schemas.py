@@ -63,11 +63,8 @@ class CustomAgentAssignee(BaseModel):
 class CustomAgentRunHandle:
     workflow_id: str
     run_id: str
-    product: str
-    type: str
-    team_id: int
     started: bool
-    already_running: bool
+    """True if this call started the workflow; False if a workflow with the same id was already running."""
 
 
 @dataclass
@@ -85,7 +82,7 @@ class CustomAgentWorkflowInput:
 @dataclass
 class CustomAgentWorkflowOutput:
     status: str
-    report_id: str | None
+    report_ids: list[str]
     repository: str | None
     task_id: str | None
 

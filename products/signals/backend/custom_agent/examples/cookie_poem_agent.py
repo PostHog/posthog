@@ -1,19 +1,26 @@
 """Minimal `CustomSignalAgent` example: writes a poem about cookies.
 
-Run it::
+This module defines only the agent class and its default prompt. The wiring to
+Temporal (constructing a team, calling ``run_agent``) lives in the management
+command ``run_cookie_poem_agent`` to keep this module Temporal-free \u2014 the
+activity dynamically imports agent modules via ``import_agent_class``, and
+agent modules that pull in the Temporal layer at module load time can hit
+partial-load ``ImportError``s.
 
-    from products.signals.backend.custom_agent.examples.cookie_poem_agent import run_cookie_poem_agent
+Run via the management command::
 
-    handle = run_cookie_poem_agent(team_id=1, prompt="Cookies on a rainy day")
+    # Through Temporal (default)
+    python manage.py run_cookie_poem_agent --team-id 1
+
+    # Direct, no Temporal harness (useful for testing the agent locally)
+    python manage.py run_cookie_poem_agent --team-id 1 --local
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from posthog.models import Team
-
-from products.signals.backend.custom_agent import NO_REPO, CustomAgentRunHandle, CustomSignalAgent
+from products.signals.backend.custom_agent import CustomSignalAgent
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -34,7 +41,7 @@ class CookiePoemAgent(CustomSignalAgent):
     def identifier(cls) -> tuple[str, str]:
         return "signals", "cookie_poem"
 
-    async def run(self) -> None:
+    async def run(self) -> bool:
         poem = await self.send("Write a short poem about cookies.", CookiePoem)
         self.register_title(poem.title)
         self.register_description(poem.body)
@@ -52,8 +59,4 @@ class CookiePoemAgent(CustomSignalAgent):
             )
         )
         self.register_assignees([])
-
-
-def run_cookie_poem_agent(*, team_id: int, prompt: str = DEFAULT_PROMPT) -> CustomAgentRunHandle:
-    team = Team.objects.select_related("organization").get(id=team_id)
-    return CookiePoemAgent.run_agent(team=team, initial_prompt=prompt, repository=NO_REPO)
+        return True
