@@ -1789,6 +1789,26 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_parse_order_expr_silently_drops_trailing_tokens(self):
+        # cpp's `parse_order_expr_json` entry point parses just one
+        # OrderExpr and silently drops anything after it — including
+        # whole INTERPOLATE clauses (which actually live one level up
+        # at orderByClause). Rust used to `expect_eof` and reject
+        # `a ASC extra` with "trailing tokens after expression".
+        # Both backends should accept and produce the same AST.
+        from posthog.hogql.parser import parse_order_expr
+
+        for src in (
+            "a ASC extra",
+            "a DESC NULLS FIRST extra trailing junk",
+            "a WITH FILL INTERPOLATE (b)",
+            "a WITH FILL FROM 1 TO 10 INTERPOLATE (b)",
+        ):
+            oracle = clear_locations(parse_order_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_order_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_pivot_group_by_with_empty_list_rejected(self):
         # cpp's `(GROUP BY columnExprList)?` requires a non-empty list
         # when GROUP BY is present — `PIVOT(... GROUP BY)` errors at the

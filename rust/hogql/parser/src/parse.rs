@@ -64,7 +64,14 @@ pub fn parse_expr(src: &str, _is_internal: bool) -> Result<Value, ParseError> {
 pub fn parse_order_expr(src: &str) -> Result<Value, ParseError> {
     let mut p = Parser::new(src)?;
     let exprs = p.parse_order_expr_list()?;
-    p.expect_eof()?;
+    // cpp's `parse_order_expr_json` entry point silently drops any
+    // trailing tokens after the first OrderExpr — `a ASC extra` parses
+    // as just `OrderExpr(a, ASC)`, and `a WITH FILL INTERPOLATE (b)`
+    // drops the INTERPOLATE since INTERPOLATE lives at the
+    // orderByClause level, not on the orderExpr itself. Mirror that
+    // permissive behaviour; the `parse_expr_json` and
+    // `parse_select_json` entry points still enforce expect_eof so
+    // callers there see real syntax errors.
     exprs
         .into_iter()
         .next()
