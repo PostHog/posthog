@@ -167,12 +167,22 @@ class LogMessagesRenderer:
                 log_source = event_dict.pop("log_source", log_source)
                 log_source_id = event_dict.pop("log_source_id", log_source_id)
 
+                # The Syncs UI's log_entries view only shows the `message` column, so structured
+                # fields like `resource_name` get hidden. CDC schemas with `cdc_table_mode='both'`
+                # produce two parallel batches per logical event (one per write target), which
+                # surfaces as two identical-looking rows in the panel. Surface the resource
+                # disambiguator inline so the duplicate rows are distinguishable.
+                message_text = event_dict[self.event_key]
+                resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
+                if resource_marker:
+                    message_text = f"{message_text} [{resource_marker}]"
+
                 message_dict = {
                     "instance_id": event_dict["workflow_run_id"],
                     "level": event_dict["level"],
                     "log_source": log_source,
                     "log_source_id": log_source_id,
-                    "message": event_dict[self.event_key],
+                    "message": message_text,
                     "team_id": event_dict["team_id"],
                     "timestamp": event_dict["timestamp"],
                 }

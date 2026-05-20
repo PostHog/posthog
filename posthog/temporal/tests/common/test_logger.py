@@ -810,6 +810,50 @@ def test_log_messages_renderer_event_level_log_source_override():
     assert payload["instance_id"] == "abc-run-id"
 
 
+def test_log_messages_renderer_appends_resource_to_message():
+    """`resource_name` / `resource` in the event dict gets appended to the produce message text.
+
+    CDC schemas with `cdc_table_mode='both'` produce two parallel batches per logical event
+    (one per write target). Without the inline marker the Syncs UI shows two identical-looking
+    rows; the marker keeps them distinguishable.
+    """
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "cdc_batch_written",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "cdc-extraction",
+        "workflow_id": "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
+        "workflow_run_id": "abc-run-id",
+        "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",
+        "resource": "example_table_cdc",
+    }
+
+    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    payload = json.loads(rendered["produce_message"].decode("utf-8"))
+    assert payload["message"] == "cdc_batch_written [example_table_cdc]"
+
+    # `resource_name` (consumer-side contextvar) works too.
+    event_dict2 = dict(event_dict)
+    event_dict2.pop("resource")
+    event_dict2["resource_name"] = "example_table"
+    event_dict2["msg"] = "batch_picked_up"
+    rendered2 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict2)
+    payload2 = json.loads(rendered2["produce_message"].decode("utf-8"))
+    assert payload2["message"] == "batch_picked_up [example_table]"
+
+    # Lines without a resource marker render unchanged.
+    event_dict3 = dict(event_dict)
+    event_dict3.pop("resource")
+    event_dict3["msg"] = "cdc_extract_completed"
+    rendered3 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict3)
+    payload3 = json.loads(rendered3["produce_message"].decode("utf-8"))
+    assert payload3["message"] == "cdc_extract_completed"
+
+
 def test_resolve_log_source_cdc_extraction():
     # CDC schedule fires workflows with id `cdc-extraction-{source_uuid}-{iso_ts}`. The renderer
     # uses the source uuid as the default log_source_id; per-schema log lines override it at emit time.
