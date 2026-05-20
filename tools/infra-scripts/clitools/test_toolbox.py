@@ -852,10 +852,11 @@ class TestToolbox(unittest.TestCase):
             claim_pod("toolbox-pod-1", user_labels, 1234567890, namespace="posthog")
 
     def test_pools_definition(self):
-        """POOLS contains both pools with the expected app and claim labels."""
+        """POOLS contains both pools with the expected app/claim labels and default namespaces."""
         self.assertEqual(
             toolbox_script.POOLS["toolbox-django"],
             {
+                "default_namespace": "posthog-toolbox-django",
                 "app_label": "posthog-toolbox-django",
                 "claimed_label_key": "toolbox-claimed",
                 "extra_selectors_by_namespace": {
@@ -865,7 +866,11 @@ class TestToolbox(unittest.TestCase):
         )
         self.assertEqual(
             toolbox_script.POOLS["flags-cache-jumphost"],
-            {"app_label": "flags-cache-jumphost", "claimed_label_key": "flags-jumphost-claimed"},
+            {
+                "default_namespace": "posthog",
+                "app_label": "flags-cache-jumphost",
+                "claimed_label_key": "flags-jumphost-claimed",
+            },
         )
 
     def test_exit_for_signal_raises_systemexit_for_sigterm(self):
@@ -1202,19 +1207,22 @@ class TestToolbox(unittest.TestCase):
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):
         """--pool toolbox-django (the default) threads the right kwargs per active namespace.
 
-        The legacy `posthog` namespace gets no `extra_selector`. The golden-chart per-app
-        namespace `posthog-toolbox-django` adds `app.kubernetes.io/component=app` so the
+        With no KUBE_NAMESPACE the pool resolves to its `default_namespace`
+        (`posthog-toolbox-django`) and the `component=app` selector is added so the
         wrapper can't claim a pgbouncer pod (the chart's pgbouncers share
         `app.kubernetes.io/name=posthog-toolbox-django` with the toolbox itself).
+        `KUBE_NAMESPACE=posthog` remains an escape hatch back to the legacy stack,
+        which doesn't need (or have) the `component=app` discriminator.
         """
         cases = [
-            ("posthog", None),  # legacy default — KUBE_NAMESPACE unset
-            ("posthog-toolbox-django", "app.kubernetes.io/component=app"),
+            # (env_namespace_override, resolved_namespace, expected_extra_selector)
+            (None, "posthog-toolbox-django", "app.kubernetes.io/component=app"),
+            ("posthog", "posthog", None),
         ]
-        for namespace, expected_extra in cases:
-            with self.subTest(namespace=namespace):
+        for env_namespace, resolved_namespace, expected_extra in cases:
+            with self.subTest(env_namespace=env_namespace):
                 patches = self._patch_main_collaborators()
-                env_override = {"KUBE_NAMESPACE": namespace} if namespace != "posthog" else {}
+                env_override = {"KUBE_NAMESPACE": env_namespace} if env_namespace else {}
                 with (
                     patches["get_current_user"],
                     patches["get_toolbox_pod"] as m_get_pod,
@@ -1228,7 +1236,7 @@ class TestToolbox(unittest.TestCase):
                 ):
                     os.environ.pop("KUBE_CONTEXT", None)
                     os.environ.pop("FLOX_ENV", None)
-                    if namespace == "posthog":
+                    if env_namespace is None:
                         os.environ.pop("KUBE_NAMESPACE", None)
                     with self.assertRaises(SystemExit):
                         toolbox_script.main()
@@ -1238,7 +1246,7 @@ class TestToolbox(unittest.TestCase):
                     check_claimed=True,
                     app_label="posthog-toolbox-django",
                     claimed_label_key="toolbox-claimed",
-                    namespace=namespace,
+                    namespace=resolved_namespace,
                     context="posthog-dev",
                     extra_selector=expected_extra,
                 )
@@ -1369,7 +1377,7 @@ class TestToolbox(unittest.TestCase):
         m_atexit.assert_called_once_with(
             m_delete,
             "toolbox-pod-1",
-            namespace="posthog",
+            namespace="posthog-toolbox-django",
             context="posthog-dev",
             auto_yes=True,
             expected_label_key="toolbox-claimed",
@@ -1433,7 +1441,7 @@ class TestToolbox(unittest.TestCase):
         m_atexit.assert_called_once_with(
             m_delete,
             "toolbox-pod-1",
-            namespace="posthog",
+            namespace="posthog-toolbox-django",
             context="posthog-dev",
             auto_yes=True,
             expected_label_key="toolbox-claimed",
@@ -1503,7 +1511,7 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(m_get_pod.call_count, 2)
         self.assertEqual(m_claim.call_count, 2)
         # We connected to the pod we won, not the one we lost.
-        m_connect.assert_called_once_with("toolbox-pod-B", namespace="posthog", context="posthog-dev")
+        m_connect.assert_called_once_with("toolbox-pod-B", namespace="posthog-toolbox-django", context="posthog-dev")
         # atexit was registered twice (once per candidate pod) and unregistered once
         # to clear the stale registration after the race.
         self.assertEqual(m_atexit.call_count, 2)
@@ -1593,7 +1601,7 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
-        m_connect.assert_called_once_with("toolbox-pod-mine", namespace="posthog", context="posthog-dev")
+        m_connect.assert_called_once_with("toolbox-pod-mine", namespace="posthog-toolbox-django", context="posthog-dev")
         # claim_pod was called once (the racing one) and not retried since we found our own pod.
         self.assertEqual(m_claim.call_count, 1)
         # First atexit register armed cleanup for pod-A; on the race we unregistered;

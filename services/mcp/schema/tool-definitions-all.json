@@ -5486,8 +5486,24 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-interviewees-bulk-create": {
+        "description": "Create up to 500 per-interviewee context rows for a topic in a single request. Each item is (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over `user-interview-topics-interviewees-create` when adding many rows.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Create many per-interviewee context rows at once",
+        "title": "Create many per-interviewee context rows at once",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-interviewees-create": {
-        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict.",
+        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict. Prefer `user-interview-topics-interviewees-bulk-create` when adding many rows at once.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Add per-interviewee context to a topic",

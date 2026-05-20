@@ -1961,7 +1961,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             entries=[],
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
-            quarantined_ids=set(),
+            active_quarantines_by_key={},
             change_count_by_key={},
             recent_drift_by_key={},
             totals_all=0,
@@ -2042,17 +2042,30 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
 
     # 3b. Active quarantines for this repo, scoped to the universe identifiers
     # AND the run_types they live on (quarantine is per (repo, run_type, id)).
-    quarantined_pairs: set[tuple[str, str]] = set()
+    # We hydrate the full row (not just identity) so the overview can render
+    # reason / expiry / who / source-run inline without a per-card fetch.
+    # `select_related("source_run")` is a single JOIN, capped by
+    # `BASELINE_OVERVIEW_MAX_ENTRIES`. `Run.metadata` (JSONField) and
+    # `Run.error_message` (TextField) can be large and aren't needed by the
+    # summary — defer them to keep the response light.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier] = {}
     if universe_identifiers:
-        quarantined_pairs = {
-            (run_type, identifier)
-            for run_type, identifier in QuarantinedIdentifier.objects.filter(
+        for q in (
+            QuarantinedIdentifier.objects.filter(
                 repo_id=repo_id,
                 identifier__in=universe_identifiers,
             )
             .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-            .values_list("run_type", "identifier")
-        }
+            .select_related("source_run")
+            .defer("source_run__metadata", "source_run__error_message")
+            .order_by("-created_at")
+        ):
+            key = (q.run_type, q.identifier)
+            # Multiple active rows for the same key shouldn't happen — create
+            # auto-supersedes prior — but if it does, keep the latest (sorted
+            # above) and ignore the rest.
+            if key not in active_quarantines_by_key:
+                active_quarantines_by_key[key] = q
 
     # 3c. Per-baseline stability signals: a lifetime baseline-flip count and a
     # smoothed recent-drift average. Replaces a daily-bucket sparkline that
@@ -2166,7 +2179,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         )
         frequent_ids = set(frequent_grouped)
 
-    # `quarantined_pairs` was built from the truncated set above (per-entry
+    # `active_quarantines_by_key` was built from the truncated set above (per-entry
     # attached). Re-query for the totals so they cover the full universe.
     if truncated and full_universe_identifiers:
         quarantined_id_count = (
@@ -2180,7 +2193,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .count()
         )
     else:
-        quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
+        quarantined_id_count = len({identifier for _, identifier in active_quarantines_by_key})
 
     # by_run_type counts every entry in the universe. Aggregate query under
     # truncation so it doesn't undercount; in-memory Counter when not truncated
@@ -2199,7 +2212,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
-        quarantined_ids=quarantined_pairs,
+        active_quarantines_by_key=active_quarantines_by_key,
         change_count_by_key=change_count_by_key,
         recent_drift_by_key=recent_drift_by_key,
         totals_all=totals_all,
@@ -2222,7 +2235,11 @@ class _BaselineOverviewRaw:
     entries: list[RunSnapshot]
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
-    quarantined_ids: set[tuple[str, str]]
+    # Latest active QuarantinedIdentifier (with `source_run` preloaded) for each
+    # `(run_type, identifier)` in the universe — lets the facade build the rich
+    # quarantine summary embedded on each BaselineEntry. Membership doubles as
+    # the "is_quarantined" signal — no separate set needed.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier]
     # Stability signals keyed by `(run_type, identifier)` because the same
     # identifier in different run types is a different baseline; merging would
     # bleed storybook stability into playwright stability.
@@ -2303,7 +2320,16 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 def list_quarantined_identifiers(
     repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
 ) -> list[QuarantinedIdentifier]:
-    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    qs = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=repo_id, team_id=team_id)
+        # Preload `source_run` so the facade can render the "what was wrong"
+        # link without an extra fetch per row. `Run.metadata` (JSONField) and
+        # `Run.error_message` (TextField) can be large and aren't needed for
+        # the summary — defer to keep response payloads tight.
+        .select_related("source_run")
+        .defer("source_run__metadata", "source_run__error_message")
+    )
     if run_type:
         qs = qs.filter(run_type=run_type)
     if identifier:
@@ -2323,9 +2349,18 @@ def quarantine_identifier(
     user_id: int,
     team_id: int,
     expires_at: datetime | None = None,
+    source_run_id: UUID | None = None,
 ) -> QuarantinedIdentifier:
     get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    # Resolve the source run inside the team scope so a malicious caller can't
+    # attach a quarantine to an unrelated run. Silently drop on mismatch — the
+    # quarantine itself still wins; we just lose the "what was wrong" pointer.
+    # We fetch (not just .exists()) so the facade can serialize source_run
+    # without a lazy-load on the freshly-created row.
+    source_run: Run | None = None
+    if source_run_id is not None:
+        source_run = Run.objects.using(WRITER_DB).filter(id=source_run_id, repo_id=repo_id, team_id=team_id).first()
     QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
         repo_id=repo_id,
         identifier=identifier,
@@ -2340,6 +2375,7 @@ def quarantine_identifier(
         reason=reason,
         expires_at=expires_at,
         created_by_id=user_id,
+        source_run=source_run,
     )
 
 

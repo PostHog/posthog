@@ -243,6 +243,33 @@ BEDROCK_FALLBACK_FAILURE = Counter(
     labelnames=["model", "product"],
 )
 
+ANTHROPIC_CIRCUIT_BREAKER_BYPASSED = Counter(
+    "llm_gateway_anthropic_circuit_breaker_bypassed_total",
+    "Anthropic requests routed straight to Bedrock because the breaker was open",
+    labelnames=["model", "product"],
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_OPEN = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_open",
+    "1 if the Anthropic->Bedrock circuit breaker is currently open, 0 otherwise",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_failure_rate",
+    "Trailing-window Anthropic failure rate observed by the circuit breaker",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_window_requests",
+    "Total Anthropic requests observed in the breaker's trailing window",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS = Counter(
+    "llm_gateway_anthropic_circuit_breaker_redis_errors_total",
+    "Redis errors encountered by the Anthropic circuit breaker (non-zero rate means breaker is blind)",
+    labelnames=["op"],
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(

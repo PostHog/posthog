@@ -208,11 +208,65 @@ class TestResolveTailscale:
     ) -> None:
         monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
         monkeypatch.setattr(coder, "_resolve_tailscale", lambda: None)
+        monkeypatch.setattr(coder.sys, "platform", "linux")
 
         with pytest.raises(SystemExit):
             coder.ensure_tailscale_connected()
 
-        assert "not installed" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "not installed" in out
+        # The install hint must be present so the user can act without searching.
+        assert "tailscale.com/install.sh" in out
+
+    def test_ensure_tailscale_connected_install_hint_is_macos_specific(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: None)
+        monkeypatch.setattr(coder.sys, "platform", "darwin")
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        out = capsys.readouterr().out
+        assert "brew install --cask tailscale" in out
+
+    def test_ensure_tailscale_connected_says_not_connected_when_daemon_down(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: "/usr/local/bin/tailscale")
+        monkeypatch.setattr(coder, "_tailscale_cli_missing_on_macos", lambda: False)
+        monkeypatch.setattr(coder.sys, "platform", "linux")
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        out = capsys.readouterr().out
+        assert "installed but not connected" in out
+        # On Linux the connect hint must mention `tailscale up`, not the macOS app.
+        assert "tailscale up" in out
+
+    def test_ensure_tailscale_connected_emits_symlink_hint_on_macos_when_cli_only_in_app_bundle(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
+        monkeypatch.setattr(coder, "_tailscale_cli_missing_on_macos", lambda: True)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        out = capsys.readouterr().out
+        assert "not on your PATH" in out
+        assert "ln -sfn" in out
+        assert coder._MACOS_TAILSCALE_CLI in out
 
 
 class TestTailscaleRoutesAccepted:
@@ -418,7 +472,7 @@ class TestCoderVersion:
 
 
 class TestCoderReachable:
-    """Test the Coder deployment reachability probe."""
+    """Test the Coder deployment reachability probe and diagnostic."""
 
     def test_coder_reachable_returns_false_on_request_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
@@ -429,11 +483,111 @@ class TestCoderReachable:
         monkeypatch.setattr(coder.requests, "get", boom)
         assert coder.coder_reachable() is False
 
-    def test_ensure_coder_reachable_fails_when_unreachable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ensure_coder_reachable_fails_when_unreachable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        monkeypatch.setattr(
+            coder,
+            "_diagnose_unreachable_coder",
+            lambda: coder.CoderReachabilityDiagnosis(
+                cause="stubbed cause.",
+                next_step="stubbed step.",
+                facts=["fact: one"],
+            ),
+        )
+
         with pytest.raises(SystemExit):
             coder.ensure_coder_reachable()
+
+        out = capsys.readouterr().out
+        assert "Cannot reach https://coder.example.com" in out
+        assert "stubbed cause." in out
+        assert "stubbed step." in out
+        assert "fact: one" in out
+
+
+class TestDiagnoseUnreachableCoder:
+    """Test the structured cause-and-next-step diagnosis for unreachable Coder."""
+
+    @pytest.fixture(autouse=True)
+    def _stub_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+    def test_dns_failure_dominates_other_causes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
+
+        def must_not_run(*args: object, **kwargs: object) -> bool:
+            raise AssertionError("TCP probe should be skipped when DNS fails")
+
+        monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "DNS lookup" in diagnosis.cause
+        assert "MagicDNS" in diagnosis.next_step
+        assert "Tailscale tailnet: posthog.com" in diagnosis.facts
+
+    def test_tcp_open_signals_tls_or_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: True)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "HTTPS probe" in diagnosis.cause
+        assert "clock" in diagnosis.next_step.lower()
+
+    def test_no_subnet_routers_points_to_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {"CurrentTailnet": {"Name": "personal.tailnet"}, "Peer": {"k": {"PrimaryRoutes": None}}},
+        )
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "No peer" in diagnosis.cause
+        assert "Team DevEx" in diagnosis.next_step
+
+    def test_routers_all_offline_says_relay_is_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {
+                "CurrentTailnet": {"Name": "posthog.com"},
+                "Peer": {
+                    "k": {"HostName": "subnet-router-us", "PrimaryRoutes": ["10.0.0.0/16"], "Online": False},
+                },
+            },
+        )
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "subnet-router-us" in diagnosis.cause
+        assert "Wait a minute" in diagnosis.next_step
+
+    def test_routers_online_points_at_acl_or_vpn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {
+                "CurrentTailnet": {"Name": "posthog.com"},
+                "Peer": {
+                    "k": {"HostName": "subnet-router-us", "PrimaryRoutes": ["10.0.0.0/16"], "Online": True},
+                },
+            },
+        )
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "blocked" in diagnosis.cause.lower()
+        assert "ACL" in diagnosis.next_step or "VPN" in diagnosis.next_step.upper()
 
 
 class TestWorkspaceNaming:

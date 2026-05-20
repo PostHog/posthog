@@ -438,7 +438,7 @@ SPECTACULAR_SETTINGS = {
         "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
-        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.api.SEARCH_DOCUMENT_TYPES",
+        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

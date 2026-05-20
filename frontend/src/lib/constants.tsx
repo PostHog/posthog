@@ -229,8 +229,9 @@ export const FEATURE_FLAGS = {
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_EVENTS_TABLE_ROLLOUT: 'ai-events-table-rollout', // owner: #team-llm-analytics, gates reads off the dedicated ai_events table
-    ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
+    ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
+    ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
     ALERTS_HISTORY_CHART: 'alerts-history-chart', // owner: #team-analytics-platform
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_INVESTIGATION_AGENT: 'alerts-investigation-agent', // owner: @andrewm4894, anomaly alerts — investigation agent on firing
@@ -301,6 +302,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_FUNNEL_DWH_SUPPORT: 'experiment-funnel-dwh-support', // owner: @rodrigoi #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
+    EXPERIMENTS_LLM_PROMPTS: 'experiments-llm-prompts', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHIP_VARIANT_RELEASE_MODE: 'experiments-ship-variant-release-mode', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
@@ -371,6 +373,7 @@ export const FEATURE_FLAGS = {
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
+    MCP_HINTS: 'mcp-hints', // owner: @rafaeelaudibert #team-growth, gates in-app MCP hint toasts and empty-state cards
     MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
@@ -469,7 +472,6 @@ export const FEATURE_FLAGS = {
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE: 'subscription-ai-summary-prompt-guide', // owner: #team-analytics-platform, gates the per-subscription prompt guide textarea
-    SUBSCRIPTION_HOURLY_FREQUENCY: 'subscription-hourly-frequency', // owner: #team-analytics-platform, gates hourly subscription frequency (up to 5 active hourly subscriptions per org)
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys

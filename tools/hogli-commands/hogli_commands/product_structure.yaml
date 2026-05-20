@@ -237,11 +237,17 @@ backend_files:
 
                 Frozen dataclasses that define what this product exposes.
                 No Django imports. Used by facade as inputs/outputs.
+
+                Uses ``pydantic.dataclasses.dataclass`` rather than the stdlib
+                variant — same syntax, same ``is_dataclass()`` compatibility (so
+                ``DataclassSerializer`` keeps working), but with runtime type
+                validation on construction.
                 """
 
-                from dataclasses import dataclass
                 from datetime import datetime
                 from uuid import UUID
+
+                from pydantic.dataclasses import dataclass
 
                 from .enums import SplineStatus
 

@@ -1821,7 +1821,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
-            mock.patch("products.endpoints.backend.api.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.endpoints.backend.materialization.ENDPOINT_BREAKDOWN_LIMIT", 5),
             mock.patch("products.endpoints.backend.api.capture_exception") as mock_capture,
         ):
             response = self.client.post(

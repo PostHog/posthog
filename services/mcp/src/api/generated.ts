@@ -3969,7 +3969,8 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
-     * * `hourly` - hourly
+     * * `every_15_minutes` - every_15_minutes
+    * `hourly` - hourly
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly
@@ -3978,6 +3979,7 @@ export namespace Schemas {
 
 
     export const CalculationIntervalEnum = {
+      Every15Minutes: 'every_15_minutes',
       Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
@@ -4044,6 +4046,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -5040,7 +5043,28 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
     export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -5371,8 +5395,16 @@ export namespace Schemas {
          * @nullable
          */
       bytes_exported?: number | null;
-      /** The BatchExport this run belongs to. */
-      readonly batch_export: string;
+      /**
+         * The `BatchExport` this run belongs to.
+         * @nullable
+         */
+      readonly batch_export: string | null;
+      /**
+         * The `BatchExportOnDemand` this run belongs to.
+         * @nullable
+         */
+      batch_export_on_demand?: string | null;
       /**
          * The backfill this run belongs to.
          * @nullable
@@ -6533,6 +6565,33 @@ export namespace Schemas {
       deleted: BulkDeleteDeletedItem[];
       /** Flags that could not be deleted, with reasons. */
       errors: BulkDeleteErrorItem[];
+    }
+
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
     }
 
     export interface BulkKeysRequest {
@@ -8250,6 +8309,43 @@ export namespace Schemas {
       SameOrigin: 'same_origin',
       GithubRepo: 'github_repo',
     } as const;
+
+    /**
+     * * `cost` - cost
+    * `latency` - latency
+    * `eval_pass_rate` - eval_pass_rate
+     */
+    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
+
+
+    export const TemplatesEnum = {
+      Cost: 'cost',
+      Latency: 'latency',
+      EvalPassRate: 'eval_pass_rate',
+    } as const;
+
+    export interface CreateFromPromptInput {
+      /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+      prompt_name: string;
+      /**
+         * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+         * @minItems 2
+         * @maxItems 10
+         */
+      versions: number[];
+      /**
+         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+         * @minItems 1
+         * @maxItems 3
+         */
+      templates: TemplatesEnum[];
+      /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+      name?: string;
+      /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+      feature_flag_key?: string;
+      /** Optional experiment description. */
+      description?: string;
+    }
 
     export interface CreateGroup {
       /**
@@ -11712,6 +11808,7 @@ export namespace Schemas {
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
     * `Resend` - Resend
+    * `PgAnalyze` - PgAnalyze
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -11861,6 +11958,7 @@ export namespace Schemas {
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
       Resend: 'Resend',
+      PgAnalyze: 'PgAnalyze',
     } as const;
 
     /**
@@ -12016,7 +12114,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -15779,6 +15878,12 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
@@ -15919,6 +16024,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -15960,6 +16072,11 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Columns to sync. Null means sync all columns.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -16124,7 +16241,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -17060,6 +17178,22 @@ export namespace Schemas {
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
+    }
+
+    export interface GitHubTeam {
+      /** GitHub team numeric identifier. */
+      id: number;
+      /** GitHub team slug. */
+      slug: string;
+      /** GitHub team display name. */
+      name: string;
+    }
+
+    export interface GitHubTeamsResponse {
+      /** List of GitHub teams available to the installation organization. */
+      teams: GitHubTeam[];
+      /** Whether more teams are available beyond this page. */
       has_more: boolean;
     }
 
@@ -22828,6 +22962,8 @@ export namespace Schemas {
 
     export interface QuarantinedIdentifierEntry {
       created_by?: UserBasicInfo | null;
+      /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+      source_run?: QuarantineSourceRun | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -23572,6 +23708,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
+    * `pganalyze` - pganalyze
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -23584,6 +23721,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
+      Pganalyze: 'pganalyze',
     } as const;
 
     /**
@@ -23786,8 +23924,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `hourly` - Hourly
-    * `daily` - Daily
+     * * `daily` - Daily
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly
@@ -23796,7 +23933,6 @@ export namespace Schemas {
 
 
     export const SubscriptionFrequencyEnum = {
-      Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -23854,9 +23990,8 @@ export namespace Schemas {
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
-      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+      /** How often to deliver: daily, weekly, monthly, or yearly.
 
-      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -25210,6 +25345,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -25508,6 +25645,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -26957,6 +27095,12 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -27029,6 +27173,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -29502,9 +29653,8 @@ export namespace Schemas {
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
-      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+      /** How often to deliver: daily, weekly, monthly, or yearly.
 
-      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -30865,6 +31015,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -32180,10 +32332,21 @@ export namespace Schemas {
     } as const;
 
     export interface QuarantineInput {
-      /** @maxLength 512 */
+      /**
+         * Snapshot identifier to quarantine.
+         * @maxLength 512
+         */
       identifier: string;
-      /** @maxLength 255 */
+      /**
+         * Why this snapshot is being quarantined.
+         * @maxLength 255
+         */
       reason: string;
+      /**
+         * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+         * @nullable
+         */
+      source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
     }
@@ -34582,6 +34745,24 @@ export namespace Schemas {
       stats: SurveyGlobalStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyGlobalStatsResponseRates;
+    }
+
+    export interface SurveyQuestionLabel {
+      /** UUID assigned to the survey question. */
+      question_id: string;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** UUID of the survey this question belongs to. */
+      survey_id: string;
+      /** Display name of the survey. */
+      survey_name: string;
+    }
+
+    export interface SurveyQuestionLabelsResponse {
+      /** One entry per question that has an ID assigned, across all the team's surveys. */
+      labels: SurveyQuestionLabel[];
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -38638,6 +38819,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -42426,6 +42625,10 @@ export namespace Schemas {
      */
     order?: string;
     /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
      * Free-text search applied to the experiment name (case-insensitive).
      */
     search?: string;
@@ -42456,6 +42659,12 @@ export namespace Schemas {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string;
+    };
+
+    export type ExperimentsPromptTemplatesRetrieve200Item = {
+      key: string;
+      label: string;
+      description: string;
     };
 
     export type ExportsListParams = {
@@ -43756,6 +43965,24 @@ export namespace Schemas {
     offset?: number;
     /**
      * Optional case-insensitive repository name search query.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string;
     };
