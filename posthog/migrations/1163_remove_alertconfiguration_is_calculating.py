@@ -6,7 +6,8 @@ class Migration(migrations.Migration):
     Phase 1 of 2: Remove is_calculating from Django state.
 
     This keeps the column in the database but removes it from the Django model.
-    The actual column drop happens in migration 1158.
+    The actual column drop happens in the follow-up
+    ``drop_alertconfiguration_is_calculating_column`` migration.
 
     The field was used by the old Celery alert check flow to prevent two workers
     from running the same alert check concurrently. The Temporal-based flow relies
@@ -15,7 +16,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1156_cohort_team_filters_help_text"),
+        ("posthog", "1162_drop_hourly_from_subscription_frequency_choices"),
     ]
 
     operations = [
