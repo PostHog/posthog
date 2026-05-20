@@ -7,6 +7,7 @@ returns DTO-shaped responses. No model imports.
 
 from typing import Any
 
+import structlog
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.request import Request
@@ -21,6 +22,50 @@ from products.wizard.backend.presentation.serializers import (
     WizardSessionSerializer,
 )
 
+logger = structlog.get_logger(__name__)
+
+
+def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> None:
+    """Info-level dump of how the incoming wizard_sessions request authenticated.
+
+    Helps diagnose 401/403 chains by surfacing auth type, identity, available scopes,
+    scoped_teams / scoped_organizations on the key, and the project the call targets.
+    """
+    authenticator = getattr(request, "successful_authenticator", None)
+    auth_type = type(authenticator).__name__ if authenticator else "Anonymous"
+    user = getattr(request, "user", None)
+    user_id = getattr(user, "id", None) if user and not user.is_anonymous else None
+
+    scopes: list[str] = []
+    scoped_teams: list[int] = []
+    scoped_organizations: list[str] = []
+
+    pak = getattr(authenticator, "personal_api_key", None)
+    if pak is not None:
+        scopes = list(pak.scopes or [])
+        scoped_teams = list(pak.scoped_teams or [])
+        scoped_organizations = list(pak.scoped_organizations or [])
+
+    token = getattr(authenticator, "access_token", None)
+    if token is not None:
+        scope_str: str = getattr(token, "scope", "") or ""
+        scopes = list(scope_str.split())
+        scoped_teams = list(getattr(token, "scoped_teams", None) or [])
+        scoped_organizations = list(getattr(token, "scoped_organizations", None) or [])
+
+    logger.info(
+        "wizard_sessions request",
+        action=action,
+        method=request.method,
+        path=request.path,
+        team_id_from_url=team_id,
+        auth_type=auth_type,
+        user_id=user_id,
+        scopes=scopes,
+        scoped_teams=scoped_teams,
+        scoped_organizations=scoped_organizations,
+    )
+
 
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "wizard_session"
@@ -28,6 +73,12 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"[^/]+"
+
+    def check_permissions(self, request: Request) -> None:
+        """Log the auth state before DRF decides allow/deny. Fires for both 200 and 403."""
+        team_id = getattr(self, "team_id", None)
+        _log_request_auth(request, action=getattr(self, "action", "<unknown>"), team_id=team_id)
+        super().check_permissions(request)
 
     @extend_schema(
         description=(
