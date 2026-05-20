@@ -1,0 +1,45 @@
+name: PostHog Private Sync
+
+on:
+    push:
+        branches:
+            - master
+            - main
+
+concurrency:
+    group: private-sync
+    cancel-in-progress: false
+
+jobs:
+    repo-sync:
+        name: Sync posthog-private with posthog
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: posthog-private
+
+            - name: Sync repositories 1 to 1 - master branch
+              uses: PostHog/git-sync@29d9a6756e8646d0715d5caa9c66438be7e32a1f # v3
+              with:
+                  source_repo: 'https://x-access-token:${{ github.token }}@github.com/posthog/posthog.git'
+                  source_branch: 'master'
+                  destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-private.git'
+                  destination_branch: 'master'
+
+            - name: Sync repositories 1 to 1 – tags
+              uses: PostHog/git-sync@29d9a6756e8646d0715d5caa9c66438be7e32a1f # v3
+              with:
+                  source_repo: 'https://x-access-token:${{ github.token }}@github.com/posthog/posthog.git'
+                  source_branch: 'refs/tags/*'
+                  destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-private.git'
+                  destination_branch: 'refs/tags/*'
