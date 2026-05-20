@@ -247,13 +247,22 @@ class ExperimentQueryBuilder:
     def _get_maturity_window_seconds(self) -> int:
         """
         Returns the total maturity window in seconds.
-        For retention metrics: conversion_window + retention_window_end.
+        For retention metrics: conversion_window (may be 0) + retention_window_end.
         For other metrics: conversion_window.
-        Returns 0 if no conversion window is configured.
+        Returns 0 when no maturity window can be derived.
+
+        Known limitation (retention metrics): the maturity HAVING clause is applied
+        to the exposures CTE and anchored on max(exposure_timestamp), not on the
+        user's start_event timestamp. This is a good approximation when start_event
+        happens shortly after exposure (the common case), but understates required
+        maturity when there's a long gap between exposure and start. A user exposed
+        long ago who only starts the day before analysis runs will pass the maturity
+        check even though their retention window has barely opened, and will likely
+        be counted as "not retained", diluting the metric. Proper fix is to anchor
+        retention maturity on max(start_event_timestamp) inside the retention query's
+        entity_metrics CTE; tracked as a follow-up.
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
-        if conversion_window_seconds == 0:
-            return 0
 
         if isinstance(self.metric, ExperimentRetentionMetric):
             retention_window_end_seconds = conversion_window_to_seconds(

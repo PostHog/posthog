@@ -11,6 +11,7 @@ export enum SignalSourceProduct {
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
     ENDPOINTS = 'endpoints',
+    PGANALYZE = 'pganalyze',
 }
 
 export enum SignalSourceType {
@@ -239,6 +240,33 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// pganalyze issue (database performance finding)
+
+export interface PgAnalyzeIssueReference {
+    kind: string | null
+    name: string | null
+    url: string | null
+    queryText: string | null
+}
+
+export interface PgAnalyzeIssueSignalExtra {
+    severity: string | null
+    references: PgAnalyzeIssueReference[]
+    database_id: string | null
+    server_human_id: string | null
+    server_name: string | null
+    synced_at: string
+}
+
+export interface PgAnalyzeIssueSignalInput {
+    source_type: 'issue'
+    source_product: 'pganalyze'
+    source_id: string
+    description: string
+    weight: number
+    extra: PgAnalyzeIssueSignalExtra
+}
+
 // Endpoint execution failure
 
 export interface EndpointExecutionFailedSignalExtra {
@@ -297,3 +325,4 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | PgAnalyzeIssueSignalInput

@@ -1,7 +1,7 @@
 import re
 import json
 from functools import cached_property
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -35,6 +35,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import absolute_uri
 
@@ -989,11 +990,68 @@ class IntervieweeContextSerializer(serializers.ModelSerializer):
         )
 
 
+BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS = 500
+
+
+class BulkIntervieweeContextItemSerializer(serializers.Serializer):
+    interviewee_identifier = serializers.CharField(
+        max_length=400,
+        help_text="Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.",
+    )
+    agent_context = serializers.CharField(
+        max_length=10000,
+        help_text="Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
+    )
+
+
+class BulkIntervieweeContextRequestSerializer(serializers.Serializer):
+    items = BulkIntervieweeContextItemSerializer(
+        many=True,
+        allow_empty=False,
+        help_text=(
+            "List of interviewee context rows to create. Each item has an `interviewee_identifier` and an "
+            f"`agent_context`. At most {BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS} items per request."
+        ),
+    )
+
+    def validate_items(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(value) > BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS:
+            raise serializers.ValidationError(
+                f"Cannot create more than {BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS} interviewee contexts in one request."
+            )
+        identifiers = [item["interviewee_identifier"] for item in value]
+        if len(set(identifiers)) != len(identifiers):
+            raise serializers.ValidationError("Duplicate interviewee_identifier values within items.")
+        return value
+
+
+class BulkIntervieweeContextResponseSerializer(serializers.Serializer):
+    inserted_count = serializers.IntegerField(help_text="Number of rows inserted by this request.")
+    skipped_count = serializers.IntegerField(
+        help_text="Number of items skipped because a row for that (topic, interviewee_identifier) already existed."
+    )
+    skipped_identifiers = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed.",
+    )
+
+
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier)."""
 
     scope_object = "user_interview"
+    # Treat the custom @action endpoints as writes so personal API keys with
+    # `user_interview:write` can hit them. Without this override, APIScopePermission
+    # can't map a custom action name to a scope and rejects the request with
+    # "This action does not support personal API key access".
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "bulk_create",
+    ]
     serializer_class = IntervieweeContextSerializer
     queryset = IntervieweeContext.objects.select_related("created_by").all()
     posthog_feature_flag = "user-interviews"
@@ -1007,3 +1065,59 @@ class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "topic_id": self.parents_query_dict["topic_id"]}
+
+    @extend_schema(
+        request=BulkIntervieweeContextRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkIntervieweeContextResponseSerializer)},
+        description=(
+            f"Create up to {BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS} interviewee context rows for a topic in a single "
+            "request. Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces "
+            "an `inserted_count`, a `skipped_count`, and the `skipped_identifiers` so the caller can reconcile. "
+            "Items must have unique `interviewee_identifier` values within the batch."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="bulk", pagination_class=None)
+    def bulk_create(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic_id = self.parents_query_dict["topic_id"]
+        team_id = self.parents_query_dict["team_id"]
+
+        topic = UserInterviewTopic.objects.filter(id=topic_id, team_id=team_id).first()
+        if topic is None:
+            return response.Response(
+                {"error": "Topic not found in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        self.check_object_permissions(request, topic)
+
+        payload = BulkIntervieweeContextRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        items: list[dict[str, Any]] = payload.validated_data["items"]
+
+        identifiers = [item["interviewee_identifier"] for item in items]
+        existing = set(
+            IntervieweeContext.objects.filter(
+                topic_id=topic_id,
+                interviewee_identifier__in=identifiers,
+            ).values_list("interviewee_identifier", flat=True)
+        )
+
+        new_rows = [
+            IntervieweeContext(
+                team_id=team_id,
+                topic_id=topic_id,
+                created_by=cast(User, request.user),
+                interviewee_identifier=item["interviewee_identifier"],
+                agent_context=item["agent_context"],
+            )
+            for item in items
+            if item["interviewee_identifier"] not in existing
+        ]
+
+        inserted = IntervieweeContext.objects.bulk_create(new_rows, ignore_conflicts=True)
+
+        response_payload = {
+            "inserted_count": len(inserted),
+            "skipped_count": len(existing) + (len(new_rows) - len(inserted)),
+            "skipped_identifiers": sorted(existing),
+        }
+        return response.Response(BulkIntervieweeContextResponseSerializer(response_payload).data)

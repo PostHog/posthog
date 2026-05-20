@@ -108,3 +108,63 @@ class TestSdkDoctorViewSet(APIBaseTest):
         sdk_libs = [s["lib"] for s in data["sdks"]]
         assert sdk_libs == ["posthog-node"]
         assert "posthog-python" not in sdk_libs
+
+
+class TestSdkDoctorLegacyEndpoint(APIBaseTest):
+    """Tests for the legacy /api/sdk_doctor/ endpoint consumed by the onboarding scene."""
+
+    def _url(self) -> str:
+        return "/api/sdk_doctor/"
+
+    @patch("posthog.api.sdk_doctor.get_team_data")
+    def test_cold_cache_returns_empty_200(self, mock_team) -> None:
+        mock_team.return_value = {}
+
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
+
+    @patch("posthog.api.sdk_doctor.get_team_data")
+    def test_genuine_failure_returns_500(self, mock_team) -> None:
+        mock_team.return_value = None
+
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json() == {"error": "Failed to get SDK versions. Please try again later."}
+
+    @patch("posthog.api.sdk_doctor.get_team_data")
+    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    def test_missing_github_data_returns_500(self, mock_github, mock_team) -> None:
+        mock_team.return_value = {
+            "posthog-node": [{"lib_version": "1.0.0", "count": 100, "max_timestamp": "2026-04-21T00:00:00Z"}]
+        }
+        mock_github.return_value = {}
+
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json() == {"error": "Failed to get GitHub SDK data. Please try again later."}
+
+    @patch("posthog.api.sdk_doctor.get_team_data")
+    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
+    def test_happy_path_returns_combined_data(self, mock_github, mock_team) -> None:
+        mock_team.return_value = {
+            "posthog-node": [
+                {"lib_version": "1.0.0", "count": 100, "max_timestamp": "2026-04-21T00:00:00Z"},
+            ]
+        }
+        mock_github.return_value = {
+            "posthog-node": {
+                "latestVersion": "2.0.0",
+                "releaseDates": {"1.0.0": "2025-10-01T00:00:00Z"},
+            }
+        }
+
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["posthog-node"]["latest_version"] == "2.0.0"
+        usage = data["posthog-node"]["usage"]
+        assert len(usage) == 1
+        assert usage[0]["lib_version"] == "1.0.0"
+        assert usage[0]["is_latest"] is False
+        assert usage[0]["release_date"] == "2025-10-01T00:00:00Z"

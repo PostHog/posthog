@@ -5872,6 +5872,7 @@ export const externalDataSources = [
     'ClickHouse',
     'Plain',
     'Resend',
+    'PgAnalyze',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

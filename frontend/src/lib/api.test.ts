@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiRequest } from 'lib/api'
+import type { ApiError } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -146,6 +147,24 @@ describe('API helper', () => {
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
         })
+    })
+
+    it('uses response message as the ApiError message when no detail or error is present', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: '',
+            headers: new Headers(),
+            json: () => Promise.resolve({ message: 'Could not fetch schemas from source.' }),
+        })
+
+        await expect(
+            api.create('/api/projects/2/external_data_sources/source-1/refresh_schemas/')
+        ).rejects.toMatchObject({
+            message: 'Could not fetch schemas from source.',
+            status: 400,
+            data: { message: 'Could not fetch schemas from source.' },
+        } satisfies Partial<ApiError>)
     })
 
     describe('organizationFeatureFlags', () => {
