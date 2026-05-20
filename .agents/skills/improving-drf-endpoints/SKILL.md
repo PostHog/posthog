@@ -51,20 +51,23 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Read vs write serializers are separate** when input shape differs from output
-7. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
+6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` are reused across many components. If your new `ChoiceField` (or `SerializerMethodField` returning an Enum) uses one of these and the choices differ from existing usages, drf-spectacular renames it to something like `Format5eaEnum` and `--fail-on-warn` fails CI. Prevent it: pick a more specific field name **or** add an entry to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` proactively so the generated enum has a stable, semantic name. The override format depends on the field kind — see the hash-trap note in [viewset-annotations.md](references/viewset-annotations.md#enum_name_overrides--fixing-enum-naming-warnings)
+7. **Read vs write serializers are separate** when input shape differs from output
+8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 
 See [serializer-fields.md](references/serializer-fields.md) for patterns and examples.
 
+After adding or changing any `ChoiceField` / `SerializerMethodField`-with-enum, run `python manage.py find_enum_collisions` locally before pushing — it catches a new collision and prints the exact override to paste into `ENUM_NAME_OVERRIDES`, so you don't discover the failure on CI.
+
 ### Viewset and action annotations
 
-8. **Every custom `@action` has `@extend_schema` or `@validated_request`** — without it, drf-spectacular discovers zero parameters
-9. **Plain `ViewSet` methods have schema annotations** — `ModelViewSet` with `serializer_class` is auto-discovered; plain `ViewSet` is not
-10. **`@extend_schema` is on the actual method** (`get`, `post`, `create`, `list`), not on a helper or the class itself
-11. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
-12. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
-13. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
-14. **ViewSets outside `products/` need `@extend_schema(tags=["<product>"])`** — ViewSets in `products/<name>/backend/` are auto-tagged via module path, but ViewSets in `posthog/api/` or `ee/` are not. Without the tag, the MCP scaffold and frontend type generator can't route the endpoint to the right product
+9. **Every custom `@action` has `@extend_schema` or `@validated_request`** — without it, drf-spectacular discovers zero parameters
+10. **Plain `ViewSet` methods have schema annotations** — `ModelViewSet` with `serializer_class` is auto-discovered; plain `ViewSet` is not
+11. **`@extend_schema` is on the actual method** (`get`, `post`, `create`, `list`), not on a helper or the class itself
+12. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
+13. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
+14. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
+15. **ViewSets outside `products/` need `@extend_schema(tags=["<product>"])`** — ViewSets in `products/<name>/backend/` are auto-tagged via module path, but ViewSets in `posthog/api/` or `ee/` are not. Without the tag, the MCP scaffold and frontend type generator can't route the endpoint to the right product
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 

@@ -129,6 +129,15 @@ status = serializers.ChoiceField(
 )
 ```
 
+**Collision-prone field names.** Generic names like `format`, `type`, `status`,
+`kind`, `level`, `mode`, `state`, `platform`, `provider` already exist on multiple
+components with different choices. Reusing one for a new ChoiceField means
+drf-spectacular auto-names your enum (`Format5eaEnum` and similar), which fails CI
+under `--fail-on-warn`. Either pick a more specific field name, or add a stable
+name to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` when you introduce the
+field. Run `python manage.py find_enum_collisions` after the change — it prints
+the exact override line to paste.
+
 ## DictField — typed values
 
 ```python
