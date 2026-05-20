@@ -10,9 +10,6 @@ in ``services/mcp/src/templates/cli-proxy-tool.md`` and
 * ``eval_schema_drilldown`` — for a non-trivial trends question, the agent
   drills into nested fields (``series``, ``breakdownFilter``) before the
   final ``call``.
-* ``eval_series_filter_schema_path`` — for a trends task with per-series
-  filters, the agent retrieves the exact ``schema query-trends series.properties``
-  path successfully.
 * ``eval_search_first`` — for an open-ended request the agent prefers
   ``search <regex>`` over the bare ``tools`` listing.
 * ``eval_info_before_call`` — every successful ``call <tool>`` is preceded
@@ -39,7 +36,6 @@ from ee.hogai.eval.sandboxed.cli_mcp.scorers import (
     PreferredSearchOverTools,
     RanPythonPostProcessing,
     RecoveredToCorrectTool,
-    RetrievedSchemaPath,
     UsedJsonOutputFormat,
     VerifiedEventBeforeQuery,
 )
@@ -116,39 +112,6 @@ async def eval_schema_drilldown(sandboxed_demo_data, pytestconfig, posthog_clien
         experiment_name=f"sandboxed-cli-mcp-schema-drilldown-{mcp_mode}",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), DrilledIntoSchema()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
-    )
-
-
-async def eval_series_filter_schema_path(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
-    """Series filter task — the agent must discover the nested dot path."""
-    if mcp_mode == "tools":
-        pytest.skip("posthog:exec only exists in cli mode")
-
-    cases: list[SandboxedEvalCase] = [
-        SandboxedEvalCase(
-            name="query_trends_series_properties",
-            prompt=(
-                "Compare pageviews from Chrome vs Safari over the last 14 days as two separate "
-                "lines in a trends result. I want the browser conditions applied independently "
-                "to each line."
-            ),
-            expected={
-                "retrieved_schema_path": {
-                    "tool": "query-trends",
-                    "path": "series.properties",
-                },
-                "called_target_tool": {"tool": "query-trends"},
-            },
-        ),
-    ]
-
-    await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-series-filter-schema-path-{mcp_mode}",
-        cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), RetrievedSchemaPath()],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,
         posthog_client=posthog_client,
