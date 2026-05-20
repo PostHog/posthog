@@ -62,22 +62,30 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(self.batch_import.secrets["aws_access_key_id"], "AKIATEST")
         self.assertEqual(self.batch_import.secrets["aws_secret_access_key"], "secret123")
 
-    def test_from_s3_with_endpoint_url(self):
-        self.batch_import.config.from_s3(
+    @parameterized.expand(
+        [
+            ("s3", "from_s3", "https://acct123.r2.cloudflarestorage.com"),
+            ("s3_gzip", "from_s3_gzip", "http://localhost:9000"),
+        ]
+    )
+    def test_from_s3_with_endpoint_url(self, _name, method, endpoint_url):
+        getattr(self.batch_import.config, method)(
             bucket="my-bucket",
             prefix="data/",
             region="auto",
             access_key_id="AKIATEST",
             secret_access_key="secret123",
-            endpoint_url="https://acct123.r2.cloudflarestorage.com",
+            endpoint_url=endpoint_url,
         )
 
         source = self.batch_import.import_config["source"]
-        self.assertEqual(source["endpoint_url"], "https://acct123.r2.cloudflarestorage.com")
+        self.assertEqual(source["type"], _name)
+        self.assertEqual(source["endpoint_url"], endpoint_url)
         self.assertEqual(source["region"], "auto")
 
-    def test_from_s3_without_endpoint_url_omits_key(self):
-        self.batch_import.config.from_s3(
+    @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
+    def test_from_s3_without_endpoint_url_omits_key(self, _name, method):
+        getattr(self.batch_import.config, method)(
             bucket="my-bucket",
             prefix="data/",
             region="us-east-1",
@@ -86,20 +94,6 @@ class TestBatchImportConfigBuilder(BaseTest):
         )
 
         self.assertNotIn("endpoint_url", self.batch_import.import_config["source"])
-
-    def test_from_s3_gzip_with_endpoint_url(self):
-        self.batch_import.config.from_s3_gzip(
-            bucket="my-bucket",
-            prefix="data/",
-            region="auto",
-            access_key_id="AKIATEST",
-            secret_access_key="secret123",
-            endpoint_url="http://localhost:9000",
-        )
-
-        source = self.batch_import.import_config["source"]
-        self.assertEqual(source["type"], "s3_gzip")
-        self.assertEqual(source["endpoint_url"], "http://localhost:9000")
 
     def test_chained_configuration(self):
         urls = ["http://example.com/data.json"]
@@ -643,11 +637,12 @@ class TestBatchImportAPI(APIBaseTest):
         batch_import.refresh_from_db()
         self.assertEqual(getattr(batch_import, attr), expected)
 
-    def test_s3_import_with_endpoint_url(self):
+    @parameterized.expand([("s3",), ("s3_gzip",)])
+    def test_s3_import_with_endpoint_url(self, source_type):
         response = self.client.post(
             f"/api/projects/{self.team.id}/managed_migrations",
             {
-                "source_type": "s3",
+                "source_type": source_type,
                 "content_type": "captured",
                 "s3_bucket": "test-bucket",
                 "s3_region": "auto",
@@ -660,28 +655,9 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["type"], source_type)
         self.assertEqual(batch_import.import_config["source"]["endpoint_url"], "http://localhost:9000")
         self.assertEqual(batch_import.import_config["source"]["region"], "auto")
-
-    def test_s3_gzip_import_with_endpoint_url(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/managed_migrations",
-            {
-                "source_type": "s3_gzip",
-                "content_type": "captured",
-                "s3_bucket": "test-bucket",
-                "s3_region": "auto",
-                "s3_prefix": "exports/",
-                "access_key": "test-key",
-                "secret_key": "test-secret",
-                "endpoint_url": "http://localhost:9000",
-            },
-        )
-
-        self.assertEqual(response.status_code, 201)
-        batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertEqual(batch_import.import_config["source"]["type"], "s3_gzip")
-        self.assertEqual(batch_import.import_config["source"]["endpoint_url"], "http://localhost:9000")
 
     def test_s3_import_without_endpoint_url_omits_key(self):
         response = self.client.post(
