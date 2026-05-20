@@ -1952,3 +1952,67 @@ class TestConcurrentIndexIdempotencyPolicy:
         violations = ConcurrentIndexIdempotencyPolicy().check_migration(mock_migration)
 
         assert any("non-idempotent" in v for v in violations)
+
+    @parameterized.expand(
+        [
+            (
+                "create_table_if_not_exists_hides_bare_create_index",
+                "CREATE TABLE IF NOT EXISTS some_table (a int); CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+            (
+                "drop_table_if_exists_hides_bare_drop_index",
+                "DROP TABLE IF EXISTS old_table; DROP INDEX CONCURRENTLY idx_foo;",
+            ),
+            (
+                "block_comment_if_not_exists_hides_bare_create_index",
+                "/* IF NOT EXISTS */ CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+            (
+                "list_form_mixed_create_table_and_bare_index",
+                [
+                    "CREATE TABLE IF NOT EXISTS some_table (a int);",
+                    "CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+                ],
+            ),
+            (
+                "bare_create_unique_index_concurrently",
+                "CREATE UNIQUE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+        ]
+    )
+    def test_substring_collision_no_longer_hides_bare_concurrent_index(self, _name, sql):
+        """Regression: a substring check `"IF NOT EXISTS" in sql` matched unrelated statements
+        in the same RunSQL blob and silently allowed a bare CREATE/DROP INDEX CONCURRENTLY through.
+        Per-statement regex catches the bare index op even when the blob also contains a legitimate
+        `CREATE TABLE IF NOT EXISTS` / `DROP TABLE IF EXISTS` / block comment / list-form sibling.
+        """
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            (
+                "create_unique_index_with_if_not_exists",
+                "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+            (
+                "create_table_if_not_exists_alongside_safe_concurrent_index",
+                "CREATE TABLE IF NOT EXISTS some_table (a int);"
+                " CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+            (
+                "comment_only_mention_of_bare_concurrently",
+                "-- old form was: CREATE INDEX CONCURRENTLY idx_foo ON t (c);\n"
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+        ]
+    )
+    def test_per_statement_regex_does_not_overreach(self, _name, sql):
+        """Don't false-positive on safe SQL that happens to contain a non-CONCURRENTLY DDL or
+        the bare keyword sequence inside a comment.
+        """
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)

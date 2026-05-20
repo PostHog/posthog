@@ -339,31 +339,40 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
         violations.extend(self._check_sql(getattr(op, "reverse_sql", ""), "reverse_sql"))
         return violations
 
+    # Match the specific concurrent-index statement, not the whole RunSQL blob.
+    # Substring checks (`"IF NOT EXISTS" in sql`) false-negative when an unrelated
+    # statement in the same RunSQL legitimately uses IF [NOT] EXISTS (e.g.
+    # `CREATE TABLE IF NOT EXISTS ...; CREATE INDEX CONCURRENTLY idx ...`).
+    _BARE_CREATE_INDEX_CONCURRENTLY = re.compile(
+        r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b(?!\s+IF\s+NOT\s+EXISTS\b)",
+        re.IGNORECASE,
+    )
+    _BARE_DROP_INDEX_CONCURRENTLY = re.compile(
+        r"DROP\s+INDEX\s+CONCURRENTLY\b(?!\s+IF\s+EXISTS\b)",
+        re.IGNORECASE,
+    )
+
     def _check_sql(self, sql, attr_name: str) -> list[str]:
         sql = str(sql)
-        # Strip -- and # comments so keywords inside comments don't match
+        # Strip /* */, -- and # comments so keywords inside comments don't match
+        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
         sql = re.sub(r"--[^\n]*", "", sql)
         sql = re.sub(r"#[^\n]*", "", sql)
-        sql = sql.upper()
 
-        if "CONCURRENTLY" not in sql or "INDEX" not in sql:
-            return []
-
-        if "CREATE" in sql and "IF NOT EXISTS" not in sql:
-            return [
+        violations = []
+        if self._BARE_CREATE_INDEX_CONCURRENTLY.search(sql):
+            violations.append(
                 f"❌ BLOCKED: RunSQL {attr_name} CREATE INDEX CONCURRENTLY is missing IF NOT EXISTS, "
                 "so it is non-idempotent. A cancelled build leaves an INVALID index and every "
                 f'bin/migrate retry then fails with "relation already exists".\n{self.GUIDANCE}'
-            ]
-
-        if "DROP" in sql and "IF EXISTS" not in sql:
-            return [
+            )
+        if self._BARE_DROP_INDEX_CONCURRENTLY.search(sql):
+            violations.append(
                 f"❌ BLOCKED: RunSQL {attr_name} DROP INDEX CONCURRENTLY is missing IF EXISTS, "
                 "so it is non-idempotent. After a partial failure every bin/migrate retry then "
                 f'fails with "index does not exist".\n{self.GUIDANCE}'
-            ]
-
-        return []
+            )
+        return violations
 
 
 # Registry of all PostHog policies
