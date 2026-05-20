@@ -5,7 +5,6 @@ Validates JSON via serializers, routes everything through the facade,
 returns DTO-shaped responses. No model imports.
 """
 
-import dataclasses
 from typing import Any
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -78,5 +77,17 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         req: UpsertWizardSessionRequest = serializer.save()
 
-        dto = wizard_facade.upsert(UpsertWizardSessionInput(team_id=self.team_id, **dataclasses.asdict(req)))
+        dto = wizard_facade.upsert(
+            UpsertWizardSessionInput(
+                team_id=self.team_id,
+                session_id=req.session_id,
+                workflow_id=req.workflow_id,
+                skill_id=req.skill_id,
+                started_at=req.started_at,
+                run_phase=req.run_phase,
+                tasks=req.tasks,
+                event_plan=req.event_plan,
+                error=req.error,
+            )
+        )
         return Response(WizardSessionSerializer(dto).data, status=status.HTTP_201_CREATED)
