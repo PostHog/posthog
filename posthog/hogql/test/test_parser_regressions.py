@@ -2607,6 +2607,16 @@ class TestParserRegressions(BaseTest):
             "SELECT * FROM t FINAL ON 1",
             "SELECT 1 FROM a CROSS JOIN b ON 1",
             "SELECT 1 FROM a CROSS JOIN b USING (x)",
+            # Parens-wrapped JoinExpr: constraints can't penetrate into the
+            # inner scope's slots, nor attach to the lead.
+            "SELECT * FROM (a JOIN b) ON 1",
+            "SELECT * FROM (a JOIN b) USING (x)",
+            "SELECT * FROM (a JOIN b) JOIN c ON 1 ON 2",
+            # Stacked overflow: more ONs than fillable JOINs.
+            "SELECT * FROM a JOIN b ON 1 ON 2",
+            "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3 ON 4",
+            # Mixed CROSS in a chain — the constraint can't fall through.
+            "SELECT * FROM a JOIN b ON 1 CROSS JOIN c ON 2",
         ):
             with self.assertRaises(ExposedHogQLError, msg=src):
                 parse_select(src, backend="cpp-json")
@@ -2621,8 +2631,17 @@ class TestParserRegressions(BaseTest):
             "SELECT * FROM a LEFT JOIN b ON 1",
             "SELECT * FROM a CROSS JOIN b",
             "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
+            "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
             "SELECT * FROM t USING SAMPLE 0.5",
             "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
+            # Outer JOIN around a parens-wrapped inner JoinExpr still attaches
+            # one constraint at the outer level.
+            "SELECT * FROM (a JOIN b) JOIN c ON 1",
+            "SELECT * FROM a JOIN (b JOIN c ON 1) ON 2",
+            # `sample` as an identifier inside USING (a, …) still works — the
+            # USING-SAMPLE guard requires `peek_next == Kw::Sample`, but with
+            # a `(` follow-token the constraint parser takes over.
+            "SELECT * FROM a JOIN b USING (sample)",
         ):
             oracle = clear_locations(parse_select(src, backend="cpp-json"))
             for backend in ("rust-json", "python"):
@@ -2640,6 +2659,9 @@ class TestParserRegressions(BaseTest):
             "SELECT * EXCLUDE (inf) FROM t",
             "SELECT * EXCLUDE (nan) FROM t",
             "SELECT COLUMNS(* EXCLUDE (null)) FROM t",
+            "SELECT COLUMNS(* REPLACE (a AS null)) FROM t",
+            "SELECT COLUMNS(* REPLACE (a AS inf)) FROM t",
+            "SELECT COLUMNS(* REPLACE (a AS nan)) FROM t",
         ):
             with self.assertRaises(ExposedHogQLError, msg=src):
                 parse_select(src, backend="cpp-json")

@@ -20,6 +20,12 @@ impl<'a> Parser<'a> {
         // Left-recursive in the grammar; iterate, chaining each new
         // right-side table into the previous JoinExpr's `next_join` field.
         let mut left = self.parse_table_atom_with_pivot()?;
+        // Record the lead's chain depth: a parens-wrapped joinExpr arrives
+        // pre-built (e.g. `(a JOIN b)` is two JoinExprs deep). The peel-extras
+        // loop below must NOT attach constraints into pre-existing joins —
+        // those slots belong to the inner scope. Scope-local additions made
+        // by THIS loop sit at depth > lead_depth.
+        let lead_depth = chain_depth(&left);
         let mut joined_any = false;
         loop {
             // ARRAY JOIN belongs to the outer SELECT statement, not the
@@ -133,7 +139,12 @@ impl<'a> Parser<'a> {
             let Some(constraint) = self.parse_join_constraint_opt()? else {
                 break;
             };
-            if !attach_constraint_to_outermost_unconstrained_join(&mut left, constraint) {
+            if !attach_constraint_to_outermost_unconstrained_join(
+                &mut left,
+                constraint,
+                lead_depth + 1,
+                1,
+            ) {
                 let kw = if matches!(kw_kind, TokenKind::Keyword(Kw::On)) {
                     "ON"
                 } else {
@@ -1464,20 +1475,36 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
 /// on the next outer (`b`). The first stranded ON attaches inward
 /// (after the loop's left-to-right pass already placed one on the
 /// deepest JoinExpr); the second moves outward; etc.
-fn attach_constraint_to_outermost_unconstrained_join(node: &mut Value, constraint: Value) -> bool {
+/// `min_attachable_depth` is the chain depth at which scope-local joins begin
+/// (one past the lead's pre-existing chain). Nodes shallower than that
+/// belong to a parens-wrapped inner scope and are opaque — we recurse
+/// through them but never attach.
+fn attach_constraint_to_outermost_unconstrained_join(
+    node: &mut Value,
+    constraint: Value,
+    min_attachable_depth: usize,
+    current_depth: usize,
+) -> bool {
     let Some(obj) = node.as_object_mut() else {
         return false;
     };
     if obj.get("node").and_then(Value::as_str) != Some("JoinExpr") {
         return false;
     }
-    // Recurse into next_join first for right-associative attachment.
     if let Some(nj) = obj.get_mut("next_join") {
         if nj.is_object()
-            && attach_constraint_to_outermost_unconstrained_join(nj, constraint.clone())
+            && attach_constraint_to_outermost_unconstrained_join(
+                nj,
+                constraint.clone(),
+                min_attachable_depth,
+                current_depth + 1,
+            )
         {
             return true;
         }
+    }
+    if current_depth < min_attachable_depth {
+        return false;
     }
     // Per the grammar, only `JoinExprOp` and `JoinExprPositional` take a
     // `joinConstraintClause`. The lead `JoinExprTable` carries no `join_type`,
@@ -1494,4 +1521,18 @@ fn attach_constraint_to_outermost_unconstrained_join(node: &mut Value, constrain
         return true;
     }
     false
+}
+
+/// Count JoinExprs linked via `next_join`. Lead is depth 1.
+fn chain_depth(node: &Value) -> usize {
+    let mut depth = 1;
+    let mut cursor = node;
+    while let Some(nj) = cursor.as_object().and_then(|o| o.get("next_join")) {
+        if !nj.is_object() {
+            break;
+        }
+        depth += 1;
+        cursor = nj;
+    }
+    depth
 }
