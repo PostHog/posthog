@@ -3609,6 +3609,20 @@ impl<'a> Parser<'a> {
                         out.push(',');
                     }
                 }
+                // The cpp `columnTypeExpr` grammar routes identifier-
+                // shaped tokens through the `identifier` rule, which
+                // omits NULL / INF / NAN. A bare `Int NULL` inside
+                // `Tuple(Int NULL)` would error at the outer paren in
+                // cpp because the inner type couldn't extend through
+                // the NULL keyword. Rust's raw-text fallback used to
+                // happily concatenate `IntNULL` and emit a malformed
+                // type name. Reject the forbidden keywords as soon as
+                // they appear at any depth.
+                TokenKind::Keyword(kw) if !kw_valid_as_identifier(kw) => {
+                    return Err(
+                        self.err(format!("unexpected `{:?}` keyword in type expression", kw))
+                    );
+                }
                 _ => {
                     let t = self.bump()?;
                     out.push_str(self.text(t));

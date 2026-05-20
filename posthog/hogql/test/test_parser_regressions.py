@@ -1879,6 +1879,44 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_raw_type_param_text_rejects_null_inf_nan_keywords(self):
+        # cpp's `columnTypeExpr` Param alt routes identifier-shaped
+        # tokens through the `identifier` rule, which omits NULL /
+        # INF / NAN. A bare `Int NULL` inside `Tuple(Int NULL)` errors
+        # at the outer paren because the inner type can't extend
+        # through NULL. Rust's raw-text fallback in
+        # `consume_raw_type_param_text` used to concatenate `IntNULL`
+        # verbatim, silently accepting and emitting a malformed
+        # type-name string.
+        for src in (
+            "cast(x as Tuple(Int NULL))",
+            "cast(x as Array(Int NULL))",
+            "cast(x as Map(String NULL, Int))",
+            "cast(x as Nested(a Int NULL, b String))",
+            "cast(x as FixedString(16 NULL))",
+            "cast(x as FixedString(16 INF))",
+            "cast(x as FixedString(16 NAN))",
+            "cast(x as Decimal(10 NULL, 2))",
+            "cast(x as LowCardinality(String NULL))",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="rust-json")
+        # Guards: legitimate parametric type casts still parse.
+        for src in (
+            "cast(x as Tuple(Int, String))",
+            "cast(x as Array(Int))",
+            "cast(x as Map(String, Int))",
+            "cast(x as Nested(a Int, b String))",
+            "cast(x as FixedString(16))",
+            "cast(x as Decimal(10, 2))",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_stmt_expression_pratt_recovers_at_statement_level(self):
         # `x *= 2` lexes as `x`, `*`, `=`, `2` — there's no `*=` token
         # in the grammar. cpp's ALL(*) splits the input into TWO
