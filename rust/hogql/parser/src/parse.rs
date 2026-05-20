@@ -235,6 +235,11 @@ pub(crate) struct Parser<'a> {
     /// searching this vector — matches cpp's ANTLR `getStartIndex()`
     /// semantics (character-based, not byte-based).
     pub(crate) char_offsets: std::cell::OnceCell<Option<Vec<usize>>>,
+    /// Cached `src.is_ascii()` result — `pos_obj` reads it on every emitted
+    /// node, and the underlying `str::is_ascii` is O(n) per call. Computed
+    /// once at construction so the hot wrap_pos path stays O(log n) via the
+    /// line-starts binary search.
+    pub(crate) is_ascii_src: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -250,6 +255,7 @@ impl<'a> Parser<'a> {
         let peek0 = lexer.next_token()?;
         let peek1 = lexer.next_token()?;
         let line_starts = build_line_starts(src);
+        let is_ascii_src = src.is_ascii();
         Ok(Self {
             src,
             lexer,
@@ -267,6 +273,7 @@ impl<'a> Parser<'a> {
             hogqlx_text_lookahead_depth: 0,
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
+            is_ascii_src,
         })
     }
 
@@ -376,12 +383,18 @@ impl<'a> Parser<'a> {
     /// slicing for any source containing non-ASCII bytes.
     pub(crate) fn pos_obj(&self, byte_offset: usize) -> Value {
         let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
+        // ASCII fast path: byte == char in every dimension. Avoid the
+        // `byte_to_char_index` binary search and the line-slice chars
+        // count entirely.
+        if self.is_ascii_src {
+            return emit::position(line, byte_col, byte_offset);
+        }
         let char_offset = self.byte_to_char_index(byte_offset);
         // Column needs to be characters-in-line, not bytes-in-line. For
-        // ASCII lines this is identical; for lines with multi-byte chars
-        // we count chars between the line start and the offset.
-        let column = if byte_col == 0 || self.src.is_ascii() {
-            byte_col
+        // lines with multi-byte chars we count chars between the line
+        // start and the offset.
+        let column = if byte_col == 0 {
+            0
         } else {
             self.src[line_start_byte..byte_offset].chars().count() as u32
         };
