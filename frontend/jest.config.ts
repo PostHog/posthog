@@ -140,6 +140,10 @@ const config: Config = {
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
+        // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
+        // Required for sidePanelNotificationsLogic.test.ts and other tests with a transitive
+        // import chain through src/lib/hog.ts.
+        '^@posthog/hogvm$': '<rootDir>/node_modules/@posthog/hogvm/src/index.ts',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',

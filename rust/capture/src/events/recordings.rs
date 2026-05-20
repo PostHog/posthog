@@ -27,6 +27,7 @@ use crate::{
     debug_or_info,
     event_restrictions::{
         AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
+        Pipeline,
     },
     prometheus::report_dropped_events,
     sinks,
@@ -245,7 +246,9 @@ pub async fn process_replay_events(
             now_ts: context.now.timestamp(),
         };
 
-        let applied = service.get_restrictions(&context.token, &event_ctx).await;
+        let applied = service
+            .get_restrictions(&context.token, &event_ctx, Pipeline::SessionRecordings)
+            .await;
 
         if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);
@@ -528,7 +531,7 @@ mod tests {
 
     // ============ Restriction tests ============
 
-    use crate::config::CaptureMode;
+    use crate::event_restrictions::Pipeline;
     use crate::event_restrictions::{
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
@@ -576,12 +579,15 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
 
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
@@ -607,12 +613,15 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
 
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToDlq,
                 scope: RestrictionScope::AllEvents,
@@ -640,12 +649,15 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
 
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,
@@ -673,12 +685,15 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
 
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::SkipPersonProcessing,
                 scope: RestrictionScope::AllEvents,
@@ -726,15 +741,18 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
 
         // Create a restriction that only applies to a different session
         let mut manager = RestrictionManager::new();
         let mut filters = crate::event_restrictions::RestrictionFilters::default();
         filters.session_ids.insert("other-session".to_string());
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::Filtered(filters),
@@ -852,11 +870,14 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,
@@ -1014,11 +1035,14 @@ mod tests {
 
             // force_overflow short-circuits the limiter branch; the pipeline
             // must skip the redis call AND the histogram record.
-            let service =
-                EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            let service = EventRestrictionService::new(
+                vec![Pipeline::SessionRecordings],
+                Duration::from_secs(300),
+            );
             let mut manager = RestrictionManager::new();
-            manager.restrictions.insert(
-                "test_token".to_string(),
+            manager.insert_restrictions(
+                Pipeline::SessionRecordings,
+                "test_token",
                 vec![Restriction {
                     restriction_type: RestrictionType::ForceOverflow,
                     scope: RestrictionScope::AllEvents,

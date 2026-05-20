@@ -562,20 +562,95 @@ function opaqueDeepSchemas(schema) {
         return size
     }
 
-    // Compute expanded sizes and collect schemas that exceed the limit
-    const opaqued = new Set()
-    for (const name of Object.keys(allSchemas)) {
-        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
-            opaqued.add(name)
+    // Direct $refs out of a single schema's definition, ignoring traversal order
+    // (used to detect cycles via the ref graph, not via the size walk which
+    // pessimistically returns Infinity to any caller that *transitively* sees a
+    // cycle).
+    function directRefs(name) {
+        const refs = new Set()
+        const defn = allSchemas[name]
+        if (!defn) {
+            return refs
         }
+        function walk(obj) {
+            if (!obj || typeof obj !== 'object') {
+                return
+            }
+            if (Array.isArray(obj)) {
+                obj.forEach(walk)
+                return
+            }
+            if (obj.$ref) {
+                refs.add(obj.$ref.replace('#/components/schemas/', ''))
+                return
+            }
+            for (const v of Object.values(obj)) {
+                walk(v)
+            }
+        }
+        walk(defn)
+        return refs
     }
 
-    // Replace with opaque object type
-    for (const name of opaqued) {
+    // A schema is a cycle member iff it's reachable from itself via the ref
+    // graph. Schemas that merely *reference* a cycle are NOT members — they
+    // expand to a finite tree once the cycle members are opaqued, so we must
+    // not opaque them just because they touch a recursive component.
+    function isCycleMember(start) {
+        const stack = [...directRefs(start)]
+        const visited = new Set()
+        while (stack.length > 0) {
+            const name = stack.pop()
+            if (name === start) {
+                return true
+            }
+            if (visited.has(name)) {
+                continue
+            }
+            visited.add(name)
+            for (const r of directRefs(name)) {
+                stack.push(r)
+            }
+        }
+        return false
+    }
+
+    const opaqued = new Set()
+    const opaqueSchema = (name) => {
+        opaqued.add(name)
         allSchemas[name] = {
             type: 'object',
             description: `Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)`,
             additionalProperties: true,
+        }
+    }
+
+    // Pass 1: opaque only true cycle members.
+    //
+    // Collect *all* cycle members first, then opaque in a second loop —
+    // `isCycleMember` reads from the live `allSchemas`, and opaquing a schema
+    // erases its $refs. In a mutual cycle A↔B with iteration order [A, B],
+    // opaquing A as we go would make `isCycleMember("B")` walk B → A → ∅ and
+    // return false, misclassifying B as a non-member.
+    const cycleMembers = new Set()
+    for (const name of Object.keys(allSchemas)) {
+        if (isCycleMember(name)) {
+            cycleMembers.add(name)
+        }
+    }
+    for (const name of cycleMembers) {
+        opaqueSchema(name)
+    }
+
+    // Pass 2: with cycle members now opaque, recompute sizes; opaque anything
+    // still over the limit (deeply nested unions, large response envelopes).
+    cache.clear()
+    for (const name of Object.keys(allSchemas)) {
+        if (opaqued.has(name)) {
+            continue
+        }
+        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
+            opaqueSchema(name)
         }
     }
 
