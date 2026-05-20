@@ -9316,6 +9316,7 @@ export namespace Schemas {
     export const IntegrationKind = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
+      DiscordPosthogCode: 'discord-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -9330,6 +9331,7 @@ export namespace Schemas {
       Email: 'email',
       Twilio: 'twilio',
       Linear: 'linear',
+      LinearAgent: 'linear-agent',
       Github: 'github',
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',

@@ -3415,6 +3415,7 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 export const IntegrationKindApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
+    DiscordPosthogCode: 'discord-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -3429,6 +3430,7 @@ export const IntegrationKindApi = {
     Email: 'email',
     Twilio: 'twilio',
     Linear: 'linear',
+    LinearAgent: 'linear-agent',
     Github: 'github',
     Gitlab: 'gitlab',
     MetaAds: 'meta-ads',
