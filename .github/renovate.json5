@@ -51,6 +51,7 @@
     {
       matchDepNames: ['chrome-headless-shell'],
       automerge: true,
+      matchUpdateTypes: ['minor', 'patch'],
       schedule: ['every 2 weeks on Monday'],
       commitMessageExtra: '(chrome-headless-shell)',
       labels: ['dependencies', 'recording-rasterizer'],
