@@ -1017,6 +1017,23 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_sample_clause_leading_dot_float_value(self):
+        # Leading-dot floats (`.5`, `.04`) are valid `floatingLiteral`s
+        # in the grammar (`DOT DECIMAL_LITERAL E?...`). The lexer
+        # tokenises them as `Dot` + `Number`, so the SAMPLE ratio gate
+        # must admit `Dot` when it leads a Number.
+        cases = (
+            "SELECT 1 FROM t SAMPLE .5",
+            "SELECT 1 FROM t SAMPLE .04",
+            "SELECT 1 FROM t SAMPLE .5 / 2",
+            "SELECT 1 FROM t SAMPLE nan / .04",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_sample_clause_only_accepts_number_literals(self):
         # `ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?`
         # — each side of the ratio is a `numberLiteral`, not a generic

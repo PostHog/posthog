@@ -807,15 +807,18 @@ impl<'a> Parser<'a> {
         // an explicit sign + Number combo). Accept those shapes only.
         // numberLiteral: `(PLUS|DASH)? (floatingLiteral|BINARY|OCTAL|
         // OCTAL_PREFIX|DECIMAL|HEXADECIMAL|INF|NAN_SQL)`. INF / NAN are
-        // keyword tokens; the numeric literals all surface as `Number`.
-        // NULL is *not* in numberLiteral. Anything else (Field, Call,
-        // placeholder-as-RHS, etc.) is a grammar violation.
+        // keyword tokens; numeric literals surface as `Number`. The
+        // leading-dot float (`.04`) lexes as `Dot` + `Number`, so admit
+        // `Dot` when the following token is a Number. NULL is *not* in
+        // numberLiteral. Anything else (Field, Call, placeholder-as-RHS,
+        // etc.) is a grammar violation.
         match self.peek() {
             TokenKind::Number
             | TokenKind::Plus
             | TokenKind::Dash
             | TokenKind::Keyword(Kw::Nan)
             | TokenKind::Keyword(Kw::Inf) => {}
+            TokenKind::Dot if self.peek_next() == TokenKind::Number => {}
             _ => return Err(self.err("SAMPLE ratio value must be a number literal")),
         }
         let mut val = self.parse_prefix()?;
