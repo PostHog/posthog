@@ -3626,6 +3626,7 @@ export namespace Schemas {
     * `flags` - flags
     * `llm_analytics` - llm_analytics
     * `sandbox` - sandbox
+    * `user_interview` - user_interview
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -3642,6 +3643,7 @@ export namespace Schemas {
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
+      UserInterview: 'user_interview',
     } as const;
 
     export interface AggregatedSpanRow {
