@@ -158,7 +158,14 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _setup_data_warehouse(self) -> str:
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
-            csv_path=Path(__file__).parent.parent.parent / "trends" / "test" / "data" / "trends_data.csv",
+            csv_path=Path(__file__).resolve().parents[6]
+            / "posthog"
+            / "hogql_queries"
+            / "insights"
+            / "trends"
+            / "test"
+            / "data"
+            / "trends_data.csv",
             table_name="test_table_stickiness",
             table_columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
