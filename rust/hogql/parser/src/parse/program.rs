@@ -208,15 +208,20 @@ impl<'a> Parser<'a> {
                     //  - `return * columns(…) := …` → expr is just `*`
                     //    (Field(['*'])); the `columns(…) := …` becomes
                     //    a varAssignment whose lvalue is the `columns`
-                    //    call. cpp would also take this for `return *X
-                    //    := Y` where X is any single token.
+                    //    call.
                     //  - `return columns(…) := …` → expr is `columns`
                     //    (Field(['columns'])); the `(…) := …` becomes
                     //    a varAssignment whose lvalue is the
                     //    parenthesised inner.
-                    //  - Otherwise (e.g. `return a.b := c`) no
-                    //    valid shortening exists; fall back to bare
-                    //    return so `a.b := c` opens the next stmt.
+                    //  - `return return * ('e') := {}` → expr is the
+                    //    head Keyword as a Field; the rest forms a
+                    //    `* ('e') := {}` varAssignment. cpp consistently
+                    //    shortens to the FIRST single-token Field,
+                    //    regardless of what immediately follows.
+                    //  - Otherwise (e.g. `return a.b := c` where the
+                    //    first token would chain) no valid shortening
+                    //    exists; fall back to bare return so `a.b := c`
+                    //    opens the next stmt.
                     self.restore(cp)?;
                     if self.peek() == TokenKind::Asterisk {
                         self.bump()?;
@@ -227,13 +232,16 @@ impl<'a> Parser<'a> {
                     } else if matches!(
                         self.peek(),
                         TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                    ) && self.peek_next() == TokenKind::LParen
+                    ) && !matches!(self.peek_next(), TokenKind::Dot | TokenKind::NullProperty)
                     {
-                        // `IDENT(...) := X` shortens to Field([IDENT]).
-                        // Guard on `(` after the ident so we don't
-                        // accidentally consume an unrelated IDENT that
-                        // wouldn't have parsed as a SpreadColumns /
-                        // call form.
+                        // First single token as Field — cpp shortens to
+                        // a one-element chain regardless of what comes
+                        // after (call, infix, or another statement
+                        // keyword). The Dot / `?.` exclusion stops a
+                        // multi-token chain `a.b := c` from being
+                        // split (cpp's ANTLR backtracks past chained
+                        // shortening to the bare-return path in that
+                        // shape).
                         let t = self.bump()?;
                         let name = identifier_text(self.text(t), t.kind);
                         obj.insert("expr".into(), emit::field(vec![Value::String(name)]));

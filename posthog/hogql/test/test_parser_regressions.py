@@ -1789,6 +1789,38 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_return_expr_prefix_shortening_admits_keyword_head(self):
+        # `return <expr> := <rhs>` triggers ANTLR's adaptive prediction:
+        # cpp falls back to the shortest expr prefix that leaves the
+        # `:=` parseable as a varAssignment statement. The Rust shortener
+        # only accepted `*` and `IDENT(` shapes; a leading Keyword like
+        # `return return * (...) := …` produced a bare-return + extra
+        # ReturnStatement(Field('*')) split instead of cpp's single
+        # Field(['return']) shortening.
+        cases = (
+            "return return * ( 'e' ) := { }",
+            "return return * ( 'e' ) := ( 'e' )",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guards: the existing shortening shapes still work.
+        for src in (
+            "return * columns('a') := 1",
+            "return columns('a') := 1",
+            "return a := 1",
+            "return a.b := 1",
+            "return",
+            "return x",
+            "return 1 + 2",
+        ):
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_hogqlx_drops_whitespace_only_children_containing_newline(self):
         # cpp's `VISIT(HogqlxTagElementNested)` filters out child text
         # runs that are entirely whitespace AND contain a newline (or
