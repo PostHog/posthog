@@ -492,6 +492,55 @@ class TestBuildQuery:
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
 
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            # Date cursors must be inclusive — saving cursor='2026-05-13' and re-querying with
+            # `>` skips every row that lands on 2026-05-13 after the cursor advanced.
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Timestamp, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = _build_query("public", "events", True, "table", "cursor", field_type, last_value)
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+        # The other operator never appears for the cursor column.
+        wrong = ">" if expected_operator == ">=" else ">="
+        assert f'"cursor" {wrong} ' not in rendered
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_count_query_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = _build_count_query("public", "events", True, "cursor", field_type, last_value)
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+
+    def test_windowed_mode_keeps_exclusive_lower_bound_for_date(self):
+        # iterate_date_windows feeds previous_hi as next_lo; `>=` would re-fetch every
+        # boundary date inside one run, so the upper_bound_inclusive path must stay `>`.
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "cursor",
+            IncrementalFieldType.Date,
+            date(2026, 5, 13),
+            upper_bound_inclusive=date(2026, 5, 14),
+        )
+        rendered = self._render(query)
+        assert '"cursor" > ' in rendered
+        assert '"cursor" >= ' not in rendered
+
 
 class TestBuildPartitionQuery:
     def _render(self, composed: sql.Composed) -> str:
@@ -535,6 +584,26 @@ class TestBuildPartitionQuery:
                 incremental_field_type=None,
                 db_incremental_field_last_value=None,
             )
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="cursor",
+            incremental_field_type=field_type,
+            db_incremental_field_last_value=last_value,
+        )
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
 
 
 class TestBuildCountQuery:
