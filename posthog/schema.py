@@ -773,28 +773,6 @@ class Compare(StrEnum):
     PREVIOUS = "previous"
 
 
-class AssistantTrendsDisplayType(RootModel[str | Any]):
-    root: str | Any
-
-
-class Display(StrEnum):
-    AUTO = "Auto"
-    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
-    ACTIONS_BAR = "ActionsBar"
-    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
-    ACTIONS_STACKED_BAR = "ActionsStackedBar"
-    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
-    ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
-    BOLD_NUMBER = "BoldNumber"
-    ACTIONS_PIE = "ActionsPie"
-    ACTIONS_BAR_VALUE = "ActionsBarValue"
-    ACTIONS_TABLE = "ActionsTable"
-    WORLD_MAP = "WorldMap"
-    CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-    BOX_PLOT = "BoxPlot"
-
-
 class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
@@ -4825,7 +4803,7 @@ class Branching(BaseModel):
     type: SurveyQuestionBranchingType
 
 
-class Display1(StrEnum):
+class Display(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
 
@@ -6350,6 +6328,10 @@ class AssistantTrendsBreakdownFilter(BaseModel):
     )
 
 
+class AssistantTrendsDisplayType(RootModel[ChartDisplayType | Any]):
+    root: ChartDisplayType | Any
+
+
 class AssistantTrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6392,8 +6374,8 @@ class AssistantTrendsFilter(BaseModel):
             " values will have a decimal point."
         ),
     )
-    display: Display | None = Field(
-        default=Display.ACTIONS_LINE_GRAPH,
+    display: ChartDisplayType | None = Field(
+        default=ChartDisplayType.ACTIONS_LINE_GRAPH,
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time."
@@ -6402,15 +6384,15 @@ class AssistantTrendsFilter(BaseModel):
             ' user explicitly asks for a "stacked bar" chart, or when comparing how'
             " multiple categories sum to a total over time. `ActionsAreaGraph` -"
             " time-series area chart. `ActionsLineGraphCumulative` - cumulative"
-            " time-series line chart; good for cumulative metrics. `BoldNumber` -"
-            " total value single large number. Use when user explicitly asks for a"
-            " single output number. You CANNOT use this with breakdown or if the"
-            " insight has more than one series. `ActionsBarValue` - total value (NOT"
-            " time-series) bar chart; good for categorical data. `ActionsPie` - total"
-            " value pie chart; good for visualizing proportions. `ActionsTable` -"
-            " total value table; good when using breakdown to list users or other"
-            " entities. `WorldMap` - total value world map; use when breaking down by"
-            " country name using property `$geoip_country_name`, and only then."
+            " time-series line chart; good for cumulative metrics. `BoldNumber` - total"
+            " value single large number. Use when user explicitly asks for a single"
+            " output number. You CANNOT use this with breakdown or if the insight has"
+            " more than one series. `ActionsBarValue` - total value (NOT time-series)"
+            " bar chart; good for categorical data. `ActionsPie` - total value pie"
+            " chart; good for visualizing proportions. `ActionsTable` - total value"
+            " table; good when using breakdown to list users or other entities."
+            " `WorldMap` - total value world map; use when breaking down by country"
+            " name using property `$geoip_country_name`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -8665,7 +8647,7 @@ class SurveyQuestionSchema(BaseModel):
     choices: list[str] | None = None
     description: str | None = None
     descriptionContentType: SurveyQuestionDescriptionContentType | None = None
-    display: Display1 | None = None
+    display: Display | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
     isNpsQuestion: bool | None = None

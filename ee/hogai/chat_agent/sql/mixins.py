@@ -114,7 +114,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 showLegend=result.show_legend,
                 xAxisLabel=result.x_axis_label,
                 leftYAxisSettings=YAxisSettings(label=result.left_y_axis_label) if result.left_y_axis_label else None,
-                rightYAxisSettings=YAxisSettings(label=result.right_y_axis_label) if result.right_y_axis_label else None,
+                rightYAxisSettings=YAxisSettings(label=result.right_y_axis_label)
+                if result.right_y_axis_label
+                else None,
             )
 
         return SQLSchemaGeneratorOutput(
