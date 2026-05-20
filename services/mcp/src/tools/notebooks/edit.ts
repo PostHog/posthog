@@ -13,11 +13,11 @@
  *   4. Build one ReplaceStep via Transform.replaceWith — PM's idiomatic way
  *      to express "make this doc become that one"
  *   5. POST to /collab/save so the edit streams live to other connected
- *      clients over SSE
+ *      clients over SSE; server errors (409, 410, etc.) flow back through
+ *      the default MCP error handler, surfacing the Django response body
+ *      verbatim to the agent
  *
- * On 409 (concurrent edit) we refetch and surface the latest content in the
- * error so the agent can re-apply without an extra read. Auto-retry/rebase
- * lands in a follow-up PR.
+ * Auto-retry/rebase on 409 lands in a follow-up PR.
  */
 import { Node as PMNode } from 'prosemirror-model'
 import { Transform } from 'prosemirror-transform'
@@ -183,11 +183,15 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         return notebook
     }
 
-    // 5. POST to collab/save. ApiClient.requestRaw already throws on 401 and
-    //    PostHogPermissionError on 403 — auth/scope errors get nicely
-    //    formatted by handleToolError without us doing anything special.
+    // 5. POST to collab/save. `request()` throws on any non-2xx — auth
+    //    errors get typed (PostHogPermissionError, INVALID_API_KEY) and the
+    //    rest flow through the default MCP error formatter, which surfaces
+    //    the Django response body to the agent verbatim. The 409 body has
+    //    `code: "conflict"` + `version` + missed `steps`; the 410 body has
+    //    `code: "conflict_stale"` + a `detail` message. Same shape every
+    //    other MCP tool uses.
     const unpackedContent = unpackDocAttrs(newDoc.toJSON() as Parameters<typeof unpackDocAttrs>[0])
-    const result = await context.api.requestRaw({
+    return await context.api.request<Schemas.Notebook>({
         method: 'POST',
         path: `${notebookPath}collab/save/`,
         body: {
@@ -198,34 +202,6 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
             text_content: buildTextContent(newDoc),
         },
     })
-
-    if (result.status === 200) {
-        return result.body as Schemas.Notebook
-    }
-
-    if (result.status === 409) {
-        // Concurrent edit landed between our GET and our POST. Refetch and
-        // surface the latest content in the error so the agent can re-apply
-        // its edit against fresh state without an extra read tool call.
-        const fresh = await context.api.request<Schemas.Notebook>({ method: 'GET', path: notebookPath })
-        throw new Error(
-            'The notebook was modified by someone else between when you loaded it and when you tried to save. ' +
-                'Re-apply your edit against the latest version below.\n\n' +
-                `Latest version: ${fresh.version}\n` +
-                `Latest content:\n${JSON.stringify(fresh.content, null, JSON_INDENT)}`
-        )
-    }
-
-    if (result.status === 410) {
-        throw new Error(
-            'The notebook has been edited extensively since you loaded it, and the server can no longer ' +
-                'compute a clean conflict resolution. ' +
-                'Call `notebooks-retrieve` to get the latest version, then re-apply your edit.'
-        )
-    }
-
-    const bodyText = typeof result.body === 'string' ? result.body : JSON.stringify(result.body)
-    throw new Error(`collab/save returned unexpected status ${result.status}: ${bodyText}`)
 }
 
 const tool = (): ToolBase<typeof NotebookEditSchema, Schemas.Notebook> => ({
