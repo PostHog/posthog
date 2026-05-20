@@ -73,7 +73,11 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
     },
 })
 
-const AccountsListSchema = AccountsListQueryParams
+const AccountsListSchema = AccountsListQueryParams.extend({
+    tags: AccountsListQueryParams.shape['tags'].describe(
+        'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
+    ),
+})
 
 const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Schemas.PaginatedAccountList>> => ({
     name: 'accounts-list',
@@ -86,6 +90,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer-analytics')

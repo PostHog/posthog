@@ -65,7 +65,14 @@ tools:
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
             account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive,
             account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
-            zendesk_id), `tags`, and creation/update metadata. Use `accounts-retrieve` for a single account by id.
+            zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g.
+            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use
+            `accounts-retrieve` for a single account by id.
+        param_overrides:
+            tags:
+                description: >
+                    JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
+                    that have any of the listed tags.
         feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update

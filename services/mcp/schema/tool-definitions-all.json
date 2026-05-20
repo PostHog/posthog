@@ -32,7 +32,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), `tags`, and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",

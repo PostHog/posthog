@@ -19,6 +19,12 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
+        ),
 })
 
 export const AccountsCreateParams = /* @__PURE__ */ zod.object({

@@ -39869,6 +39869,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type ApprovalPoliciesListParams = {

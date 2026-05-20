@@ -704,6 +704,84 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.json()["tags"], [])
         self.assertFalse(account.tagged_items.exists())
 
+    def test_list_filters_by_tags(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        churn_tag = Tag.objects.create(name="churn", team=self.team)
+
+        billing = self._create_account(name="Billing Co")
+        billing.tagged_items.create(tag=billing_tag)
+        urgent = self._create_account(name="Urgent Co")
+        urgent.tagged_items.create(tag=urgent_tag)
+        churn = self._create_account(name="Churn Co")
+        churn.tagged_items.create(tag=churn_tag)
+        self._create_account(name="Untagged Co")
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        names = {r["name"] for r in response.json()["results"]}
+        self.assertEqual(names, {"Billing Co", "Urgent Co"})
+
+    def test_list_tags_filter_returns_each_account_once_when_multiple_tags_match(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        account = self._create_account(name="Double Tagged")
+        account.tagged_items.create(tag=billing_tag)
+        account.tagged_items.create(tag=urgent_tag)
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_ignores_malformed_tags_param(self):
+        Tag.objects.create(name="billing", team=self.team)
+        self._create_account(name="Account A")
+        self._create_account(name="Account B")
+
+        response = self.client.get(f"{self.endpoint_base}?tags=not-json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_ignores_empty_tags_array(self):
+        self._create_account(name="Account A")
+        self._create_account(name="Account B")
+
+        response = self.client.get(f"{self.endpoint_base}?tags=[]")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_with_tags_filter_does_not_n_plus_one(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        for i in range(10):
+            account = self._create_account(name=f"Acct {i}")
+            account.tagged_items.create(tag=billing_tag)
+            account.tagged_items.create(tag=urgent_tag)
+
+        with self.assertNumQueries(11):
+            # Query budget for a tag-filtered account list. Constant regardless of result count
+            # because tagged_items is prefetched once. If a query is added, please confirm it
+            # does not scale with the number of accounts before raising the limit:
+            # 1: load Django session
+            # 2: load authenticated user
+            # 3: load user's current organization
+            # 4: load team for the requested project
+            # 5: load org membership for permission checks
+            # 6: load RBAC access controls for customer_analytics
+            # 7: load org membership again for role inheritance
+            # 8: load constance instance setting (rate limit config)
+            # 9: COUNT(*) for pagination
+            # 10: SELECT page of accounts filtered by tag name
+            # 11: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
+            response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 10)
+
     def test_tag_change_logs_to_account_activity_stream(self):
         account = self._create_account()
         initial_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
