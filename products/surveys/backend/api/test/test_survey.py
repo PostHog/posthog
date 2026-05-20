@@ -2332,7 +2332,6 @@ class TestSurvey(APIBaseTest):
                         "deleted": False,
                         "active": False,
                         "ensure_experience_continuity": False,
-                        "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_contexts": [],
@@ -2985,7 +2984,7 @@ class TestSurvey(APIBaseTest):
 
     def test_survey_activity_respects_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()

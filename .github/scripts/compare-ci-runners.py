@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 print is the intended output of this CLI
+#
+# THIS SCRIPT IS NO LONGER USED!
+# The Blacksmith trial period is over and we no longer run Blacksmith
+# runners alongside Depot, so there is nothing to pair.
+#
 # Pair Depot and Blacksmith job durations for the 7-day CI trial.
 #
 # Usage:
@@ -46,7 +51,6 @@ WORKFLOWS = [
     "ci-rust-flags-integration.yml",
     "ci-rust.yml",
     "ci-storybook.yml",
-    "ci-blacksmith-shadow.yml",
 ]
 
 # Matches a runner label at the end of a job name, either alone in trailing parens
@@ -467,19 +471,23 @@ def main() -> None:
         bs = [p[1] for p in s["success_pairs"]]
         dm = statistics.median(depot)
         bm = statistics.median(bs)
-        speedup = dm / bm if bm > 0 else float("inf")
+        # Renamed from `speedup` to avoid shadowing the str-typed `speedup` used
+        # in the CSV loop above — mypy unifies the type of repeated names in
+        # the same function scope and rejects the float here as `Any | float`
+        # vs `str`.
+        speedup_factor = dm / bm if bm > 0 else float("inf")
         dp95 = sorted(depot)[max(0, int(len(depot) * 0.95) - 1)]
         bp95 = sorted(bs)[max(0, int(len(bs) * 0.95) - 1)]
         dfail = f"{s['depot_fail']}/{s['depot_total']}"
         bfail = f"{s['bs_fail']}/{s['bs_total']}"
         summary_rows.append(
-            (speedup, wf, base, len(s["success_pairs"]), dm, bm, dp95, bp95, dfail, bfail, s["mixed_pairs"])
+            (speedup_factor, wf, base, len(s["success_pairs"]), dm, bm, dp95, bp95, dfail, bfail, s["mixed_pairs"])
         )
 
     # Sort by speedup descending — biggest wins at the top
-    for speedup, wf, base, n, dm, bm, dp95, bp95, dfail, bfail, mixed in sorted(summary_rows, reverse=True):
+    for speedup_factor, wf, base, n, dm, bm, dp95, bp95, dfail, bfail, mixed in sorted(summary_rows, reverse=True):
         print(
-            f"| `{wf}` | {base} | {n} | {dm:.0f}s | {bm:.0f}s | **{speedup:.2f}x** | "
+            f"| `{wf}` | {base} | {n} | {dm:.0f}s | {bm:.0f}s | **{speedup_factor:.2f}x** | "
             f"{dp95:.0f}s | {bp95:.0f}s | {dfail} | {bfail} | {mixed} |"
         )
 

@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
+  <a href="https://www.youtube.com/watch?v=1FZji2L-LmM">
     <img src="https://res.cloudinary.com/dmukukwp6/image/upload/demo_thumb_68d0d8d56d" alt="PostHog Demonstration">
   </a>
 </p>

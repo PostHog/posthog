@@ -82,6 +82,19 @@ export const HorizontalGrouped: Story = {
     },
 }
 
+export const HorizontalAggregatedSingle: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true, axisOrientation: 'horizontal' }
+        const series: Series[] = [{ key: 'all', label: 'All events', color: '', data: [103000] }]
+        return (
+            <Stage height={320}>
+                <BarChart series={series} labels={['All events']} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const SingleSeries: Story = {
     render: () => {
         const theme = useReactiveTheme()

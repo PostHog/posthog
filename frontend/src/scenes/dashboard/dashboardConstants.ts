@@ -1,4 +1,6 @@
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+import { DashboardAutoRefreshInterval } from '~/queries/schema/schema-general'
+
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = DashboardAutoRefreshInterval.SECONDS
 
 /**
  * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,

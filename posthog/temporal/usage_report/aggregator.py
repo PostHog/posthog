@@ -27,6 +27,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     convert_team_usage_rows_to_dict,
+    has_non_zero_usage,
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
@@ -58,20 +59,30 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
 def iter_chunk_lines(
     org_reports: Iterable[OrgReport],
     instance_metadata: InstanceMetadata,
-) -> Iterator[tuple[dict[str, Any], bool]]:
-    """Yield `(line_dict, has_non_zero_usage)` for each org report.
+) -> Iterator[dict[str, Any]]:
+    """Yield the JSONL line dict billing consumes for each org report.
 
-    `line_dict` is the JSONL line that ends up in S3 (and is what billing
-    consumes). The boolean lets the caller count non-zero orgs without a
-    second pass over the dict.
+    Filtering by `has_non_zero_usage` happens upstream in the activity, so
+    everything yielded here is expected to have usage.
     """
     for org_report in org_reports:
         report_dict = serialize_full_org_report(org_report, instance_metadata)
-        line = {
+        yield {
             "organization_id": org_report.organization_id,
             "usage_report": report_dict,
         }
-        yield line, bool(report_dict.get("has_non_zero_usage"))
+
+
+def filter_orgs_with_usage(org_reports: dict[str, OrgReport]) -> dict[str, OrgReport]:
+    """Drop org reports with no billable usage before serialization. Reuses
+    the legacy `has_non_zero_usage` directly on `OrgReport`s — every field
+    it checks lives on `UsageReportCounters`, the base class shared by
+    `OrgReport` and `FullUsageReport`, so we skip the
+    `dataclasses.asdict(FullUsageReport)` round-trip the legacy path forces.
+    Skipping that on the >99% of orgs without usage is the dominant CPU
+    win in the aggregation activity.
+    """
+    return {oid: report for oid, report in org_reports.items() if has_non_zero_usage(report)}
 
 
 def batched(iterable: Iterable[Any], size: int) -> Iterator[list[Any]]:

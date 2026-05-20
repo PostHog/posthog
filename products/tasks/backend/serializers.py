@@ -257,6 +257,13 @@ class TaskSerializer(serializers.ModelSerializer):
             return task
 
     def update(self, instance, validated_data):
+        # These fields are immutable after creation. origin_product controls
+        # team-wide visibility (SIGNAL_REPORT tasks are visible to all members),
+        # so allowing updates would let a user escalate a private task's visibility.
+        # signal_report and its relationship are set-once associations.
+        validated_data.pop("signal_report", None)
+        validated_data.pop("signal_report_task_relationship", None)
+        validated_data.pop("origin_product", None)
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
         return super().update(instance, validated_data)

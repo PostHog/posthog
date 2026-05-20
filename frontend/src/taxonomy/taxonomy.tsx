@@ -6,7 +6,7 @@ import {
 
 import { CoreFilterDefinition } from '~/types'
 
-import * as coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'
+import coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'
 import { transformFilterDefinitions } from './transformations'
 
 export type CoreFilterDefinitionsGroup = Exclude<keyof typeof coreFilterDefinitionsByGroup, '//'>
