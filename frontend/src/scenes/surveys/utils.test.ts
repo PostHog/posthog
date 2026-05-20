@@ -38,6 +38,7 @@ import {
     sanitizeSurveyDisplayConditions,
     splitChoicesOnPaste,
     validateCSSProperty,
+    validateSurveyAppearance,
 } from './utils'
 
 jest.mock('lib/utils/getAppContext', () => ({
@@ -156,6 +157,28 @@ describe('survey utils', () => {
             expect(sanitizeColor('#ff0000')).toBe('#ff0000')
             expect(sanitizeColor('rgb(255, 0, 0)')).toBe('rgb(255, 0, 0)')
             expect(sanitizeColor('red')).toBe('red')
+        })
+    })
+
+    describe('validateSurveyAppearance', () => {
+        const invalidAppearance: SurveyAppearance = {
+            backgroundColor: 'not-a-color',
+            borderColor: 'also-not-a-color',
+            maxWidth: 'definitely-not-a-width',
+        }
+
+        it('skips all appearance validation for API surveys', () => {
+            // API surveys are rendered by the customer, so PostHog's appearance CSS is not applied
+            // and the Customization section is hidden in the editor — flagging errors here would
+            // route submitSurveyFailure to a non-existent section and silently block saves.
+            expect(validateSurveyAppearance(invalidAppearance, false, SurveyType.API)).toEqual({})
+        })
+
+        it('validates appearance CSS for Popover surveys', () => {
+            const result = validateSurveyAppearance(invalidAppearance, false, SurveyType.Popover)
+            expect(result.backgroundColor).toBe('not-a-color is not a valid property for background-color.')
+            expect(result.borderColor).toBe('also-not-a-color is not a valid property for border-color.')
+            expect(result.maxWidth).toBe('definitely-not-a-width is not a valid property for width.')
         })
     })
 

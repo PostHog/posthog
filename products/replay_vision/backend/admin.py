@@ -27,6 +27,7 @@ class ReplayObservationAdmin(admin.ModelAdmin):
         "triggered_by",
         "triggered_by_user",
         "lens_snapshot",
+        "lens_result",
         "workflow_id",
         "started_at",
         "completed_at",
