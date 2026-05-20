@@ -161,6 +161,10 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export REDIS_URL="$DEFAULT_REDIS"
     export ADDRESS=0.0.0.0:3002
+    # Without these, the S3 client either talks to real AWS (PermanentRedirect) or rejects local-MinIO creds (InvalidAccessKey).
+    export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://localhost:19000}"
+    export AWS_ACCESS_KEY_ID="object_storage_root_user"
+    export AWS_SECRET_ACCESS_KEY="object_storage_root_password"
     export DEBUG=1
     ;;
 

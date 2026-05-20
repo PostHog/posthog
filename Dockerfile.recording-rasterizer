@@ -97,6 +97,9 @@ RUN apt-get update && \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl3=3.0.19-1~deb12u2" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
+    # Required by @puppeteer/browsers to extract the chrome-headless-shell archive.
+    "unzip" \
+    "bzip2" \
     # Shared libraries required by chrome-headless-shell
     libasound2 \
     libatk-bridge2.0-0 \
