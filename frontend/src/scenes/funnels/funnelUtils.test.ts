@@ -22,6 +22,7 @@ import {
     getReferenceStep,
     getStepBreakdownSeries,
     getVisibilityKey,
+    hasBreakdown,
     isFunnelWithEnoughSteps,
     isFunnelWithIncompleteDataWarehouseStep,
     parseDisplayNameForCorrelation,
@@ -832,5 +833,30 @@ describe('isFunnelWithIncompleteDataWarehouseStep', () => {
         },
     ])('returns $expected for $scenario', ({ series, expected }) => {
         expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('hasBreakdown', () => {
+    it.each([
+        { scenario: 'undefined value', breakdownValue: undefined, expected: false },
+        { scenario: '"Baseline" string', breakdownValue: 'Baseline', expected: false },
+        { scenario: '["Baseline"] array', breakdownValue: ['Baseline'], expected: false },
+        {
+            scenario: '["Baseline", "mobile"] multi-breakdown array',
+            breakdownValue: ['Baseline', 'mobile'],
+            expected: false,
+        },
+        { scenario: 'numeric zero (regression: 0 must count as a real breakdown)', breakdownValue: 0, expected: true },
+        {
+            scenario: 'empty string (regression: "" must count as a real breakdown)',
+            breakdownValue: '',
+            expected: true,
+        },
+        { scenario: 'non-baseline string', breakdownValue: 'Chrome', expected: true },
+        { scenario: 'non-baseline number', breakdownValue: 42, expected: true },
+        { scenario: 'non-baseline array', breakdownValue: ['Chrome', 'mobile'], expected: true },
+        { scenario: 'null', breakdownValue: null, expected: true },
+    ])('returns $expected for $scenario', ({ breakdownValue, expected }) => {
+        expect(hasBreakdown(breakdownValue as Parameters<typeof hasBreakdown>[0])).toBe(expected)
     })
 })

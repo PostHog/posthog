@@ -30,8 +30,8 @@ var (
 	colorBrightWhite  = sharedpalette.ColorBrightWhite
 	colorBrightBlack  = sharedpalette.ColorBrightBlack
 	colorBrightYellow = sharedpalette.ColorBrightYellow
-	selectionBgDark   = sharedpalette.SelectionBgDark
-	selectionBgLight  = sharedpalette.SelectionBgLight
+	selectionDark     = sharedpalette.SelectionDark
+	selectionLight    = sharedpalette.SelectionLight
 	brandYellow       = sharedpalette.BrandYellow
 	brandBlue         = sharedpalette.BrandBlue
 	brandRed          = sharedpalette.BrandRed
@@ -163,7 +163,7 @@ func statusIconColor(s process.Status) color.Color {
 	}
 }
 
-// Renders a single sidebar row with icon and name
+// Renders a single sidebar row with icon and name.
 func subtleBg(isDark bool) color.Color {
 	if isDark {
 		return colorBrightBlack
@@ -171,14 +171,12 @@ func subtleBg(isDark bool) color.Color {
 	return colorBrightWhite
 }
 
-// Selection fill color for highlighted rows. Uses TrueColor RGB rather than
-// ANSI bright black/white so it renders consistently in Cursor's terminal,
-// where SGR 100-107 bright background codes are buggy.
+// Selection fill color for highlighted rows.
 func selectionBg(isDark bool) color.Color {
 	if isDark {
-		return selectionBgDark
+		return selectionDark
 	}
-	return selectionBgLight
+	return selectionLight
 }
 
 // borderFor returns the border style with a foreground appropriate for the
