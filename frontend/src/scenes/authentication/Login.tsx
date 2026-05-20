@@ -85,6 +85,7 @@ export function Login(): JSX.Element {
         resendResponseLoading,
         devUsers,
         devUsersLoading,
+        devLoginTimeSavedLabel,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const isDev = !!preflight?.is_debug
@@ -315,6 +316,9 @@ export function Login(): JSX.Element {
                         <p className="text-muted text-sm m-0">
                             Click a user to log in without a password. This list is only exposed in development mode.
                         </p>
+                        {!devUsersLoading && devLoginTimeSavedLabel && (
+                            <p className="text-muted text-sm m-0">{devLoginTimeSavedLabel}</p>
+                        )}
                         {devUsersLoading && <Skeleton className="w-full h-10" />}
                         <div className="deprecated-space-y-1">
                             {devUsers.map((u) => (

@@ -37,6 +37,8 @@ export interface DevUser {
     label: string | null
 }
 
+export const DEV_LOGIN_SECONDS_SAVED_PER_CLICK = 5
+
 // Routes that should be handled by Django, not the React router
 const BACKEND_ONLY_ROUTES = [
     '/login/vercel/continue',
@@ -96,6 +98,13 @@ export const loginLogic = kea<loginLogicType>([
             {
                 setGeneralError: (_, error) => error,
                 clearGeneralError: () => null,
+            },
+        ],
+        devLoginCount: [
+            0,
+            { persist: true },
+            {
+                devLogin: (count) => count + 1,
             },
         ],
     }),
@@ -165,6 +174,24 @@ export const loginLogic = kea<loginLogicType>([
             (searchParams: Record<string, string>) => {
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
                 return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
+            },
+        ],
+        devLoginTimeSavedLabel: [
+            (s) => [s.devLoginCount],
+            (devLoginCount): string | null => {
+                if (devLoginCount === 0) {
+                    return null
+                }
+
+                const totalSeconds = devLoginCount * DEV_LOGIN_SECONDS_SAVED_PER_CLICK
+                if (totalSeconds < 60) {
+                    const unit = totalSeconds === 1 ? 'second' : 'seconds'
+                    return `You've saved ${totalSeconds} ${unit} by clicking this button.`
+                }
+
+                const minutes = Math.floor(totalSeconds / 60)
+                const unit = minutes === 1 ? 'minute' : 'minutes'
+                return `You've saved ${minutes} ${unit} by clicking this button.`
             },
         ],
     })),
