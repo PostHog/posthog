@@ -224,59 +224,91 @@ func TestUpdateProcKeys_RestartAllFailedEnabledOnceOneCrashes(t *testing.T) {
 
 // ── updateProcKeys: Restart binding gating ──────────────────────────────────────
 
-func TestUpdateProcKeys_RestartDisabledOnFreshProc(t *testing.T) {
-	// Never-started procs sit at StatusStopped — `r` has nothing to do.
-	m := readyModel(t, "backend")
-	m.updateProcKeys()
-	if m.keys.Restart.Enabled() {
-		t.Error("Restart should be disabled for a never-started proc")
-	}
-}
-
-func TestUpdateProcKeys_RestartEnabledWhileRunning(t *testing.T) {
-	m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
-	p := findProc(t, m, "sleeper")
-	if err := p.Start(m.mgr.Send()); err != nil {
+// waitRunning blocks until the proc reaches IsRunning, registering a cleanup
+// before the spin loop so a t.Fatal inside the loop doesn't leak the subprocess.
+// Skips on PTY allocation failure.
+func waitRunning(t *testing.T, p *process.Process, send func(tea.Msg)) {
+	t.Helper()
+	if err := p.Start(send); err != nil {
 		t.Skipf("cannot spawn subprocess: %v", err)
 	}
 	t.Cleanup(func() { p.Stop() })
-
 	deadline := time.After(2 * time.Second)
 	for !p.IsRunning() {
 		select {
 		case <-deadline:
-			t.Fatal("sleeper never reached running state")
+			t.Fatalf("proc %s never reached running state", p.Name)
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
-
-	m.updateProcKeys()
-	if !m.keys.Restart.Enabled() {
-		t.Error("Restart should be enabled while the active proc is running")
-	}
 }
 
-func TestUpdateProcKeys_RestartEnabledAfterCrash(t *testing.T) {
-	// A crashed proc should accept `r` to start it back up — same intent
-	// as restarting a running one, just with no live process to stop first.
-	m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
-	runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
-
-	m.updateProcKeys()
-	if !m.keys.Restart.Enabled() {
-		t.Error("Restart should be enabled when the active proc is crashed")
+// TestUpdateProcKeys_RestartBindingGating verifies the `r` (Restart) binding
+// is enabled in exactly the states where it has meaningful work: a running
+// proc (existing behavior) or a crashed proc (new behavior). Never-started,
+// cleanly-exited, and manually-stopped procs are all the user's chosen end-
+// state and must leave `r` disabled.
+func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
+	cases := []struct {
+		name        string
+		setup       func(t *testing.T) Model
+		wantEnabled bool
+	}{
+		{
+			name: "fresh proc (never started)",
+			setup: func(t *testing.T) Model {
+				return readyModel(t, "backend")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "running proc",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
+				waitRunning(t, findProc(t, m, "sleeper"), m.mgr.Send())
+				return m
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "crashed proc",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
+				runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
+				return m
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "clean exit",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"oneshot": "true"})
+				runUntilStatus(t, findProc(t, m, "oneshot"), m.mgr.Send(), process.StatusDone)
+				return m
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "manually stopped",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
+				p := findProc(t, m, "sleeper")
+				waitRunning(t, p, m.mgr.Send())
+				p.Stop()
+				return m
+			},
+			wantEnabled: false,
+		},
 	}
-}
 
-func TestUpdateProcKeys_RestartDisabledAfterCleanExit(t *testing.T) {
-	// A clean exit (StatusDone) is the user's chosen end-state for a one-shot
-	// — `r` shouldn't silently rerun it; `s` is the explicit start affordance.
-	m := modelWithProcs(t, map[string]string{"oneshot": "true"})
-	runUntilStatus(t, findProc(t, m, "oneshot"), m.mgr.Send(), process.StatusDone)
-
-	m.updateProcKeys()
-	if m.keys.Restart.Enabled() {
-		t.Error("Restart should be disabled after a clean exit (StatusDone)")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.setup(t)
+			m.updateProcKeys()
+			if got := m.keys.Restart.Enabled(); got != tc.wantEnabled {
+				t.Errorf("Restart.Enabled() = %v, want %v", got, tc.wantEnabled)
+			}
+		})
 	}
 }
 
@@ -311,28 +343,5 @@ func TestHandleNormalKey_RestartKeyRevivesCrashedProc(t *testing.T) {
 			t.Fatalf("crashed proc never restarted (status: %s)", p.Status())
 		case <-time.After(20 * time.Millisecond):
 		}
-	}
-}
-
-func TestUpdateProcKeys_RestartDisabledAfterManualStop(t *testing.T) {
-	// Manually stopped means the user said stop — `r` must not undo that.
-	m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
-	p := findProc(t, m, "sleeper")
-	if err := p.Start(m.mgr.Send()); err != nil {
-		t.Skipf("cannot spawn subprocess: %v", err)
-	}
-	deadline := time.After(2 * time.Second)
-	for !p.IsRunning() {
-		select {
-		case <-deadline:
-			t.Fatal("sleeper never started")
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-	p.Stop()
-
-	m.updateProcKeys()
-	if m.keys.Restart.Enabled() {
-		t.Error("Restart should be disabled after a manual stop")
 	}
 }

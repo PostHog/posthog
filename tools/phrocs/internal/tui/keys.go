@@ -316,8 +316,12 @@ func (m *Model) updateProcKeys() {
 		m.keys.ClearLogs.SetEnabled(false)
 		return
 	}
-	running := p.IsRunning()
-	crashed := p.Status() == process.StatusCrashed
+	// Snapshot status once so running/crashed are derived from the same
+	// observation — avoids a second trip through the proc mutex and any
+	// chance of inconsistency between the two reads.
+	st := p.Status()
+	running := st.IsRunning()
+	crashed := st == process.StatusCrashed
 	m.keys.Start.SetEnabled(!running)
 	m.keys.Stop.SetEnabled(running)
 	// `r` doubles as "restart a running proc" and "kick a crashed proc back to
