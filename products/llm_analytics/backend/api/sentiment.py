@@ -35,7 +35,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback, is_ai_events_enabled
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsSentimentBurstThrottle, LLMAnalyticsSentimentSustainedThrottle
 from posthog.temporal.common.client import sync_connect
@@ -403,14 +403,16 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             # table can hold inputs for some traces in the batch but not others,
             # so any trace missing from `ai_input_by_trace` here would render a
             # blank card in the sentiment tab. Fill those in from the shared
-            # `events` table directly (the same fallback target the wrapper would
-            # have used). Skipped when the wrapper already routed to events
-            # (kill switch off, or zero coverage) — `ai_input_by_trace` already
-            # reflects events in that case.
+            # `events` table directly. Gated on the kill switch so a kill-switch-off
+            # team (which already reads directly from events via the wrapper) does
+            # not re-run the same events query — only the rare edge case of "kill
+            # switch on, ai_events returned zero, wrapper fell back to events with
+            # partial coverage" eats a redundant query.
             missing_trace_ids = [tid for tid in trace_ids if tid not in ai_input_by_trace]
-            if missing_trace_ids and ai_input_by_trace:
-                missing_uuids = [u for tid, u in zip(trace_ids, uuids) if tid in set(missing_trace_ids)]
-                backfill_query = rewrite_query_for_events_table(parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL))
+            if missing_trace_ids and ai_input_by_trace and is_ai_events_enabled(self.team):
+                uuid_by_trace = dict(zip(trace_ids, uuids))
+                missing_uuids = [uuid_by_trace[tid] for tid in missing_trace_ids]
+                backfill_query = rewrite_query_for_events_table(heavy_query)
                 backfill_placeholders = {
                     "trace_ids": rewrite_expr_for_events_table(
                         ast.Tuple(exprs=[ast.Constant(value=tid) for tid in missing_trace_ids])

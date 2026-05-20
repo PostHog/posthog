@@ -183,17 +183,19 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         assert heavy_placeholders["ts_start"].value == datetime(2026, 4, 27, 6, 0, tzinfo=UTC)
         assert heavy_placeholders["ts_end"].value == datetime(2026, 4, 27, 7, 0, tzinfo=UTC)
 
+    # ai_events can carry inputs for some traces in a batch but not others
+    # during the rollout. `execute_with_ai_events_fallback` only re-runs against
+    # events when the dedicated result is fully empty, so without the per-row
+    # backfill the half not covered renders as blank cards.
+    @patch("products.llm_analytics.backend.api.sentiment.is_ai_events_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
     def test_missing_heavy_rows_get_backfilled_from_events(
-        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+        self,
+        mock_execute_hogql_query: MagicMock,
+        mock_heavy: MagicMock,
+        _mock_kill_switch: MagicMock,
     ) -> None:
-        """During the ai_events rollout, the dedicated table can carry inputs for
-        some traces in a batch but not others. `execute_with_ai_events_fallback`
-        only falls back when the dedicated result is fully empty, so without the
-        per-row backfill the missing traces would render as blank cards in the
-        Sentiment tab even though the input is still in the events table.
-        """
         mock_execute_hogql_query.side_effect = [
             self._make_response(
                 [
@@ -218,70 +220,90 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         backfill_call = mock_execute_hogql_query.call_args_list[1]
         assert backfill_call.kwargs["query_type"] == "LLMSentimentGenerationsBackfill"
         backfill_placeholders = backfill_call.kwargs["placeholders"]
-        # rewrite_expr_for_events_table preserves Tuple, just may swap inner refs
         trace_id_values = [c.value for c in backfill_placeholders["trace_ids"].exprs]
         uuid_values = [c.value for c in backfill_placeholders["uuids"].exprs]
         assert trace_id_values == ["trace-2"]
         assert uuid_values == ["uuid-2"]
 
+    @parameterized.expand(
+        [
+            # When the dedicated table covers every trace, backfill is unnecessary;
+            # both scenarios assert the same single-call path.
+            (
+                "heavy_returns_all_traces",
+                [
+                    ["trace-1", '[{"role":"user","content":"a"}]'],
+                    ["trace-2", '[{"role":"user","content":"b"}]'],
+                ],
+            ),
+            # When the dedicated read returns zero rows the wrapper already
+            # re-routed to events for us; the per-row backfill must not
+            # double-query in that case either.
+            ("heavy_returns_zero_traces", []),
+        ]
+    )
+    @patch("products.llm_analytics.backend.api.sentiment.is_ai_events_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_no_backfill_when_heavy_returns_all_traces(
-        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+    def test_no_backfill(
+        self,
+        _name: str,
+        heavy_rows: list[list[Any]],
+        mock_execute_hogql_query: MagicMock,
+        mock_heavy: MagicMock,
+        _mock_kill_switch: MagicMock,
     ) -> None:
-        """When the dedicated ai_events table covers every trace in the batch the
-        backfill must be skipped — otherwise we'd double the heavy-input read on
-        the hot path."""
         mock_execute_hogql_query.return_value = self._make_response(
             [
                 self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
                 self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
             ]
         )
-        mock_heavy.return_value = self._make_response(
-            [
-                ["trace-1", '[{"role":"user","content":"a"}]'],
-                ["trace-2", '[{"role":"user","content":"b"}]'],
-            ]
-        )
+        mock_heavy.return_value = self._make_response(heavy_rows)
 
         response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
         assert response.status_code == status.HTTP_200_OK
-        # Only the preflight call — no backfill
         assert mock_execute_hogql_query.call_count == 1
 
+    # Kill switch off → wrapper reads directly from events. Re-running the same
+    # events query for missing rows can't return more data, so the backfill must
+    # be skipped.
+    @patch("products.llm_analytics.backend.api.sentiment.is_ai_events_enabled", return_value=False)
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_no_backfill_when_heavy_returns_zero_traces(
-        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+    def test_no_backfill_when_kill_switch_off(
+        self,
+        mock_execute_hogql_query: MagicMock,
+        mock_heavy: MagicMock,
+        _mock_kill_switch: MagicMock,
     ) -> None:
-        """If the dedicated ai_events table returns zero rows for the batch,
-        `execute_with_ai_events_fallback` already re-routes to events on our
-        behalf, so the per-row backfill must not double-query."""
         mock_execute_hogql_query.return_value = self._make_response(
             [
                 self._preflight_row(uuid="uuid-1", trace_id="trace-1"),
                 self._preflight_row(uuid="uuid-2", trace_id="trace-2"),
             ]
         )
-        mock_heavy.return_value = self._make_response([])
+        # Partial events result — trace-2 is missing
+        mock_heavy.return_value = self._make_response([["trace-1", '[{"role":"user","content":"hi"}]']])
 
         response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
         assert response.status_code == status.HTTP_200_OK
-        # Only the preflight call — no backfill; both rows get null ai_input,
-        # matching the pre-fix behaviour when neither table has data.
         assert mock_execute_hogql_query.call_count == 1
         body = response.json()
-        assert all(row[2] is None for row in body["results"])
+        assert body["results"][0][2] == '[{"role":"user","content":"hi"}]'
+        assert body["results"][1][2] is None
 
+    # Degraded events read on the backfill path must not take down the rest of
+    # the response — the affected rows fall back to the pre-fix null behaviour.
+    @patch("products.llm_analytics.backend.api.sentiment.is_ai_events_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
     def test_backfill_failure_falls_back_to_null(
-        self, mock_execute_hogql_query: MagicMock, mock_heavy: MagicMock
+        self,
+        mock_execute_hogql_query: MagicMock,
+        mock_heavy: MagicMock,
+        _mock_kill_switch: MagicMock,
     ) -> None:
-        """A backfill failure must not take down the whole response — the
-        affected traces fall back to the pre-fix null-input behaviour, and
-        the rest of the page still renders."""
         mock_execute_hogql_query.side_effect = [
             self._make_response(
                 [
