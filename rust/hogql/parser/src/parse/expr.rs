@@ -3893,6 +3893,57 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consume the optional `COHORT` marker on `IN COHORT <expr>` /
+    /// `NOT IN COHORT <expr>`. cpp's grammar (`(NOT)? IN COHORT?
+    /// columnExpr`) routes through adaptive prediction: it only takes
+    /// the `COHORT?` alternative when a `columnExpr` follows. If the
+    /// next token can't start a columnExpr (EOF / `,` / `)` / `;` / a
+    /// clause-keyword terminator like FROM / LIMIT / WHERE / GROUP /
+    /// ORDER / HAVING / SETTINGS / UNION / ...), the bare `cohort`
+    /// keyword is the IN rhs identifier instead — cpp emits
+    /// `Compare(lhs, "in", Field([cohort]))`. Rust used to greedily
+    /// eat COHORT and then choke parsing an empty rhs.
+    fn try_consume_cohort_marker(&mut self) -> Result<bool, ParseError> {
+        if self.peek() != TokenKind::Keyword(Kw::Cohort) {
+            return Ok(false);
+        }
+        let next = self.peek_next();
+        // Hard terminators that obviously can't begin an expression.
+        let hard_terminator = matches!(
+            next,
+            TokenKind::Eof
+                | TokenKind::Comma
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::RBrace
+                | TokenKind::Semicolon
+        );
+        // Clause-keyword introducers that terminate a columnExpr in the
+        // outer SELECT context. Mirror the set in `peek_is_clause_terminator`.
+        let clause_kw = matches!(
+            next,
+            TokenKind::Keyword(Kw::From)
+                | TokenKind::Keyword(Kw::Where)
+                | TokenKind::Keyword(Kw::Prewhere)
+                | TokenKind::Keyword(Kw::Having)
+                | TokenKind::Keyword(Kw::Qualify)
+                | TokenKind::Keyword(Kw::Window)
+                | TokenKind::Keyword(Kw::Limit)
+                | TokenKind::Keyword(Kw::Offset)
+                | TokenKind::Keyword(Kw::Union)
+                | TokenKind::Keyword(Kw::Intersect)
+                | TokenKind::Keyword(Kw::Except)
+                | TokenKind::Keyword(Kw::Settings)
+                | TokenKind::Keyword(Kw::Order)
+                | TokenKind::Keyword(Kw::Group)
+        );
+        if hard_terminator || clause_kw {
+            return Ok(false);
+        }
+        self.bump()?;
+        Ok(true)
+    }
+
     // ---- Multi-token / context-sensitive infix --------------------------
 
     /// Returns `Some(true)` if it consumed and produced an infix.
@@ -3989,7 +4040,7 @@ impl<'a> Parser<'a> {
                     }
                     self.bump()?;
                     self.bump()?;
-                    let cohort = self.eat_kw(Kw::Cohort)?;
+                    let cohort = self.try_consume_cohort_marker()?;
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                     let op = if cohort { "not in cohort" } else { "not in" };
                     let prev = lhs.take();
@@ -4047,7 +4098,7 @@ impl<'a> Parser<'a> {
                     return Ok(None);
                 }
                 self.bump()?;
-                let cohort = self.eat_kw(Kw::Cohort)?;
+                let cohort = self.try_consume_cohort_marker()?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                 let op = if cohort { "in cohort" } else { "in" };
                 let prev = lhs.take();

@@ -1789,6 +1789,37 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
+        # cpp's `(NOT)? IN COHORT? columnExpr` only takes the COHORT
+        # alternative when a columnExpr follows. With an empty rhs (EOF
+        # / comma / clause-keyword next), `cohort` is the IN rhs
+        # identifier instead — `a IN cohort` parses as
+        # `Compare(a, "in", Field([cohort]))`. The Rust parser greedily
+        # ate COHORT and then choked on the missing rhs expression.
+        for src in ("a IN COHORT", "a NOT IN COHORT", "a IN cohort"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        for src in (
+            "SELECT a IN COHORT, b FROM t",
+            "SELECT * FROM t WHERE x IN cohort",
+            "SELECT * FROM t WHERE x IN cohort GROUP BY y",
+            "SELECT * FROM t WHERE x IN cohort ORDER BY y",
+            "SELECT a IN cohort LIMIT 1",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: when an expression-starter follows, COHORT remains the
+        # marker and the rhs is the expression after it.
+        for src in ("a IN COHORT 1", "a IN COHORT t.id", "a NOT IN COHORT 1", "a IN cohort + 1"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_tuple_access_rejects_leading_zero_index(self):
         # cpp's lexer routes `0123` through `OCTAL_PREFIX_LITERAL`, not
         # `DECIMAL_LITERAL`, so the postfix `.<DECIMAL_LITERAL>` tuple
