@@ -9,7 +9,7 @@ prints a ready-to-paste entry for ENUM_NAME_OVERRIDES in posthog/settings/web.py
 
 See also:
     posthog/settings/web.py — ENUM_NAME_OVERRIDES (where the fix goes)
-    .agents/skills/improving-drf-endpoints/SKILL.md — full DRF/OpenAPI guide
+    /improving-drf-endpoints — skill with the full DRF/OpenAPI guide
 
 Usage:
     python manage.py find_enum_collisions

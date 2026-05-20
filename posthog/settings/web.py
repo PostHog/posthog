@@ -413,9 +413,9 @@ SPECTACULAR_SETTINGS = {
         #   3. Re-run `hogli build:openapi-schema` locally to confirm the warning is gone.
         #
         # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
-        #   .agents/skills/improving-drf-endpoints/SKILL.md
-        # Detailed override patterns and the hash-trap explanation:
-        #   .agents/skills/improving-drf-endpoints/references/viewset-annotations.md
+        #   /improving-drf-endpoints  (skill — invoke it for the walkthrough)
+        # Detailed override patterns and the hash-trap explanation live in the skill's
+        # references/viewset-annotations.md.
         #
         # Hash trap — overrides fall into two categories depending on how drf-spectacular
         # hashes them, and using the wrong format silently fails (the override is ignored

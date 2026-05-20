@@ -1092,7 +1092,7 @@ jobs:
                       echo ""
                       echo "Where to fix:"
                       echo "  posthog/settings/web.py                 # ENUM_NAME_OVERRIDES (see comment block at the top)"
-                      echo "  .agents/skills/improving-drf-endpoints/SKILL.md   # full guide for serializer/viewset fixes"
+                      echo "  /improving-drf-endpoints                # invoke this skill for the full serializer/viewset guide"
                       echo ""
                       exit 1
                   fi
