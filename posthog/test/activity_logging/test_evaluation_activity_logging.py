@@ -108,10 +108,7 @@ class TestEvaluationActivityLogging(ActivityLogTestHelper):
         )
 
         logs = self.get_activity_logs_for_item("Evaluation", evaluation["id"])
-        if logs:
-            changes = logs[0].detail.get("changes", [])
-            field_names = [c.get("field") for c in changes]
-            self.assertNotIn("conditions", field_names)
+        self.assertEqual(len(logs), 0)
 
     def test_toggling_enabled_logs_status_and_enabled(self):
         evaluation = self._create_evaluation()
