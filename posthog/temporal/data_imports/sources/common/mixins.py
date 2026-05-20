@@ -61,6 +61,16 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     return True, None
 
 
+def is_http_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
+    """Public wrapper around :func:`_is_host_safe` for HTTP/REST callers.
+
+    The underlying check is identical (DNS resolution + private-IP rejection
+    on Cloud only); this alias keeps callers outside the database mixins
+    from having to import a private symbol.
+    """
+    return _is_host_safe(host, team_id)
+
+
 class SSHTunnelMixin:
     """Mixin for sources that support SSH tunnels"""
 

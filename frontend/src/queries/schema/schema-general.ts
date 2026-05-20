@@ -5874,6 +5874,7 @@ export const externalDataSources = [
     'Plain',
     'Resend',
     'PgAnalyze',
+    'Custom',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

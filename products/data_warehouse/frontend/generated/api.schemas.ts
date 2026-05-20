@@ -584,6 +584,7 @@ export const CreatedViaEnumApi = {
  * `Plain` - Plain
  * `Resend` - Resend
  * `PgAnalyze` - PgAnalyze
+ * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -734,6 +735,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plain: 'Plain',
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
+    Custom: 'Custom',
 } as const
 
 /**
@@ -975,7 +977,8 @@ export interface ExternalDataSourceCreateApi {
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
   * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze */
+  * `PgAnalyze` - PgAnalyze
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -1280,7 +1283,8 @@ export interface DatabaseSchemaRequestApi {
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
   * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze */
+  * `PgAnalyze` - PgAnalyze
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 

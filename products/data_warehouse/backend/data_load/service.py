@@ -286,6 +286,23 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
     )
 
 
+def is_custom_source_enabled_for_team(team: Team) -> bool:
+    """Check whether the team can create user-defined REST API ('Custom') sources."""
+    from django.conf import settings
+
+    if settings.DEBUG:
+        return True
+
+    import posthoganalytics
+
+    return posthoganalytics.feature_enabled(
+        "dwh_custom_source",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
 # ---------------------------------------------------------------------------
 # CDC extraction scheduling (source-level)
 # ---------------------------------------------------------------------------

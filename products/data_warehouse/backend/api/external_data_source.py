@@ -62,6 +62,7 @@ from products.data_warehouse.backend.data_load.service import (
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_custom_source_enabled_for_team,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
@@ -993,6 +994,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
+        if source_type_model == ExternalDataSourceType.CUSTOM and not is_custom_source_enabled_for_team(self.team):
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data={"message": "Custom sources are not enabled for this team"},
+            )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
@@ -1642,6 +1648,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         source_type_model = ExternalDataSourceType(source_type)
+        if source_type_model == ExternalDataSourceType.CUSTOM and not is_custom_source_enabled_for_team(self.team):
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data={"message": "Custom sources are not enabled for this team"},
+            )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
