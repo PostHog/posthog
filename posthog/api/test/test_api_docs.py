@@ -40,7 +40,7 @@ class TestAPIDocsSchema(APIBaseTest):
         warning = warning.replace(repo_root, "/home/runner/work/posthog/posthog")
         return re.sub(
             r"^.*?/site-packages/",
-            "/opt/hostedtoolcache/Python/3.12.12/x64/lib/python3.12/site-packages/",
+            "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/",
             warning,
         )
 

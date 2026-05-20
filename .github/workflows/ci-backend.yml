@@ -380,7 +380,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v6
               with:
-                  python-version: 3.12.12
+                  python-version: 3.12.13
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -520,7 +520,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.12.13
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
@@ -590,7 +590,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.12.13
 
             - name: Install uv
               id: setup-uv
@@ -1160,7 +1160,7 @@ jobs:
                     [range(1; 39) | {
                       segment: "Core",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.12.13",
                       "clickhouse-server-image": $image,
                       concurrency: 38,
                       group: .,
@@ -1173,7 +1173,7 @@ jobs:
                     [range(1; 8) | {
                       segment: "Core",
                       "person-on-events": true,
-                      "python-version": "3.12.12",
+                      "python-version": "3.12.13",
                       "clickhouse-server-image": $image,
                       concurrency: 7,
                       group: .,
@@ -1186,7 +1186,7 @@ jobs:
                     [range(1; 8) | {
                       segment: "Temporal",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.12.13",
                       "clickhouse-server-image": $image,
                       concurrency: 7,
                       group: .,
@@ -1203,7 +1203,7 @@ jobs:
                       | .value + {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.12.12",
+                          "python-version": "3.12.13",
                           compat: true,
                           artifact_key: ("compat-" + ((.key + 1)|tostring))
                         }
