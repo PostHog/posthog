@@ -106,6 +106,10 @@ class MessageSerializer(MessageMinimalSerializer):
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     is_sandbox = serializers.BooleanField(required=False, default=False)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
+    # Which UI surface produced this turn — tags LLM analytics generations so cost,
+    # latency, model-mix can be filtered per surface. Free-form so new surfaces don't
+    # require an enum migration; validated only for shape (short string).
+    surface = serializers.CharField(required=False, allow_blank=True, max_length=32)
 
     def validate(self, attrs):
         data = attrs
@@ -438,6 +442,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 is_agent_billable=is_agent_billable,
                 is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
+                surface=serializer.validated_data.get("surface") or None,
             )
             workflow_class = ChatAgentWorkflow
             timeout = CHAT_AGENT_WORKFLOW_TIMEOUT

@@ -191,6 +191,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 contextual_tools?: Record<string, any>
                 ui_context?: any
                 resume_payload?: ResumePayload | null
+                // UI surface that triggered this turn. Forwarded to the backend so LLM
+                // analytics events get tagged with it.
+                surface?: string
             },
             generationAttempt: number,
             addToThread: boolean = true
@@ -996,7 +999,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, surface }) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
@@ -1109,6 +1112,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     conversation: values.conversation?.id || values.conversationId,
                     // Include auto-rejection payload if there was a pending approval
                     resume_payload: autoRejectPayload,
+                    surface,
                 },
                 0,
                 addToThread

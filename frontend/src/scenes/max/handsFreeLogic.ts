@@ -341,7 +341,9 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             actions.setStatus('thinking')
             cache.userTurnCount = (cache.userTurnCount ?? 0) + 1
             posthog.capture('max hands-free user spoke', { transcript_chars: text.length })
-            threadLogic.actions.askMax(text)
+            // Tag the turn with surface='hands_free' so every downstream $ai_generation event
+            // is scoped to hands-free, queryable in PostHog LLM analytics.
+            threadLogic.actions.askMax(text, true, undefined, 'hands_free')
         },
 
         speakAssistantResponse: async ({ summary }) => {

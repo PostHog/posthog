@@ -6398,6 +6398,9 @@ const api = {
                     proposal_id: string
                     feedback?: string
                 } | null
+                /** UI surface that triggered this turn (e.g. 'hands_free'). Tagged on backend
+                 *  LLM analytics events so cost / latency / model-mix can be filtered per surface. */
+                surface?: string
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

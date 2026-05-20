@@ -168,10 +168,19 @@ export const maxLogic = kea<maxLogicType>([
 
     actions({
         setQuestion: (question: string) => ({ question }), // update the form input
-        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+        askMax: (
+            prompt: string | null,
+            addToThread: boolean = true,
+            uiContext?: Partial<MaxUIContext>,
+            // Optional UI surface that triggered this turn (e.g. 'hands_free'). Tagged on
+            // backend LLM analytics events so cost / latency / model-mix can be filtered
+            // per surface. Omit for default text-composer asks.
+            surface?: string
+        ) => ({
             prompt,
             addToThread,
             uiContext,
+            surface,
         }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),

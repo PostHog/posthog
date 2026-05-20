@@ -325,6 +325,12 @@ class BaseStateWithMessages(BaseState):
     The supermode of the agent (e.g., PLAN, RESEARCH).
     Use CLEAR_SUPERMODE string to explicitly clear the supermode.
     """
+    surface: str | None = Field(default=None)
+    """
+    Which UI surface produced this turn (e.g. "hands_free", "text"). Tagged on every
+    LLM analytics generation so cost / latency / model-mix can be scoped to a specific
+    surface. Set per-turn from the request payload; not persisted across turns.
+    """
 
     @field_validator("messages", mode="after")
     @classmethod

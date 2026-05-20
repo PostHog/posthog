@@ -57,6 +57,7 @@ class ChatAgentRunner(BaseAgentRunner):
     _state: Optional[AssistantState]
     _initial_state: Optional[AssistantState | PartialAssistantState]
     _selected_agent_mode: AgentMode | None
+    _selected_surface: Optional[str]
 
     def __init__(
         self,
@@ -78,6 +79,7 @@ class ChatAgentRunner(BaseAgentRunner):
         is_agent_billable: bool = True,
         is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
+        surface: Optional[str] = None,
     ):
         super().__init__(
             team,
@@ -108,6 +110,7 @@ class ChatAgentRunner(BaseAgentRunner):
             resume_payload=resume_payload,
         )
         self._selected_agent_mode = agent_mode
+        self._selected_surface = surface
 
     def get_initial_state(self) -> AssistantState:
         if self._latest_message:
@@ -117,6 +120,7 @@ class ChatAgentRunner(BaseAgentRunner):
                 query_generation_retry_count=0,
                 graph_status=None,
                 rag_context=None,
+                surface=self._selected_surface,
             )
             # Only set the agent mode if it was explicitly set.
             if self._selected_agent_mode:

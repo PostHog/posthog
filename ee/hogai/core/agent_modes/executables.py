@@ -268,6 +268,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         return {
             "agent_mode": state.agent_mode_or_default.value,
             "supermode": supermode_value,
+            "surface": state.surface,
         }
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):

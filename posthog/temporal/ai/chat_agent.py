@@ -123,6 +123,9 @@ class ChatAgentWorkflowInputs:
     is_agent_billable: bool = True
     is_impersonated: bool = False
     resume_payload: Optional[dict[str, Any]] = None
+    # Which UI surface produced this turn (e.g. "hands_free", "text"). Tags LLM analytics
+    # events so we can scope cost / latency / model-mix dashboards to a specific surface.
+    surface: Optional[str] = None
 
 
 @workflow.defn(name="chat-agent")
@@ -201,6 +204,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
             is_agent_billable=inputs.is_agent_billable,
             is_impersonated=inputs.is_impersonated,
             resume_payload=inputs.resume_payload,
+            surface=inputs.surface,
         )
 
         async for chunk in stream_runner(assistant):
