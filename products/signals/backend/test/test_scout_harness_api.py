@@ -370,7 +370,10 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """
 
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/project_profile/"
+        # The viewset exposes the singleton via an explicit `@action(url_path="current")`
+        # (not `list()`), so the route is /project_profile/current/. Generated TS clients
+        # call /current/; tests must match or the requests 404 and never exercise the view.
+        return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
     def test_lazy_computes_a_profile_when_none_exists(self) -> None:
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
@@ -421,6 +424,16 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
+            "recent_activity",
             "recent_dashboards",
+            "recent_surveys",
+            "recent_feature_flags",
+            "recent_experiments",
+            "recent_alerts",
+            "recent_hog_functions",
+            "recent_hog_flows",
+            "recent_notebooks",
+            "recent_cohorts",
+            "recent_actions",
             "top_events",
         }

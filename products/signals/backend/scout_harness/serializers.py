@@ -437,6 +437,16 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
+    recent_activity = serializers.JSONField(
+        help_text=(
+            "Per-scope counts off the activity log over the recent-activity window — "
+            "cross-cutting orientation across every entity type (surveys, feature flags, "
+            "experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each "
+            "scope reports `edits` (total log entries), `users` (distinct user count), "
+            "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
+            "in lately before drilling down via the per-entity readers or `activity-log-list`."
+        ),
+    )
     recent_dashboards = serializers.ListField(
         child=RecentDashboardEntrySerializer(),
         help_text=(
@@ -444,6 +454,63 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "what the team is currently looking at, not necessarily the most-trafficked. "
             "We don't have per-dashboard view counts in Postgres, only the timestamp of "
             "the most recent access."
+        ),
+    )
+    recent_surveys = serializers.JSONField(
+        help_text=(
+            "Surveys orientation: `{total_count, active_count, recent: [...]}` where `recent` "
+            "is the 5 most recently updated surveys with `id`, `name`, `type`, `status` "
+            "(draft / running / stopped / archived), and `updated_at`."
+        ),
+    )
+    recent_feature_flags = serializers.JSONField(
+        help_text=(
+            "Feature flag orientation: `{total_count, active_count, recent: [...]}` where "
+            "`recent` is the 5 most recently updated non-deleted flags with `id`, `key`, "
+            "`name`, `active`, and `updated_at`."
+        ),
+    )
+    recent_experiments = serializers.JSONField(
+        help_text=(
+            "Experiment orientation: `{total_count, active_count, recent: [...]}`. The "
+            "feature_flag key on each row lets the scout correlate experiments with the "
+            "`recent_feature_flags` section."
+        ),
+    )
+    recent_alerts = serializers.JSONField(
+        help_text=(
+            "Alert orientation: `{total_count, active_count, recent: [...]}` covering the "
+            "5 most recently updated alerts with their state and threshold metadata."
+        ),
+    )
+    recent_hog_functions = serializers.JSONField(
+        help_text=(
+            "Hog function orientation: `{total_count, active_count, recent: [...]}` for "
+            "destinations / transformations the team has wired up via the CDP pipelines."
+        ),
+    )
+    recent_hog_flows = serializers.JSONField(
+        help_text=(
+            "Hog flow orientation: `{total_count, active_count, recent: [...]}` for the "
+            "team's currently configured automation flows."
+        ),
+    )
+    recent_notebooks = serializers.JSONField(
+        help_text=(
+            "Notebook orientation: `{total_count, recent: [...]}` with the 5 most recently "
+            "updated notebooks — useful signal for what the team has been investigating."
+        ),
+    )
+    recent_cohorts = serializers.JSONField(
+        help_text=(
+            "Cohort orientation: `{total_count, recent: [...]}` with the 5 most recently updated cohorts on the team."
+        ),
+    )
+    recent_actions = serializers.JSONField(
+        help_text=(
+            "Action orientation: `{total_count, recent: [...]}` with the 5 most recently "
+            "updated actions — useful to anchor agent reasoning about what the team treats "
+            "as a meaningful interaction."
         ),
     )
     top_events = serializers.ListField(

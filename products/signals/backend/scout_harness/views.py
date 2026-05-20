@@ -388,7 +388,9 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
-    queryset = SignalProjectProfile.objects.all()
+    # `.unscoped()` — see `SignalScoutRunViewSet` for the same module-load reasoning.
+    # The `current` action filters by team_id explicitly via `get_project_profile`.
+    queryset = SignalProjectProfile.objects.unscoped()
     pagination_class = None
 
     # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,

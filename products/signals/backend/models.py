@@ -530,7 +530,7 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class SignalProjectProfile(UUIDModel):
+class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     """Deterministic snapshot of "what's true about this project" — agent orientation surface.
 
     One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
@@ -541,6 +541,10 @@ class SignalProjectProfile(UUIDModel):
     tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
     wrong, TTL'd). Profile feeds memory; memory does not update profile.
     """
+
+    # See `SignalScoutConfig.all_teams` for the rationale on the unscoped sibling manager
+    # and `default_manager_name`.
+    all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -563,6 +567,7 @@ class SignalProjectProfile(UUIDModel):
     class Meta:
         verbose_name = "Signal project profile"
         verbose_name_plural = "Signal project profiles"
+        default_manager_name = "all_teams"
         indexes = [
             # `get_project_profile` reads the newest non-expired row for a team — supports the
             # ORDER BY computed_at DESC LIMIT 1 lookup pattern.
