@@ -22,9 +22,17 @@ class AccountAssignment(BaseModel):
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Key roles
     csm: AccountAssignment | None = None
     account_executive: AccountAssignment | None = None
     account_owner: AccountAssignment | None = None
+
+    # External connections
+    stripe_customer_id: str | None = None
+    hubspot_deal_id: str | None = None
+    billing_id: str | None = None
+    sfdc_id: str | None = None
+    zendesk_id: str | None = None
 
 
 class AccountManager(TeamScopedManager["Account"]):

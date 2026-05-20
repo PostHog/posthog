@@ -487,6 +487,56 @@ class TestAccountViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertFalse(Account.objects.unscoped().filter(id=account_id).exists())
 
+    _EXTERNAL_IDENTIFIER_PROPERTIES = {
+        "stripe_customer_id": "cus_123",
+        "hubspot_deal_id": "deal_456",
+        "billing_id": "bill_789",
+        "sfdc_id": "001A000000DUMMY",
+        "zendesk_id": "zd_42",
+    }
+
+    def _assert_external_identifiers(self, properties_payload):
+        for key, value in self._EXTERNAL_IDENTIFIER_PROPERTIES.items():
+            self.assertEqual(properties_payload[key], value)
+
+    def test_create_with_external_identifier_properties(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Acme", "properties": self._EXTERNAL_IDENTIFIER_PROPERTIES},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self._assert_external_identifiers(response.json()["properties"])
+
+    def test_update_with_external_identifier_properties(self):
+        account = self._create_account()
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"properties": self._EXTERNAL_IDENTIFIER_PROPERTIES},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self._assert_external_identifiers(response.json()["properties"])
+
+    def test_retrieve_returns_external_identifier_properties(self):
+        account = self._create_account(properties=self._EXTERNAL_IDENTIFIER_PROPERTIES)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self._assert_external_identifiers(response.json()["properties"])
+
+    def test_list_returns_external_identifier_properties(self):
+        self._create_account(properties=self._EXTERNAL_IDENTIFIER_PROPERTIES)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self._assert_external_identifiers(response.json()["results"][0]["properties"])
+
     @parameterized.expand(
         [
             (

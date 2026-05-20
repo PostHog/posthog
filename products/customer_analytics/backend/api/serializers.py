@@ -24,6 +24,11 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
         "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
         "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
+        "stripe_customer_id": {"type": "string", "nullable": True},
+        "hubspot_deal_id": {"type": "string", "nullable": True},
+        "billing_id": {"type": "string", "nullable": True},
+        "sfdc_id": {"type": "string", "nullable": True},
+        "zendesk_id": {"type": "string", "nullable": True},
     },
 }
 
@@ -131,8 +136,9 @@ class AccountSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: assignment fields (csm, account_executive, account_owner). "
-            "Defaults to an empty object. Unknown keys are rejected."
+            "Typed account properties: assignment fields (csm, account_executive, account_owner) "
+            "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
+            "sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected."
         ),
     )
 
