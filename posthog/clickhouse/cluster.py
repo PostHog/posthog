@@ -120,11 +120,6 @@ class HostInfo(NamedTuple):
 T = TypeVar("T")
 
 
-def _cluster_host_sort_key(row: tuple) -> tuple[Any, Any, Any, Any]:
-    host_name, port, shard_num, replica_num, *_ = row
-    return (shard_num, replica_num, host_name, port)
-
-
 class ClickhouseCluster:
     def __init__(
         self,
@@ -231,6 +226,7 @@ class ClickhouseCluster:
             SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
+            ORDER BY shard_num, replica_num
             """,
             {"name": cluster},
         )
@@ -238,7 +234,7 @@ class ClickhouseCluster:
         if retry_policy is not None:
             get_cluster_hosts_fn = retry_policy(get_cluster_hosts_fn)
 
-        return sorted(get_cluster_hosts_fn(client), key=_cluster_host_sort_key)
+        return get_cluster_hosts_fn(client)
 
     def __get_satellite_cluster_hosts(
         self,
@@ -252,6 +248,7 @@ class ClickhouseCluster:
             SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(satellite_name)s, system.clusters)
             WHERE is_local AND cluster = %(migrations_cluster)s
+            ORDER BY shard_num, replica_num
             """,
             {"satellite_name": satellite_cluster, "migrations_cluster": migrations_cluster},
         )
@@ -259,7 +256,7 @@ class ClickhouseCluster:
         if retry_policy is not None:
             get_hosts_fn = retry_policy(get_hosts_fn)
 
-        return sorted(get_hosts_fn(client), key=_cluster_host_sort_key)
+        return get_hosts_fn(client)
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
