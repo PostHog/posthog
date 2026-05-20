@@ -2,6 +2,7 @@ import { bisector } from 'd3'
 
 import type {
     ChartDimensions,
+    DragRect,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -9,6 +10,8 @@ import type {
     YAxisScale,
 } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
+
+export type { DragRect } from './types'
 
 export interface LabelPosition {
     x: number
@@ -59,17 +62,7 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
     )
 }
 
-/** Pixel x-range of an in-progress drag selection on the plot. `x0` and `x1` are canvas pixels
- *  (not necessarily ordered). The chart renders this as a translucent rectangle that spans
- *  the full plot height. */
-export interface DragRect {
-    x0: number
-    x1: number
-}
-
-/** Maps a drag rectangle to the [startIndex, endIndex] range it selects, in label-array order.
- *  Returns null when the rectangle collapses to fewer than two distinct labels — a drag that
- *  short shouldn't zoom anything. Always normalizes right-to-left drags. */
+// Returns null when fewer than 2 distinct labels are spanned.
 export function dragRectToLabelRange(
     rect: DragRect,
     labelPositions: LabelPosition[]
@@ -84,7 +77,8 @@ export function dragRectToLabelRange(
     if (startIndex < 0 || endIndex < 0 || startIndex === endIndex) {
         return null
     }
-    return startIndex < endIndex ? { startIndex, endIndex } : { startIndex: endIndex, endIndex: startIndex }
+    const [s, e] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex]
+    return { startIndex: s, endIndex: e }
 }
 
 export function buildTooltipContext<Meta = unknown>(

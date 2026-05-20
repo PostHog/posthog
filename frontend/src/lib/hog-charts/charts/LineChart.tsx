@@ -20,6 +20,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     LineChartConfig,
     PointClickData,
     ResolvedSeries,
@@ -41,7 +42,7 @@ export interface LineChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
-    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string

@@ -7,6 +7,8 @@ export interface ChartTheme {
     crosshairColor?: string
     tooltipBackground?: string
     tooltipColor?: string
+    selectionFill?: string
+    selectionStroke?: string
 }
 
 /** Default axis id used when a series doesn't specify one. */
@@ -216,7 +218,20 @@ export interface ChartDrawArgs {
     theme: ChartTheme
     /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
      *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
-    dragRect?: { x0: number; x1: number } | null
+    dragRect?: DragRect | null
+}
+
+// x0/x1 are canvas pixels, not necessarily ordered.
+export interface DragRect {
+    x0: number
+    x1: number
+}
+
+export interface DateRangeZoomData {
+    startLabel: string
+    endLabel: string
+    startIndex: number
+    endIndex: number
 }
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */

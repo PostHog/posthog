@@ -548,8 +548,7 @@ export function composeDrawHoverWithCrosshair(
     }
 }
 
-/** Colors for the drag-to-zoom selection rectangle. Match the values used by the
- *  Chart.js implementation so the two paths look identical. */
+// Match chartjs-plugin-zoom selection colors.
 const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
 const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
 
@@ -559,8 +558,6 @@ export interface DrawSelectionRectOptions {
     lineWidth?: number
 }
 
-/** Paints a 1px-bordered, translucent rectangle. Used by the drag-to-zoom overlay; the rect
- *  spans the full plot height regardless of how far the cursor moved vertically. */
 export function drawSelectionRect(
     ctx: CanvasRenderingContext2D,
     rect: { x: number; y: number; width: number; height: number },
@@ -576,26 +573,28 @@ export function drawSelectionRect(
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
 }
 
-/** Wraps a base hover-draw fn and paints the drag-to-zoom selection rectangle on top
- *  whenever `args.dragRect` is set. The rect always spans the full plot height — this
- *  mirrors `chartjs-plugin-zoom`'s `mode: 'x'` behavior. */
-export function composeDrawHoverWithSelection(getDrawHover: () => DrawHoverFn): DrawHoverFn {
+// Always spans full plot height; mirrors chartjs-plugin-zoom mode: 'x'.
+export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
     return (args) => {
-        getDrawHover()(args)
+        baseDrawHover(args)
         const dragRect = args.dragRect
         if (!dragRect) {
             return
         }
-        const lo = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
-        const hi = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
-        if (hi <= lo) {
+        const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
+        const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
+        if (x1 <= x0) {
             return
         }
-        drawSelectionRect(args.ctx, {
-            x: lo,
-            y: args.dimensions.plotTop,
-            width: hi - lo,
-            height: args.dimensions.plotHeight,
-        })
+        drawSelectionRect(
+            args.ctx,
+            {
+                x: x0,
+                y: args.dimensions.plotTop,
+                width: x1 - x0,
+                height: args.dimensions.plotHeight,
+            },
+            { fill: args.theme.selectionFill, stroke: args.theme.selectionStroke }
+        )
     }
 }

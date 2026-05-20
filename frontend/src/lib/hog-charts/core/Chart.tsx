@@ -19,6 +19,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -46,6 +47,16 @@ const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, curs
 const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
 const WRAPPER_STYLE_CROSSHAIR: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'crosshair' }
 
+function pickWrapperStyle(hasDragToZoom: boolean, hasPointClick: boolean, isOverPoint: boolean): React.CSSProperties {
+    if (hasPointClick && isOverPoint) {
+        return WRAPPER_STYLE_POINTER
+    }
+    if (hasDragToZoom) {
+        return WRAPPER_STYLE_CROSSHAIR
+    }
+    return WRAPPER_STYLE_DEFAULT
+}
+
 const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
 const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
     position: 'absolute',
@@ -70,7 +81,7 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => void
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
-    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -176,7 +187,7 @@ export function Chart<Meta = unknown>({
             axisOrientation,
             labelToCoord,
         })
-        return composeDrawHoverWithSelection(() => withCrosshair)
+        return composeDrawHoverWithSelection(withCrosshair)
     }, [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current])
 
     useChartDraw({
@@ -194,11 +205,7 @@ export function Chart<Meta = unknown>({
         drawHover: composedDrawHover,
     })
 
-    const wrapperStyle = onDateRangeZoom
-        ? WRAPPER_STYLE_CROSSHAIR
-        : hoverIndex >= 0 && onPointClick
-          ? WRAPPER_STYLE_POINTER
-          : WRAPPER_STYLE_DEFAULT
+    const wrapperStyle = pickWrapperStyle(!!onDateRangeZoom, !!onPointClick, hoverIndex >= 0)
 
     const ariaLabel = useMemo(() => {
         const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)

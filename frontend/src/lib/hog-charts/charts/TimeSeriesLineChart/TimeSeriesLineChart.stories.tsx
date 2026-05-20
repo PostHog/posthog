@@ -62,7 +62,7 @@ export const DragToZoom: Story = {
                         labels={DAYS}
                         theme={theme}
                         config={{ yAxis: { showGrid: true } }}
-                        onDateRangeZoom={(start, end) => setRange([start, end])}
+                        onDateRangeZoom={({ startLabel, endLabel }) => setRange([startLabel, endLabel])}
                     />
                 </Stage>
             </div>

@@ -12,6 +12,8 @@ import { defaultResolveValue } from '../types'
 import type {
     ChartDimensions,
     ChartScales,
+    DateRangeZoomData,
+    DragRect,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -60,7 +62,7 @@ interface UseChartInteractionOptions<Meta> {
     showTooltip: boolean
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
-    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     resolveValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
@@ -70,7 +72,7 @@ interface UseChartInteractionResult<Meta> {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
-    dragRect: { x0: number; x1: number } | null
+    dragRect: DragRect | null
     handlers: {
         onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -97,7 +99,7 @@ export function useChartInteraction<Meta = unknown>({
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
     const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
-    const [dragRect, setDragRect] = useState<{ x0: number; x1: number } | null>(null)
+    const [dragRect, setDragRect] = useState<DragRect | null>(null)
     const dragOriginRef = useRef<{ x: number; y: number; active: boolean } | null>(null)
     const dragJustCompletedRef = useRef(false)
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the
@@ -246,9 +248,17 @@ export function useChartInteraction<Meta = unknown>({
                 const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
                 if (range && onDateRangeZoomRef.current) {
                     const ls = labelsRef.current
-                    onDateRangeZoomRef.current(ls[range.startIndex], ls[range.endIndex])
+                    onDateRangeZoomRef.current({
+                        startLabel: ls[range.startIndex],
+                        endLabel: ls[range.endIndex],
+                        startIndex: range.startIndex,
+                        endIndex: range.endIndex,
+                    })
                 }
                 dragJustCompletedRef.current = true
+                setTimeout(() => {
+                    dragJustCompletedRef.current = false
+                }, 0)
             }
             dragOriginRef.current = null
             setDragRect(null)
@@ -285,7 +295,6 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
             dragOriginRef.current = { x: mouseX, y: mouseY, active: false }
-            setTooltipCtx((prev) => (prev?.isPinned ? null : prev))
         },
         [onDateRangeZoom, scales, dimensions]
     )

@@ -27,9 +27,7 @@ export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLab
     fireEvent.click(wrapper)
 }
 
-/** Simulate a drag-to-zoom gesture between two label indices. Fires the same
- *  mousedown → mousemove → mouseup sequence the real DOM produces, including
- *  the global mouseup the chart's drag handler listens for. */
+// Fires mouseup on window (the chart's drag handler listens globally).
 export function dragSelection(wrapper: HTMLElement, fromIndex: number, toIndex: number, totalLabels: number): void {
     const from = clientForIndex(fromIndex, totalLabels)
     const to = clientForIndex(toIndex, totalLabels)

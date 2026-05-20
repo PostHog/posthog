@@ -67,7 +67,6 @@ export interface HogChart<Meta = unknown> {
     /** Hover at the index, wait for the tooltip to settle, then click. Mirrors the
      *  hover-then-click sequence the chart's onClick handler relies on. */
     clickAtIndex(index: number): Promise<void>
-    /** Simulate a drag-to-zoom gesture from one label index to another. */
     dragSelection(fromIndex: number, toIndex: number): void
     /** Wait for the tooltip to mount, then return a snapshot — every `TooltipContext` field
      *  plus the rendered portal element and an `isPinned` getter. Only available when the

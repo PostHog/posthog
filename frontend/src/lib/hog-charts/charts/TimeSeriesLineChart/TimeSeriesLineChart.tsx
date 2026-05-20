@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 
 import type {
     ChartTheme,
+    DateRangeZoomData,
     LineChartConfig,
     PointClickData,
     Series,
@@ -57,7 +58,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
-    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode

@@ -33,6 +33,7 @@ interface TrendsLineChartProps {
 }
 
 const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
+const EMPTY_STRINGS: string[] = []
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -87,26 +88,26 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
               ? ''
               : aggregationLabel(labelGroupType).plural)
 
-    const labels = currentPeriodResult?.labels ?? []
-    const days = currentPeriodResult?.days ?? []
+    const labels = currentPeriodResult?.labels ?? EMPTY_STRINGS
+    const days = currentPeriodResult?.days ?? EMPTY_STRINGS
     const contextOnDateRangeZoom = context?.onDateRangeZoom
     const onDateRangeZoom = useMemo(() => {
         if (days.length === 0) {
             return undefined
         }
-        return (startLabel: string, endLabel: string): void => {
-            const i0 = labels.indexOf(startLabel)
-            const i1 = labels.indexOf(endLabel)
-            if (i0 < 0 || i1 < 0 || !days[i0] || !days[i1]) {
+        return ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
+            const dateFrom = days[startIndex]
+            const dateTo = days[endIndex]
+            if (!dateFrom || !dateTo) {
                 return
             }
             if (contextOnDateRangeZoom) {
-                contextOnDateRangeZoom(days[i0], days[i1])
+                contextOnDateRangeZoom(dateFrom, dateTo)
             } else {
-                updateDateRange({ date_from: days[i0], date_to: days[i1] }, true)
+                updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
             }
         }
-    }, [contextOnDateRangeZoom, labels, days, updateDateRange])
+    }, [contextOnDateRangeZoom, days, updateDateRange])
 
     const hasData =
         indexedResults &&

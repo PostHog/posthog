@@ -176,7 +176,7 @@ it('fires onDateRangeZoom with the dragged label range', () => {
   )
 
   chart.dragSelection(1, 3)
-  expect(onDateRangeZoom).toHaveBeenCalledWith('Tue', 'Thu')
+  expect(onDateRangeZoom).toHaveBeenCalledWith(expect.objectContaining({ startLabel: 'Tue', endLabel: 'Thu' }))
 })
 ```
 

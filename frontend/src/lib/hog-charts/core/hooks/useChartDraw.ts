@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, ResolvedSeries } from '../types'
+import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, DragRect, ResolvedSeries } from '../types'
 
 interface UseChartDrawOptions {
     /** Context for the static layer (grid, lines, areas, points). Redrawn only when chart inputs change. */
@@ -14,8 +14,7 @@ interface UseChartDrawOptions {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
-    /** Live drag-to-zoom selection rect — drives an overlay redraw whenever it changes. */
-    dragRect: { x0: number; x1: number } | null
+    dragRect: DragRect | null
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => void
 }
