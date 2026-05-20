@@ -324,6 +324,13 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
+    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; we only have that ID
+    // when the workflow wired `JOB_CHECK_RUN_ID=${{ job.check_run_id }}` into the CLI env.
+    // Older runs and runs from forks without that env var can't be re-triggered.
+    const ciRetriggerUnavailableReason = !run.metadata?.github_check_run_id
+        ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
+        : undefined
+
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
             approveSnapshot(selectedSnapshot)
@@ -371,6 +378,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         children: 'Re-trigger CI',
                         loading: isRecomputing,
                         onClick: recomputeRun,
+                        disabledReason: ciRetriggerUnavailableReason,
                         'data-attr': 'visual-review-recompute-run',
                     }}
                 >
@@ -533,7 +541,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                 run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
                             }
                             recomputeDisabledReason={
-                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
+                                ciRetriggerUnavailableReason ??
+                                (!allChangesResolved ? 'Re-trigger would not change the outcome' : undefined)
                             }
                         />
                     ) : snapshotsLoading ? (
