@@ -175,10 +175,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     emails SimpleAggregateFunction(groupUniqArrayArray({max_emails}), Array(String)),
 
     -- Replay
-    has_replay_events SimpleAggregateFunction(max, Boolean),
-
-    -- Interestingness score between 0 and 1 filled in by posthog/temporal/session_replay/interestingness_scoring_sweep
-    interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
+    has_replay_events SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
 """
 
