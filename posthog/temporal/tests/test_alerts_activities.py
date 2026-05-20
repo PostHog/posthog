@@ -574,8 +574,9 @@ class TestNotifyAlert:
 @pytest.mark.django_db(transaction=True)
 class TestCleanupAlertChecks:
     async def test_delegates_to_model_classmethod(self) -> None:
-        with patch.object(AlertCheck, "clean_up_old_checks") as mock_cleanup:
+        with patch.object(AlertCheck, "clean_up_old_checks", return_value=7) as mock_cleanup:
             env = ActivityEnvironment()
-            await env.run(cleanup_alert_checks)
+            deleted = await env.run(cleanup_alert_checks)
 
         mock_cleanup.assert_called_once()
+        assert deleted == 7

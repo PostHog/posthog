@@ -367,12 +367,10 @@ async def run_investigation_safety_net() -> int:
 
 
 @temporalio.activity.defn
-async def cleanup_alert_checks() -> None:
-    """Purge old ``AlertCheck`` rows per the model's retention rules."""
-
+async def cleanup_alert_checks() -> int:
     @database_sync_to_async(thread_sensitive=False)
-    def _cleanup() -> None:
-        AlertCheck.clean_up_old_checks()
+    def _cleanup() -> int:
+        return AlertCheck.clean_up_old_checks()
 
     async with Heartbeater():
-        await _cleanup()
+        return await _cleanup()
