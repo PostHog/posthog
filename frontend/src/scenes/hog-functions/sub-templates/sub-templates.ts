@@ -140,8 +140,8 @@ const FLAG_CHANGE_VERB_PHRASE =
     ": event.properties.detail.changes[1].field == 'active' ? (event.properties.detail.changes[1].after == 'true' ? 'enabled' : 'disabled') " +
     ": event.properties.detail.changes[1].field == 'filters' ? (" +
     "event.properties.detail.changes[1].after.multivariate != null ? 'updated variant rollout for' " +
-    ": length(event.properties.detail.changes[1].after.groups) > length(event.properties.detail.changes[1].before.groups) ? 'added a release condition to' " +
-    ": length(event.properties.detail.changes[1].after.groups) < length(event.properties.detail.changes[1].before.groups) ? 'removed a release condition from' " +
+    ": length(ifNull(event.properties.detail.changes[1].after.groups, [])) > length(ifNull(event.properties.detail.changes[1].before.groups, [])) ? 'added a release condition to' " +
+    ": length(ifNull(event.properties.detail.changes[1].after.groups, [])) < length(ifNull(event.properties.detail.changes[1].before.groups, [])) ? 'removed a release condition from' " +
     ": 'updated release conditions on'" +
     ') ' +
     ": 'updated'}"
