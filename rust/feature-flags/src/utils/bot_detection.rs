@@ -212,8 +212,8 @@ fn build_ranges(cidrs: &[(&str, BotCategory)]) -> BotIpRanges {
     let mut v4 = Vec::new();
     let mut v6 = Vec::new();
     for (cidr, category) in cidrs {
-        let parsed = parse_cidr(cidr)
-            .unwrap_or_else(|| panic!("invalid CIDR in BOT_CIDRS: {cidr}"));
+        let parsed =
+            parse_cidr(cidr).unwrap_or_else(|| panic!("invalid CIDR in BOT_CIDRS: {cidr}"));
         let range = IpRange {
             start: parsed.start,
             end: parsed.end,
@@ -249,7 +249,11 @@ fn parse_cidr(cidr: &str) -> Option<ParsedCidr> {
                 return None;
             }
             let base = u32::from(v4);
-            let mask = if prefix == 0 { 0 } else { !0u32 << (32 - prefix) };
+            let mask = if prefix == 0 {
+                0
+            } else {
+                !0u32 << (32 - prefix)
+            };
             let start = base & mask;
             let end = start | !mask;
             Some(ParsedCidr {
@@ -315,10 +319,7 @@ fn lookup(ranges: &[IpRange], key: u128) -> Option<BotCategory> {
 /// Unified classifier: UA first (cheaper, more specific), then IP. Returns
 /// the matched category plus which signal fired, so the caller can label
 /// metrics and logs without re-running either check.
-pub fn classify_request(
-    user_agent: Option<&str>,
-    ip: IpAddr,
-) -> Option<(BotCategory, BotSource)> {
+pub fn classify_request(user_agent: Option<&str>, ip: IpAddr) -> Option<(BotCategory, BotSource)> {
     if let Some(ua) = user_agent {
         if let Some(c) = classify(ua) {
             return Some((c, BotSource::UserAgent));
@@ -580,18 +581,22 @@ mod tests {
         fn ua_match_takes_priority_over_ip() {
             // Even if both signals match, UA wins because it's the more
             // specific signal (the IP could be a misconfigured network).
-            let (cat, source) =
-                classify_request(Some("Mozilla/5.0 (compatible; AhrefsBot/7.0)"), GOOGLEBOT_IP)
-                    .unwrap();
+            let (cat, source) = classify_request(
+                Some("Mozilla/5.0 (compatible; AhrefsBot/7.0)"),
+                GOOGLEBOT_IP,
+            )
+            .unwrap();
             assert_eq!(cat, BotCategory::Seo);
             assert_eq!(source, BotSource::UserAgent);
         }
 
         #[test]
         fn falls_back_to_ip_when_ua_does_not_match() {
-            let (cat, source) =
-                classify_request(Some("Mozilla/5.0 (Windows NT 10.0) Chrome/120"), GOOGLEBOT_IP)
-                    .unwrap();
+            let (cat, source) = classify_request(
+                Some("Mozilla/5.0 (Windows NT 10.0) Chrome/120"),
+                GOOGLEBOT_IP,
+            )
+            .unwrap();
             assert_eq!(cat, BotCategory::Google);
             assert_eq!(source, BotSource::Ip);
         }
