@@ -24,13 +24,12 @@ import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
+import type { ContextMillResource } from '@/resources/manifest-types'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type Context, type Env, type State, type Tool } from '@/tools/types'
-
-import type { ContextMillResource } from '@/resources/manifest-types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl, getEnv } from './constants'
@@ -378,7 +377,8 @@ export class HonoMcpServer {
         const _t0 = performance.now()
         const _lap = (label: string): void => {
             const elapsed = performance.now() - _t0
-            console.log(`[init-profile] ${label.padEnd(40)} +${(elapsed).toFixed(0)}ms`)
+            // oxlint-disable-next-line no-console
+            console.log(`[init-profile] ${label.padEnd(40)} +${elapsed.toFixed(0)}ms`)
         }
 
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = this.props
@@ -689,10 +689,7 @@ export class HonoMcpServer {
         return { useSingleExec, version }
     }
 
-    private async resolveTools(
-        context: Context,
-        options: ToolCatalogFilterOptions
-    ): Promise<Tool<z.ZodObject>[]> {
+    private async resolveTools(context: Context, options: ToolCatalogFilterOptions): Promise<Tool<z.ZodObject>[]> {
         if (this._warmup?.catalog.warmedUp) {
             return this._warmup.catalog.getFilteredTools(options) as Tool<z.ZodObject>[]
         }

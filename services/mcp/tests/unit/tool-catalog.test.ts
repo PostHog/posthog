@@ -1,9 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { ToolCatalog } from '@/hono/tool-catalog'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
-import { ToolCatalog, type ToolCatalogFilterOptions } from '@/hono/tool-catalog'
+type FakeDefinition = {
+    title: string
+    description: string
+    feature: string
+    category: string
+    required_scopes: string[]
+    annotations: {
+        destructiveHint: boolean
+        idempotentHint: boolean
+        openWorldHint: boolean
+        readOnlyHint: boolean
+    }
+    [key: string]: unknown
+}
 
 function makeToolBase(name: string, overrides?: Partial<ToolBase<ZodObjectAny>>): ToolBase<ZodObjectAny> {
     return {
@@ -14,7 +28,7 @@ function makeToolBase(name: string, overrides?: Partial<ToolBase<ZodObjectAny>>)
     }
 }
 
-const fakeDef = (overrides?: Record<string, unknown>) => ({
+const fakeDef = (overrides?: Record<string, unknown>): FakeDefinition => ({
     title: 'Title',
     description: 'Desc',
     feature: 'general',
@@ -43,7 +57,7 @@ vi.mock('@/tools/generated', () => ({
     },
 }))
 
-const DEFINITIONS: Record<string, ReturnType<typeof fakeDef>> = {
+const DEFINITIONS: Record<string, FakeDefinition> = {
     'tool-a': fakeDef({ required_scopes: ['project:read'] }),
     'tool-b': fakeDef({ feature: 'insights', annotations: { ...fakeDef().annotations, readOnlyHint: true } }),
     'gen-tool-c': fakeDef({ required_scopes: ['action:write'] }),
@@ -59,7 +73,14 @@ vi.mock('@/tools/toolDefinitions', () => ({
         }
         return def
     },
-    getToolsForFeatures: (options?: { features?: string[]; tools?: string[]; version?: number; readOnly?: boolean; aiConsentGiven?: boolean; featureFlags?: Record<string, boolean> }) => {
+    getToolsForFeatures: (options?: {
+        features?: string[]
+        tools?: string[]
+        version?: number
+        readOnly?: boolean
+        aiConsentGiven?: boolean
+        featureFlags?: Record<string, boolean>
+    }) => {
         let names = Object.keys(DEFINITIONS)
         if (options?.features?.length) {
             names = names.filter((n) => {
@@ -168,7 +189,7 @@ describe('ToolCatalog', () => {
         it('should merge title and description from definitions onto the tool', () => {
             const tools = catalog.getFilteredTools({ scopes: ['project:read'] })
             const toolA = tools.find((t) => t.name === 'tool-a')
-            expect(toolA).toBeDefined()
+            expect(toolA).toBeTruthy()
             expect(toolA!.title).toBe('Title')
             expect(toolA!.description).toBe('Desc')
         })
@@ -177,9 +198,7 @@ describe('ToolCatalog', () => {
             const tools = catalog.getFilteredTools({ scopes: ['project:read'] })
             const toolA = tools.find((t) => t.name === 'tool-a')
             expect(toolA!.scopes).toEqual(['project:read'])
-            expect(toolA!.annotations).toEqual(
-                expect.objectContaining({ readOnlyHint: false })
-            )
+            expect(toolA!.annotations).toEqual(expect.objectContaining({ readOnlyHint: false }))
         })
 
         it('should return empty array when catalog is not warmed up', () => {
