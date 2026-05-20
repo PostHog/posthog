@@ -61,6 +61,15 @@ jobs:
                   fetch-depth: 1000
                   filter: blob:none
 
+            - name: Fetch current PR base for schema cache key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # actions/checkout only populates the synthetic PR merge ref; the
+              # base ref has to be fetched explicitly for `git merge-base` to
+              # resolve it.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
             - name: Add multinode hostnames to /etc/hosts
               run: |
                   echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions kafka zookeeper" | sudo tee -a /etc/hosts
