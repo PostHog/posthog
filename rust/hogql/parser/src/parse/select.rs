@@ -714,9 +714,7 @@ impl<'a> Parser<'a> {
                         // RPAREN` — no trailing comma. cpp rejects
                         // `INTERPOLATE (y,)`.
                         if self.peek() == TokenKind::RParen {
-                            return Err(
-                                self.err("trailing comma in INTERPOLATE clause"),
-                            );
+                            return Err(self.err("trailing comma in INTERPOLATE clause"));
                         }
                     }
                     self.expect(TokenKind::RParen, ")")?;

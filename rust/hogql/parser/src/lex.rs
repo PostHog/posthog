@@ -998,20 +998,15 @@ impl<'a> Lexer<'a> {
                     match self.peek_byte(0) {
                         None => {} // unterminated — caught by the outer loop's None arm
                         Some(c) => match c {
-                            b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'n' | b'N'
-                            | b't' | b'T' | b'0' | b'a' | b'A' | b'v' | b'V'
-                            | b'\\' | b'\'' => {
+                            b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'n' | b'N' | b't' | b'T'
+                            | b'0' | b'a' | b'A' | b'v' | b'V' | b'\\' | b'\'' => {
                                 self.pos += 1;
                             }
                             b'x' | b'X' => {
                                 // `\xNN` — exactly two hex digits required.
                                 self.pos += 1;
-                                if self
-                                    .peek_byte(0)
-                                    .is_some_and(|b| b.is_ascii_hexdigit())
-                                    && self
-                                        .peek_byte(1)
-                                        .is_some_and(|b| b.is_ascii_hexdigit())
+                                if self.peek_byte(0).is_some_and(|b| b.is_ascii_hexdigit())
+                                    && self.peek_byte(1).is_some_and(|b| b.is_ascii_hexdigit())
                                 {
                                     self.pos += 2;
                                 } else {
@@ -1132,8 +1127,8 @@ impl<'a> Lexer<'a> {
                     match self.peek_byte(0) {
                         None => {}
                         Some(c) => match c {
-                            b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'n' | b'N'
-                            | b't' | b'T' | b'0' | b'a' | b'A' | b'v' | b'V' | b'\\' => {
+                            b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'n' | b'N' | b't' | b'T'
+                            | b'0' | b'a' | b'A' | b'v' | b'V' | b'\\' => {
                                 self.pos += 1;
                             }
                             b'"' if quote == b'"' => self.pos += 1,

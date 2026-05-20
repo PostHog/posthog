@@ -262,15 +262,14 @@ impl<'a> Parser<'a> {
                     self.restore(cp)?;
                     if self.peek() == TokenKind::Asterisk {
                         self.bump()?;
-                        obj.insert(
-                            "expr".into(),
-                            emit::field(vec![Value::String("*".into())]),
-                        );
+                        obj.insert("expr".into(), emit::field(vec![Value::String("*".into())]));
                     } else if matches!(
                         self.peek(),
                         TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                    ) && !matches!(self.peek_next(), TokenKind::Dot | TokenKind::NullProperty)
-                    {
+                    ) && !matches!(
+                        self.peek_next(),
+                        TokenKind::Dot | TokenKind::NullProperty
+                    ) {
                         // First single token as Field — cpp shortens to
                         // a one-element chain regardless of what comes
                         // after (call, infix, or another statement
@@ -816,9 +815,7 @@ impl<'a> Parser<'a> {
         loop {
             let t = self.bump()?;
             let part = match t.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent => {
-                    identifier_text(self.text(t), t.kind)
-                }
+                TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(t), t.kind),
                 TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                     identifier_text(self.text(t), t.kind)
                 }

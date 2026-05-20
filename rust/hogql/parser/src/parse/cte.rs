@@ -34,9 +34,7 @@ impl<'a> Parser<'a> {
             if matches!(self.peek(), TokenKind::Keyword(Kw::Select)) {
                 break;
             }
-            if self.peek() == TokenKind::LParen
-                && !self.paren_group_followed_by_as_identifier()
-            {
+            if self.peek() == TokenKind::LParen && !self.paren_group_followed_by_as_identifier() {
                 break;
             }
         }
@@ -76,9 +74,7 @@ impl<'a> Parser<'a> {
         };
         matches!(
             ident.kind,
-            TokenKind::Ident
-                | TokenKind::QuotedIdent
-                | TokenKind::Keyword(_)
+            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
         )
     }
 
@@ -184,9 +180,7 @@ impl<'a> Parser<'a> {
         // preserved).
         let id = self.bump()?;
         let name = match id.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent => {
-                identifier_text(self.text(id), id.kind)
-            }
+            TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(id), id.kind),
             TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(id), id.kind)
             }
