@@ -18,9 +18,9 @@ from rest_framework import status
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.webhooks import (
+from products.user_interviews.backend.presentation.views import UserInterviewTopicSerializer
+from products.user_interviews.backend.presentation.webhooks import (
     DEFAULT_FIRST_MESSAGE_TEMPLATE,
     EMBEDDING_CONTENT_MAX_BYTES,
     FIRST_MESSAGE_PROMPT_NAME,
@@ -661,7 +661,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(response.json()["status"], "ignored")
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
     def test_webhook_status_update_in_progress_captures_started_event(self, mock_capture):
         share = self._create_share()
         self.client.logout()
@@ -688,7 +688,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(kwargs["properties"]["call_id"], "call_xyz")
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
     def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_capture):
         # Vapi re-fires `status-update / in-progress` on transient drops + warm-transfer flows.
         # We tag every started event with `$insert_id` = "user_interview_conversation_started:<call_id>"
@@ -711,7 +711,7 @@ class TestVapiWebhook(APIBaseTest):
 
     @parameterized.expand([("ringing",), ("ended",), ("queued",), ("forwarding",), ("scheduled",)])
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
     def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_capture):
         share = self._create_share()
         self.client.logout()
@@ -729,7 +729,7 @@ class TestVapiWebhook(APIBaseTest):
         mock_capture.assert_not_called()
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
     def test_webhook_end_of_call_report_captures_ended_event(self, mock_capture):
         share = self._create_share()
         self.client.logout()
@@ -758,7 +758,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_emits_transcript_and_summary_embeddings(self, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -794,7 +794,7 @@ class TestVapiWebhook(APIBaseTest):
         ]
     )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_skips_empty_content(self, _name, transcript, summary, expected_types, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -810,7 +810,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(emitted_types, expected_types)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_does_not_re_emit_on_duplicate(self, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -828,7 +828,10 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(mock_emit.call_count, first_call_count)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request", side_effect=RuntimeError("kafka down"))
+    @patch(
+        "products.user_interviews.backend.presentation.webhooks.emit_embedding_request",
+        side_effect=RuntimeError("kafka down"),
+    )
     def test_webhook_succeeds_when_embedding_emit_fails(self, _mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -845,7 +848,7 @@ class TestVapiWebhook(APIBaseTest):
         ]
     )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_truncates_oversized_content_before_emit(
         self, _name, oversize_transcript, oversize_summary, mock_emit
     ):
@@ -897,8 +900,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         topic = self._create_topic()
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage") as mock_message_cls,
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             mock_message = mock_message_cls.return_value
             response = self.client.post(self._url(str(topic.id)), data={"send_async": False}, format="json")
@@ -921,8 +924,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage") as mock_message_cls,
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             self.client.post(self._url(str(topic.id)), data={}, format="json")
 
@@ -937,8 +940,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage") as mock_message_cls,
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             self.client.post(
                 self._url(str(topic.id)),
@@ -952,13 +955,13 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
 
     def test_send_invites_503_when_email_disabled(self):
         topic = self._create_topic()
-        with patch("products.user_interviews.backend.api.is_email_available", return_value=False):
+        with patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=False):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     def test_send_invites_400_when_topic_has_no_identifiers(self):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
-        with patch("products.user_interviews.backend.api.is_email_available", return_value=True):
+        with patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -981,8 +984,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
                     raise RuntimeError("smtp down")
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage", FlakyEmail),
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage", FlakyEmail),
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             response = self.client.post(self._url(str(topic.id)), data={"send_async": False}, format="json")
 

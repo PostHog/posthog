@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 // eslint-disable-next-line import/no-cycle
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
@@ -154,9 +155,25 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
             null as IncidentIoSummary | null,
             {
                 loadSummary: async () => {
-                    const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
-                    const data: IncidentIoSummary = await response.json()
-                    return data
+                    // The incident.io status page is external (posthogstatus.com), so the fetch can fail
+                    // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
+                    // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
+                    // via the rawStatus selector) but still report to error tracking so we keep visibility.
+                    try {
+                        const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                        if (!response.ok) {
+                            posthog.captureException(
+                                new Error(`incident.io summary fetch returned ${response.status}`),
+                                { status: response.status, statusText: response.statusText }
+                            )
+                            return null
+                        }
+                        const data: IncidentIoSummary = await response.json()
+                        return data
+                    } catch (error) {
+                        posthog.captureException(error)
+                        return null
+                    }
                 },
             },
         ],
