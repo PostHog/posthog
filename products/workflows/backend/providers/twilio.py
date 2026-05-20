@@ -1,7 +1,7 @@
 import logging
 
 import requests
-from posthoganalytics import capture_exception
+from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class TwilioProvider:
                 return {}
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.exception(f"Twilio API error: {e}")
+            logger.warning("Twilio API error: %s", e)
             raise
 
     def get_phone_numbers(self) -> list[dict]:
@@ -34,8 +34,7 @@ class TwilioProvider:
             endpoint = "/IncomingPhoneNumbers.json"
             response = self._make_request("GET", endpoint)
             return response.get("incoming_phone_numbers", [])
-        except requests.exceptions.HTTPError as e:
-            capture_exception(Exception(f"TwilioIntegration: Failed to list twilio phone numbers: {e}"))
+        except requests.exceptions.HTTPError:
             return []
 
     def get_account_info(self) -> dict:
@@ -44,8 +43,9 @@ class TwilioProvider:
         """
         try:
             endpoint = ".json"
-            response = self._make_request("GET", endpoint)
-            return response
+            return self._make_request("GET", endpoint)
         except requests.exceptions.HTTPError as e:
-            capture_exception(Exception(f"TwilioIntegration: Failed to get account info: {e}"))
-            return {}
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code in (401, 403, 404):
+                raise ValidationError({"account_info": "Invalid Twilio credentials"})
+            raise
