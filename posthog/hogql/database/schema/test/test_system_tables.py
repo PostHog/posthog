@@ -33,6 +33,7 @@ from posthog.models.project import Project
 
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -146,6 +147,12 @@ def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculat
 
 def _create_dashboard(team: Team, label: str) -> Dashboard:
     return Dashboard.objects.create(team=team, name=f"dashboard_{label}")
+
+
+def _create_dashboard_tile(team: Team, label: str) -> DashboardTile:
+    dashboard = Dashboard.objects.create(team=team, name=f"dashboard_for_tile_{label}")
+    insight = Insight.objects.create(team=team, short_id=f"tile_{label}"[:12], name=f"insight_{label}")
+    return DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
 
 def _create_data_modeling_job(team: Team, label: str) -> DataModelingJob:
@@ -520,6 +527,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
+    ("dashboard_tiles", _create_dashboard_tile),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
