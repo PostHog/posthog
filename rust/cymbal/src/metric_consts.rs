@@ -38,6 +38,27 @@ pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
 // Decompressed size of a parsed symbol set, in bytes. Labelled by `kind`
 // (`sourcemap` / `hermes` / `proguard` / `apple`).
 pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_bytes";
+
+// Histogram buckets for the byte-shaped metrics above. The default
+// `common_metrics` buckets are tuned for milliseconds of latency and saturate
+// at 10_000 — every multi-KB fetch would land in the `+Inf` bucket. These
+// cover 1 KiB → 1 GiB with extra granularity in the multi-MB range where any
+// reasonable size cap would live.
+pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
+    1_024.0,         // 1 KiB
+    10_240.0,        // 10 KiB
+    102_400.0,       // 100 KiB
+    524_288.0,       // 512 KiB
+    1_048_576.0,     // 1 MiB
+    5_242_880.0,     // 5 MiB
+    10_485_760.0,    // 10 MiB
+    26_214_400.0,    // 25 MiB
+    52_428_800.0,    // 50 MiB
+    104_857_600.0,   // 100 MiB
+    268_435_456.0,   // 256 MiB
+    536_870_912.0,   // 512 MiB
+    1_073_741_824.0, // 1 GiB
+];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
