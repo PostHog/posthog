@@ -17,7 +17,7 @@ export function resolveCupedEnabled(cuped: CupedConfig, teamDefaultEnabled: bool
 export function resolveCupedLookbackDays(
     cuped: CupedConfig,
     teamDefaultLookbackDays: number | null | undefined,
-    hardcodedDefault: number
+    fallbackLookbackDays: number
 ): number {
     if (typeof cuped?.lookback_days === 'number') {
         return cuped.lookback_days
@@ -25,5 +25,5 @@ export function resolveCupedLookbackDays(
     if (typeof teamDefaultLookbackDays === 'number') {
         return teamDefaultLookbackDays
     }
-    return hardcodedDefault
+    return fallbackLookbackDays
 }
