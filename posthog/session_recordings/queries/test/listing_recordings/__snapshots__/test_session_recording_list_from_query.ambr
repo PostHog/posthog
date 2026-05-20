@@ -2117,7 +2117,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        LIMIT 1000000))))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -2479,7 +2479,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -3125,7 +3125,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -3165,7 +3165,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(less(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(less(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -3393,7 +3393,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -3440,7 +3440,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(active_seconds, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(active_seconds, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -8094,7 +8094,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -9583,7 +9583,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        LIMIT 1000000))))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -9945,7 +9945,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -10591,7 +10591,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -10631,7 +10631,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(less(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(less(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -10859,7 +10859,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -10906,7 +10906,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(active_seconds, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(active_seconds, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -15560,7 +15560,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(duration, 60.0), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(greater(accurateCastOrNull(duration, 'Float64'), 60.0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
