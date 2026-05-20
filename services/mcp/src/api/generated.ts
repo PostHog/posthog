@@ -6422,6 +6422,33 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
+    }
+
     export interface BulkNotificationIdsRequest {
       /**
          * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
@@ -8120,6 +8147,43 @@ export namespace Schemas {
       SameOrigin: 'same_origin',
       GithubRepo: 'github_repo',
     } as const;
+
+    /**
+     * * `cost` - cost
+    * `latency` - latency
+    * `eval_pass_rate` - eval_pass_rate
+     */
+    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
+
+
+    export const TemplatesEnum = {
+      Cost: 'cost',
+      Latency: 'latency',
+      EvalPassRate: 'eval_pass_rate',
+    } as const;
+
+    export interface CreateFromPromptInput {
+      /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+      prompt_name: string;
+      /**
+         * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+         * @minItems 2
+         * @maxItems 10
+         */
+      versions: number[];
+      /**
+         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+         * @minItems 1
+         * @maxItems 3
+         */
+      templates: TemplatesEnum[];
+      /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+      name?: string;
+      /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+      feature_flag_key?: string;
+      /** Optional experiment description. */
+      description?: string;
+    }
 
     export interface CreateGroup {
       /**
@@ -16948,6 +17012,22 @@ export namespace Schemas {
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
+    }
+
+    export interface GitHubTeam {
+      /** GitHub team numeric identifier. */
+      id: number;
+      /** GitHub team slug. */
+      slug: string;
+      /** GitHub team display name. */
+      name: string;
+    }
+
+    export interface GitHubTeamsResponse {
+      /** List of GitHub teams available to the installation organization. */
+      teams: GitHubTeam[];
+      /** Whether more teams are available beyond this page. */
       has_more: boolean;
     }
 
@@ -38555,6 +38635,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -42343,6 +42441,10 @@ export namespace Schemas {
      */
     order?: string;
     /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
      * Free-text search applied to the experiment name (case-insensitive).
      */
     search?: string;
@@ -42373,6 +42475,12 @@ export namespace Schemas {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string;
+    };
+
+    export type ExperimentsPromptTemplatesRetrieve200Item = {
+      key: string;
+      label: string;
+      description: string;
     };
 
     export type ExportsListParams = {
@@ -43673,6 +43781,24 @@ export namespace Schemas {
     offset?: number;
     /**
      * Optional case-insensitive repository name search query.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string;
     };
