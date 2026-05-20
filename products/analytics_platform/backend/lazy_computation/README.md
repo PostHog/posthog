@@ -206,14 +206,6 @@ sum(rate(lazy_computation_executions_total{cache_state=~"hit|partial_hit"}[5m]))
 sum(rate(lazy_computation_executions_total[5m]))
 ```
 
-Median fraction of data already present at entry:
-
-```promql
-histogram_quantile(0.5,
-  sum by (le, table) (rate(lazy_computation_initial_coverage_ratio_bucket[5m]))
-)
-```
-
 Per-table breakdown of failures:
 
 ```promql
