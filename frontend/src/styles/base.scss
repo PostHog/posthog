@@ -2102,11 +2102,11 @@
     background-size: 200% 100%;
 }
 
-.rainbow-text {
+.rainbow-text.rainbow-text-animating {
     animation: rainbow-scroll 3s linear infinite;
 }
 
-.rainbow-text-fading {
+.rainbow-text-fading.rainbow-text-animating {
     animation:
         rainbow-scroll 3s linear infinite,
         rainbow-fade-in 300ms ease-out;

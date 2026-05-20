@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconCopy, IconTerminal } from '@posthog/icons'
 
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
@@ -43,6 +44,7 @@ export function CommandBlock({
 }: CommandBlockProps): JSX.Element {
     const [copyKey, setCopyKey] = useState(0)
     const sizeStyle = SIZE_STYLES[size]
+    const isStorybook = inStorybook() || inStorybookTestRunner()
 
     const handleCopy = (): void => {
         void copyToClipboard(command, copyLabel)
@@ -50,8 +52,6 @@ export function CommandBlock({
         setCopyKey(next)
         onCopy?.(next)
     }
-
-    const codeTextClass = decoration === 'rainbow' ? 'rainbow-text' : 'text-default'
 
     return (
         <button
@@ -69,7 +69,15 @@ export function CommandBlock({
         >
             <IconTerminal className={cn(sizeStyle.icon, 'text-muted')} />
             <span className="relative">
-                <code className={cn(codeTextClass, '!bg-transparent !p-0 !border-0 select-all')}>{command}</code>
+                <code
+                    className={cn('!bg-transparent !p-0 !border-0 select-all', {
+                        'text-default': decoration === 'plain',
+                        'rainbow-text': decoration === 'rainbow',
+                        'rainbow-text-animating': decoration === 'rainbow' && !isStorybook,
+                    })}
+                >
+                    {command}
+                </code>
                 {copyKey > 0 && (
                     <code
                         key={copyKey}
