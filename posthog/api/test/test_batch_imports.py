@@ -736,4 +736,4 @@ class TestBatchImportAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("endpoint_url", response.json())
+        self.assertEqual(response.json()["attr"], "endpoint_url")
