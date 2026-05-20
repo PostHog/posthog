@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
@@ -56,7 +57,93 @@ WEB_OVERVIEW_LAZY_FAILED = Counter(
 )
 
 
+class LazyPrecomputeIneligible(Exception):
+    """Base class for reasons the lazy precompute path is not eligible.
+
+    Raised by `_check_lazy_precompute_eligible` and caught by
+    `can_use_lazy_precompute`, which logs the exception class name. Subclass
+    names are the canonical identifiers used in logs/metrics — keep them
+    stable across releases.
+    """
+
+
+class TeamNotInAllowlist(LazyPrecomputeIneligible):
+    pass
+
+
+class NonIntegerTimezone(LazyPrecomputeIneligible):
+    pass
+
+
+class ConversionGoalUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
+class SamplingEnabled(LazyPrecomputeIneligible):
+    pass
+
+
+class SessionsV2UuidMode(LazyPrecomputeIneligible):
+    pass
+
+
+class TooManyFilters(LazyPrecomputeIneligible):
+    pass
+
+
+class NonEventPropertyFilter(LazyPrecomputeIneligible):
+    pass
+
+
+class UnsupportedFilterKey(LazyPrecomputeIneligible):
+    def __init__(self, key: str):
+        self.key = key
+        super().__init__(f"key={key!r}")
+
+
+class UnsupportedFilterOperator(LazyPrecomputeIneligible):
+    def __init__(self, operator: object):
+        self.operator = operator
+        super().__init__(f"operator={operator!r}")
+
+
+class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
+    pass
+
+
+class MissingDateRange(LazyPrecomputeIneligible):
+    pass
+
+
+class DateRangeOverMax(LazyPrecomputeIneligible):
+    def __init__(self, days: int):
+        self.days = days
+        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
+
+
 def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
+    """Return True iff the lazy precompute path is eligible. Logs rejection
+    reason at INFO level so we can attribute every fall-through after deploy."""
+    try:
+        _check_lazy_precompute_eligible(runner)
+    except LazyPrecomputeIneligible as exc:
+        logger.info(
+            "web_overview_lazy_precompute_rejected",
+            team_id=runner.team.pk,
+            reason=type(exc).__name__,
+            detail=str(exc) or None,
+        )
+        return False
+    logger.info(
+        "web_overview_lazy_precompute_eligible",
+        team_id=runner.team.pk,
+    )
+    return True
+
+
+def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
+    """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
+    the lazy path. Returns None on success."""
     query = runner.query
 
     # Gate rollout per-team via instance setting (defaults to empty list = disabled).
@@ -64,49 +151,48 @@ def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
     # a single Redis hit per call — cheap enough on the hot path.
     enabled_team_ids = get_instance_setting("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS") or []
     if runner.team.pk not in enabled_team_ids:
-        return False
+        raise TeamNotInAllowlist()
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them
     # rather than return wrong totals on the boundary days.
     if not is_integer_timezone(runner.team.timezone):
-        return False
+        raise NonIntegerTimezone()
 
     if query.conversionGoal is not None:
-        return False
+        raise ConversionGoalUnsupported()
 
     if query.sampling is not None and getattr(query.sampling, "enabled", False):
-        return False
+        raise SamplingEnabled()
 
     # UUID session-id mode produces `uniqState(UUID)` from
     # `events.$session_id_uuid`, which fails to insert into the schema's
     # `AggregateFunction(uniq, String)` column. Gate out until the column
     # is re-typed in a follow-up.
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
-        return False
+        raise SessionsV2UuidMode()
 
     properties = query.properties or []
     if len(properties) > 1:
-        return False
+        raise TooManyFilters()
     for prop in properties:
         if not isinstance(prop, EventPropertyFilter):
-            return False
+            raise NonEventPropertyFilter()
         if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            return False
+            raise UnsupportedFilterKey(prop.key)
         if prop.operator != PropertyOperator.EXACT:
-            return False
+            raise UnsupportedFilterOperator(prop.operator)
         if not isinstance(prop.value, str) or not prop.value:
-            return False
+            raise NonStringOrEmptyFilterValue()
 
     date_from = runner.query_date_range.date_from()
     date_to = runner.query_date_range.date_to()
     if date_from is None or date_to is None:
-        return False
+        raise MissingDateRange()
 
-    if (date_to - date_from).days > MAX_PRECOMPUTE_DAYS:
-        return False
-
-    return True
+    days = (date_to - date_from).days
+    if days > MAX_PRECOMPUTE_DAYS:
+        raise DateRangeOverMax(days)
 
 
 def _user_filter_expr(runner: "WebOverviewQueryRunner") -> ast.Expr:
@@ -332,6 +418,13 @@ def execute_lazy_precomputed_read(
 ) -> Optional[list]:
     """Orchestrate the lazy precompute + read. Returns the response row, or None
     on any failure (caller falls through to the v2/raw path)."""
+    # Tag the whole lazy path (INSERT + read) with product/feature so the INSERT
+    # `sync_execute` inside `ensure_web_overview_precomputed` doesn't trip
+    # DEBUG-mode `UntaggedQueryError`. The read query overrides `query_type`
+    # later via `tag_queries(...)` inside `execute_read_query`.
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
+    team_id = runner.team.pk
+    overall_started = time.perf_counter()
     try:
         date_from = runner.query_date_range.date_from()
         date_to = runner.query_date_range.date_to()
@@ -351,12 +444,35 @@ def execute_lazy_precomputed_read(
         time_range_end = _ceil_utc_day(current_end_utc)
 
         if time_range_start >= time_range_end:
+            logger.info(
+                "web_overview_lazy_precompute_empty_range",
+                team_id=team_id,
+                time_range_start=time_range_start.isoformat(),
+                time_range_end=time_range_end.isoformat(),
+            )
             return None
 
+        logger.info(
+            "web_overview_lazy_precompute_started",
+            team_id=team_id,
+            time_range_start=time_range_start.isoformat(),
+            time_range_end=time_range_end.isoformat(),
+            time_range_days=(time_range_end - time_range_start).days,
+        )
+
+        ensure_started = time.perf_counter()
         result = ensure_web_overview_precomputed(
             runner=runner,
             time_range_start=time_range_start,
             time_range_end=time_range_end,
+        )
+        ensure_duration_ms = int((time.perf_counter() - ensure_started) * 1000)
+
+        logger.info(
+            "web_overview_lazy_precompute_ensure_done",
+            team_id=team_id,
+            job_count=len(result.job_ids),
+            ensure_duration_ms=ensure_duration_ms,
         )
 
         if not result.job_ids:
@@ -371,18 +487,36 @@ def execute_lazy_precomputed_read(
                 previous_start_utc = prev_from.astimezone(UTC)
                 previous_end_utc = prev_to.astimezone(UTC)
 
+        read_started = time.perf_counter()
         rows = execute_read_query(
-            team_id=runner.team.pk,
+            team_id=team_id,
             job_ids=[str(jid) for jid in result.job_ids],
             current_start_utc=current_start_utc,
             current_end_utc=current_end_utc,
             previous_start_utc=previous_start_utc,
             previous_end_utc=previous_end_utc,
         )
+        read_duration_ms = int((time.perf_counter() - read_started) * 1000)
+        total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
+
+        logger.info(
+            "web_overview_lazy_precompute_completed",
+            team_id=team_id,
+            job_count=len(result.job_ids),
+            rows_returned=len(rows) if rows else 0,
+            ensure_duration_ms=ensure_duration_ms,
+            read_duration_ms=read_duration_ms,
+            total_duration_ms=total_duration_ms,
+        )
         if not rows:
             return _empty_response_row()
         return list(rows[0])
     except Exception as exc:
         WEB_OVERVIEW_LAZY_FAILED.labels(error_type=type(exc).__name__).inc()
-        logger.exception("web_overview_lazy_precompute_failed", team_id=runner.team.pk)
+        logger.exception(
+            "web_overview_lazy_precompute_failed",
+            team_id=team_id,
+            error_type=type(exc).__name__,
+            total_duration_ms=int((time.perf_counter() - overall_started) * 1000),
+        )
         return None

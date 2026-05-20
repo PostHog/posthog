@@ -83,9 +83,9 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
     def calculate(self) -> WAR:
         # Every web analytics query runner produces user-facing dashboard
-        # queries. Tag here so all downstream `sync_execute` calls (live and
-        # preagg paths) inherit product/feature and don't trip DEBUG-mode
-        # `UntaggedQueryError`.
+        # queries. Tag here so all downstream `sync_execute` calls (live,
+        # preagg, lazy precompute) inherit `product`/`feature` and don't
+        # trip DEBUG-mode `UntaggedQueryError`.
         tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
 
         query_kind = getattr(self.query, "kind", "Unknown")

@@ -9802,6 +9802,9 @@
                     },
                     "type": "array"
                 },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
+                },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
                 }
@@ -11878,6 +11881,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
                                 },
                                 "usedPreAggregatedTables": {
                                     "type": "boolean"
@@ -29154,6 +29160,9 @@
                             },
                             "type": "array"
                         },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
+                        },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
                         }
@@ -30187,6 +30196,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
@@ -40112,6 +40124,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 },
                 "usedPreAggregatedTables": {
                     "type": "boolean"

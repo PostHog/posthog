@@ -2815,6 +2815,7 @@ export interface WebOverviewQueryResponseApi {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -3058,6 +3059,7 @@ export interface Response4Api {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 

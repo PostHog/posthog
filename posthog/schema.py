@@ -9287,6 +9287,7 @@ class WebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -12701,6 +12702,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -13316,6 +13318,7 @@ class Response4(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16205,6 +16208,7 @@ class QueryResponseAlternative23(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16738,6 +16742,7 @@ class QueryResponseAlternative43(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
