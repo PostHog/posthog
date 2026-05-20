@@ -397,6 +397,32 @@ impl<'a> Parser<'a> {
     fn parse_join_constraint_opt(&mut self) -> Result<Option<Value>, ParseError> {
         if self.eat_kw(Kw::On)? {
             let expr = self.parse_expr_bp(0)?;
+            // cpp's `joinConstraintClause: ON columnExprList` greedily
+            // consumes the comma-separated list, then the cpp visitor
+            // raises `NotImplementedError` for any list with more than
+            // one expression. Mirror that here: a comma followed by
+            // anything that could continue the list belongs to the ON
+            // list, not the outer JOIN's CROSS-JOIN comma. Rust used
+            // to fall out and let the outer chain consume it as
+            // cross-join, silently emitting a divergent JoinExpr.
+            //
+            // A *trailing* comma (`FROM a JOIN b ON 1,` with nothing
+            // parseable after) is tolerated — cpp's ANTLR recovery
+            // discards it. Leave the outer JOIN loop to handle that.
+            if self.peek() == TokenKind::Comma
+                && !matches!(
+                    self.peek_next(),
+                    TokenKind::Eof | TokenKind::Semicolon | TokenKind::RParen
+                )
+            {
+                let start = self.peek0.start;
+                let end = self.peek0.end;
+                return Err(ParseError::not_implemented(
+                    "Unsupported: JOIN ... ON with multiple expressions",
+                    start,
+                    end,
+                ));
+            }
             return Ok(Some(
                 json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "ON"}),
             ));

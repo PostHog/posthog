@@ -1789,6 +1789,35 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_join_on_with_comma_separated_exprs_rejected(self):
+        # cpp's grammar greedily takes the comma-separated columnExprList
+        # after ON, then the visitor raises NotImplementedError because
+        # only single-expression ON is supported. The Rust parser used to
+        # parse ON's first expr only, then let the outer JOIN-chain
+        # treat the trailing comma as a CROSS-JOIN separator — silently
+        # accepting and emitting a divergent JoinExpr shape.
+        for src in (
+            "SELECT * FROM a JOIN b ON x, y",
+            "SELECT * FROM a JOIN b ON x = y, z",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="rust-json")
+        # Guards: the legitimate single-expression ON / USING / CROSS
+        # JOIN / comma-cross-join shapes must still parse.
+        for src in (
+            "SELECT * FROM a JOIN b ON x",
+            "SELECT * FROM a JOIN b ON x = y",
+            "SELECT * FROM a JOIN b USING (x, y)",
+            "SELECT * FROM a CROSS JOIN b",
+            "SELECT * FROM a, b",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_cast_type_compound_loop_stops_at_non_identifier_keyword(self):
         # cpp's `columnTypeExpr` compound alt is `identifier identifier+`,
         # routed through the `identifier` rule that omits NULL / INF /
