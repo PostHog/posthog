@@ -104,13 +104,14 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.lastSavedAt).not.toBeNull()
         })
 
-        it('marks isAutoSave true on the auto-save path', async () => {
+        it('resets isAutoSave after auto-save completes', async () => {
             jest.useFakeTimers()
 
             logic.actions.setWorkflowValue('name', 'Edited')
             await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
 
-            expect(logic.values.isAutoSave).toBe(true)
+            expect(logic.values.isAutoSave).toBe(false)
             expect(updateCalls).toBe(1)
         })
     })
@@ -158,33 +159,130 @@ describe('workflowLogic auto-save', () => {
 
             expect(updateCalls).toBe(0)
         })
-    })
 
-    describe('beforeUnmount', () => {
-        it('flushes pending changes when the logic unmounts', async () => {
+        it('clears isAutoSavePending when auto-save is skipped', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
-            logic.actions.setWorkflowValue('name', 'Unflushed edit')
-            expect(logic.values.workflowChanged).toBe(true)
+            jest.useFakeTimers()
 
-            logic.unmount()
+            // Dispatch auto-save without actual changes — guard will skip
+            logic.actions.autoSaveWorkflow()
+            expect(logic.values.isAutoSavePending).toBe(true)
 
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(logic.values.isAutoSavePending).toBe(false)
+            expect(updateCalls).toBe(0)
+        })
+
+        it('does not auto-save workflow loaded as active', async () => {
+            const activeWorkflow = makeWorkflow({ status: 'active' })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': activeWorkflow,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return [200, activeWorkflow]
+                    },
+                },
+            })
+
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('name', 'Edited active')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+        })
+    })
+
+    describe('auto-save toggle', () => {
+        beforeEach(async () => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('does not auto-save when toggle is disabled', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Edited')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+        })
+
+        it('resets isAutoSavePending when toggle is disabled', async () => {
+            logic.actions.setWorkflowValue('name', 'Edited')
+            expect(logic.values.isAutoSavePending).toBe(true)
+
+            logic.actions.setAutoSaveEnabled(false)
+            expect(logic.values.isAutoSavePending).toBe(false)
+        })
+
+        it('triggers auto-save when toggle is re-enabled with pending changes', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setAutoSaveEnabled(false)
+            logic.actions.setWorkflowValue('name', 'Edited while off')
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(updateCalls).toBe(0)
+
+            logic.actions.setAutoSaveEnabled(true)
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflow', 'saveWorkflowSuccess'])
             expect(updateCalls).toBe(1)
         })
 
-        it('does not flush when there are no changes', async () => {
+        it('does not auto-save active workflows', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('status', 'active')
+            logic.actions.setWorkflowValue('name', 'Edited active')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(updateCalls).toBe(0)
+        })
+    })
+
+    describe('navigation guard', () => {
+        it('does not fire save on unmount (no silent flush)', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            logic.actions.setWorkflowValue('name', 'Unsaved edit')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
 
             logic.unmount()
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(updateCalls).toBe(0)
+        })
+
+        it('does not warn on navigation for new workflows', async () => {
+            // The beforeUnload guard skips when id is 'new', even if
+            // the form has unsaved changes (e.g. freshly created draft).
+            initKeaTests()
+            logic = workflowLogic({ id: 'new', tabId: 'default' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            logic.actions.setWorkflowValue('name', 'My new workflow')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+            // Guard condition: props.id === 'new' → skip
+            expect(logic.props.id).toBe('new')
         })
     })
 })

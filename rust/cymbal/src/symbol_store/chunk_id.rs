@@ -40,6 +40,42 @@ pub enum OrChunkId<R> {
     Both { inner: R, id: String },
 }
 
+pub enum SymbolSetLoadResult {
+    Data(Vec<u8>),
+    Missing,
+    Failed(String),
+    MissingStoragePtr(String),
+    MissingBlob(SymbolSetRecord),
+}
+
+pub async fn load_symbol_set_data(
+    pool: &PgPool,
+    client: &dyn BlobClient,
+    bucket: &str,
+    team_id: i32,
+    set_ref: &str,
+) -> Result<SymbolSetLoadResult, UnhandledError> {
+    let Some(mut record) = SymbolSetRecord::load(pool, team_id, set_ref).await? else {
+        return Ok(SymbolSetLoadResult::Missing);
+    };
+
+    if let Some(failure_reason) = record.failure_reason {
+        return Ok(SymbolSetLoadResult::Failed(failure_reason));
+    }
+
+    let Some(storage_ptr) = record.storage_ptr.clone() else {
+        return Ok(SymbolSetLoadResult::MissingStoragePtr(record.set_ref));
+    };
+
+    record.set_last_used(pool).await?;
+
+    // Otherwise, if we just failed to talk to s3 for some reason, treat it as an unhandled error and die
+    match client.get(bucket, &storage_ptr).await? {
+        Some(data) => Ok(SymbolSetLoadResult::Data(data)),
+        None => Ok(SymbolSetLoadResult::MissingBlob(record)),
+    }
+}
+
 // This is more-or-less a read-only version of the saving layer - it never writes symbol sets, although
 // it will modify records to indicate an error if the underlying parser fails. For symbol sets we dynamically
 // fetch (like js sourcemaps), it's main function is to strip the `OrChunkId` from the ref and pass the
@@ -79,43 +115,38 @@ where
             OrChunkId::Both { inner, id } => (id, Some(inner)),
         };
 
-        let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, &id).await? else {
-            counter!(CHUNK_ID_NOT_FOUND).increment(1);
-            let Some(inner) = inner else {
-                return Err(FrameError::MissingChunkIdData(id).into());
-            };
-            // We have a chunk id, but it's not saved - fetch with the inner, knowing the OrChunkId's
-            // `Display` implementation will use the chunk id as the set reference everywhere else
-            return self.inner.fetch(team_id, inner).await;
-        };
-
-        // If we failed to parse this chunk's data in the past, we should not try again.
-        // Note that in situations where we're running beneath a `Saving` layer, we'll
-        // never reach this point, but we still handle the case for correctness sake
-        if let Some(failure_reason) = &record.failure_reason {
-            counter!(CHUNK_ID_FAILURE_FETCHED).increment(1);
-            let error: FrameError =
-                serde_json::from_str(failure_reason).map_err(UnhandledError::from)?;
-            return Err(error.into());
-        }
-
-        let Some(storage_ptr) = record.storage_ptr.clone() else {
-            // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
-            error!("No storage pointer found for chunk id {}", id);
-            panic!("No storage pointer found for chunk id {id}");
-        };
-
-        record.set_last_used(&self.pool).await?;
-
-        match self.client.get(&self.bucket, &storage_ptr).await {
-            Ok(Some(data)) => Ok(data),
-            Ok(None) => {
+        match load_symbol_set_data(&self.pool, self.client.as_ref(), &self.bucket, team_id, &id)
+            .await?
+        {
+            SymbolSetLoadResult::Data(data) => Ok(data),
+            SymbolSetLoadResult::Missing => {
+                counter!(CHUNK_ID_NOT_FOUND).increment(1);
+                let Some(inner) = inner else {
+                    return Err(FrameError::MissingChunkIdData(id).into());
+                };
+                // We have a chunk id, but it's not saved - fetch with the inner, knowing the OrChunkId's
+                // `Display` implementation will use the chunk id as the set reference everywhere else
+                self.inner.fetch(team_id, inner).await
+            }
+            SymbolSetLoadResult::Failed(failure_reason) => {
+                // If we failed to parse this chunk's data in the past, we should not try again.
+                // Note that in situations where we're running beneath a `Saving` layer, we'll
+                // never reach this point, but we still handle the case for correctness sake
+                counter!(CHUNK_ID_FAILURE_FETCHED).increment(1);
+                let error: FrameError =
+                    serde_json::from_str(&failure_reason).map_err(UnhandledError::from)?;
+                Err(error.into())
+            }
+            SymbolSetLoadResult::MissingStoragePtr(set_ref) => {
+                // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
+                error!("No storage pointer found for chunk id {}", set_ref);
+                panic!("No storage pointer found for chunk id {set_ref}");
+            }
+            SymbolSetLoadResult::MissingBlob(mut record) => {
                 // If the chunk ID points to a record that doesn't exist, delete the record and treat it as a frame error
                 record.delete(&self.pool).await?;
-                return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+                Err(FrameError::MissingChunkIdData(record.set_ref).into())
             }
-            // Otherwise, if we just failed to talk to s3 for some reason, treat it as an unhandled error and die
-            Err(err) => Err(err.into()),
         }
     }
 }
