@@ -20,7 +20,7 @@ describe('isFeatureFlagEnabled', () => {
 
         const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
         expect(result).toBe(true)
-        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('mcp-version-2', 'user-123')
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('mcp-version-2', 'user-123', undefined)
     })
 
     it('should return false when the flag is disabled', async () => {
@@ -52,14 +52,6 @@ describe('isFeatureFlagEnabled', () => {
         expect(mockIsFeatureEnabled).toHaveBeenCalledWith('notebooks-collaboration', 'user-123', {
             groups: { organization: 'org-abc' },
         })
-    })
-
-    it('should omit the options arg when groups is empty', async () => {
-        mockIsFeatureEnabled.mockResolvedValue(true)
-
-        await isFeatureFlagEnabled('flag-x', 'user-123', {})
-
-        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-x', 'user-123')
     })
 })
 

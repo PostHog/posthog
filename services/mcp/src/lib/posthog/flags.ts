@@ -6,10 +6,7 @@ export type FlagGroups = Record<string, string>
 export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, groups?: FlagGroups): Promise<boolean> {
     try {
         const client = getPostHogClient()
-        const hasGroups = groups && Object.keys(groups).length > 0
-        const result = hasGroups
-            ? await client.isFeatureEnabled(flagKey, distinctId, { groups })
-            : await client.isFeatureEnabled(flagKey, distinctId)
+        const result = await client.isFeatureEnabled(flagKey, distinctId, groups ? { groups } : undefined)
         return result === true
     } catch {
         return false
