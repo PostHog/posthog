@@ -11,7 +11,7 @@
 
 use serde_json::{json, Value};
 
-use super::{identifier_text, kw_acts_as_ident_in_primary, kw_valid_as_identifier, Parser, BP_ALIAS};
+use super::{identifier_text, kw_valid_as_identifier, Parser, BP_ALIAS};
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
@@ -88,10 +88,15 @@ impl<'a> Parser<'a> {
         // HogQLParser.g4's `identifier` and `keyword` rules — so we
         // include those keywords here too. Otherwise a CTE named
         // `final`, `date`, etc. would fall through to the expr-form
-        // fallback and mis-parse.
+        // fallback and mis-parse. Use `kw_valid_as_identifier` rather
+        // than `kw_acts_as_ident_in_primary` — the latter excludes the
+        // primary-form heads (CASE / SELECT / CAST / NOT) that have
+        // their own parse_primary branches, but those names ARE valid
+        // CTE identifiers in cpp's grammar (CASE / CAST / SELECT / NOT
+        // are all in the `keyword` rule).
         let head_is_identifierlike =
             matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent)
-                || matches!(self.peek(), TokenKind::Keyword(kw) if kw_acts_as_ident_in_primary(kw));
+                || matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
         if head_is_identifierlike {
             let mut probe = Lexer::with_pos(self.src, self.peek0.start);
             drop(probe.next_token()); // ident

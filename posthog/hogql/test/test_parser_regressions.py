@@ -1789,6 +1789,30 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_with_cte_admits_primary_form_keywords_as_name(self):
+        # cpp's `withExpr: identifier AS LPAREN selectSetStmt RPAREN`
+        # admits any keyword in the grammar's `keyword` rule as the CTE
+        # name. The Rust probe at parse_with_expr gated on
+        # `kw_acts_as_ident_in_primary`, which excludes the primary-form
+        # heads (CASE / CAST / SELECT / NOT / etc.) — those names then
+        # fell through to the expression-form CTE fallback and choked
+        # on `select AS (...)` parsing as a sub-select head. Using
+        # `kw_valid_as_identifier` instead matches the grammar exactly.
+        for kw in ("select", "case", "cast", "not"):
+            src = f"WITH {kw} AS (SELECT 1) SELECT * FROM {kw}"
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: NULL / INF / NAN / INTERSECT stay rejected by both
+        # parsers (omitted from cpp's `keyword` rule).
+        for kw in ("null", "inf", "nan", "intersect"):
+            src = f"WITH {kw} AS (SELECT 1) SELECT * FROM {kw}"
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="rust-json")
+
     def test_join_on_with_comma_separated_exprs_rejected(self):
         # cpp's grammar greedily takes the comma-separated columnExprList
         # after ON, then the visitor raises NotImplementedError because
