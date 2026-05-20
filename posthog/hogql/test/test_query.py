@@ -1948,21 +1948,20 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # The user-visible bug: "3.07" was treated as [3, 7] in HogQL and matched
-            # "version >= 3.7" filters in blast radius, but Rust rejected it at flag
-            # evaluation time. Now both sides return NULL → row excluded from any operator.
-            ("gte", ">=", "3.07", "3.7.0", None),
-            ("lt", "<", "3.07", "3.7.0", None),
-            ("gt", ">", "3.07", "3.7.0", None),
-            ("lte", "<=", "3.07", "3.7.0", None),
-            ("eq", "=", "3.07", "3.7.0", None),
-            # Sanity check: valid versions still compare normally.
-            ("valid_gte_true", ">=", "3.7.1", "3.7.0", True),
-            ("valid_gte_false", ">=", "3.6.9", "3.7.0", False),
-            ("valid_lt_true", "<", "3.6.9", "3.7.0", True),
+            # Valid versions compare exactly as you'd expect.
+            ("gte_true", ">=", "3.7.1", "3.7.0", True),
+            ("gte_false", ">=", "3.6.9", "3.7.0", False),
+            ("lt_true", "<", "3.6.9", "3.7.0", True),
+            ("eq_true", "=", "3.7.0", "3.7.0", True),
+            ("eq_false", "=", "3.6.9", "3.7.0", False),
         ]
     )
-    def test_sortable_semver_comparison(self, _name: str, op: str, lhs: str, rhs: str, expected: bool | None) -> None:
+    def test_sortable_semver_valid_comparison(self, _name: str, op: str, lhs: str, rhs: str, expected: bool) -> None:
+        # Raw sortableSemVer-to-sortableSemVer comparisons of valid versions behave
+        # like ordinary array comparisons. Behaviour with an *invalid* version is
+        # delegated to the caller — see property.py's `_gate_on_valid_semver` for
+        # the WHERE-clause path used by blast radius and feature-flag filters, which
+        # excludes invalid versions before this comparison ever runs.
         response = execute_hogql_query(
             f"SELECT sortableSemVer({lhs!r}) {op} sortableSemVer({rhs!r})",
             team=self.team,
