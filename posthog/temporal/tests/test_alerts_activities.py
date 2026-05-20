@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from freezegun import freeze_time
@@ -24,15 +24,8 @@ from posthog.schema import (
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import AlertConfiguration, Insight, User
 from posthog.models.alert import AlertCheck
-from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import (
-    _emit_alert_timeliness_slo,
-    cleanup_alert_checks,
-    evaluate_alert,
-    notify_alert,
-    prepare_alert,
-)
+from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -586,93 +579,3 @@ class TestCleanupAlertChecks:
             await env.run(cleanup_alert_checks)
 
         mock_cleanup.assert_called_once()
-
-
-@contextlib.contextmanager
-def _capture_slo():
-    captured: list[dict] = []
-
-    @contextlib.contextmanager
-    def fake_scoped_capture():
-        def capture(**kwargs):
-            captured.append(kwargs)
-
-        yield capture
-
-    with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
-        yield captured
-
-
-class TestAlertTimelinessSlo:
-    @pytest.mark.parametrize(
-        "interval,offset_minutes,expected",
-        [
-            # hourly grace = 6min
-            (AlertCalculationInterval.HOURLY.value, 1, SloOutcome.SUCCESS),
-            (AlertCalculationInterval.HOURLY.value, 10, SloOutcome.FAILURE),
-            # daily grace = 2.4h = 144min
-            (AlertCalculationInterval.DAILY.value, 60, SloOutcome.SUCCESS),
-            (AlertCalculationInterval.DAILY.value, 180, SloOutcome.FAILURE),
-        ],
-    )
-    def test_emit_helper_outcome(self, interval: str, offset_minutes: int, expected: SloOutcome) -> None:
-        checked_at = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
-        with _capture_slo() as captured:
-            _emit_alert_timeliness_slo(
-                alert_id="alert-1",
-                team_id=1,
-                calculation_interval=interval,
-                scheduled_check_at=checked_at - timedelta(minutes=offset_minutes),
-                checked_at=checked_at,
-            )
-
-        started = [c for c in captured if c["event"] == "slo_operation_started"]
-        completed = [c for c in captured if c["event"] == "slo_operation_completed"]
-        assert len(started) == len(completed) == 1
-        assert completed[0]["properties"]["operation"] == SloOperation.ALERT_TIMELINESS
-        assert completed[0]["properties"]["outcome"] == expected
-        assert completed[0]["properties"]["resource_id"] == "alert-1"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
-class TestEvaluateAlertEmitsTimeliness:
-    @freeze_time("2024-06-03T12:00:00Z")
-    async def test_emits_failure_when_check_runs_late(self, ateam) -> None:
-        now = datetime.now(UTC)
-        # Daily grace = 2.4h; scheduled 3h ago means this check ran late.
-        a = await _create_alert(
-            ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now - timedelta(hours=3)
-        )
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                return_value=AlertEvaluationResult(value=1.0, breaches=None),
-            ),
-            _capture_slo() as captured,
-        ):
-            await ActivityEnvironment().run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(a.id)))
-
-        completed = [
-            c
-            for c in captured
-            if c["event"] == "slo_operation_completed" and c["properties"]["operation"] == SloOperation.ALERT_TIMELINESS
-        ]
-        assert len(completed) == 1
-        assert completed[0]["properties"]["outcome"] == SloOutcome.FAILURE
-        assert completed[0]["properties"]["resource_id"] == str(a.id)
-
-    @freeze_time("2024-06-03T12:00:00Z")
-    async def test_skips_timeliness_on_first_check(self, ateam) -> None:
-        # next_check_at is None on a first-ever check — no schedule to measure against.
-        a = await _create_alert(ateam, next_check_at=None)
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                return_value=AlertEvaluationResult(value=1.0, breaches=None),
-            ),
-            _capture_slo() as captured,
-        ):
-            await ActivityEnvironment().run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(a.id)))
-
-        assert captured == []

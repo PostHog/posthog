@@ -1,4 +1,3 @@
-import functools
 import traceback
 from datetime import UTC, datetime
 
@@ -16,16 +15,12 @@ from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
-from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.slo.events import emit_slo_completed, emit_slo_started
-from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     add_alert_check,
-    alert_calculation_interval_to_relativedelta,
     check_alert_for_insight,
     disable_invalid_alert,
     dispatch_alert_notification,
@@ -57,68 +52,6 @@ from products.notifications.backend.facade.api import (
 )
 
 logger = structlog.get_logger(__name__)
-
-
-# A check is "late" once it is overdue by more than this fraction of its interval.
-ALERT_TIMELINESS_GRACE_FRACTION = 0.10
-
-
-@functools.cache
-def _interval_seconds(interval: AlertCalculationInterval) -> float:
-    # Reuse the canonical scheduling mapping so new intervals are handled automatically.
-    # relativedelta needs a concrete anchor to resolve calendar-variable units (months);
-    # a fixed one is precise enough for a grace window.
-    anchor = datetime(2024, 1, 1, tzinfo=UTC)
-    return ((anchor + alert_calculation_interval_to_relativedelta(interval)) - anchor).total_seconds()
-
-
-def _emit_alert_timeliness_slo(
-    *,
-    alert_id: str,
-    team_id: int,
-    calculation_interval: str | None,
-    scheduled_check_at: datetime,
-    checked_at: datetime,
-) -> None:
-    """Emit one Alert Timeliness SLO sample for a check that just ran.
-
-    Compares when the check actually ran against when it was scheduled
-    (``scheduled_check_at``); on time within a grace window of the interval is a
-    SUCCESS, later is a FAILURE. Emitted once per check from the evaluate activity
-    rather than by polling, so the SLO reflects every check's punctuality exactly.
-    """
-    interval = AlertCalculationInterval(calculation_interval or AlertCalculationInterval.HOURLY)
-    grace_seconds = _interval_seconds(interval) * ALERT_TIMELINESS_GRACE_FRACTION
-    late_seconds = (checked_at - scheduled_check_at).total_seconds()
-    on_time = late_seconds <= grace_seconds
-    extra_properties = {"calculation_interval": calculation_interval}
-
-    # Pair started+completed so the SLO dashboards (which denominate on
-    # slo_operation_started) count one timeliness sample per check.
-    with ph_scoped_capture() as capture_ph_event:
-        emit_slo_started(
-            distinct_id=alert_id,
-            properties=SloStartedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_TIMELINESS,
-                team_id=team_id,
-                resource_id=alert_id,
-            ),
-            extra_properties=extra_properties,
-            capture=capture_ph_event,
-        )
-        emit_slo_completed(
-            distinct_id=alert_id,
-            properties=SloCompletedProperties(
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.ALERT_TIMELINESS,
-                team_id=team_id,
-                outcome=SloOutcome.SUCCESS if on_time else SloOutcome.FAILURE,
-                resource_id=alert_id,
-            ),
-            extra_properties={**extra_properties, "late_seconds": max(late_seconds, 0.0)},
-            capture=capture_ph_event,
-        )
 
 
 @temporalio.activity.defn
@@ -272,9 +205,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
         previous_state = alert.state
-        # The scheduled due time, captured before add_alert_check advances next_check_at.
-        # None on a first-ever check — nothing to measure timeliness against.
-        scheduled_check_at = alert.next_check_at
 
         value: float | None = None
         breaches: list[str] | None = None
@@ -328,15 +258,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 if claim_investigation_slot(alert, alert_check):
                     should_start_investigation = True
                     should_gate_notification = bool(alert.investigation_gates_notifications)
-
-        if scheduled_check_at is not None:
-            _emit_alert_timeliness_slo(
-                alert_id=str(alert.id),
-                team_id=alert.team_id,
-                calculation_interval=alert.calculation_interval,
-                scheduled_check_at=scheduled_check_at,
-                checked_at=datetime.now(UTC),
-            )
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
