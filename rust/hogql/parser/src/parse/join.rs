@@ -116,10 +116,19 @@ impl<'a> Parser<'a> {
         // one constraint per JOIN; peel the rest off here, inward-to-outward. If
         // no attachment site exists — bare FROM, all-CROSS chain, or every slot
         // already filled — raise a syntax error at the stray keyword.
+        //
+        // Guard against the SELECT-statement-level `USING sampleClause` form
+        // (grammar `(USING? sampleClause)?`): `USING SAMPLE 0.5` belongs to the
+        // outer selectStmt, not the JOIN — leave it for the SELECT parser.
         while matches!(
             self.peek(),
             TokenKind::Keyword(Kw::On) | TokenKind::Keyword(Kw::Using)
         ) {
+            if self.peek() == TokenKind::Keyword(Kw::Using)
+                && self.peek_next() == TokenKind::Keyword(Kw::Sample)
+            {
+                break;
+            }
             let kw_kind = self.peek();
             let Some(constraint) = self.parse_join_constraint_opt()? else {
                 break;

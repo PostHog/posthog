@@ -2612,15 +2612,17 @@ class TestParserRegressions(BaseTest):
                 parse_select(src, backend="cpp-json")
             with self.assertRaises(ExposedHogQLError, msg=src):
                 parse_select(src, backend="rust-json")
-        # Guards: regular JOIN with constraint and bare CROSS JOIN must
-        # still parse, and a stacked `ON … ON …` chain must still attach
-        # right-associatively.
+        # Guards: regular JOIN with constraint, stacked ON / ON chain,
+        # bare CROSS JOIN, and the SELECT-statement-level `USING SAMPLE`
+        # form (which the peel loop must not intercept) all still parse.
         for src in (
             "SELECT * FROM a JOIN b ON 1",
             "SELECT * FROM a JOIN b USING (x)",
             "SELECT * FROM a LEFT JOIN b ON 1",
             "SELECT * FROM a CROSS JOIN b",
             "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
+            "SELECT * FROM t USING SAMPLE 0.5",
+            "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
         ):
             oracle = clear_locations(parse_select(src, backend="cpp-json"))
             for backend in ("rust-json", "python"):
