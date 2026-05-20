@@ -743,6 +743,79 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('inline insight metadata editing', () => {
+        async function loadInsight(): Promise<void> {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+
+            // Mirror what BindLogic does in production so updateInsightButtonEnabled has the saved query
+            const visualizationLogic = dataVisualizationLogic({
+                key: logic.values.dataLogicKey,
+                query: MOCK_INSIGHT_QUERY,
+                dataNodeCollectionId: logic.values.dataLogicKey,
+            })
+            visualizationLogic.mount()
+        }
+
+        it('seeds the active tab with the insight name and description on load', async () => {
+            await loadInsight()
+
+            expect(logic.values.activeTab?.name).toEqual(MOCK_INSIGHT.name)
+            expect(logic.values.activeTab?.description).toEqual(MOCK_INSIGHT.description)
+            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(false)
+        })
+
+        it('treats an inline name edit as a pending change that enables Update insight', async () => {
+            await loadInsight()
+
+            logic.actions.setEditingInsightName('Renamed Insight')
+
+            expect(logic.values.activeTab?.name).toEqual('Renamed Insight')
+            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(true)
+            expect(editorRootLogic!.values.titleSectionProps).toMatchObject({
+                name: 'Renamed Insight',
+            })
+        })
+
+        it('treats an inline description edit as a pending change that enables Update insight', async () => {
+            await loadInsight()
+
+            logic.actions.setEditingInsightDescription('A new description')
+
+            expect(logic.values.activeTab?.description).toEqual('A new description')
+            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(true)
+            expect(editorRootLogic!.values.titleSectionProps).toMatchObject({
+                description: 'A new description',
+            })
+        })
+
+        it('discards pending name and description edits when the insight is closed', async () => {
+            await loadInsight()
+
+            logic.actions.setEditingInsightName('Renamed Insight')
+            logic.actions.setEditingInsightDescription('A new description')
+            logic.actions.closeEditingObject()
+
+            await expectLogic(logic).toDispatchActions(['closeEditingObject', 'updateTab']).toMatchValues({
+                editingInsight: null,
+            })
+
+            expect(logic.values.activeTab?.name).not.toEqual('Renamed Insight')
+            expect(logic.values.activeTab?.description).toEqual('')
+        })
+    })
+
     describe('activeTabMatchesUrlTarget', () => {
         it.each([
             [

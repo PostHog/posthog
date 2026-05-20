@@ -168,6 +168,7 @@ export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
     name: string
+    description?: string
     sourceQuery?: DataVisualizationNode
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
@@ -475,6 +476,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId,
         }),
         updateInsight: true,
+        setEditingInsightName: (name: string) => ({ name }),
+        setEditingInsightDescription: (description: string) => ({ description }),
         closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
@@ -1012,6 +1015,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             createTab: async ({ query = '', view, insight, draft }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
                 const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
+                const tabDescription = insight?.description ?? ''
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
                 const insightVisualizationQuery = rawInsightVisualizationQuery
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
@@ -1040,6 +1044,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         view,
                         insight,
                         name: tabName,
+                        description: tabDescription,
                         sourceQuery: insightVisualizationQuery,
                         draft: draft,
                     })
@@ -1689,6 +1694,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
+            setEditingInsightName: ({ name }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, name })
+                }
+            },
+            setEditingInsightDescription: ({ description }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, description })
+                }
+            },
             updateInsight: async () => {
                 if (!values.editingInsight) {
                     return
@@ -1697,10 +1712,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setInsightLoading(true)
 
                 const insightName = values.activeTab?.name
+                const insightDescription = values.activeTab?.description
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
                 const insightRequest: Partial<QueryBasedInsightModel> = {
                     name: insightName ?? values.editingInsight.name,
+                    description: insightDescription ?? values.editingInsight.description ?? '',
                     query: currentVisualizationQuery,
                 }
 
@@ -1768,6 +1785,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const nextActiveTab = {
                     ...values.activeTab,
                     name: NEW_QUERY,
+                    description: '',
                     view: undefined,
                     insight: undefined,
                     draft: undefined,

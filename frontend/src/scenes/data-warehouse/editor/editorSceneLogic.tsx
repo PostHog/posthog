@@ -161,9 +161,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                               iconType: 'insight/hog',
                           }
 
+                    // Surface pending edits from activeTab so the title section reflects unsaved changes
                     return {
                         forceBackTo,
-                        name: editingInsight.name || editingInsight.derived_name || 'Untitled',
+                        name: activeTab?.name || editingInsight.derived_name || 'Untitled',
+                        description: activeTab?.description ?? editingInsight.description ?? '',
                         resourceType: { type: 'insight/hog' },
                     }
                 }
@@ -284,12 +286,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 }
 
                 const updatedName = activeTab?.name !== editingInsight.name
+                const updatedDescription = (activeTab?.description ?? '') !== (editingInsight.description ?? '')
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
                 const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 
                 return (
                     updatedName ||
+                    updatedDescription ||
                     !equal(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
                 )
             },
