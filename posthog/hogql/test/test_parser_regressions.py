@@ -871,28 +871,37 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
-    def test_unterminated_block_comment_with_content_rejected(self):
-        # `/*` without a closing `*/` must be a SyntaxError when
-        # non-whitespace content follows the open. The Rust lexer used
-        # to drop the `skip_block_comment` error result and silently
-        # advance to EOF, masking the trailing garbage.
-        from posthog.hogql.errors import BaseHogQLError
-
-        for src in (
-            "1 /* unclosed",
-            "1 /* unclosed more text",
-            "a /* unclosed\nstill unclosed",
-        ):
-            for backend in ("cpp-json", "rust-json", "python"):
-                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
-                    parse_expr(src, backend=backend)
-        # cpp tolerates `/*` with only whitespace at EOF (silent
-        # recovery); mirror that.
+    def test_unterminated_block_comment_lexes_as_div_asterisk(self):
+        # cpp's ANTLR lexer only matches the `/* ... */` comment rule
+        # when a closing `*/` is found. An unterminated `/*` falls back
+        # to `/` and `*` tokens, which the parser then evaluates per
+        # the normal expression grammar. Rust used to commit eagerly
+        # to the comment-skip path and silently advance to EOF, so
+        # `1 /* unclosed` was happily returning `Constant(1)` and
+        # dropping the trailing garbage.
         for src in ("1 /*", "1 /* "):
             oracle = clear_locations(parse_expr(src, backend="cpp-json"))
             for backend in ("rust-json", "python"):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+        # Unterminated `/*` followed by ident content lexes as
+        # `1 / * ident`, which fails the expression parse with a
+        # trailing-tokens / extraneous-input error in all three
+        # backends (rather than silently consuming the rest as a
+        # comment).
+        from posthog.hogql.errors import BaseHogQLError
+
+        for src in ("1 /* unclosed", "a /* unclosed"):
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        # Closed `/* ... */` is still trivia in all three backends.
+        oracle = clear_locations(parse_expr("1 /* ok */ + 2", backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_expr("1 /* ok */ + 2", backend=backend))
+            self.assertEqual(got, oracle, msg=backend)
 
     def test_interpolate_no_trailing_comma(self):
         # `INTERPOLATE LPAREN interpolateExpr (COMMA interpolateExpr)*

@@ -535,7 +535,7 @@ impl<'a> Lexer<'a> {
                     self.pos += 2;
                     TokenKind::SlashGt
                 }
-                Some(b'*') => {
+                Some(b'*') if self.block_comment_has_closer() => {
                     self.skip_block_comment(start)?;
                     return self.next_token();
                 }
@@ -746,18 +746,39 @@ impl<'a> Lexer<'a> {
                 self.skip_line_comment();
                 continue;
             }
-            // `/* ... */` block comment. Surface unterminated-comment
-            // errors — `skip_block_comment` advances `pos` to EOF on
-            // unterminated, so without the propagation the parser
-            // happily returns the prefix expression and silently drops
-            // the trailing garbage.
-            if self.peek_byte(0) == Some(b'/') && self.peek_byte(1) == Some(b'*') {
+            // `/* ... */` block comment. cpp's ANTLR lexer only matches
+            // the comment rule when a closing `*/` is found; an
+            // unterminated `/*` falls back to `/` and `*` tokens (which
+            // the parser then evaluates per the normal expression
+            // grammar). Probe for `*/` first; if missing, leave the
+            // characters in place for the regular lex path.
+            if self.peek_byte(0) == Some(b'/')
+                && self.peek_byte(1) == Some(b'*')
+                && self.block_comment_has_closer()
+            {
                 self.skip_block_comment(self.pos)?;
                 continue;
             }
             break;
         }
         Ok(())
+    }
+
+    /// Lookahead from a `/*` at `self.pos`: is there a matching `*/`
+    /// before EOF? Used by `skip_trivia` to commit to the comment-skip
+    /// path only when the comment is well-formed (matching cpp's ANTLR
+    /// `/* ... */` rule, which fails to match on unterminated comments).
+    fn block_comment_has_closer(&self) -> bool {
+        // We're positioned at `/`; the `*` is at +1, content at +2.
+        let mut i = self.pos + 2;
+        let bytes = self.src;
+        while i + 1 < bytes.len() {
+            if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                return true;
+            }
+            i += 1;
+        }
+        false
     }
 
     fn skip_line_comment(&mut self) {
@@ -771,34 +792,26 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_block_comment(&mut self, start: usize) -> Result<(), ParseError> {
-        // Caller saw `/*` but didn't consume it.
+        // Caller has confirmed a closing `*/` exists ahead via
+        // `block_comment_has_closer` (matching cpp's ANTLR `/*...*/`
+        // rule, which fails on unterminated). Just walk to the close.
         self.pos += 2;
-        // Track whether any non-whitespace body content appeared before
-        // the unterminated end. cpp's ANTLR tolerates `/*` followed by
-        // only whitespace at EOF (silent recovery), but rejects when
-        // non-trivia content sits inside the unterminated comment.
-        let mut saw_content = false;
         loop {
             match (self.peek_byte(0), self.peek_byte(1)) {
                 (Some(b'*'), Some(b'/')) => {
                     self.pos += 2;
                     return Ok(());
                 }
-                (Some(b), _) => {
-                    if !(b.is_ascii_whitespace() || b == 0x0B) {
-                        saw_content = true;
-                    }
-                    self.pos += 1;
-                }
+                (Some(_), _) => self.pos += 1,
                 (None, _) => {
-                    if saw_content {
-                        return Err(ParseError::syntax(
-                            "unterminated block comment",
-                            start,
-                            self.pos,
-                        ));
-                    }
-                    return Ok(());
+                    // Shouldn't be reachable when callers gate on
+                    // `block_comment_has_closer`, but surface as an
+                    // error rather than silently advancing.
+                    return Err(ParseError::syntax(
+                        "unterminated block comment",
+                        start,
+                        self.pos,
+                    ));
                 }
             }
         }
