@@ -1,6 +1,6 @@
 use personhog_proto::personhog::{
     service::v1::person_hog_service_client::PersonHogServiceClient,
-    types::v1::GetGroupTypeMappingsByTeamIdsRequest,
+    types::v1::{ConsistencyLevel, GetGroupTypeMappingsByTeamIdsRequest, ReadOptions},
 };
 use quick_cache::sync::Cache;
 use std::collections::HashMap;
@@ -140,13 +140,24 @@ impl GroupTypeResolver {
             ids.into_iter().map(|id| id as i64).collect()
         };
 
+        let consistency = ConsistencyLevel::Eventual;
         let mut request = tonic::Request::new(GetGroupTypeMappingsByTeamIdsRequest {
             team_ids: unique_team_ids,
-            read_options: None,
+            read_options: Some(ReadOptions {
+                consistency: consistency.into(),
+            }),
         });
         let metadata = request.metadata_mut();
         metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
-        metadata.insert("x-read-consistency", "eventual".parse().unwrap());
+        metadata.insert(
+            "x-read-consistency",
+            match consistency {
+                ConsistencyLevel::Strong => "strong",
+                _ => "eventual",
+            }
+            .parse()
+            .unwrap(),
+        );
 
         let response = client.get_group_type_mappings_by_team_ids(request).await?;
 
