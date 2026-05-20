@@ -3659,8 +3659,22 @@ impl<'a> Parser<'a> {
             // or postfix operator follows, the `{…}` placeholder or
             // `(…)` was only the operand of a larger columnExpr
             // (`f({x} = 1)`, `f((select 1) + 2)`, `f({x}[0])`) — fail so
-            // try_alt falls back to the columnExpr parse.
-            if infix_bp(self.peek()).is_some() || postfix_bp(self.peek()).is_some() {
+            // try_alt falls back to the columnExpr parse. `infix_bp`
+            // covers the symbolic / AND / OR infixes; the keyword
+            // infixes (`IN`, `LIKE`, `ILIKE`, `IS`, `BETWEEN`, plus the
+            // `NOT <kw>` shapes) are dispatched directly out of the
+            // Pratt loop, so call them out here too.
+            let starts_kw_infix = matches!(
+                self.peek(),
+                TokenKind::Keyword(
+                    Kw::In | Kw::Like | Kw::Ilike | Kw::Is | Kw::Between
+                )
+            ) || (matches!(self.peek(), TokenKind::Keyword(Kw::Not))
+                && matches!(
+                    self.peek_next(),
+                    TokenKind::Keyword(Kw::In | Kw::Like | Kw::Ilike | Kw::Between)
+                ));
+            if infix_bp(self.peek()).is_some() || postfix_bp(self.peek()).is_some() || starts_kw_infix {
                 return Err(self.err("select-set-stmt call argument is followed by an operator"));
             }
             Ok(v)

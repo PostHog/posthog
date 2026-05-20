@@ -1789,6 +1789,38 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_call_arg_select_releases_when_followed_by_keyword_infix(self):
+        # `f((SELECT 1) IN [1, 2])` is a call whose first arg is the
+        # comparison `(SELECT 1) IN [1, 2]`, not the SELECT alone. The
+        # Rust call-arg parser tried the select-set-stmt arm first and
+        # then checked `infix_bp` / `postfix_bp` for a continuing operator;
+        # those don't cover the keyword-led infixes (IN, LIKE, ILIKE, IS,
+        # BETWEEN, and their NOT-prefixed variants), so the select arm
+        # kept the SELECT instead of letting the columnExpr arm take it.
+        cases = (
+            "f((SELECT 1) IN [1, 2])",
+            "f((SELECT 1) NOT IN [1, 2])",
+            "f((SELECT 1) LIKE 'x')",
+            "f((SELECT 1) NOT LIKE 'x')",
+            "f((SELECT 1) ILIKE 'x')",
+            "f((SELECT 1) NOT ILIKE 'x')",
+            "f((SELECT 1) IS NULL)",
+            "f((SELECT 1) IS NOT NULL)",
+            "f((SELECT 1) BETWEEN 1 AND 2)",
+            "f((SELECT 1) NOT BETWEEN 1 AND 2)",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: the bare-SELECT call-argument shape still works.
+        for src in ("f((SELECT 1))", "f(SELECT 1)"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_named_argument_admits_identifier_shaped_keywords(self):
         # cpp's `ColumnExprNamedArg: identifier COLONEQUALS columnExpr`
         # admits the full `identifier` rule. `true` / `false` lex to plain
