@@ -357,7 +357,11 @@ export default function SchemaForm(): JSX.Element {
                                 <LemonCollapse
                                     multiple
                                     embedded
-                                    activeKeys={expandedDirectQuerySchemaKeys}
+                                    activeKeys={
+                                        groupedDirectQueryDatabaseSchema.length === 1
+                                            ? groupedDirectQueryDatabaseSchema.map((g) => g.schemaName)
+                                            : expandedDirectQuerySchemaKeys
+                                    }
                                     onChange={setExpandedDirectQuerySchemaKeys}
                                     panels={groupedDirectQueryDatabaseSchema.map(({ schemaName, tables }) => {
                                         const selectedTablesCount = tables.filter((table) => table.should_sync).length
@@ -470,7 +474,11 @@ export default function SchemaForm(): JSX.Element {
                                 <LemonCollapse
                                     multiple
                                     embedded
-                                    activeKeys={expandedDirectQuerySchemaKeys}
+                                    activeKeys={
+                                        groupedDirectQueryDatabaseSchema.length === 1
+                                            ? groupedDirectQueryDatabaseSchema.map((g) => g.schemaName)
+                                            : expandedDirectQuerySchemaKeys
+                                    }
                                     onChange={setExpandedDirectQuerySchemaKeys}
                                     panels={groupedDirectQueryDatabaseSchema.map(
                                         ({
