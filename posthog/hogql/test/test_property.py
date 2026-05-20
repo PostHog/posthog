@@ -2060,10 +2060,11 @@ class TestPropertyNumericOperatorsWithData(APIBaseTest):
     comparing a String with an Int constant has no supertype in ClickHouse.
     """
 
+    event_name = "survey_response"
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.event_name = "survey_response"
 
         # The ``"five"`` and missing-rating rows are the contract-defining ones: the
         # numeric coercion must drop them silently (accurateCastOrNull returns NULL,
