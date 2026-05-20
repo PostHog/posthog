@@ -47,12 +47,13 @@ class TestAgenticAuthorize(APIBaseTest):
         assert "error=missing_state" in res["Location"]
 
     def test_email_mismatch_redirects_to_mismatch_page(self):
-        self._set_pending_auth("state_mismatch", "other@example.com")
+        self._set_pending_auth("state_mismatch", "other@example.com", partner_name="Test Partner")
         res = self.client.get("/api/agentic/authorize?state=state_mismatch")
         assert res.status_code == 302
         assert "/agentic/account-mismatch" in res["Location"]
         assert "expected_email=other%40example.com" in res["Location"]
         assert f"current_email={quote(self.user.email)}" in res["Location"]
+        assert "partner_name=Test+Partner" in res["Location"]
         assert "state=state_mismatch" in res["Location"]
 
     def test_redirects_to_callback_with_code(self):
