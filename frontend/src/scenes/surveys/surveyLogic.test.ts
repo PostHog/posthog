@@ -343,57 +343,59 @@ describe('rating question validation', () => {
         logic.mount()
     })
 
-    it('does not require bound labels for thumb questions (emoji + 2-point scale)', async () => {
-        // Thumb questions hide the bound-label inputs in the editor, so requiring them here
-        // would silently block save with no visible error to surface.
-        const thumbSurvey: Survey = {
-            ...createPersistedSurvey(),
-            type: SurveyType.API,
-            questions: [
-                {
-                    type: SurveyQuestionType.Rating,
-                    question: 'Was this response helpful?',
-                    description: '',
-                    display: 'emoji',
-                    scale: 2,
-                    lowerBoundLabel: '',
-                    upperBoundLabel: '',
-                },
-            ],
-        }
-
+    it.each([
+        {
+            label: 'thumb question (emoji + 2-point scale) – bound labels not required',
+            survey: {
+                ...createPersistedSurvey(),
+                type: SurveyType.API,
+                questions: [
+                    {
+                        type: SurveyQuestionType.Rating,
+                        question: 'Was this response helpful?',
+                        description: '',
+                        display: 'emoji' as const,
+                        scale: 2,
+                        lowerBoundLabel: '',
+                        upperBoundLabel: '',
+                    },
+                ],
+            } as Survey,
+            expectedLower: undefined as string | undefined,
+            expectedUpper: undefined as string | undefined,
+        },
+        {
+            label: 'non-thumb rating question – bound labels required',
+            survey: {
+                ...createPersistedSurvey(),
+                questions: [
+                    {
+                        type: SurveyQuestionType.Rating,
+                        question: 'How likely are you to recommend us?',
+                        description: '',
+                        display: 'number' as const,
+                        scale: 10,
+                        lowerBoundLabel: '',
+                        upperBoundLabel: '',
+                    },
+                ],
+            } as Survey,
+            expectedLower: 'Please enter a lower bound label.',
+            expectedUpper: 'Please enter an upper bound label.',
+        },
+    ])('$label', async ({ survey, expectedLower, expectedUpper }) => {
         await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(thumbSurvey)
+            logic.actions.loadSurveySuccess(survey)
         }).toFinishAllListeners()
 
         const questionErrors = logic.values.surveyErrors.questions?.[0]
-        expect(questionErrors?.lowerBoundLabel).toBeFalsy()
-        expect(questionErrors?.upperBoundLabel).toBeFalsy()
-    })
-
-    it('requires bound labels for non-thumb rating questions', async () => {
-        const numberRatingSurvey: Survey = {
-            ...createPersistedSurvey(),
-            questions: [
-                {
-                    type: SurveyQuestionType.Rating,
-                    question: 'How likely are you to recommend us?',
-                    description: '',
-                    display: 'number',
-                    scale: 10,
-                    lowerBoundLabel: '',
-                    upperBoundLabel: '',
-                },
-            ],
+        if (expectedLower === undefined) {
+            expect(questionErrors?.lowerBoundLabel).toBeFalsy()
+            expect(questionErrors?.upperBoundLabel).toBeFalsy()
+        } else {
+            expect(questionErrors?.lowerBoundLabel).toBe(expectedLower)
+            expect(questionErrors?.upperBoundLabel).toBe(expectedUpper)
         }
-
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(numberRatingSurvey)
-        }).toFinishAllListeners()
-
-        const questionErrors = logic.values.surveyErrors.questions?.[0]
-        expect(questionErrors?.lowerBoundLabel).toBe('Please enter a lower bound label.')
-        expect(questionErrors?.upperBoundLabel).toBe('Please enter an upper bound label.')
     })
 })
 
