@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -43,6 +43,26 @@ import { JumpToTimestampPicker } from './JumpToTimestampPicker'
 import { RelativeDateRangeSelector } from './RelativeDateRangeSelector'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { DateOption } from './rollingDateRangeFilterLogic'
+
+// Quill quick-range id → PostHog relative-preset string. Preserves the rolling
+// nature of presets across page loads (a stored "-7d" rolls forward; absolute
+// dates do not). IDs come from quill/date-time-ranges.ts; ranges with no
+// PostHog equivalent (5/15/30 minutes) intentionally omitted and fall back to
+// absolute dates.
+const QUILL_RANGE_ID_TO_POSTHOG_PRESET: Record<number, string> = {
+    4: '-1h',
+    5: '-3h',
+    6: '-6h',
+    7: '-12h',
+    8: '-24h',
+    9: '-48h',
+    10: '-7d',
+    11: '-30d',
+    12: '-90d',
+    13: '-6m',
+    14: '-1y',
+    15: '-2y',
+}
 
 export interface DateFilterProps {
     showCustom?: boolean
@@ -190,12 +210,44 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         range: CUSTOM_RANGE,
     }))
 
+    // Set to true right before we self-apply, so the rangeDateFrom/rangeDateTo
+    // sync effect below skips one tick — otherwise our own apply would
+    // immediately overwrite quillValue.range back to CUSTOM_RANGE.
+    const skipNextQuillSyncRef = useRef(false)
+
+    // Re-sync the picker's working value when rangeDateFrom/rangeDateTo change
+    // from outside (e.g. legacy picker selection, URL/prop change, reset).
+    useEffect(() => {
+        if (skipNextQuillSyncRef.current) {
+            skipNextQuillSyncRef.current = false
+            return
+        }
+        const externalStart = (rangeDateFrom ?? dayjs()).toDate()
+        const externalEnd = (rangeDateTo ?? dayjs()).toDate()
+        if (
+            externalStart.getTime() !== quillValue.start.getTime() ||
+            externalEnd.getTime() !== quillValue.end.getTime()
+        ) {
+            setQuillValue({ start: externalStart, end: externalEnd, range: CUSTOM_RANGE })
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rangeDateFrom, rangeDateTo])
+
     const handleQuillApply = (val: DateTimeValue): void => {
         setQuillValue(val)
-        setRangeDateFrom(dayjs(val.start))
-        setRangeDateTo(dayjs(val.end))
-        setExplicitDate(false)
-        applyRange()
+        const preset = QUILL_RANGE_ID_TO_POSTHOG_PRESET[val.range.id]
+        skipNextQuillSyncRef.current = true
+        if (preset) {
+            // Preserve the rolling nature of the preset: store the relative
+            // string ("-7d", "-1h", …) instead of absolute dates, so the
+            // window rolls forward on every page load.
+            setDate(preset, null, false, false)
+        } else {
+            setRangeDateFrom(dayjs(val.start))
+            setRangeDateTo(dayjs(val.end))
+            setExplicitDate(false)
+            applyRange()
+        }
         close()
     }
 
