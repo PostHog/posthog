@@ -5026,7 +5026,28 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
     export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -22695,6 +22716,8 @@ export namespace Schemas {
 
     export interface QuarantinedIdentifierEntry {
       created_by?: UserBasicInfo | null;
+      /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+      source_run?: QuarantineSourceRun | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -32045,10 +32068,21 @@ export namespace Schemas {
     } as const;
 
     export interface QuarantineInput {
-      /** @maxLength 512 */
+      /**
+         * Snapshot identifier to quarantine.
+         * @maxLength 512
+         */
       identifier: string;
-      /** @maxLength 255 */
+      /**
+         * Why this snapshot is being quarantined.
+         * @maxLength 255
+         */
       reason: string;
+      /**
+         * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+         * @nullable
+         */
+      source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
     }
