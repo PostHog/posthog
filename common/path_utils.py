@@ -1,9 +1,13 @@
 """Repo-root discovery helper.
 
-Walks up the filesystem from a starting path until it finds ``hogli.yaml``,
-the canonical marker file at the repository root. Centralizes what used to
-be open-coded ``Path(__file__).parent.parent.parent...`` chains and
+Walks up the filesystem from a starting path until it finds ``manage.py``,
+the marker file at the repository root. Centralizes what used to be
+open-coded ``Path(__file__).parent.parent.parent...`` chains and
 ``REPO_ROOT = ...`` assignments scattered across the codebase.
+
+``manage.py`` is used as the marker (rather than e.g. ``hogli.yaml``) because
+it is the only top-level file guaranteed to ship in every Django runtime
+context — the dev checkout, production Docker images, and CI runners.
 
 Zero third-party deps so it can be imported from settings, tests, scripts,
 and Django management commands alike.
@@ -15,11 +19,11 @@ import os
 import sys
 from pathlib import Path
 
-REPO_ROOT_MARKER = "hogli.yaml"
+REPO_ROOT_MARKER = "manage.py"
 
 
 def find_repo_root(start: str | os.PathLike[str] | None = None) -> Path:
-    """Return the repository root by walking up looking for ``hogli.yaml``.
+    """Return the repository root by walking up looking for ``manage.py``.
 
     When ``start`` is omitted, defaults to the ``__file__`` of the immediate
     caller. Pass an explicit path (typically ``__file__``) when calling from

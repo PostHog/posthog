@@ -147,6 +147,7 @@ COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
+COPY common/path_utils.py common/path_utils.py
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -351,6 +352,7 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
+COPY --chown=posthog:posthog common/path_utils.py common/path_utils.py
 COPY --chown=posthog:posthog products products/
 
 # Validate browser dependencies
