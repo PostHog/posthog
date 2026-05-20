@@ -75,24 +75,16 @@ class RemoteConfig(UUIDTModel):
             except RemoteConfig.DoesNotExist:
                 return HyperCacheStoreMissing()
 
+        has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
         return HyperCache(
             namespace="array",
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
-            # Route writes to the dedicated cache the Rust feature-flags service reads from.
-            # Without this, prod writes land in the shared cache while Rust reads from the
-            # dedicated one, forcing every /flags config_response to fall through to S3.
-            cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
-            # The hypercache-server (Rust) that serves /array/<token>/config still reads
-            # from the shared Redis (its REDIS_URL env), so mirror every write there as
-            # well. Without this dual-write, hypercache-server falls through to S3 for
-            # every team whose config has been re-synced since the dedicated cache was
-            # wired in, and may serve stale blobs (e.g. sessionRecording: false after a
-            # team opts in). Best-effort; secondary failures don't block the primary
-            # write. The guard mirrors the primary so dev/test environments without a
-            # dedicated cache keep their current single-write behavior.
-            secondary_cache_alias="default" if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
+            cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
+            # Mirror to the shared Redis so the hypercache-server doesn't fall
+            # through to (potentially stale) S3.
+            secondary_cache_alias="default" if has_dedicated_cache else None,
         )
 
     def _build_session_recording_config(self, team: Team) -> dict:

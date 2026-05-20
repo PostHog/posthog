@@ -161,10 +161,7 @@ class HyperCache:
             self.cache_client = cache
             self.redis_url = settings.REDIS_URL
 
-        # Optional secondary cache for dual-writes during cluster migrations.
-        # When configured, every primary Redis write is mirrored to this cache on a
-        # best-effort basis; secondary failures are logged + captured but never
-        # propagated, keeping the primary write authoritative.
+        # Optional secondary cache; writes are mirrored on a best-effort basis.
         self.secondary_cache_client = (
             caches[secondary_cache_alias]
             if secondary_cache_alias and secondary_cache_alias in settings.CACHES
@@ -425,10 +422,7 @@ class HyperCache:
             self._remove_expiry_tracking(key)
 
     def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """
-        Best-effort write to the secondary cache. Failures are logged and captured
-        but never propagated, so a degraded secondary never blocks the primary write.
-        """
+        """Best-effort mirror write; failures are logged and captured, never propagated."""
         if self.secondary_cache_client is None:
             return
         try:
@@ -447,9 +441,6 @@ class HyperCache:
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
-
-        When a secondary cache is configured, the same write is mirrored to it on a
-        best-effort basis; see _mirror_to_secondary.
 
         Returns None for None/missing values, otherwise returns len(json_data).
         """
