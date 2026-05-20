@@ -28,7 +28,7 @@ import {
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -596,10 +596,11 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        // Header → cache → default resolution above. Passed as the `organization`
-        // group so per-org tool flag rollouts evaluate consistently across the org.
-        const resolvedOrgId = organizationId || (await this.cache.get('orgId')) || undefined
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, resolvedOrgId)
+        // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
+        // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
+        const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
+        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
 
         const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             flagPromise,
@@ -919,7 +920,7 @@ export class MCP extends McpAgent<Env> {
 
     private async resolveToolFeatureFlags(
         version?: number,
-        orgId?: string
+        groups?: FlagGroups
     ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
@@ -928,7 +929,6 @@ export class MCP extends McpAgent<Env> {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            const groups = orgId ? { organization: orgId } : undefined
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return undefined
