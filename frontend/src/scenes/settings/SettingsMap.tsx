@@ -16,6 +16,7 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -604,8 +605,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'environment-experiment-cuped-lookback-days',
                 title: 'Default CUPED lookback window',
-                description:
-                    'Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between 1 and 30 days. Can be overridden per experiment.',
+                description: `Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.`,
                 flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
