@@ -1074,6 +1074,34 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # under name-ascending pagination.
         assert "zzz-last" not in names
 
+    def test_pagination_with_name_sort_is_case_insensitive_and_stable(self) -> None:
+        # Regression test: synthetic rank computation compares names case-insensitively.
+        # The DB queryset slice must use the same case-insensitive ordering, otherwise
+        # offsets derived from those ranks index into a case-sensitively-ordered
+        # queryset and pages serve duplicate or skipped items.
+        db_names = ["Banana", "apple", "Cherry", "date", "Elder", "fig", "Grape", "kiwi"]
+        for name in db_names:
+            SessionRecordingPlaylist.objects.create(team=self.team, name=name, created_by=self.user, type="collection")
+
+        page_size = 5
+        seen_db_names: list[str] = []
+        offset = 0
+        total_count = None
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?order=name&limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            total_count = data["count"]
+            seen_db_names.extend(r["name"] for r in data["results"] if not r.get("is_synthetic"))
+            offset += page_size
+            if offset >= total_count:
+                break
+
+        # Every DB playlist appears exactly once across all pages — no skips, no duplicates.
+        assert sorted(seen_db_names) == sorted(db_names)
+
     def test_pagination_returns_displaced_db_playlists_on_later_pages(self) -> None:
         # Regression test: synthetic playlists occupy slots on page 1, pushing some DB
         # playlists across page boundaries. Subsequent pages must keep returning the

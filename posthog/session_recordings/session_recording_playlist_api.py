@@ -717,7 +717,16 @@ class SessionRecordingPlaylistViewSet(
 
         order = self.request.GET.get("order", None)
         if order:
-            queryset = queryset.order_by(order)
+            if order.lstrip("-") == "name":
+                # Sort names case-insensitively so the DB ordering matches both
+                # _order_playlists' in-memory sort key and the case-insensitive
+                # rank computation in _synthetic_global_ranks. Without this, the
+                # DB-slice offsets derived from those ranks would index into a
+                # case-sensitively-ordered queryset and skip/duplicate items.
+                name_order = Lower("name")
+                queryset = queryset.order_by(name_order.desc() if order.startswith("-") else name_order.asc())
+            else:
+                queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("-last_modified_at")
 
