@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
@@ -8,6 +8,7 @@ import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, 
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -75,6 +76,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel =
@@ -86,6 +88,25 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
               : aggregationLabel(labelGroupType).plural)
 
     const labels = currentPeriodResult?.labels ?? []
+    const days = currentPeriodResult?.days ?? []
+    const contextOnDateRangeZoom = context?.onDateRangeZoom
+    const onDateRangeZoom = useMemo(() => {
+        if (days.length === 0) {
+            return undefined
+        }
+        return (startLabel: string, endLabel: string): void => {
+            const i0 = labels.indexOf(startLabel)
+            const i1 = labels.indexOf(endLabel)
+            if (i0 < 0 || i1 < 0 || !days[i0] || !days[i1]) {
+                return
+            }
+            if (contextOnDateRangeZoom) {
+                contextOnDateRangeZoom(days[i0], days[i1])
+            } else {
+                updateDateRange({ date_from: days[i0], date_to: days[i1] }, true)
+            }
+        }
+    }, [contextOnDateRangeZoom, labels, days, updateDateRange])
 
     const hasData =
         indexedResults &&
@@ -279,6 +300,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

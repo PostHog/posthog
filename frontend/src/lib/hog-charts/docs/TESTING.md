@@ -62,14 +62,17 @@ For interactions, use the module-level helpers:
 - `hoverAtIndex(wrapper, i, totalLabels)` — `mouseMove` over labels[i].
 - `clickAtIndex(wrapper, i, totalLabels)` — hover-then-click. Resolves
   after the click handler runs.
+- `dragSelection(wrapper, fromIndex, toIndex, totalLabels)` — simulates a
+  drag-to-zoom gesture between two label indices.
 - `waitForHogChartTooltip()` — resolves with the rendered tooltip element
   once it mounts in the `FloatingPortal`.
 
-`chart.hoverAtIndex(i)` and `chart.waitForTooltip()` (returning a
-structured `TooltipSnapshot` with `seriesData`, `isPinned`, etc.) need
-`renderHogChart` — they read label count and the captured `TooltipContext`
-that only the library's own render wrapper sets up. For most consumer
-tests, DOM assertions through the accessor are enough.
+`chart.hoverAtIndex(i)`, `chart.dragSelection(i, j)`, and
+`chart.waitForTooltip()` (returning a structured `TooltipSnapshot` with
+`seriesData`, `isPinned`, etc.) need `renderHogChart` — they read label
+count and the captured `TooltipContext` that only the library's own render
+wrapper sets up. For most consumer tests, DOM assertions through the
+accessor are enough.
 
 ## Testing the library itself
 
@@ -160,6 +163,20 @@ it('renders a right axis when a series opts in', () => {
 
   expect(chart.hasRightAxis).toBe(true)
   expect(chart.yRightTicks().length).toBeGreaterThan(0)
+})
+```
+
+#### Drag to zoom
+
+```tsx
+it('fires onDateRangeZoom with the dragged label range', () => {
+  const onDateRangeZoom = jest.fn()
+  const { chart } = renderHogChart(
+    <LineChart series={SERIES} labels={LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+  )
+
+  chart.dragSelection(1, 3)
+  expect(onDateRangeZoom).toHaveBeenCalledWith('Tue', 'Thu')
 })
 ```
 

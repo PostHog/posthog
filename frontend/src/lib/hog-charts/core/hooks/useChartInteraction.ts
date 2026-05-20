@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     buildLabelPositions,
     buildPointClickData,
     buildTooltipContext,
+    dragRectToLabelRange,
     findNearestIndexFromPositions,
     isInPlotArea,
 } from '../interaction'
@@ -17,6 +18,8 @@ import type {
     TooltipContext,
 } from '../types'
 import { useLatest } from './useLatest'
+
+const DRAG_THRESHOLD_PX = 4
 
 function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: TooltipContext<Meta>): boolean {
     if (a.dataIndex !== b.dataIndex || a.label !== b.label) {
@@ -57,6 +60,7 @@ interface UseChartInteractionOptions<Meta> {
     showTooltip: boolean
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
     resolveValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
@@ -66,7 +70,9 @@ interface UseChartInteractionResult<Meta> {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
+    dragRect: { x0: number; x1: number } | null
     handlers: {
+        onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
         onClick: () => void
@@ -83,6 +89,7 @@ export function useChartInteraction<Meta = unknown>({
     showTooltip,
     pinnable,
     onPointClick,
+    onDateRangeZoom,
     resolveValue = defaultResolveValue,
     interactionAxis = 'x',
     labelToCoord,
@@ -90,6 +97,9 @@ export function useChartInteraction<Meta = unknown>({
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
     const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
+    const [dragRect, setDragRect] = useState<{ x0: number; x1: number } | null>(null)
+    const dragOriginRef = useRef<{ x: number; y: number; active: boolean } | null>(null)
+    const dragJustCompletedRef = useRef(false)
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the
     // most recent commit, so an effect-deferred ref is correct here.
     const hoverIndexRef = useLatest(hoverIndex)
@@ -111,6 +121,9 @@ export function useChartInteraction<Meta = unknown>({
         () => (scales ? buildLabelPositions(labels, labelToCoord ?? scales.x) : []),
         [labels, scales, labelToCoord]
     )
+    const labelsRef = useLatest(labels)
+    const labelPositionsRef = useLatest(labelPositions)
+    const onDateRangeZoomRef = useLatest(onDateRangeZoom)
 
     // Rebuild or clear the pinned tooltip when its underlying inputs change.
     // Without this, the pin keeps stale values at stale pixel positions after the
@@ -223,15 +236,85 @@ export function useChartInteraction<Meta = unknown>({
         }
     }, [isPinned, wrapperRef, clearTooltip])
 
+    const completeDrag = useCallback(
+        (mouseX: number) => {
+            const origin = dragOriginRef.current
+            if (!origin) {
+                return
+            }
+            if (origin.active) {
+                const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
+                if (range && onDateRangeZoomRef.current) {
+                    const ls = labelsRef.current
+                    onDateRangeZoomRef.current(ls[range.startIndex], ls[range.endIndex])
+                }
+                dragJustCompletedRef.current = true
+            }
+            dragOriginRef.current = null
+            setDragRect(null)
+        },
+        [labelPositionsRef, labelsRef, onDateRangeZoomRef]
+    )
+
+    // Global mouseup catches gestures that end outside the chart wrapper.
+    useEffect(() => {
+        if (!onDateRangeZoom) {
+            return
+        }
+        const handler = (e: MouseEvent): void => {
+            if (!dragOriginRef.current) {
+                return
+            }
+            const wrapper = wrapperRef.current
+            const mouseX = wrapper ? e.clientX - wrapper.getBoundingClientRect().left : 0
+            completeDrag(mouseX)
+        }
+        window.addEventListener('mouseup', handler)
+        return () => window.removeEventListener('mouseup', handler)
+    }, [onDateRangeZoom, wrapperRef, completeDrag])
+
+    const onMouseDown = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (!onDateRangeZoom || !scales || !dimensions || e.button !== 0) {
+                return
+            }
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            const mouseX = e.clientX - rect.left
+            const mouseY = e.clientY - rect.top
+            if (!isInPlotArea(mouseX, mouseY, dimensions)) {
+                return
+            }
+            dragOriginRef.current = { x: mouseX, y: mouseY, active: false }
+            setTooltipCtx((prev) => (prev?.isPinned ? null : prev))
+        },
+        [onDateRangeZoom, scales, dimensions]
+    )
+
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (!scales || !dimensions || isPinned) {
+            if (!scales || !dimensions) {
                 return
             }
 
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
             const mouseX = e.clientX - rect.left
             const mouseY = e.clientY - rect.top
+
+            const origin = dragOriginRef.current
+            if (origin) {
+                if (!origin.active && Math.hypot(mouseX - origin.x, mouseY - origin.y) >= DRAG_THRESHOLD_PX) {
+                    origin.active = true
+                    clearTooltip()
+                }
+                if (origin.active) {
+                    setDragRect({ x0: origin.x, x1: mouseX })
+                    return
+                }
+            }
+
+            if (isPinned) {
+                return
+            }
 
             if (!isInPlotArea(mouseX, mouseY, dimensions)) {
                 clearTooltip()
@@ -286,6 +369,10 @@ export function useChartInteraction<Meta = unknown>({
     }, [isPinned, clearTooltip])
 
     const onClick = useCallback(() => {
+        if (dragJustCompletedRef.current) {
+            dragJustCompletedRef.current = false
+            return
+        }
         const currentIndex = hoverIndexRef.current
         if (currentIndex < 0) {
             return
@@ -313,7 +400,10 @@ export function useChartInteraction<Meta = unknown>({
         }
     }, [onPointClick, series, labels, resolveValue, pinnable, tooltipCtx, isPinned, clearTooltip, unpin, hoverIndexRef])
 
-    const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
+    const handlers = useMemo(
+        () => ({ onMouseDown, onMouseMove, onMouseLeave, onClick }),
+        [onMouseDown, onMouseMove, onMouseLeave, onClick]
+    )
 
-    return { hoverIndex, hoverPosition, tooltipCtx, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers }
 }

@@ -181,6 +181,71 @@ describe('LineChart', () => {
         })
     })
 
+    describe('drag-to-zoom', () => {
+        const LONG_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const LONG_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the start and end labels of the dragged range', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith('Tue', 'Thu')
+        })
+
+        it('normalizes a right-to-left drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(3, 1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith('Tue', 'Thu')
+        })
+
+        it('does not fire onPointClick when a drag completes', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('still fires onPointClick on a plain click when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('switches the wrapper cursor to crosshair when onDateRangeZoom is provided', () => {
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={jest.fn()} />
+            )
+            expect(chart.element.style.cursor).toBe('crosshair')
+        })
+    })
+
     describe('children & error boundary', () => {
         it('renders custom overlay children', () => {
             const { chart } = renderHogChart(

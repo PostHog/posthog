@@ -3,7 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { AxisLabels } from '../overlays/AxisLabels'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
-import { composeDrawHoverWithCrosshair } from './canvas-renderer'
+import { composeDrawHoverWithCrosshair, composeDrawHoverWithSelection } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { useChartCanvas } from './hooks/useChartCanvas'
@@ -44,6 +44,7 @@ const WRAPPER_STYLE_BASE: React.CSSProperties = {
 }
 const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
 const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
+const WRAPPER_STYLE_CROSSHAIR: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'crosshair' }
 
 const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
 const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
@@ -69,6 +70,7 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => void
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -95,6 +97,7 @@ export function Chart<Meta = unknown>({
     drawHover,
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
@@ -148,7 +151,7 @@ export function Chart<Meta = unknown>({
 
     const { left: resolvedYFormatter, right: resolvedYRightFormatter } = useResolvedYFormatters(scales, yTickFormatter)
 
-    const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
+    const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -158,6 +161,7 @@ export function Chart<Meta = unknown>({
         showTooltip,
         pinnable: pinnableTooltip,
         onPointClick,
+        onDateRangeZoom,
         resolveValue,
         interactionAxis,
         labelToCoord,
@@ -165,16 +169,15 @@ export function Chart<Meta = unknown>({
 
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
-    const composedDrawHover = useMemo(
-        () =>
-            composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
-                crosshairColor: theme.crosshairColor,
-                showCrosshair,
-                axisOrientation,
-                labelToCoord,
-            }),
-        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current]
-    )
+    const composedDrawHover = useMemo(() => {
+        const withCrosshair = composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+            crosshairColor: theme.crosshairColor,
+            showCrosshair,
+            axisOrientation,
+            labelToCoord,
+        })
+        return composeDrawHoverWithSelection(() => withCrosshair)
+    }, [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current])
 
     useChartDraw({
         ctx,
@@ -186,11 +189,16 @@ export function Chart<Meta = unknown>({
         hoverIndex,
         hoverPosition,
         theme,
+        dragRect,
         drawStatic,
         drawHover: composedDrawHover,
     })
 
-    const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
+    const wrapperStyle = onDateRangeZoom
+        ? WRAPPER_STYLE_CROSSHAIR
+        : hoverIndex >= 0 && onPointClick
+          ? WRAPPER_STYLE_POINTER
+          : WRAPPER_STYLE_DEFAULT
 
     const ariaLabel = useMemo(() => {
         const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
@@ -235,6 +243,7 @@ export function Chart<Meta = unknown>({
                     className={className}
                     data-attr={dataAttr}
                     style={wrapperStyle}
+                    onMouseDown={handlers.onMouseDown}
                     onMouseMove={handlers.onMouseMove}
                     onMouseLeave={handlers.onMouseLeave}
                     onClick={handlers.onClick}

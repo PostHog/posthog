@@ -547,3 +547,55 @@ export function composeDrawHoverWithCrosshair(
         getDrawHover()(args)
     }
 }
+
+/** Colors for the drag-to-zoom selection rectangle. Match the values used by the
+ *  Chart.js implementation so the two paths look identical. */
+const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
+const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
+
+export interface DrawSelectionRectOptions {
+    fill?: string
+    stroke?: string
+    lineWidth?: number
+}
+
+/** Paints a 1px-bordered, translucent rectangle. Used by the drag-to-zoom overlay; the rect
+ *  spans the full plot height regardless of how far the cursor moved vertically. */
+export function drawSelectionRect(
+    ctx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; width: number; height: number },
+    options: DrawSelectionRectOptions = {}
+): void {
+    if (rect.width <= 0 || rect.height <= 0) {
+        return
+    }
+    ctx.fillStyle = options.fill ?? SELECTION_FILL
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
+    ctx.strokeStyle = options.stroke ?? SELECTION_STROKE
+    ctx.lineWidth = options.lineWidth ?? 1
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
+}
+
+/** Wraps a base hover-draw fn and paints the drag-to-zoom selection rectangle on top
+ *  whenever `args.dragRect` is set. The rect always spans the full plot height — this
+ *  mirrors `chartjs-plugin-zoom`'s `mode: 'x'` behavior. */
+export function composeDrawHoverWithSelection(getDrawHover: () => DrawHoverFn): DrawHoverFn {
+    return (args) => {
+        getDrawHover()(args)
+        const dragRect = args.dragRect
+        if (!dragRect) {
+            return
+        }
+        const lo = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
+        const hi = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
+        if (hi <= lo) {
+            return
+        }
+        drawSelectionRect(args.ctx, {
+            x: lo,
+            y: args.dimensions.plotTop,
+            width: hi - lo,
+            height: args.dimensions.plotHeight,
+        })
+    }
+}

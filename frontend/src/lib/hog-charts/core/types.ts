@@ -214,6 +214,9 @@ export interface ChartDrawArgs {
     hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
+    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
+     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    dragRect?: { x0: number; x1: number } | null
 }
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */

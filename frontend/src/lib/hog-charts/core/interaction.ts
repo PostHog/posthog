@@ -59,6 +59,34 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
     )
 }
 
+/** Pixel x-range of an in-progress drag selection on the plot. `x0` and `x1` are canvas pixels
+ *  (not necessarily ordered). The chart renders this as a translucent rectangle that spans
+ *  the full plot height. */
+export interface DragRect {
+    x0: number
+    x1: number
+}
+
+/** Maps a drag rectangle to the [startIndex, endIndex] range it selects, in label-array order.
+ *  Returns null when the rectangle collapses to fewer than two distinct labels — a drag that
+ *  short shouldn't zoom anything. Always normalizes right-to-left drags. */
+export function dragRectToLabelRange(
+    rect: DragRect,
+    labelPositions: LabelPosition[]
+): { startIndex: number; endIndex: number } | null {
+    if (labelPositions.length < 2) {
+        return null
+    }
+    const lo = Math.min(rect.x0, rect.x1)
+    const hi = Math.max(rect.x0, rect.x1)
+    const startIndex = findNearestIndexFromPositions(lo, labelPositions)
+    const endIndex = findNearestIndexFromPositions(hi, labelPositions)
+    if (startIndex < 0 || endIndex < 0 || startIndex === endIndex) {
+        return null
+    }
+    return startIndex < endIndex ? { startIndex, endIndex } : { startIndex: endIndex, endIndex: startIndex }
+}
+
 export function buildTooltipContext<Meta = unknown>(
     dataIndex: number,
     series: ResolvedSeries<Meta>[],

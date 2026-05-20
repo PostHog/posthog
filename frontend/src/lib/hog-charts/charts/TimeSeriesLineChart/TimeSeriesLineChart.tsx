@@ -57,6 +57,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (startLabel: string, endLabel: string) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode
@@ -70,6 +71,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     dataAttr,
     className,
     children,
@@ -125,6 +127,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             theme={theme}
             tooltip={tooltip}
             onPointClick={onPointClick}
+            onDateRangeZoom={onDateRangeZoom}
             className={className}
             dataAttr={dataAttr}
             onError={onError}

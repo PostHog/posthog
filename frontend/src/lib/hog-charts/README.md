@@ -49,6 +49,25 @@ Pass a render prop to `tooltip`. It receives `TooltipContext` — `seriesData`,
 />
 ```
 
+## Drag-to-zoom
+
+Pass `onDateRangeZoom` to let the user drag a horizontal range across the plot.
+The chart emits `(startLabel, endLabel)` from the labels array — it does not
+manage zoom state itself, so the parent decides what to do with the range
+(typically updating a date filter).
+
+```tsx
+<TimeSeriesLineChart
+  series={SERIES}
+  labels={LABELS}
+  theme={THEME}
+  onDateRangeZoom={(start, end) => updateDateRange(start, end)}
+/>
+```
+
+The cursor switches to `crosshair` while enabled. A plain click without
+movement still pins the tooltip or fires `onPointClick`.
+
 ## Custom overlays
 
 Render any React component as a child of the chart and read layout / hover

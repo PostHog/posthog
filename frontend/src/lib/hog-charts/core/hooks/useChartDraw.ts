@@ -14,6 +14,8 @@ interface UseChartDrawOptions {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
+    /** Live drag-to-zoom selection rect — drives an overlay redraw whenever it changes. */
+    dragRect: { x0: number; x1: number } | null
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => void
 }
@@ -35,6 +37,7 @@ export function useChartDraw({
     hoverIndex,
     hoverPosition,
     theme,
+    dragRect,
     drawStatic,
     drawHover,
 }: UseChartDrawOptions): void {
@@ -83,7 +86,17 @@ export function useChartDraw({
         hoverRafRef.current = requestAnimationFrame(() => {
             hoverRafRef.current = null
             clearAndPrepare(overlayCtx, dimensions)
-            drawHover({ ctx: overlayCtx, dimensions, scales, series, labels, hoverIndex, hoverPosition, theme })
+            drawHover({
+                ctx: overlayCtx,
+                dimensions,
+                scales,
+                series,
+                labels,
+                hoverIndex,
+                hoverPosition,
+                theme,
+                dragRect,
+            })
             overlayCtx.restore()
         })
         return () => {
@@ -92,5 +105,5 @@ export function useChartDraw({
                 hoverRafRef.current = null
             }
         }
-    }, [overlayCtx, dimensions, scales, series, labels, hoverIndex, hoverPosition, theme, drawHover])
+    }, [overlayCtx, dimensions, scales, series, labels, hoverIndex, hoverPosition, theme, dragRect, drawHover])
 }
