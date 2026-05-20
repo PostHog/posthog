@@ -934,6 +934,52 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             response[2].dict().items() >= {"source": "2_/pricing", "target": "3_/about", "value": 1}.items()
         )
 
+    def test_paths_start_and_end_trailing_slashes(self):
+        # When both startPoint and endPoint are set, the query goes through
+        # `get_target_clause`, which interpolates the values directly into
+        # `indexOf` calls against URLs that have already been stripped of
+        # trailing slashes by `construct_event_hogql`. The runner must strip
+        # trailing slashes from the filter values too — otherwise queries with
+        # `/pricing/` silently return zero results even though `/pricing` would.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+
+        for distinct_id in ("person_1", "person_2"):
+            for url in ("/pricing/", "/about", "/checkout/"):
+                _create_event(
+                    properties={"$current_url": url},
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    team=self.team,
+                )
+
+        baseline = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "startPoint": "/pricing",
+                    "endPoint": "/checkout",
+                },
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(baseline, CachedPathsQueryResponse)
+        self.assertGreater(len(baseline.results), 0)
+
+        with_trailing_slashes = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "startPoint": "/pricing/",
+                    "endPoint": "/checkout/",
+                },
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(with_trailing_slashes, CachedPathsQueryResponse)
+
+        self.assertEqual(with_trailing_slashes.results, baseline.results)
+
     def test_paths_in_window(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
 
