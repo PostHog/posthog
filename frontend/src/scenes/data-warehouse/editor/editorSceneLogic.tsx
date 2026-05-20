@@ -161,7 +161,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                               iconType: 'insight/hog',
                           }
 
-                    // Surface pending edits from activeTab so the title section reflects unsaved changes
                     return {
                         forceBackTo,
                         name: activeTab?.name || editingInsight.derived_name || 'Untitled',

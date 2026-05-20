@@ -776,29 +776,23 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(false)
         })
 
-        it('treats an inline name edit as a pending change that enables Update insight', async () => {
-            await loadInsight()
+        it.each([
+            ['name', 'setEditingInsightName' as const, 'Renamed Insight'],
+            ['description', 'setEditingInsightDescription' as const, 'A new description'],
+        ])(
+            'treats an inline %s edit as a pending change that enables Update insight',
+            async (field, action, newValue) => {
+                await loadInsight()
 
-            logic.actions.setEditingInsightName('Renamed Insight')
+                logic.actions[action](newValue)
 
-            expect(logic.values.activeTab?.name).toEqual('Renamed Insight')
-            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(true)
-            expect(editorRootLogic!.values.titleSectionProps).toMatchObject({
-                name: 'Renamed Insight',
-            })
-        })
-
-        it('treats an inline description edit as a pending change that enables Update insight', async () => {
-            await loadInsight()
-
-            logic.actions.setEditingInsightDescription('A new description')
-
-            expect(logic.values.activeTab?.description).toEqual('A new description')
-            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(true)
-            expect(editorRootLogic!.values.titleSectionProps).toMatchObject({
-                description: 'A new description',
-            })
-        })
+                expect(logic.values.activeTab?.[field as 'name' | 'description']).toEqual(newValue)
+                expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(true)
+                expect(editorRootLogic!.values.titleSectionProps).toMatchObject({
+                    [field]: newValue,
+                })
+            }
+        )
 
         it('discards pending name and description edits when the insight is closed', async () => {
             await loadInsight()
