@@ -124,6 +124,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
+            return {
+                cdpCyclotronWorkerHogFlowLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
