@@ -108,8 +108,14 @@ export const loginLogic = kea<loginLogicType>([
                     }
 
                     breakpoint()
-                    const response = await api.create<any>('api/login/precheck', { email })
-                    return { status: 'completed', ...response }
+                    try {
+                        const response = await api.create<any>('api/login/precheck', { email })
+                        return { status: 'completed', ...response }
+                    } catch {
+                        // Precheck is best-effort: on transient network/5xx failures, silently fall back
+                        // to the standard email+password flow rather than surfacing a toast and $exception.
+                        return { status: 'pending' }
+                    }
                 },
             },
         ],
