@@ -474,7 +474,6 @@ class DevLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        set_two_factor_verified_in_session(request)
         request.session["reauth"] = "false"
         request.session.save()
         report_user_logged_in(user, social_provider="")
