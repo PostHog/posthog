@@ -14,7 +14,7 @@ from products.replay_vision.backend.temporal.types import CleanupGeminiFileInput
 logger = structlog.get_logger(__name__)
 
 
-@activity.defn
+@activity.defn(name="replay_vision_cleanup_gemini_file_activity")
 async def cleanup_gemini_file_activity(inputs: CleanupGeminiFileInputs) -> None:
     """Best-effort delete of the uploaded Gemini file; the cleanup sweep retries on failure via the tracking key."""
     try:

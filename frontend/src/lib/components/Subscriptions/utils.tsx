@@ -43,11 +43,8 @@ export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
-export type FrequencyOptionValue = 'hourly' | 'daily' | 'weekly' | 'monthly'
+export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'
 
-// Typed as the concrete `LemonSelectOption[]` (not the `LemonSelectOptions` union of
-// `Section[] | Option[]`) so callers can `[...hourly, ...daily-monthly]` without
-// the union widening to `(Section | Option)[]` and losing assignability.
 export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
@@ -57,13 +54,6 @@ export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] =
     { value: 'daily', label: 'days' },
     { value: 'weekly', label: 'weeks' },
     { value: 'monthly', label: 'months' },
-]
-
-export const hourlyFrequencyOptionSingular: LemonSelectOption<FrequencyOptionValue>[] = [
-    { value: 'hourly', label: 'hour' },
-]
-export const hourlyFrequencyOptionPlural: LemonSelectOption<FrequencyOptionValue>[] = [
-    { value: 'hourly', label: 'hours' },
 ]
 
 export const weekdayOptions: LemonSelectOptionLeaf<
@@ -108,7 +98,6 @@ const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
 }
 
 const RRULE_FREQ_MAP: Record<string, number> = {
-    hourly: RRule.HOURLY,
     daily: RRule.DAILY,
     weekly: RRule.WEEKLY,
     monthly: RRule.MONTHLY,

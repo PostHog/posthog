@@ -319,6 +319,7 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                     limit: params.limit,
                     offset: params.offset,
                     order: params.order,
+                    prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
                 },
