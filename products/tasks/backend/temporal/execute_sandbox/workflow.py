@@ -96,6 +96,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.utils import log_on_fail
 
 # Names of signals this workflow sends back to the TaskManagement parent. Kept
 # as constants so a rename can be done in one place — and so tests can import
@@ -928,6 +929,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+    @log_on_fail("execute_sandbox_reap_failed", level="warning", suppress=True)
     async def _reap_orphaned_sandbox(self, run_id: str) -> None:
         """Destroy any sandbox left by a prior execution under this workflow id.
 
@@ -936,22 +938,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         key — so a stale id staying around doesn't keep retrying a dead
         sandbox on every restart.
         """
-        try:
-            result = await workflow.execute_activity(
-                reap_orphaned_sandbox,
-                ReapOrphanedSandboxInput(run_id=run_id),
-                # Includes the Modal destroy call, so the timeout needs to
-                # cover that as well as two DB roundtrips.
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception as e:
-            workflow.logger.warning(
-                "execute_sandbox_reap_failed",
-                run_id=run_id,
-                error=str(e),
-            )
-            return
+        result = await workflow.execute_activity(
+            reap_orphaned_sandbox,
+            ReapOrphanedSandboxInput(run_id=run_id),
+            # Includes the Modal destroy call, so the timeout needs to
+            # cover that as well as two DB roundtrips.
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
         if result.reaped_sandbox_id is not None:
             workflow.logger.info(
                 "execute_sandbox_reaped_orphan",
@@ -960,53 +954,38 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 destroy_succeeded=result.destroy_succeeded,
             )
 
+    # Don't fail the run if persistence flakes — Modal TTL will catch the
+    # orphan if cleanup is later missed.
+    @log_on_fail("execute_sandbox_persist_sandbox_id_failed", level="warning", suppress=True)
     async def _persist_sandbox_id(self, run_id: str, sandbox_id: str) -> None:
-        try:
-            await workflow.execute_activity(
-                persist_sandbox_id,
-                PersistSandboxIdInput(run_id=run_id, sandbox_id=sandbox_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=5),
-            )
-        except Exception as e:
-            # Don't fail the run if persistence flakes — Modal TTL will catch
-            # the orphan if cleanup is later missed.
-            workflow.logger.warning(
-                "execute_sandbox_persist_sandbox_id_failed",
-                run_id=run_id,
-                sandbox_id=sandbox_id,
-                error=str(e),
-            )
+        await workflow.execute_activity(
+            persist_sandbox_id,
+            PersistSandboxIdInput(run_id=run_id, sandbox_id=sandbox_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
 
+    # Stale state will be reaped (idempotent) on the next start, so a
+    # failure here doesn't compromise correctness.
+    @log_on_fail("execute_sandbox_clear_sandbox_id_failed", level="warning", suppress=True)
     async def _clear_persisted_sandbox_id(self, run_id: str) -> None:
-        try:
-            await workflow.execute_activity(
-                clear_persisted_sandbox_id,
-                ClearPersistedSandboxIdInput(run_id=run_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception as e:
-            # Stale state will be reaped (idempotent) on the next start, so a
-            # failure here doesn't compromise correctness.
-            workflow.logger.warning(
-                "execute_sandbox_clear_sandbox_id_failed",
-                run_id=run_id,
-                error=str(e),
-            )
+        await workflow.execute_activity(
+            clear_persisted_sandbox_id,
+            ClearPersistedSandboxIdInput(run_id=run_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
+    @log_on_fail("Failed to read sandbox logs", level="warning", suppress=True)
     async def _read_sandbox_logs(self, sandbox_id: str) -> None:
-        try:
-            logs = await workflow.execute_activity(
-                read_sandbox_logs,
-                ReadSandboxLogsInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            if logs:
-                workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
-        except Exception as e:
-            workflow.logger.warning(f"Failed to read sandbox logs: {e}")
+        logs = await workflow.execute_activity(
+            read_sandbox_logs,
+            ReadSandboxLogsInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        if logs:
+            workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
 
     async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(
@@ -1053,6 +1032,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
+    @log_on_fail("execute_sandbox_emit_progress_failed", level="warning", suppress=True)
     async def _emit_progress(
         self,
         step: str,
@@ -1062,33 +1042,24 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         detail: Optional[str] = None,
     ) -> None:
         scoped_group = f"{group}:{self.context.run_id}"
-        try:
-            await workflow.execute_activity(
-                emit_progress_activity,
-                EmitProgressInput(
-                    run_id=self.context.run_id,
-                    step=step,
-                    status=status,
-                    label=label,
-                    group=scoped_group,
-                    detail=detail,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            if status == "in_progress":
-                self._current_progress_step = (step, label, group)
-            elif status in {"completed", "failed"}:
-                if self._current_progress_step and self._current_progress_step[0] == step:
-                    self._current_progress_step = None
-        except Exception as e:
-            workflow.logger.warning(
-                "execute_sandbox_emit_progress_failed",
+        await workflow.execute_activity(
+            emit_progress_activity,
+            EmitProgressInput(
                 run_id=self.context.run_id,
                 step=step,
                 status=status,
-                error=str(e),
-            )
+                label=label,
+                group=scoped_group,
+                detail=detail,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        if status == "in_progress":
+            self._current_progress_step = (step, label, group)
+        elif status in {"completed", "failed"}:
+            if self._current_progress_step and self._current_progress_step[0] == step:
+                self._current_progress_step = None
 
     async def _update_task_run_status(
         self,
@@ -1107,36 +1078,31 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+    # `log_on_fail` only catches `Exception`, so `asyncio.CancelledError`
+    # (a `BaseException`) still propagates — required for cooperative
+    # cancellation of the relay task on shutdown.
+    @log_on_fail("execute_sandbox_relay_failed_non_fatal", level="warning", suppress=True)
     async def _relay_sandbox_events(
         self,
         agent_server_output: StartAgentServerOutput,
         sandbox_id: str | None = None,
     ) -> None:
-        try:
-            await workflow.execute_activity(
-                relay_sandbox_events,
-                RelaySandboxEventsInput(
-                    run_id=self.context.run_id,
-                    task_id=self.context.task_id,
-                    sandbox_url=agent_server_output.sandbox_url,
-                    sandbox_connect_token=agent_server_output.connect_token,
-                    team_id=self.context.team_id,
-                    distinct_id=self.context.distinct_id,
-                    sandbox_id=sandbox_id,
-                ),
-                start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
-                heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            workflow.logger.warning(
-                "execute_sandbox_relay_failed_non_fatal",
+        await workflow.execute_activity(
+            relay_sandbox_events,
+            RelaySandboxEventsInput(
                 run_id=self.context.run_id,
-                error=str(e),
-            )
+                task_id=self.context.task_id,
+                sandbox_url=agent_server_output.sandbox_url,
+                sandbox_connect_token=agent_server_output.connect_token,
+                team_id=self.context.team_id,
+                distinct_id=self.context.distinct_id,
+                sandbox_id=sandbox_id,
+            ),
+            start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
+        )
 
     @staticmethod
     async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:
@@ -1148,20 +1114,18 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         except (asyncio.CancelledError, Exception):
             pass
 
+    @log_on_fail("Resume snapshot failed (non-fatal)", level="warning", suppress=True)
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
-        try:
-            result = await workflow.execute_activity(
-                create_resume_snapshot,
-                CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            if result.external_id:
-                workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
-            elif result.error:
-                workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
-        except Exception as e:
-            workflow.logger.warning(f"Resume snapshot failed (non-fatal): {e}")
+        result = await workflow.execute_activity(
+            create_resume_snapshot,
+            CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        if result.external_id:
+            workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
+        elif result.error:
+            workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
 
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(
