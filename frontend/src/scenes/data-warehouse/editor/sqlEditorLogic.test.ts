@@ -805,7 +805,7 @@ describe('sqlEditorLogic', () => {
                 editingInsight: null,
             })
 
-            expect(logic.values.activeTab?.name).not.toEqual('Renamed Insight')
+            expect(logic.values.activeTab?.name).toEqual('Untitled')
             expect(logic.values.activeTab?.description).toEqual('')
         })
     })

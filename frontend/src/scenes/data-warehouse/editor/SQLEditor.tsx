@@ -415,8 +415,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                     onDescriptionChange: setEditingInsightDescription,
                     canEdit: true,
                     forceEdit: true,
-                    saveOnBlur: true,
-                    renameDebounceMs: 0,
                     descriptionMaxLength: 400,
                 })}
                 maxToolProps={{
