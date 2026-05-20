@@ -186,8 +186,8 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                         </p>
                         {currentEvent?.eventName && !currentEvent?.revenueProperty && (
                             <LemonBanner type="info" className="text-xs">
-                                Only <strong>numeric</strong> properties are listed. If your revenue property is missing,
-                                open it in{' '}
+                                Only <strong>numeric</strong> properties are listed. If your revenue property is
+                                missing, open it in{' '}
                                 <Link to={urls.propertyDefinitions()} target="_blank">
                                     Property Definitions
                                 </Link>{' '}

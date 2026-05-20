@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
@@ -16,12 +17,13 @@ import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'
+import { EventConfigurationModal } from './EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({
     onOpenEventModal,
 }: {
-    onOpenEventModal: (event?: RevenueAnalyticsEventItem) => void
+    onOpenEventModal?: (event?: RevenueAnalyticsEventItem) => void
 }): JSX.Element {
     const { events } = useValues(revenueAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -32,6 +34,14 @@ export function EventConfiguration({
     const { setEventName: setEventToBeDeleted } = useActions(deleteRevenueEventModalLogic)
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
+
+    const [localModalState, setLocalModalState] = useState<{
+        isOpen: boolean
+        event?: RevenueAnalyticsEventItem
+    }>({ isOpen: false })
+
+    const openModalForEvent = onOpenEventModal ?? ((event) => setLocalModalState({ isOpen: true, event }))
+    const closeLocalModal = (): void => setLocalModalState({ isOpen: false, event: undefined })
 
     const onDeleteEvent = async (): Promise<boolean> => {
         if (!eventToBeDeleted) {
@@ -62,11 +72,7 @@ export function EventConfiguration({
                         resourceType={AccessControlResourceType.RevenueAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={() => onOpenEventModal()}
-                        >
+                        <LemonButton type="primary" icon={<IconPlus />} onClick={() => openModalForEvent()}>
                             Add Revenue Event
                         </LemonButton>
                     </AccessControlAction>
@@ -188,7 +194,7 @@ export function EventConfiguration({
                                         size="small"
                                         type="secondary"
                                         icon={<IconGear />}
-                                        onClick={() => onOpenEventModal(item)}
+                                        onClick={() => openModalForEvent(item)}
                                         tooltip="Edit event configuration"
                                     />
                                 </AccessControlAction>
@@ -245,6 +251,10 @@ export function EventConfiguration({
                     viewsActionText="will be removed"
                     confirmButtonText="Yes, remove event"
                 />
+            )}
+
+            {!onOpenEventModal && localModalState.isOpen && (
+                <EventConfigurationModal event={localModalState.event} onClose={closeLocalModal} />
             )}
         </SceneSection>
     )
