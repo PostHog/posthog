@@ -12,6 +12,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { miniFiltersLogic } from './miniFiltersLogic'
 import { DisplayGroup, InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 
 export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
@@ -74,8 +75,10 @@ export function PlayerInspectorList(): JSX.Element {
         syncScrollPaused,
         logsHasMore,
         logsLoading,
+        searchQuery,
     } = useValues(inspectorLogic)
     const { setSyncScrollPaused, loadMoreLogs } = useActions(inspectorLogic)
+    const { setSearchQuery } = useActions(miniFiltersLogic)
 
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_INSPECTOR_ROW_HEIGHT })
 
@@ -156,7 +159,20 @@ export function PlayerInspectorList(): JSX.Element {
                 </div>
             ) : isReady ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
-                <div className="p-16 text-center text-secondary">No results matching your filters.</div>
+                <div className="p-16 text-center text-secondary">
+                    {searchQuery ? (
+                        <div className="flex flex-col items-center gap-2">
+                            <div>
+                                No results matching <span className="font-semibold">"{searchQuery}"</span>.
+                            </div>
+                            <LemonButton size="small" type="secondary" onClick={() => setSearchQuery('')}>
+                                Clear search
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        'No results matching your filters.'
+                    )}
+                </div>
             ) : null}
         </div>
     )
