@@ -3749,6 +3749,8 @@
         "title": "Update notebook",
         "required_scopes": ["notebook:write"],
         "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

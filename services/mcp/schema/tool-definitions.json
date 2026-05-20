@@ -227,6 +227,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit a notebook by replacing an exact substring of its serialized content. Same shape as `str_replace_editor` for code files: provide `old_string` (must match exactly, including whitespace and indentation) and `new_string` (must differ). The notebook content is serialized as `JSON.stringify(notebook.content, null, 2)` (2-space indent) — call `notebooks-retrieve` first to see what to match against. `old_string` must be unique unless `replace_all: true`. Edits stream live to other connected clients via the collab/save endpoint. On success, returns the updated notebook. On a concurrent edit (the notebook changed between your read and write) the tool refetches and returns an error containing the latest content so you can re-apply your edit without another read call.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "String replacement against a notebook's serialized content, with live streaming.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",
