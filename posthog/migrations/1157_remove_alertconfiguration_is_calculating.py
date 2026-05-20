@@ -9,10 +9,9 @@ class Migration(migrations.Migration):
     The actual column drop happens in migration 1158.
 
     The field was used by the old Celery alert check flow to prevent two workers
-    from running the same alert check concurrently. The Temporal-based flow
-    introduced in the alerts->Temporal migration (PR1–PR3) relies on Temporal's
-    deterministic workflow ID guarantee instead, so the flag is dead state.
-    See docs/superpowers/specs/2026-04-08-alerts-temporal-migration-design.md.
+    from running the same alert check concurrently. The Temporal-based flow relies
+    on Temporal's deterministic workflow ID guarantee instead, so the flag is dead
+    state.
     """
 
     dependencies = [

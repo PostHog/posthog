@@ -6,7 +6,6 @@ from django.db.models import Case, F, IntegerField, Q, Value, When
 
 import structlog
 import temporalio.activity
-from dateutil.relativedelta import relativedelta
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertCalculationInterval, AlertState
@@ -18,12 +17,14 @@ from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.slo.events import emit_slo_completed
+from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
-    AlertCheckException,
     add_alert_check,
+    alert_calculation_interval_to_relativedelta,
     check_alert_for_insight,
     disable_invalid_alert,
     dispatch_alert_notification,
@@ -57,8 +58,8 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 
-# Distinct ID for the internal "alert check backlog" telemetry events.
-ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
+# A check is "late" once it is overdue by more than this fraction of its interval.
+ALERT_TIMELINESS_GRACE_FRACTION = 0.10
 
 
 @temporalio.activity.defn
@@ -227,7 +228,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         except Exception as err:
             logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
             capture_exception(
-                AlertCheckException(err),
+                err,
                 additional_properties={
                     "alert_configuration_id": str(alert.id),
                     "insight_id": alert.insight_id,
@@ -386,54 +387,58 @@ async def cleanup_alert_checks() -> None:
 
 
 @temporalio.activity.defn
-async def report_alerts_backlog() -> None:
-    """Emit telemetry events for alerts past their check SLA.
+async def report_alert_timeliness() -> None:
+    """Emit an Alert Timeliness SLO sample for every enabled alert.
 
-    - Hourly alerts: last checked more than 1h+5min ago.
-    - Daily alerts: last checked more than 1d+15min ago.
+    For each alert we compare how overdue its next check is against a grace window
+    (a fraction of the calculation interval). On-time alerts emit a SUCCESS sample,
+    late ones FAILURE — so the SLO success rate is the share of alerts being checked
+    on schedule, and an alert that stops being checked at all shows up as sustained
+    failure. ``next_check_at`` is the authoritative due signal: it already accounts
+    for snoozes and quiet-hours, so deferred alerts don't read as late.
     """
 
     @database_sync_to_async(thread_sensitive=False)
-    def _counts() -> tuple[int, int]:
+    def _emit() -> None:
         now = datetime.now(UTC)
+        alerts = (
+            AlertConfiguration.objects.filter(enabled=True, insight__deleted=False)
+            .only("id", "team_id", "calculation_interval", "next_check_at")
+            .iterator()
+        )
+        # ph_scoped_capture().__exit__ joins the SDK flush thread and makes a blocking
+        # HTTP request, so the whole emit loop runs inside this threaded sync helper
+        # rather than directly on the activity's event loop.
+        with ph_scoped_capture() as capture_ph_event:
+            for alert in alerts:
+                if alert.next_check_at is None:
+                    # Never scheduled yet — nothing to judge timeliness against.
+                    continue
 
-        hourly_backlog = AlertConfiguration.objects.filter(
-            Q(
-                enabled=True,
-                calculation_interval=AlertCalculationInterval.HOURLY,
-                last_checked_at__lte=now - relativedelta(hours=1, minutes=5),
-            ),
-            insight__deleted=False,
-        ).count()
+                interval = AlertCalculationInterval(alert.calculation_interval or AlertCalculationInterval.HOURLY)
+                # Derive the interval length from the canonical scheduling mapping so a new
+                # interval (e.g. 15m) is picked up automatically once it's added there.
+                interval_delta = alert_calculation_interval_to_relativedelta(interval)
+                interval_seconds = ((alert.next_check_at + interval_delta) - alert.next_check_at).total_seconds()
+                grace_seconds = interval_seconds * ALERT_TIMELINESS_GRACE_FRACTION
+                late_seconds = (now - alert.next_check_at).total_seconds()
+                on_time = late_seconds <= grace_seconds
 
-        daily_backlog = AlertConfiguration.objects.filter(
-            Q(
-                enabled=True,
-                calculation_interval=AlertCalculationInterval.DAILY,
-                last_checked_at__lte=now - relativedelta(days=1, minutes=15),
-            ),
-            insight__deleted=False,
-        ).count()
-
-        return hourly_backlog, daily_backlog
+                emit_slo_completed(
+                    distinct_id=str(alert.id),
+                    properties=SloCompletedProperties(
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        operation=SloOperation.ALERT_TIMELINESS,
+                        team_id=alert.team_id,
+                        outcome=SloOutcome.SUCCESS if on_time else SloOutcome.FAILURE,
+                        resource_id=str(alert.id),
+                    ),
+                    extra_properties={
+                        "calculation_interval": alert.calculation_interval,
+                        "late_seconds": max(late_seconds, 0.0),
+                    },
+                    capture=capture_ph_event,
+                )
 
     async with Heartbeater():
-        hourly_backlog, daily_backlog = await _counts()
-
-        with ph_scoped_capture() as capture_ph_event:
-            capture_ph_event(
-                distinct_id=ANIRUDH_DISTINCT_ID,
-                event="alert check backlog",
-                properties={
-                    "calculation_interval": AlertCalculationInterval.DAILY,
-                    "backlog": daily_backlog,
-                },
-            )
-            capture_ph_event(
-                distinct_id=ANIRUDH_DISTINCT_ID,
-                event="alert check backlog",
-                properties={
-                    "calculation_interval": AlertCalculationInterval.HOURLY,
-                    "backlog": hourly_backlog,
-                },
-            )
+        await _emit()

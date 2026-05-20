@@ -43,21 +43,6 @@ class AlertEvaluationResult:
     triggered_metadata: dict | None = None
 
 
-class AlertCheckException(Exception):
-    """Wrap an exception so its traceback is preserved when reported to error tracking.
-
-    Subclassing Exception through other means doesn't transfer the traceback.
-    See https://stackoverflow.com/a/69963663/5540417.
-
-    ``super().__init__(str(err))`` ensures the Sentry event has a readable title —
-    without it the wrapped exception shows as the class name only.
-    """
-
-    def __init__(self, err: Exception):
-        super().__init__(str(err))
-        self.__traceback__ = err.__traceback__
-
-
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
 NON_TIME_SERIES_DISPLAY_TYPES = {

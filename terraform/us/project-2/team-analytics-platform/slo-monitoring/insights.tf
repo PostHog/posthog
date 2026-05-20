@@ -30,6 +30,11 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    alert_timeliness = {
+      name    = "Alert timeliness"
+      slo     = 99.5 # error budget = 0.5% — timeliness is noisier than execution success
+      regions = ["US", "EU"]
+    }
     query_service = {
       name    = "Query service"
       slo     = 99.95 # error budget = 0.05%

@@ -3,12 +3,12 @@ from posthog.temporal.alerts.activities import (
     evaluate_alert,
     notify_alert,
     prepare_alert,
-    report_alerts_backlog,
+    report_alert_timeliness,
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
 from posthog.temporal.alerts.workflows import (
-    AlertsBacklogWorkflow,
+    AlertTimelinessWorkflow,
     CheckAlertWorkflow,
     CleanupAlertChecksWorkflow,
     RunInvestigationSafetyNetWorkflow,
@@ -20,7 +20,7 @@ WORKFLOWS = [
     CheckAlertWorkflow,
     RunInvestigationSafetyNetWorkflow,
     CleanupAlertChecksWorkflow,
-    AlertsBacklogWorkflow,
+    AlertTimelinessWorkflow,
 ]
 
 ACTIVITIES = [
@@ -30,5 +30,5 @@ ACTIVITIES = [
     notify_alert,
     run_investigation_safety_net,
     cleanup_alert_checks,
-    report_alerts_backlog,
+    report_alert_timeliness,
 ]
