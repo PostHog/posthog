@@ -105,6 +105,33 @@ class TestRunAPI:
             assert upload.url == "https://s3.example.com/upload"
             assert upload.fields == {"key": "value"}
 
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_create_run_strips_reserved_metadata_keys(self, mock_presigned, repo):
+        # Clients must not be able to seed server-owned metadata keys —
+        # otherwise they could target arbitrary GitHub comments for PATCH
+        # or spoof baseline commit SHAs in the audit trail.
+        mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
+
+        result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+                metadata={
+                    "pr_title": "kept",
+                    "github_comment_id": 99999,
+                    "baseline_commit_sha": "deadbeef",
+                    "baseline_healed_from_merge_base": 1,
+                },
+            ),
+            team_id=repo.team_id,
+        )
+
+        run = Run.objects.get(id=result.run_id)
+        assert run.metadata == {"pr_title": "kept"}
+
     def test_get_run_returns_dto(self, repo):
         create_result = api.create_run(
             CreateRunInput(

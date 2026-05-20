@@ -1598,7 +1598,21 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
-def _build_approval_comment_body(run: Run, repo: Repo, approver_username: str | None) -> str:
+_MARKDOWN_ESCAPE_CHARS = r"\`*_{}[]()#+-.!|<>~"
+
+
+def _escape_markdown(value: str) -> str:
+    """Escape GitHub-flavored markdown control characters in user-supplied text."""
+    return "".join(f"\\{c}" if c in _MARKDOWN_ESCAPE_CHARS else c for c in value)
+
+
+@dataclass(frozen=True)
+class _Approver:
+    label: str
+    is_github_login: bool
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
     """Build the markdown body of the post-approval PR comment.
 
     A short textual summary of what changed — reviewers go to PostHog to see
@@ -1613,7 +1627,12 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver_username: str | 
     )
 
     run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
-    approver_text = f"@{approver_username}" if approver_username else "a reviewer"
+    if approver is None:
+        approver_text = "a reviewer"
+    elif approver.is_github_login:
+        approver_text = f"@{approver.label}"
+    else:
+        approver_text = _escape_markdown(approver.label)
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
@@ -1634,8 +1653,13 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver_username: str | 
     return header + f"\n{', '.join(parts)}.\n"
 
 
-def _resolve_approver_username(user_id: int | None) -> str | None:
-    """Resolve the approver's GitHub username if available, else fall back to email local-part."""
+def _resolve_approver(user_id: int | None) -> _Approver | None:
+    """Resolve the approver's identity for the PR comment.
+
+    Prefers a verified GitHub login (safe to mention with `@`); otherwise
+    falls back to email local-part or first name, which the caller must
+    treat as untrusted markdown.
+    """
     if user_id is None:
         return None
 
@@ -1650,14 +1674,16 @@ def _resolve_approver_username(user_id: int | None) -> str | None:
     if gh is not None:
         github_login = UserGitHubIntegration(gh).github_login
         if github_login:
-            return github_login
+            return _Approver(label=github_login, is_github_login=True)
 
     user = User.objects.filter(id=user_id).only("email", "first_name").first()
     if user is None:
         return None
     if user.email and "@" in user.email:
-        return user.email.split("@", 1)[0]
-    return user.first_name or None
+        return _Approver(label=user.email.split("@", 1)[0], is_github_login=False)
+    if user.first_name:
+        return _Approver(label=user.first_name, is_github_login=False)
+    return None
 
 
 def _post_approval_comment(run: Run, repo: Repo) -> None:
@@ -1684,8 +1710,8 @@ def _post_approval_comment(run: Run, repo: Repo) -> None:
     if not isinstance(comment_id, int):
         return
 
-    approver_username = _resolve_approver_username(run.approved_by_id)
-    body = _build_approval_comment_body(run, repo, approver_username)
+    approver = _resolve_approver(run.approved_by_id)
+    body = _build_approval_comment_body(run, repo, approver)
 
     try:
         response = _github_api_request(

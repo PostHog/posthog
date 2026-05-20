@@ -2007,7 +2007,8 @@ class TestApprovalComment:
         return run
 
     def test_build_approval_comment_body_summarizes_changes(self, repo, run_with_snapshots):
-        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver_username="alice")
+        approver = logic._Approver(label="alice", is_github_login=True)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver)
 
         assert "✅ **Visual changes approved** by @alice" in body
         assert "abc1234" in body  # baseline SHA prefix
@@ -2018,9 +2019,20 @@ class TestApprovalComment:
         assert "/api/visual_review/public/" not in body
 
     def test_build_approval_comment_body_falls_back_to_a_reviewer(self, repo, run_with_snapshots):
-        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver_username=None)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, None)
 
         assert "by a reviewer" in body
+
+    def test_build_approval_comment_body_escapes_non_github_approver(self, repo, run_with_snapshots):
+        # email local-part / first_name fallbacks are user-controlled — must be escaped
+        approver = logic._Approver(label="alice[evil](http://attacker)", is_github_login=False)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver)
+
+        # No raw `@` mention (which would render as a GitHub user link)
+        assert "by @alice" not in body
+        # Markdown control chars in the label must be backslash-escaped
+        assert "\\[evil\\]" in body
+        assert "\\(http://attacker\\)" in body
 
     def test_build_approval_comment_body_no_actionable_snapshots(self, repo):
         from products.visual_review.backend.facade.enums import ReviewDecision
@@ -2033,7 +2045,8 @@ class TestApprovalComment:
             pr_number=42,
             review_decision=ReviewDecision.HUMAN_APPROVED,
         )
-        body = logic._build_approval_comment_body(run, repo, approver_username="bob")
+        approver = logic._Approver(label="bob", is_github_login=True)
+        body = logic._build_approval_comment_body(run, repo, approver)
         assert "✅ **Visual changes approved**" in body
         # No counts line when there's nothing to summarize
         assert "changed" not in body
