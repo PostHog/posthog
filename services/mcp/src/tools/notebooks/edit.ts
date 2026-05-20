@@ -15,21 +15,31 @@
  *
  * Internally the tool operates on `JSON.stringify(content, null, 2)`. The
  * agent constructs `old_string` against that pretty-printed form. After
- * applying the replacement we re-parse the JSON, compute steps via a
- * top-level block diff (so the broadcast SSE payload stays small and other
- * clients' cursors on unaffected blocks are preserved), and POST through
- * `saveWithConflictRetry` which handles refetch-on-409 and 410 stale.
+ * applying the replacement we re-parse the JSON and use PM's high-level
+ * `Transform.replaceWith` to express "make the doc become this other doc"
+ * as a single ReplaceStep covering the whole content. That step is what we
+ * POST through `saveWithConflictRetry` (handles refetch-on-409 and 410
+ * stale).
+ *
+ * Why one whole-doc step and not a per-block diff: PM core deliberately
+ * doesn't ship a doc-diff and recommends building steps via the high-level
+ * `Transform` API rather than diffing two end states. The community
+ * recreate-steps libraries exist as workarounds, not best practice. For a
+ * one-shot non-interactive client like ours, the canonical pattern is just
+ * to call `tr.replaceWith(0, oldDoc.content.size, newDoc.content)` and
+ * accept that other connected clients' cursors will jump on each agent
+ * edit. Agent edits are rare relative to human edits; the simplicity wins.
  *
  * For brand-new notebooks the agent should use `notebooks-create` instead;
  * this tool requires an existing notebook with content to edit.
  */
 import { Node as PMNode } from 'prosemirror-model'
+import { Transform } from 'prosemirror-transform'
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import { AnalyticsEvent } from '@/lib/analytics'
-import { diffDocsToSteps } from '@/lib/prosemirror/diff'
 import { buildSchemaForDoc, packDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -257,16 +267,21 @@ async function computeEdit(
         }
     }
 
-    const diff = diffDocsToSteps(oldDoc, newDoc)
-    if (!diff.ok) {
-        return { ok: false, error: { code: diff.code, message: diff.message } }
-    }
+    // Canonical PM way to express "make this doc become that one": build a
+    // Transform whose single ReplaceStep covers the whole document. Note
+    // `oldDoc.eq(newDoc)` short-circuit: if the str_replace round-tripped to
+    // an identical PM tree (rare — e.g. agent rewrote whitespace inside an
+    // attrs object that serializes back the same), emit zero steps so the
+    // handler can treat it as a no-op.
+    const steps = oldDoc.eq(newDoc)
+        ? []
+        : new Transform(oldDoc).replaceWith(0, oldDoc.content.size, newDoc.content).steps.slice()
 
     return {
         ok: true,
         computation: {
             edit: {
-                steps: diff.steps,
+                steps,
                 newDoc,
                 version: notebook.version,
             },

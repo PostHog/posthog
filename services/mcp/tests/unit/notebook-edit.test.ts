@@ -1,9 +1,6 @@
-import { Node as PMNode } from 'prosemirror-model'
 import { describe, expect, it, vi } from 'vitest'
 
-import { diffDocsToSteps } from '@/lib/prosemirror/diff'
 import { editHandler, JSON_INDENT, NotebookEditSchema } from '@/tools/notebooks/edit'
-import { buildSchemaForDoc, packDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context } from '@/tools/types'
 
 const sampleDoc = {
@@ -15,93 +12,6 @@ const sampleDoc = {
         { type: 'ph-recording', attrs: { id: 'sess-123' } },
     ],
 }
-
-// ---------- diffDocsToSteps --------------------------------------------------
-
-describe('diffDocsToSteps', () => {
-    function buildPair(oldJson: unknown, newJson: unknown): { oldDoc: PMNode; newDoc: PMNode } {
-        // Both docs MUST share the same schema instance, otherwise the steps
-        // built against newDoc's node types won't apply to oldDoc.
-        const a = oldJson as Parameters<typeof packDocAttrs>[0]
-        const b = newJson as Parameters<typeof packDocAttrs>[0]
-        const schema = buildSchemaForDoc([a, b])
-        return {
-            oldDoc: PMNode.fromJSON(schema, packDocAttrs(a) as Parameters<typeof PMNode.fromJSON>[1]),
-            newDoc: PMNode.fromJSON(schema, packDocAttrs(b) as Parameters<typeof PMNode.fromJSON>[1]),
-        }
-    }
-    function build(json: unknown): PMNode {
-        return buildPair(json, json).oldDoc
-    }
-
-    it('produces zero steps for identical docs', () => {
-        const a = build(sampleDoc)
-        const b = build(sampleDoc)
-        const result = diffDocsToSteps(a, b)
-        expect(result.ok).toBe(true)
-        if (result.ok) {
-            expect(result.steps).toHaveLength(0)
-        }
-    })
-
-    it('produces a single ReplaceStep covering one changed block', () => {
-        const newJson = {
-            ...sampleDoc,
-            content: [
-                sampleDoc.content[0],
-                { type: 'paragraph', content: [{ type: 'text', text: 'First paragraph CHANGED.' }] },
-                sampleDoc.content[2],
-                sampleDoc.content[3],
-            ],
-        }
-        const { oldDoc, newDoc } = buildPair(sampleDoc, newJson)
-        const result = diffDocsToSteps(oldDoc, newDoc)
-        expect(result.ok).toBe(true)
-        if (!result.ok) {
-            return
-        }
-        expect(result.steps).toHaveLength(1)
-        const headingSize = oldDoc.maybeChild(0)!.nodeSize
-        const paragraph1Size = oldDoc.maybeChild(1)!.nodeSize
-        const stepJson = result.steps[0]!.toJSON() as { from: number; to: number }
-        expect(stepJson.from).toBe(headingSize)
-        expect(stepJson.to).toBe(headingSize + paragraph1Size)
-    })
-
-    it('handles pure insertion (new block between existing ones)', () => {
-        const newJson = {
-            ...sampleDoc,
-            content: [
-                sampleDoc.content[0],
-                sampleDoc.content[1],
-                { type: 'paragraph', content: [{ type: 'text', text: 'Inserted.' }] },
-                sampleDoc.content[2],
-                sampleDoc.content[3],
-            ],
-        }
-        const { oldDoc, newDoc } = buildPair(sampleDoc, newJson)
-        const result = diffDocsToSteps(oldDoc, newDoc)
-        expect(result.ok).toBe(true)
-        if (!result.ok) {
-            return
-        }
-        expect(result.steps).toHaveLength(1)
-    })
-
-    it('handles pure deletion (removing a block)', () => {
-        const newJson = {
-            ...sampleDoc,
-            content: [sampleDoc.content[0], sampleDoc.content[2], sampleDoc.content[3]],
-        }
-        const { oldDoc, newDoc } = buildPair(sampleDoc, newJson)
-        const result = diffDocsToSteps(oldDoc, newDoc)
-        expect(result.ok).toBe(true)
-        if (!result.ok) {
-            return
-        }
-        expect(result.steps).toHaveLength(1)
-    })
-})
 
 // ---------- Input schema -----------------------------------------------------
 
