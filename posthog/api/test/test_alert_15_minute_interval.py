@@ -62,6 +62,15 @@ class TestAlert15MinuteInterval(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Boost, Scale, or Enterprise" in str(response.json())
 
+    @patch("posthog.api.alert.posthoganalytics.feature_enabled", return_value=False)
+    def test_create_every_15_minutes_rejected_when_feature_flag_disabled(
+        self, _mock_feature_disabled, _mock_feature_enabled
+    ) -> None:
+        self._enable_high_frequency_alerts()
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available for your organization yet" in str(response.json())
+
     def test_create_every_15_minutes_succeeds_with_entitlement(self, _mock_feature_enabled) -> None:
         self._enable_high_frequency_alerts()
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())

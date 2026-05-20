@@ -9,7 +9,7 @@ from unittest import mock
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
+from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
@@ -1166,7 +1166,9 @@ class TestAlertEventProperties(APIBaseTest):
         assert props["alert_name"] == "test alert"
         assert props["condition_type"] == condition["type"]
         assert props["calculation_interval"] == calculation_interval
-        assert props["is_high_frequency_interval"] == (calculation_interval == "every_15_minutes")
+        assert props["is_high_frequency_interval"] == (
+            calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES
+        )
         for key, value in expected_detector_fields.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 

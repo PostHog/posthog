@@ -4,7 +4,6 @@ from typing import Any, Literal, Union, cast
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-import posthoganalytics
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
@@ -16,7 +15,6 @@ from posthog.schema import (
     QuerySchemaRoot,
 )
 
-from posthog.constants import ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
@@ -203,26 +201,14 @@ class UpsertAlertTool(MaxTool):
         *,
         existing_interval: AlertCalculationInterval | None = None,
     ) -> str | None:
-        effective = calculation_interval or existing_interval
-        if effective != AlertCalculationInterval.EVERY_15_MINUTES:
-            return None
-
         team = self._team
         user = self._user
         org = await sync_to_async(lambda: team.organization)()
-
-        flag_enabled = await sync_to_async(posthoganalytics.feature_enabled)(
-            ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY,
-            str(user.distinct_id),
-            groups={"organization": str(org.id)},
-            group_properties={"organization": {"id": str(org.id)}},
-            only_evaluate_locally=False,
+        return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
+            calculation_interval=calculation_interval or existing_interval,
+            user_distinct_id=str(user.distinct_id),
+            organization=org,
         )
-        if not flag_enabled:
-            return "15-minute alert intervals are not available for your organization yet."
-        if not AlertConfiguration.supports_high_frequency_intervals(org):
-            return "15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on."
-        return None
 
     async def _handle_create(self, action: CreateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
