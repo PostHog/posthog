@@ -16,6 +16,7 @@ from django.utils import timezone as django_timezone
 import redis as redis_lib
 import structlog
 from clickhouse_driver.errors import ServerException
+from prometheus_client import Counter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
@@ -71,6 +72,23 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # where `insert_quorum=auto` waits 600s for an acknowledgement that never comes (the local
 # replica writes immediately but ClickHouse still blocks on the quorum protocol).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
+
+
+# Mirrors the `lazy_computation.executed` structured log so the same outcomes
+# (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
+# countable in Prometheus without log-based aggregation.
+#
+# `cache_state` values:
+#   - `hit`         → the request did no new work (no jobs created, no waits).
+#   - `partial_hit` → the request had to do work but found pre-existing READY data.
+#   - `miss`        → the request had to do work and found no pre-existing data.
+#
+# See README.md § Observability for example PromQL queries.
+LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
+    "lazy_computation_executions_total",
+    "Lazy computation executor invocations, labeled by outcome / cache_state / table.",
+    ["outcome", "cache_state", "table"],
+)
 
 
 def _get_insert_settings(team_id: int) -> dict:
@@ -670,12 +688,26 @@ class LazyComputationExecutor:
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
 
+        had_ready_at_start: bool | None = None
+
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
+            if jobs_created == 0 and not waited_job_ids:
+                cache_state = "hit"
+            elif had_ready_at_start:
+                cache_state = "partial_hit"
+            else:
+                cache_state = "miss"
+            LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(
+                outcome=outcome,
+                cache_state=cache_state,
+                table=str(query_info.table),
+            ).inc()
             logger.info(
                 "lazy_computation.executed",
                 query_hash=query_hash,
                 table=str(query_info.table),
                 outcome=outcome,
+                cache_state=cache_state,
                 total_duration_ms=round((time.monotonic() - start_time) * 1000),
                 jobs_created=jobs_created,
                 jobs_waited_for=len(waited_job_ids),
@@ -700,6 +732,9 @@ class LazyComputationExecutor:
                 # Step 2: Find missing ranges, split at TTL boundaries
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+
+                if had_ready_at_start is None:
+                    had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
 
                 # Step 3: Insert missing ranges
                 did_work = False
