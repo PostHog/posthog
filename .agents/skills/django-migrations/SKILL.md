@@ -24,12 +24,12 @@ If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
 
 ## Cross-language `NOT NULL` hazard
 
-Django's `default=` is applied in Python only — Postgres ends up with `NOT NULL` and **no** column `DEFAULT`, regardless of whether you wrote `default=False`, `default=0`, `default=""`, or `default=list`/`default=dict`/`default=<callable>`. The mechanism differs slightly:
+`posthog_user`, `posthog_team`, and other core tables in the main Postgres database are written by Django **and** by `nodejs/` (plugin-server tests via `insertRow`), `rust/` services, and Temporal workers. Those non-Django writers issue raw `INSERT`s that only list the columns they care about, so any new `NOT NULL` column without a Postgres-level `DEFAULT` will break them with `null value in column "<col>" violates not-null constraint`.
+
+Django's `default=` alone does **not** create a Postgres-level default — by design, Django treats it as a Python-only attribute applied at `Model.__init__`:
 
 - **Callable defaults** (`default=list`, `default=dict`, `default=uuid.uuid4`) are never emitted into SQL at all.
 - **Scalar defaults** (`default=False`, `default=0`, `default=""`) are emitted as `ADD COLUMN ... DEFAULT X NOT NULL` and then immediately dropped by a follow-up `ALTER COLUMN ... DROP DEFAULT` — verify with `./manage.py sqlmigrate`.
-
-If the table is also written by a non-Django writer (plugin-server `nodejs/`, `rust/`, Temporal workers, ad-hoc scripts), raw-SQL inserts that omit the new column will fail the `NOT NULL` constraint.
 
 Before merging, grep for external writers of the table:
 
@@ -37,30 +37,16 @@ Before merging, grep for external writers of the table:
 rg -n "INSERT INTO <table>|insertRow\(.*'<table>'" nodejs rust products services
 ```
 
-If any match, keep a Postgres-level default. Prefer `SeparateDatabaseAndState` so the `ADD COLUMN ... DEFAULT ... NOT NULL` is the only DDL applied — Django's state still sees the field normally:
+If any match, add **both** `default=` and `db_default=` to the model field. `db_default=` lands a real Postgres `DEFAULT`; `default=` keeps the Python-side value for ORM creates:
 
 ```python
-operations = [
-    # Django auto-generates ADD COLUMN ... DEFAULT ... NOT NULL followed by
-    # ALTER COLUMN ... DROP DEFAULT. We split state from SQL to keep the
-    # Postgres-level default for non-Django writers (rust/, nodejs/, etc.).
-    migrations.SeparateDatabaseAndState(
-        state_operations=[
-            migrations.AddField(
-                model_name="<model>",
-                name="<col>",
-                field=models.BooleanField(default=False, null=False),
-            ),
-        ],
-        database_operations=[
-            migrations.RunSQL(
-                sql='ALTER TABLE "<table>" ADD COLUMN "<col>" boolean DEFAULT false NOT NULL;',
-                reverse_sql='ALTER TABLE "<table>" DROP COLUMN "<col>";',
-            ),
-        ],
-    ),
-]
+class User(models.Model):
+    hide_mcp_hints = models.BooleanField(default=False, db_default=False, null=False)
 ```
+
+`makemigrations` will emit a plain `AddField(..., db_default=False, default=False, ...)`, and `sqlmigrate` shows just `ADD COLUMN ... DEFAULT false NOT NULL` — no `DROP DEFAULT` follow-up.
+
+`db_default=` is also load-bearing for the nodejs / rust test suites. `posthog/management/commands/setup_test_environment.py` calls `disable_migrations()` and builds the test schema directly from model definitions, skipping the migration entirely. Plain `default=` is invisible to that path; `db_default=` is what Django bakes into the generated `CREATE TABLE`. Without it, the `postgres-parity` and Jest jobs in `.github/workflows/ci-nodejs.yml` will fail on raw `INSERT`s even though `./manage.py migrate` looks correct in isolation.
 
 For modifying the default on an existing column (no `ADD COLUMN`), use a plain `RunSQL` instead:
 
