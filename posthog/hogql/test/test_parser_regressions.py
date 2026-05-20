@@ -809,6 +809,36 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_interpolate_as_lambda_value(self):
+        # `interpolateExpr: columnExpr (AS columnExpr)?` — both sides
+        # are full `columnExpr`s, so the AS-value may be a lambda
+        # (`LAMBDA y: y+1` or `y -> y+1`). cpp's ALL(*) sees the
+        # lambda body after AS and backtracks the alias alternative;
+        # rust's Pratt parser greedy-folded `a AS LAMBDA` into a
+        # ColumnExprAlias before the outer INTERPOLATE rule got the
+        # AS, leaving the lambda body stranded.
+        cases = (
+            "SELECT 1 ORDER BY x INTERPOLATE (a AS LAMBDA y: y+1)",
+            "SELECT 1 ORDER BY x INTERPOLATE (a AS y -> y+1)",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: AS with a non-lambda RHS still folds as an alias
+        # (`AS 5` in INTERPOLATE keeps AS for the outer); AS with
+        # a regular identifier RHS is a normal column alias.
+        for src in (
+            "SELECT a AS my_alias FROM t",
+            'SELECT a AS "my alias" FROM t',
+            "SELECT 1 ORDER BY x INTERPOLATE (a AS 5)",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_hogqlx_tag_in_from_paren_decorations(self):
         # `(<Tag/>)` parses as `LPAREN joinExpr RPAREN` where the inner
         # `joinExpr → tableExpr → hogqlxTagElement`. Per the grammar:

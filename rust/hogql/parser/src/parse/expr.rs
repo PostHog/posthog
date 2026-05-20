@@ -3975,6 +3975,30 @@ impl<'a> Parser<'a> {
                 ) {
                     return Ok(None);
                 }
+                // `LAMBDA` after `AS` always starts a `lambdaExpr`
+                // (`LAMBDA identifier (COMMA identifier)* COMMA?
+                // COLON columnExpr`), not an alias name. cpp's ALL(*)
+                // sees the lambda body's `:` and backtracks the alias
+                // alt; Pratt can't, so refuse the alias here so the
+                // outer `INTERPOLATE (expr AS columnExpr)` form picks
+                // the AS up itself.
+                if matches!(self.peek_next(), TokenKind::Keyword(Kw::Lambda)) {
+                    return Ok(None);
+                }
+                // `AS <ident> ->` is the arrow-form lambda. The single
+                // ident would otherwise look like a valid alias name,
+                // but it's actually the lambda's parameter list. Same
+                // ALL(*) backtrack reasoning as above.
+                if matches!(self.peek_next(), TokenKind::Ident | TokenKind::Keyword(_)) {
+                    if let Ok(probe_tok) = {
+                        let mut lex = Lexer::with_pos(self.src, self.peek1.end);
+                        lex.next_token()
+                    } {
+                        if probe_tok.kind == TokenKind::Arrow {
+                            return Ok(None);
+                        }
+                    }
+                }
                 self.bump()?;
                 let tok = self.bump()?;
                 let raw = self.text(tok);
