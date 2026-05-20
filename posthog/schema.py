@@ -2695,6 +2695,7 @@ class IntegrationFilter(BaseModel):
 class IntegrationKind(StrEnum):
     SLACK = "slack"
     SLACK_POSTHOG_CODE = "slack-posthog-code"
+    DISCORD_POSTHOG_CODE = "discord-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2709,6 +2710,7 @@ class IntegrationKind(StrEnum):
     EMAIL = "email"
     TWILIO = "twilio"
     LINEAR = "linear"
+    LINEAR_AGENT = "linear-agent"
     GITHUB = "github"
     GITLAB = "gitlab"
     META_ADS = "meta-ads"
