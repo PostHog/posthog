@@ -83,15 +83,9 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         tryShowHint: ({ surfaceKey }) => {
             const now = Date.now()
             const sinceLast = values.lastShownAt ? now - values.lastShownAt : Infinity
-            const gate = {
-                surfaceKey,
-                effectiveOptOut: values.effectiveOptOut,
-                surfaceDismissed: Boolean(values.dismissedSurfaces[surfaceKey]),
-                cooldownActive: values.lastShownAt !== null && sinceLast < COOLDOWN_MS,
-                sinceLastMs: sinceLast,
-                cooldownMs: COOLDOWN_MS,
-            }
-            if (gate.effectiveOptOut || gate.surfaceDismissed || gate.cooldownActive) {
+            const cooldownActive = values.lastShownAt !== null && sinceLast < COOLDOWN_MS
+
+            if (values.effectiveOptOut || Boolean(values.dismissedSurfaces[surfaceKey]) || cooldownActive) {
                 return
             }
 
