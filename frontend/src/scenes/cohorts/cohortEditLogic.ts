@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -474,6 +475,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (existingCohort.id === 'new') {
+                        tryShowMCPHint('cohorts.create')
+                    }
                     if (cohort.id !== 'new') {
                         actions.refreshPersonsData()
                     }
