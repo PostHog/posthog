@@ -3,7 +3,13 @@ from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from posthog.schema import ArtifactContentType, ArtifactSource, DataVisualizationNode, HumanMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    DataVisualizationNode,
+    HumanMessage,
+    VisualizationArtifactContent,
+)
 
 from ee.hogai.chat_agent.sql.nodes import SQLGeneratorNode
 from ee.hogai.utils.types import AssistantState
@@ -86,7 +92,7 @@ class TestSQLGeneratorNode(NonAtomicBaseTest):
         assert new_state is not None
         msg = new_state.messages[0]
         assert isinstance(msg, ArtifactRefMessage)
-        content = await node.context_manager.artifacts.aget(msg.artifact_id)
+        content = await node.context_manager.artifacts.aget(msg.artifact_id, VisualizationArtifactContent)
         query = content.query
         assert isinstance(query, DataVisualizationNode)
         assert query.chartSettings is not None
