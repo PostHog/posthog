@@ -116,6 +116,8 @@ PARENT_ATTACHED_SIGNAL = "parent_attached"
 # inlining them at the call site.
 COMPLETE_TASK_SIGNAL = "complete_task"
 SEND_FOLLOWUP_SIGNAL = "send_followup_message"
+# Inbound heartbeat from the in-workflow relay activity. Heartbeats only ever
+# flow child -> parent; the orchestrator never signals this.
 HEARTBEAT_SIGNAL = "heartbeat"
 
 # Detail string returned in an ACK rejection when the child is mid-cleanup.
@@ -218,8 +220,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
          sandbox.
 
     Communication contract with TaskManagement (parent):
-      * Parent -> child: signals (complete_task, send_followup_message,
-        heartbeat). Each carries an `ack_id`.
+      * Parent -> child: signals (complete_task, send_followup_message).
+        Each carries an `ack_id`. The parent never sends heartbeats — they
+        only flow child -> parent.
       * Child -> parent: an ACK signal (`PARENT_ACK_SIGNAL`) for every signal
         the parent sent, after the corresponding work has been queued or
         completed on the child side.
@@ -565,7 +568,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     # loop drains queues and performs the actual work + ACK.
     # ------------------------------------------------------------------
 
-    @temporalio.workflow.signal(name=PARENT_ATTACHED_SIGNAL)
+    @workflow.signal(name=PARENT_ATTACHED_SIGNAL)
     async def parent_attached(self, ack_id: str, parent_workflow_id: str) -> None:
         """Bootstrap signal delivered via Signal-With-Start.
 
@@ -578,7 +581,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._parent_workflow_id = parent_workflow_id
         self._enqueue_ack(signal_name=PARENT_ATTACHED_SIGNAL, ack_id=ack_id)
 
-    @temporalio.workflow.signal(name=COMPLETE_TASK_SIGNAL)
+    @workflow.signal(name=COMPLETE_TASK_SIGNAL)
     async def complete_task(
         self,
         ack_id: str,
@@ -605,7 +608,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._task_completed = True
         self._enqueue_ack(signal_name=COMPLETE_TASK_SIGNAL, ack_id=ack_id)
 
-    @temporalio.workflow.signal(name=SEND_FOLLOWUP_SIGNAL)
+    @workflow.signal(name=SEND_FOLLOWUP_SIGNAL)
     async def send_followup_message(
         self,
         ack_id: str,
@@ -656,28 +659,17 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             )
         )
 
-    @temporalio.workflow.signal(name=HEARTBEAT_SIGNAL)
-    async def heartbeat(
-        self,
-        ack_id: Optional[str] = None,
-        agent_active: bool = False,
-    ) -> None:
-        """Heartbeat from either the relay activity or the parent.
+    @workflow.signal(name=HEARTBEAT_SIGNAL)
+    async def heartbeat(self, agent_active: bool = False) -> None:
+        """Heartbeat from the relay activity.
 
-        The relay (which runs as our own activity) does not need an ACK and
-        omits `ack_id`. The parent, if it ever sends an explicit heartbeat,
-        passes one and we ACK it.
-
-        We also forward the heartbeat up to the parent so it can drive its
-        own CI follow-up timing without relaying through the sandbox twice.
-        Relay-originated heartbeats are noisy; the parent is expected to
-        debounce on its side.
+        Heartbeats only ever flow child -> parent: the in-workflow relay
+        signals us, we record activity locally and forward to the parent
+        (`PARENT_HEARTBEAT_SIGNAL`) so it can drive its own CI follow-up
+        timing without relaying through the sandbox twice. The parent is
+        expected to debounce on its side.
         """
-        if self._is_duplicate_signal(HEARTBEAT_SIGNAL, ack_id):
-            return
         self._heartbeat_received = True
-        if ack_id is not None:
-            self._enqueue_ack(signal_name=HEARTBEAT_SIGNAL, ack_id=ack_id)
         self._pending_outbound.append(OutboundSignal(target_signal=PARENT_HEARTBEAT_SIGNAL, args=[agent_active]))
 
     # ------------------------------------------------------------------

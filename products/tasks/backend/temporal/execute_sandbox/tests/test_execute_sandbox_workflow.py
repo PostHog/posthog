@@ -206,31 +206,16 @@ class TestSignalHandlers:
             PendingFollowup(message=None, artifact_ids=[], ack_id="ack-3", source="user")
         ]
 
-    async def test_heartbeat_from_relay_sets_flag_and_forwards_without_ack(self, silent_workflow_logger):
-        # The relay activity sends heartbeats from inside this workflow —
-        # it doesn't need an ACK back to itself. The forwarded heartbeat is
-        # what the parent uses to drive CI follow-up timing.
+    async def test_heartbeat_from_relay_sets_flag_and_forwards(self, silent_workflow_logger):
+        # Heartbeats only ever flow child -> parent. The in-workflow relay
+        # signals us; we record activity locally and forward to the parent
+        # to drive its CI follow-up timing.
         workflow = ExecuteSandboxWorkflow()
 
-        await workflow.heartbeat(ack_id=None, agent_active=True)
+        await workflow.heartbeat(agent_active=True)
 
         assert workflow._heartbeat_received is True
         assert workflow._pending_outbound == [OutboundSignal(target_signal=PARENT_HEARTBEAT_SIGNAL, args=[True])]
-
-    async def test_heartbeat_with_ack_id_acks_and_forwards(self, silent_workflow_logger):
-        workflow = ExecuteSandboxWorkflow()
-
-        await workflow.heartbeat(ack_id="ack-hb", agent_active=False)
-
-        assert workflow._heartbeat_received is True
-        assert workflow._pending_outbound == [
-            OutboundSignal(
-                target_signal=PARENT_ACK_SIGNAL,
-                args=["heartbeat", "ack-hb", True, None],
-                correlation_id="ack-hb",
-            ),
-            OutboundSignal(target_signal=PARENT_HEARTBEAT_SIGNAL, args=[False]),
-        ]
 
 
 class TestEnqueueHelpers:
@@ -695,24 +680,6 @@ class TestHandleFollowupInFlightTracking:
                 target_signal=PARENT_ACK_SIGNAL,
                 args=[PARENT_ATTACHED_SIGNAL, "ack-attach", True, None],
                 correlation_id="ack-attach",
-            )
-        ]
-
-    async def test_heartbeat_replay_only_re_acks_without_forwarding(self, silent_workflow_logger):
-        # A replayed heartbeat shouldn't re-forward up to the parent — that
-        # would pollute CI-timing decisions with stale activity signals.
-        workflow = ExecuteSandboxWorkflow()
-        workflow._acked_ids.add("ack-hb")
-        workflow._pending_outbound.clear()
-
-        await workflow.heartbeat(ack_id="ack-hb", agent_active=True)
-
-        assert workflow._heartbeat_received is False
-        assert workflow._pending_outbound == [
-            OutboundSignal(
-                target_signal=PARENT_ACK_SIGNAL,
-                args=["heartbeat", "ack-hb", True, None],
-                correlation_id="ack-hb",
             )
         ]
 

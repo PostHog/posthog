@@ -24,7 +24,6 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     COMPLETE_TASK_SIGNAL,
     FOLLOWUP_SOURCE_CI,
     FOLLOWUP_SOURCE_USER,
-    HEARTBEAT_SIGNAL,
     PARENT_ACK_SIGNAL,
     PARENT_ATTACHED_SIGNAL,
     PARENT_COMPLETED_SIGNAL,
@@ -210,8 +209,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
             raise RuntimeError("context accessed before being set")
         return self._context
 
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> TaskRunManagementInput:
+    @classmethod
+    def parse_inputs(cls, inputs: list[str]) -> TaskRunManagementInput:
         loaded = json.loads(inputs[0])
         return TaskRunManagementInput(
             run_id=loaded["run_id"],
@@ -226,7 +225,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
     # keep signaling under the same workflow id without changes.
     # ------------------------------------------------------------------
 
-    @temporalio.workflow.signal
+    @workflow.signal
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
         # External completion request. Stash it; the main loop forwards a
         # complete_task signal to the child, which ends the current sandbox
@@ -234,35 +233,24 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # can re-bootstrap a fresh sandbox.
         self._pending_external_complete = (status, error_message)
 
-    @temporalio.workflow.signal
+    @workflow.signal
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         self._pending_external_followups.append(
             PendingExternalFollowup(message=message, artifact_ids=artifact_ids or [], source=FOLLOWUP_SOURCE_USER)
         )
 
-    @temporalio.workflow.signal
+    @workflow.signal
     async def heartbeat(self, agent_active: bool = False) -> None:
         """Public heartbeat signal — kept for backwards compatibility with
         callers that signal the top-level workflow id directly.
 
-        The primary heartbeat path is now the child forwarding via
-        `execute_sandbox_heartbeat` below, but we accept both. We also forward
-        externally-supplied heartbeats down to the sandbox so callers signaling
-        the top-level workflow id (e.g. the turn poller via
-        `TaskRun.get_workflow_id`) keep resetting the sandbox's inactivity
-        timer the same way they did under `process_task`.
+        Heartbeats only flow child -> parent: the child's relay activity
+        is the authoritative source of "sandbox is active" and resets the
+        child's inactivity timer directly. External heartbeats land here
+        only to update the orchestrator's own CI-timing state; we don't
+        forward them down to the sandbox.
         """
         self._record_heartbeat(agent_active)
-        if not self._sandbox_alive or self._sandbox_workflow_id is None:
-            return
-        try:
-            await self._sandbox_handle().signal(HEARTBEAT_SIGNAL, args=[None, agent_active])
-        except Exception as e:
-            workflow.logger.warning(
-                "task_management_external_heartbeat_forward_failed",
-                run_id=self._run_id,
-                error=str(e),
-            )
 
     # ------------------------------------------------------------------
     # Child-facing signals — only the child should send these.
