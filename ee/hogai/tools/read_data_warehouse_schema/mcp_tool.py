@@ -77,14 +77,31 @@ class ReadDataWarehouseSchemaMCPTool(HogQLDatabaseMixin, MCPTool[ReadDataWarehou
 
         return "\n".join(lines) + extra_sections
 
+    @staticmethod
+    def _resolve_warehouse_canonical(name: str, warehouse_names: set[str]) -> str | None:
+        # get_warehouse_table_names() returns both the canonical dotted form (e.g.
+        # "hubspot.companies") and an underscored alias ("hubspot_companies").
+        # database.serialize() only honors the dotted form, so if the agent asks
+        # for the alias we map it back before calling serialize.
+        if "." in name:
+            return None
+        parts = name.split("_")
+        for i in range(1, len(parts)):
+            candidate = ".".join(["_".join(parts[:i]), "_".join(parts[i:])])
+            if candidate in warehouse_names:
+                return candidate
+        return None
+
     @database_sync_to_async(thread_sensitive=False)
     def _build_specific_tables(self, table_names: list[str]) -> str:
         database = self._get_database()
         hogql_context = self._get_default_hogql_context(database)
 
+        warehouse_names = database.get_warehouse_table_names()
+
         # Order matters: the first source to claim a name wins the label.
         sources: list[tuple[str, list[str]]] = [
-            ("data warehouse", database.get_warehouse_table_names()),
+            ("data warehouse", warehouse_names),
             ("system", [t for t in database.get_system_table_names() if t not in _PERSONS_DB_TABLES]),
             ("view", database.get_view_names()),
             ("core", list(_CORE_TABLE_NAMES)),
@@ -103,20 +120,42 @@ class ReadDataWarehouseSchemaMCPTool(HogQLDatabaseMixin, MCPTool[ReadDataWarehou
                 seen.add(n)
                 ordered_requested.append(n)
 
+        warehouse_set = set(warehouse_names)
+        canonical_for: dict[str, str] = {}
+        for n in ordered_requested:
+            if n not in location_by_name:
+                continue
+            if location_by_name[n] == "data warehouse":
+                canonical_for[n] = self._resolve_warehouse_canonical(n, warehouse_set) or n
+            else:
+                canonical_for[n] = n
+
         found = [n for n in ordered_requested if n in location_by_name]
-        missing = [n for n in ordered_requested if n not in location_by_name]
+        unrecognized = [n for n in ordered_requested if n not in location_by_name]
+
+        serialized: dict[str, object] = {}
+        if found:
+            serialize_keys = {canonical_for[n] for n in found}
+            serialized = database.serialize(hogql_context, include_only=serialize_keys)
+
+        # Anything we marked found but serialize couldn't render falls back to
+        # missing — otherwise the response silently drops it with no signal.
+        unserialized = {n for n in found if canonical_for[n] not in serialized}
+        missing_set = set(unrecognized) | unserialized
+        missing = [n for n in ordered_requested if n in missing_set]
 
         lines: list[str] = ["# Requested tables", ""]
-        if found:
-            serialized = database.serialize(hogql_context, include_only=set(found))
-            for name in ordered_requested:
-                if name not in serialized:
-                    continue
-                table = serialized[name]
-                lines.append(f"## Table `{name}` ({location_by_name[name]})")
-                for field in table.fields.values():
-                    lines.append(f"- {field.name} ({field.type})")
-                lines.append("")
+        for name in ordered_requested:
+            if name not in location_by_name:
+                continue
+            canonical = canonical_for[name]
+            if canonical not in serialized:
+                continue
+            table = serialized[canonical]
+            lines.append(f"## Table `{name}` ({location_by_name[name]})")
+            for field in table.fields.values():
+                lines.append(f"- {field.name} ({field.type})")
+            lines.append("")
 
         if missing:
             suggestions = ", ".join(sorted(all_names)[:10])

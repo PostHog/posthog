@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
 from ee.hogai.tools.read_data_warehouse_schema.mcp_tool import (
     ReadDataWarehouseSchemaMCPTool,
@@ -140,3 +143,81 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         )
 
         self.assertEqual(content.count("## Table `events` (core)"), 1)
+
+    def test_resolve_warehouse_canonical_maps_underscore_alias_to_dotted_form(self):
+        warehouse = {"hubspot.companies", "hubspot_companies"}
+        self.assertEqual(
+            ReadDataWarehouseSchemaMCPTool._resolve_warehouse_canonical("hubspot_companies", warehouse),
+            "hubspot.companies",
+        )
+
+    def test_resolve_warehouse_canonical_handles_multi_underscore_suffix(self):
+        warehouse = {"intercom.activity_logs", "intercom_activity_logs"}
+        self.assertEqual(
+            ReadDataWarehouseSchemaMCPTool._resolve_warehouse_canonical("intercom_activity_logs", warehouse),
+            "intercom.activity_logs",
+        )
+
+    def test_resolve_warehouse_canonical_returns_none_when_already_dotted(self):
+        warehouse = {"hubspot.companies"}
+        self.assertIsNone(ReadDataWarehouseSchemaMCPTool._resolve_warehouse_canonical("hubspot.companies", warehouse))
+
+    def test_resolve_warehouse_canonical_returns_none_when_no_match(self):
+        warehouse = {"hubspot.companies"}
+        self.assertIsNone(ReadDataWarehouseSchemaMCPTool._resolve_warehouse_canonical("unrelated_table", warehouse))
+
+    async def test_warehouse_underscore_alias_renders_via_canonical_form(self):
+        # Simulates the real catalog where get_warehouse_table_names() returns both
+        # the dotted canonical name and an underscored alias, but serialize() only
+        # honors the dotted form. Asking for the alias should still render columns.
+        fake_table = SimpleNamespace(
+            fields={
+                "id": SimpleNamespace(name="id", type="string"),
+                "name": SimpleNamespace(name="name", type="string"),
+            }
+        )
+        fake_database = SimpleNamespace(
+            get_warehouse_table_names=lambda: ["hubspot.companies", "hubspot_companies"],
+            get_system_table_names=lambda: [],
+            get_view_names=lambda: [],
+            serialize=lambda ctx, include_only: (
+                {"hubspot.companies": fake_table} if "hubspot.companies" in include_only else {}
+            ),
+        )
+        with (
+            patch.object(self.tool, "_get_database", return_value=fake_database),
+            patch.object(self.tool, "_get_default_hogql_context", return_value=object()),
+        ):
+            content = await self.tool.execute(
+                ReadDataWarehouseSchemaMCPToolArgs(
+                    query={"kind": "data_warehouse_schema", "table_names": ["hubspot_companies"]},
+                ),
+            )
+
+        self.assertIn("## Table `hubspot_companies` (data warehouse)", content)
+        self.assertIn("- id (string)", content)
+        self.assertNotIn("## Not found", content)
+
+    async def test_known_warehouse_name_falls_back_to_not_found_when_serialize_drops_it(self):
+        # If a name is in get_warehouse_table_names() but serialize() still doesn't
+        # return it (no resolvable canonical form), it must land in `## Not found`
+        # rather than disappearing silently from the response.
+        fake_database = SimpleNamespace(
+            get_warehouse_table_names=lambda: ["orphan_table"],
+            get_system_table_names=lambda: [],
+            get_view_names=lambda: [],
+            serialize=lambda ctx, include_only: {},
+        )
+        with (
+            patch.object(self.tool, "_get_database", return_value=fake_database),
+            patch.object(self.tool, "_get_default_hogql_context", return_value=object()),
+        ):
+            content = await self.tool.execute(
+                ReadDataWarehouseSchemaMCPToolArgs(
+                    query={"kind": "data_warehouse_schema", "table_names": ["orphan_table"]},
+                ),
+            )
+
+        self.assertIn("## Not found", content)
+        self.assertIn("`orphan_table`", content)
+        self.assertNotIn("## Table `orphan_table`", content)
