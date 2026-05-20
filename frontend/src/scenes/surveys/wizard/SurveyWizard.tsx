@@ -5,7 +5,7 @@ import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,10 +17,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyMatchType, SurveyQuestionBranchingType } from '~/types'
+import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
+import { CopySurveyLink } from '../CopySurveyLink'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
@@ -130,6 +131,33 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         router.actions.push(target)
     }
 
+    const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
+    const canConvertToHosted = hostedEditorEnabled && survey.type !== SurveyType.ExternalSurvey
+
+    const convertToHostedSurvey = (): void => {
+        LemonDialog.open({
+            title: 'Convert to hosted survey?',
+            description: (
+                <p className="py-2">
+                    This keeps the questions and style, then switches the editor to the hosted-survey setup. Display
+                    conditions and in-app placement settings won't apply.
+                </p>
+            ),
+            primaryButton: {
+                children: 'Convert',
+                onClick: () => {
+                    setSurveyValue('type', SurveyType.ExternalSurvey)
+                    // The wizard doesn't render hosted surveys — route to the dedicated editor.
+                    const target = isEditing ? `${urls.survey(id)}?edit=true` : urls.survey(id)
+                    router.actions.push(target)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
         return (
@@ -215,8 +243,9 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const showLaunchConfirmation = (onConfirm: () => void): void => {
-        const hasConditions = doesSurveyHaveDisplayConditions(survey)
-        const conditionsSummary = getConditionsSummary()
+        const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
+        const hasConditions = !isHostedSurvey && doesSurveyHaveDisplayConditions(survey)
+        const conditionsSummary = isHostedSurvey ? [] : getConditionsSummary()
         const hasAudienceConditions = conditionsSummary.length > 0
 
         LemonDialog.open({
@@ -224,7 +253,30 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
             content: (
                 <div className="space-y-2">
                     <SdkVersionWarnings warnings={surveyWarnings} />
-                    {hasConditions || hasAudienceConditions ? (
+                    {isHostedSurvey ? (
+                        <div className="flex flex-col gap-2">
+                            <p className="text-secondary">
+                                Share this link with the people you want to answer the survey.
+                            </p>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-muted text-xs">Share link</span>
+                                <CopySurveyLink
+                                    surveyId={survey.id}
+                                    enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                                />
+                            </div>
+                            <p className="text-xs text-muted">
+                                Responses are anonymous by default. Append <code>?distinct_id=...</code> to the URL to
+                                tie responses to a specific person.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                    target="_blank"
+                                >
+                                    Learn more
+                                </Link>
+                            </p>
+                        </div>
+                    ) : hasConditions || hasAudienceConditions ? (
                         <>
                             <p className="text-secondary">
                                 The survey will be shown to users who match these conditions:
@@ -315,9 +367,21 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
             <div className="space-y-1">
                 <div className="flex items-center justify-between">
                     {backButton}
-                    <LemonButton type="secondary" size="small" onClick={handleCustomizeMore}>
-                        Full editor
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        {canConvertToHosted && (
+                            <LemonButton
+                                data-attr="convert-to-hosted-survey"
+                                type="tertiary"
+                                size="small"
+                                onClick={convertToHostedSurvey}
+                            >
+                                Convert to hosted
+                            </LemonButton>
+                        )}
+                        <LemonButton type="secondary" size="small" onClick={handleCustomizeMore}>
+                            Full editor
+                        </LemonButton>
+                    </div>
                 </div>
                 <div>
                     <label htmlFor="survey-name" className="text-xs font-medium text-muted">

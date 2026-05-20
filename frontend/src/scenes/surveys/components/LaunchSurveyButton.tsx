@@ -4,13 +4,15 @@ import { ReactNode } from 'react'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { Link } from 'lib/lemon-ui/Link'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
+import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
@@ -19,7 +21,8 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
     const { updateCurrentTeam } = useActions(teamLogic)
 
     const needsOptIn = !currentTeam?.surveys_opt_in
-    const conditionsSummary = getSurveyDisplayConditionsSummary(survey)
+    const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
+    const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
 
     return (
         <AccessControlAction
@@ -37,7 +40,30 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                         content: (
                             <div className="flex flex-col gap-3">
                                 <SdkVersionWarnings warnings={surveyWarnings} />
-                                {conditionsSummary.length > 0 ? (
+                                {isHostedSurvey ? (
+                                    <div className="flex flex-col gap-2 text-sm">
+                                        <div className="text-secondary">
+                                            Share this link with the people you want to answer the survey.
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <div className="text-muted text-xs">Share link</div>
+                                            <CopySurveyLink
+                                                surveyId={survey.id}
+                                                enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                                            />
+                                        </div>
+                                        <div className="text-xs text-muted">
+                                            Responses are anonymous by default. Append <code>?distinct_id=...</code> to
+                                            the URL to tie responses to a specific person.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </div>
+                                    </div>
+                                ) : conditionsSummary.length > 0 ? (
                                     <div className="text-sm">
                                         <div className="text-secondary mb-1">
                                             This survey will be shown to users who match:
