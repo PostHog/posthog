@@ -379,8 +379,8 @@ class TestFetchSessionEventsActivity:
         assert stored.session_id == "sess-1"
         assert stored.team_id == lens.team_id
         assert stored.events.columns == ["event_id", "event_index", "event", "timestamp", "$session_id"]
-        assert stored.session_end_time == end
         assert stored.metadata.start_time == start
+        assert stored.metadata.end_time == end
         assert stored.metadata.duration_seconds == 300.0
         assert len(stored.events.rows) == 1
         # Row is prepended with [event_id (hash), event_index (0), ...original values]
@@ -439,10 +439,10 @@ class TestFetchSessionEventsActivity:
         existing = LensLlmInputs(
             session_id="sess-1",
             team_id=lens.team_id,
-            session_end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
             events=EventTable(columns=["event"], rows=[["$pageview"]]),
             metadata=SessionMetadata(
                 start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
+                end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
                 duration_seconds=300.0,
             ),
         )

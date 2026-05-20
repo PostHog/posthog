@@ -128,12 +128,12 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
     return LensLlmInputs(
         session_id=session_id,
         team_id=team_id,
-        session_end_time=metadata["end_time"],
         events=EventTable(columns=processed_columns, rows=processed_rows),
         url_mapping=url_mapping,
         window_mapping=window_mapping,
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
+            end_time=metadata["end_time"],
             duration_seconds=duration_seconds,
             active_seconds=active_seconds,
             inactive_seconds=inactive_seconds,
@@ -166,11 +166,14 @@ def _process_events(
             continue
         seen_hashes.add(raw_hash)
 
-        simplified = [_truncate(v) for v in row]
+        # Intern URLs and window IDs first so the token map keys on the real value, not a truncated prefix;
+        # truncation runs after so any other oversized field still gets clipped.
+        simplified = list(row)
         if url_index is not None:
             simplified[url_index] = _intern(simplified[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
             simplified[window_index] = _intern(simplified[window_index], window_tokens, _WINDOW_PREFIX)
+        simplified = [_truncate(v) for v in simplified]
         # event_index is sequential in the deduplicated output, not the raw input.
         processed.append([raw_hash, len(processed), *simplified])
 

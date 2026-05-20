@@ -113,6 +113,7 @@ class SessionMetadata(BaseModel, frozen=True):
     """Session-level context exposed to the LLM prompt."""
 
     start_time: dt.datetime
+    end_time: dt.datetime
     duration_seconds: float
     # ClickHouse derives these from `sum(active_milliseconds)/1000`, so they're floats in practice (e.g. 30.5s).
     active_seconds: float | None = None
@@ -134,7 +135,6 @@ class LensLlmInputs(BaseModel, frozen=True):
 
     session_id: str
     team_id: int
-    session_end_time: dt.datetime
     events: EventTable
     # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
     url_mapping: dict[str, str] = Field(default_factory=dict)
