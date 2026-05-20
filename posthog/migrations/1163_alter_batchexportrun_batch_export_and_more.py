@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1152_fix_device_bucketing_persist_across_auth"),
+        ("posthog", "1162_drop_hourly_from_subscription_frequency_choices"),
     ]
 
     operations = [
