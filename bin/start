@@ -56,10 +56,18 @@ source_env_defaults() {
         echo "⚠️  Expected env file missing: $1 — skipping. Did your checkout get truncated?" >&2
         return 0
     fi
+    # Use explicit if/fi (not `[[ ... ]] && cmd`) so the loop body always
+    # returns 0. With `&&`, the last iteration's `[[ -z … ]]` returning false
+    # (variable already set) makes the function return non-zero, and `set -e`
+    # silently kills the entire script — no error, no output, just exit. This
+    # was the root cause of "hogli start" failing in Cursor and other terminals
+    # where some of the trailing env vars happened to already be in the shell.
     while IFS='=' read -r name value; do
         [[ -z "$name" || "$name" == \#* ]] && continue
         [[ "$value" == op://* ]] && continue
-        [[ -z "${!name:-}" ]] && export "$name=$value"
+        if [[ -z "${!name:-}" ]]; then
+            export "$name=$value"
+        fi
     done < "$1"
 }
 # .env.local: already in env if processed by op run, otherwise source directly
