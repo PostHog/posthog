@@ -2863,6 +2863,22 @@ impl<'a> Parser<'a> {
             // with "Unsupported rule: ColumnTypeExprEnum", so rust must
             // also error rather than fall through to the Param raw-text
             // path (which would happily emit `enum8('a'=1)`).
+            // Detect the enumValue shape at the head of the paren body —
+            // STRING `=` Number — and short-circuit with the same error.
+            if matches!(self.peek(), TokenKind::String)
+                && matches!(self.peek_next(), TokenKind::EqDouble | TokenKind::EqSingle)
+            {
+                let start = self.peek0.start;
+                let end = self.peek0.end;
+                // Fatal so the outer `try_alt`'s parse_ident_lead
+                // fallback doesn't mask the error by re-parsing
+                // `cast(...)` as a function call.
+                return Err(ParseError::not_implemented_fatal(
+                    "Unsupported rule: ColumnTypeExprEnum",
+                    start,
+                    end,
+                ));
+            }
             // Pre-classify the whole paren group. cpp's ANTLR ALL(*) commits the
             // entire `IDENT(...)` to a single alt (Nested/Complex/Param/Enum). If
             // ANY depth-0 token forces Param (e.g. `#1`, `{}`, a bare literal,

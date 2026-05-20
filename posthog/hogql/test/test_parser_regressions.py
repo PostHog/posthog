@@ -1879,6 +1879,27 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_enum_cast_rejected_as_unsupported(self):
+        # cpp's visitor explicitly rejects the `ColumnTypeExprEnum`
+        # alternative (`identifier '(' enumValue (',' enumValue)* ')'`
+        # where `enumValue: STRING_LITERAL '=' numberLiteral`) with
+        # `NotImplementedError: Unsupported rule: ColumnTypeExprEnum`.
+        # Rust's raw-text Param fallback used to happily emit the
+        # type-name string and silently route Enum casts through to
+        # downstream code that may not handle them.
+        for src in (
+            "cast(x as Enum('a' = 1))",
+            "cast(x as Enum8('a' = 1, 'b' = 2))",
+            "cast(x as Enum16('a' = 1))",
+            "cast(x as Enum8('a' = 1, 'b' = 2,))",  # trailing comma
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src) as rust_cm:
+                parse_expr(src, backend="rust-json")
+            self.assertIn("ColumnTypeExprEnum", str(cpp_cm.exception), msg=src)
+            self.assertIn("ColumnTypeExprEnum", str(rust_cm.exception), msg=src)
+
     def test_raw_type_param_text_rejects_null_inf_nan_keywords(self):
         # cpp's `columnTypeExpr` Param alt routes identifier-shaped
         # tokens through the `identifier` rule, which omits NULL /
