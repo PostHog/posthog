@@ -75,6 +75,18 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         }
     }, [showMetrics, currentTab, setCurrentTab])
 
+    const isPostgres = source?.source_type === 'Postgres'
+    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || isPostgres)
+    const effectiveSection = visibleSections.includes(currentSection)
+        ? currentSection
+        : DEFAULT_SCHEMA_CONFIGURATION_SECTION
+
+    useEffect(() => {
+        if (source && effectiveSection !== currentSection) {
+            setCurrentSection(effectiveSection)
+        }
+    }, [source, effectiveSection, currentSection, setCurrentSection])
+
     if (sourceLoading && !source) {
         return (
             <SceneContent>
@@ -87,10 +99,6 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     if (!schema) {
         return <NotFound object="Data warehouse schema" />
     }
-
-    const isPostgres = source?.source_type === 'Postgres'
-    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || isPostgres)
-    const effectiveSection = visibleSections.includes(currentSection) ? currentSection : DEFAULT_SCHEMA_CONFIGURATION_SECTION
 
     const tabs: LemonTab<SchemaSceneTab>[] = [
         {
