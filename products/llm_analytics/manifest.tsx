@@ -266,7 +266,7 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'LLM Analytics',
+            path: 'LLM analytics',
             displayLabel: 'AI observability',
             intents: [
                 ProductKey.LLM_ANALYTICS,

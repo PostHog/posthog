@@ -28,6 +28,7 @@ import type { searchLogicType } from './searchLogicType'
 import { filterSearchItems } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
+let cachedProductDisplayLabelByPath: Map<string, string> | null = null
 
 const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     if (cachedProductIconColorByType === null) {
@@ -42,14 +43,29 @@ const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     return cachedProductIconColorByType
 }
 
+const getProductDisplayLabelByPath = (): Map<string, string> => {
+    if (cachedProductDisplayLabelByPath === null) {
+        cachedProductDisplayLabelByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            if (product.displayLabel) {
+                cachedProductDisplayLabelByPath.set(product.path, product.displayLabel)
+            }
+        }
+    }
+    return cachedProductDisplayLabelByPath
+}
+
 const fileSystemEntryToSearchItem = (
     item: FileSystemEntry,
     overrides: { id: string; category: string; searchKeywords?: string[] }
 ): SearchItem => {
     const name = splitPath(item.path).pop()
+    const itemName = name ? unescapePath(name) : item.path
+    const displayName = getProductDisplayLabelByPath().get(itemName)
     const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
     return {
-        name: name ? unescapePath(name) : item.path,
+        name: itemName,
+        displayName,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
         itemType: item.type ?? null,
@@ -328,7 +344,7 @@ export const searchLogic = kea<searchLogicType>([
                 const items: SearchItem[] = filteredProducts.map((product) => ({
                     id: `app-${product.path}`,
                     name: product.path,
-                    displayName: product.path,
+                    displayName: product.displayLabel ?? product.path,
                     category: 'apps',
                     productCategory: product.category || null,
                     href: product.href || '#',

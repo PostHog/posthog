@@ -1590,7 +1590,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Heatmaps'],
     },
     {
-        path: 'LLM Analytics',
+        path: 'LLM analytics',
         displayLabel: 'AI observability',
         intents: [
             ProductKey.LLM_ANALYTICS,
