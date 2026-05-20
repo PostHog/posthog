@@ -53,6 +53,13 @@ logger = structlog.get_logger(__name__)
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
 
+# Cap on how much of the source `$ai_generation`'s input text we forward into the
+# eval-signal workflow payload. Used as a content fingerprint to detect signals
+# originating from PostHog's own signals pipeline (see emit_eval_signal._looks_like
+# _internal_signals_call). Cap is well below Temporal's 2 MiB per-payload limit so
+# even pathologically large inputs don't push the payload past the threshold.
+_EVENT_INPUT_PREVIEW_MAX_CHARS = 4000
+
 # Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -1317,17 +1324,31 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
+            # Surface enough of the source `$ai_generation` for the signals worker to
+            # detect (and drop) traces that originated from its own pipeline before
+            # spending an LLM call summarizing them. `service` (set globally via
+            # OTEL_SERVICE_NAME super-property) is the cheap exact-match check;
+            # `event_input_preview` is the defense-in-depth content fingerprint.
+            # Preview is truncated so the Temporal payload stays comfortably under
+            # the per-payload size limit even for traces with very large inputs.
+            event_type = inputs.event_data.get("event", "")
+            input_raw, _ = extract_event_io(event_type, properties)
+            input_text = extract_text_from_messages(input_raw)
+            event_input_preview = input_text[:_EVENT_INPUT_PREVIEW_MAX_CHARS]
+
             signal_inputs = EmitEvalSignalInputs(
                 team_id=evaluation["team_id"],
                 evaluation_id=evaluation["id"],
                 evaluation_name=evaluation.get("name", "Unknown evaluation"),
                 evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
                 event_uuid=event_uuid,
-                event_type=inputs.event_data.get("event", ""),
+                event_type=event_type,
                 trace_id=properties.get("$ai_trace_id", ""),
                 reasoning=result.get("reasoning", ""),
                 model=result.get("model", ""),
                 provider=result.get("provider", ""),
+                service=str(properties.get("service") or ""),
+                event_input_preview=event_input_preview,
             )
 
             if temporalio.workflow.patched("emit-eval-signal-v2"):

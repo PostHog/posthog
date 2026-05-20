@@ -37,6 +37,19 @@ class EmitEvalSignalInputs:
     model: str
     provider: str
 
+    # `service` is the OTEL_SERVICE_NAME super-property on the source `$ai_generation`
+    # event. It identifies which PostHog worker (if any) made the LLM call, which lets
+    # the activity drop signals that originate from PostHog's own signals pipeline
+    # before doing the summarizer LLM call. Defaults to "" so in-flight v1 workflow
+    # payloads that pre-date this field still deserialize cleanly.
+    service: str = ""
+
+    # First few KB of the source `$ai_generation`'s rendered input. Used as a content
+    # fingerprint to drop signals whose input is a signals-pipeline prompt — defense
+    # in depth in case a future internal caller forgets to set `service` to a
+    # denylisted value. Defaults to "" for backward compatibility.
+    event_input_preview: str = ""
+
 
 class EvalSignalSummary(BaseModel):
     title: str = Field(
@@ -95,6 +108,58 @@ def _build_eval_signal_prompt(inputs: EmitEvalSignalInputs) -> str:
     return "\n".join(parts)
 
 
+# PostHog workers whose `$ai_generation` events should never feed back into the
+# signal pipeline. Today these all run on VIDEO_EXPORT_TASK_QUEUE under a single
+# OTEL service name (the "signals worker", named "video-export" for historical
+# reasons). Listed as a set so additional internal service names can be added
+# without touching the guard logic.
+_INTERNAL_SIGNALS_SERVICES: frozenset[str] = frozenset(
+    {
+        "temporal-worker-video-export",
+    }
+)
+
+# Signature substrings from the signals pipeline's own LLM prompts. If a generation's
+# rendered input contains any of these, it's an internal signals-pipeline call and
+# must not produce a signal — otherwise the "Unhappy User" judge (and similar judges
+# scanning for friction language) feeds the inbox back into itself. Kept here so that
+# adding a new internal prompt elsewhere in the codebase forces us to also extend
+# this list (or, better, set `service` correctly upstream).
+_INTERNAL_SIGNALS_PROMPT_SIGNATURES: tuple[str, ...] = (
+    # safety_filter.SAFETY_FILTER_PROMPT
+    "You are a security classifier for an automated signal processing pipeline.",
+    # grouping.SPECIFICITY_CHECK_SYSTEM_PROMPT
+    "You are a senior engineer reviewing whether a group of signals belongs in a single pull request.",
+    # grouping.MATCHING_SYSTEM_PROMPT / QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE
+    "You are a signal grouping assistant.",
+    # SUMMARIZE_EVAL_SYSTEM_PROMPT (this very module)
+    "You are a concise technical writer. Your job is to produce a short signal description from an LLM trace evaluation result.",
+    # Distinctive user-prompt markers from grouping._build_matching_prompt and
+    # _build_specificity_prompt — caught even when the system prompt isn't surfaced
+    # in $ai_input by the SDK (e.g. Anthropic, where `system` is a separate field).
+    "DISCOVERY STRENGTH (groups found by multiple independent queries are more likely related):",
+    "NEW SIGNAL PROPOSED FOR ADDITION:",
+)
+
+
+def _looks_like_internal_signals_call(inputs: EmitEvalSignalInputs) -> bool:
+    """Return True if this `$ai_generation` originated from PostHog's signals pipeline.
+
+    Two checks, in order of cost:
+    1. `service` matches a denylisted internal worker (cheap, exact string compare).
+    2. The captured input preview contains a signals-pipeline prompt signature
+       (defense in depth — catches the loop even if a future internal caller
+       forgets to set `service`).
+    """
+    if inputs.service and inputs.service in _INTERNAL_SIGNALS_SERVICES:
+        return True
+    if inputs.event_input_preview:
+        for signature in _INTERNAL_SIGNALS_PROMPT_SIGNATURES:
+            if signature in inputs.event_input_preview:
+                return True
+    return False
+
+
 async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalSummary:
     """Use the signals LLM to produce a signal-sized summary of an eval result."""
     user_prompt = _build_eval_signal_prompt(inputs)
@@ -138,6 +203,21 @@ async def emit_eval_signal_activity(inputs: EmitEvalSignalInputs) -> None:
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        return
+
+    # Drop generations that came from PostHog's own signals pipeline before we
+    # spend an LLM call summarizing them. Without this guard, judges that look
+    # for friction language ("Unhappy User", etc.) flag the pipeline's own
+    # prompts — which embed verbatim session-replay descriptions by design —
+    # and the resulting "user frustration" signals feed back into the same
+    # prompts on the next run.
+    if _looks_like_internal_signals_call(inputs):
+        logger.info(
+            "Dropped eval signal originating from signals pipeline",
+            evaluation_id=inputs.evaluation_id,
+            team_id=inputs.team_id,
+            service=inputs.service,
+        )
         return
 
     # LLM call to produce a signal-quality summary from the raw eval data
