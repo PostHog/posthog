@@ -41,6 +41,7 @@ from posthog.models.activity_logging.external_data_utils import (
     get_external_data_source_detail_name,
 )
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.integration import Integration
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -1762,15 +1763,76 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ).data,
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return only the config for the given source type "
+                    "(e.g. 'GoogleAds', 'GoogleSheets'). Case-sensitive. "
+                    "When set, the response additionally includes `_available_integrations` "
+                    "and `_oauth_hint` for any OAuth fields. Omit to return the full catalog."
+                ),
+            ),
+            OpenApiParameter(
+                name="released_only",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "If true, exclude sources marked `unreleasedSource: true` (scaffolded sources "
+                    "with no working sync logic). Defaults to false to preserve previous behaviour."
+                ),
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
+        source_type_filter = request.query_params.get("source_type")
+        released_only = request.query_params.get("released_only", "").lower() in ("true", "1", "yes")
+
         sources = SourceRegistry.get_all_sources()
+        if source_type_filter:
+            sources = {k: v for k, v in sources.items() if str(k) == source_type_filter}
+
         configs = {name: source.get_source_config for name, source in sources.items()}
 
-        return Response(
-            status=status.HTTP_200_OK,
-            data={str(key): value.model_dump() for key, value in configs.items()},
-        )
+        if released_only:
+            configs = {k: v for k, v in configs.items() if not v.unreleasedSource}
+
+        response_data = {str(key): value.model_dump() for key, value in configs.items()}
+
+        # When scoped to a single source, enrich any OAuth fields with the existing
+        # integrations in this project so callers (UI / agents) don't have to guess
+        # how to populate `*_integration_id`.
+        if source_type_filter and len(response_data) == 1:
+            source_data = next(iter(response_data.values()))
+            oauth_kinds: set[str] = {
+                field["kind"]
+                for field in source_data.get("fields") or []
+                if isinstance(field, dict) and field.get("type") == "oauth" and field.get("kind")
+            }
+            if oauth_kinds:
+                integrations = Integration.objects.filter(team_id=self.team_id, kind__in=oauth_kinds)
+                source_data["_available_integrations"] = [
+                    {
+                        "id": integration.id,
+                        "kind": integration.kind,
+                        "display_name": integration.display_name,
+                    }
+                    for integration in integrations
+                ]
+                source_data["_oauth_hint"] = (
+                    "Each `fields[*]` entry with type='oauth' must be populated with the integer `id` "
+                    "of an existing OAuth integration in this project. Pick one from "
+                    "`_available_integrations` (match by `kind`), or list more via the "
+                    "`integrations-list` endpoint with the same `kind`."
+                )
+
+        return Response(status=status.HTTP_200_OK, data=response_data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(methods=["GET"], detail=False)

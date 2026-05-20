@@ -610,8 +610,23 @@ export const ExecuteSQLSchema = z.object({
 })
 
 export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
+    .object({
+        table_names: z
+            .array(z.string())
+            .optional()
+            .describe(
+                'Optional list of exact table or view names to include. Applied to all sections (core, warehouse, system, views). Omit to list every name.'
+            ),
+        include: z
+            .array(z.enum(['core', 'warehouse', 'views', 'system']))
+            .optional()
+            .describe(
+                "Optional list of sections to include. 'core' returns full column lists for events/groups/persons/sessions; 'warehouse' lists data warehouse tables; 'views' lists saved query views with their last-run status; 'system' lists PostHog Postgres tables exposed as system.*. Defaults to all sections — prefer narrowing this when the catalog is large."
+            ),
+    })
+    .describe(
+        'Returns core PostHog table schemas plus warehouse/view/system table names. Pass table_names and/or include to scope the output when the full catalog is too large.'
+    )
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),

@@ -4466,6 +4466,58 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
+    def test_get_wizard_sources_with_source_type_filter(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=GoogleAds"
+        )
+        payload = response.json()
+        assert response.status_code == 200
+        assert list(payload.keys()) == ["GoogleAds"]
+
+    def test_get_wizard_sources_with_unknown_source_type(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotASource"
+        )
+        payload = response.json()
+        assert response.status_code == 200
+        assert payload == {}
+
+    def test_get_wizard_sources_released_only_drops_unreleased(self):
+        all_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard")
+        released_response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?released_only=true"
+        )
+
+        all_payload = all_response.json()
+        released_payload = released_response.json()
+
+        unreleased_keys = {k for k, v in all_payload.items() if v.get("unreleasedSource")}
+        assert unreleased_keys, (
+            "expected at least one unreleased source in the full catalog for this assertion to be meaningful"
+        )
+        assert not (unreleased_keys & released_payload.keys())
+        assert released_payload.keys() <= all_payload.keys()
+
+    def test_get_wizard_sources_oauth_hint_for_scoped_source(self):
+        from posthog.models.integration import Integration
+
+        Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            integration_id="customer-1",
+            config={"name": "Test Google Ads"},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=GoogleAds"
+        )
+        payload = response.json()
+        assert response.status_code == 200
+        google_ads = payload["GoogleAds"]
+        assert "_oauth_hint" in google_ads
+        assert "_available_integrations" in google_ads
+        assert any(integration["kind"] == "google-ads" for integration in google_ads["_available_integrations"])
+
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""
         source = self._create_external_data_source()
