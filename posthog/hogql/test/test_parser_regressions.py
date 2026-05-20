@@ -809,6 +809,105 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_group_by_all_falls_back_to_columns_on_postfix(self):
+        # `groupByClause: GROUP BY (ALL | (CUBE|ROLLUP) LPAREN … |
+        # GROUPING SETS LPAREN … | columnExprList)`. `ALL` is also a
+        # keyword-as-identifier per the grammar's `keyword` rule, so
+        # any postfix token after `ALL` makes cpp's ALL(*) fall back
+        # to `columnExprList` with `Field('ALL')` as the first item.
+        # Rust eagerly committed to the all-mode marker.
+        for src in (
+            "SELECT a FROM t GROUP BY ALL, b",
+            "SELECT a FROM t GROUP BY ALL.x",
+            "SELECT a FROM t GROUP BY ALL + 1",
+            "SELECT a FROM t GROUP BY ALL[1]",
+            "SELECT a FROM t GROUP BY ALL()",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: bare `ALL` (followed by a clause terminator) still
+        # hits the all-mode marker.
+        oracle = clear_locations(parse_select("SELECT a FROM t GROUP BY ALL", backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_select("SELECT a FROM t GROUP BY ALL", backend=backend))
+            self.assertEqual(got, oracle, msg=backend)
+
+    def test_with_rollup_cube_totals_chain_grammar(self):
+        # cpp: `groupByClause … (WITH (CUBE|ROLLUP))? (WITH TOTALS)?`.
+        # At most one CUBE/ROLLUP, then optionally TOTALS, in order.
+        # Rust accepted any number/order via an unbounded loop.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "SELECT a FROM t GROUP BY a WITH ROLLUP WITH CUBE",
+            "SELECT a FROM t GROUP BY a WITH ROLLUP WITH ROLLUP",
+            "SELECT a FROM t GROUP BY a WITH TOTALS WITH ROLLUP",
+            "SELECT a FROM t GROUP BY a WITH TOTALS WITH TOTALS",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Valid combinations still parse.
+        for src in (
+            "SELECT a FROM t GROUP BY a WITH ROLLUP",
+            "SELECT a FROM t GROUP BY a WITH CUBE",
+            "SELECT a FROM t GROUP BY a WITH TOTALS",
+            "SELECT a FROM t GROUP BY a WITH ROLLUP WITH TOTALS",
+            "SELECT a FROM t GROUP BY a WITH CUBE WITH TOTALS",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_pivot_in_list_must_be_non_empty(self):
+        # `pivotColumn: columnExprTupleOrSingle IN LPAREN columnExprList
+        # RPAREN` — the columnExprList is non-empty. cpp rejects
+        # empty `IN ()`; rust was silently producing an empty list.
+        from posthog.hogql.errors import BaseHogQLError
+
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_select(
+                "SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="rust-json"
+            )
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_select(
+                "SELECT 1 FROM t PIVOT (sum(x) FOR y IN ())", backend="cpp-json"
+            )
+        # Guard: populated list still parses.
+        src = "SELECT 1 FROM t PIVOT (sum(x) FOR y IN (1, 2))"
+        oracle = clear_locations(parse_select(src, backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_select(src, backend=backend))
+            self.assertEqual(got, oracle, msg=backend)
+
+    def test_trim_substring_must_be_string_literal(self):
+        # `TRIM (LEADING|TRAILING|BOTH string FROM columnExpr)` where
+        # `string: STRING_LITERAL | templateString`. Rust accepted any
+        # columnExpr in the substring slot; cpp rejects everything
+        # except a string literal or template string.
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "TRIM(BOTH x FROM y)",
+            "TRIM(BOTH 1 FROM y)",
+            "TRIM(BOTH f() FROM y)",
+            "TRIM(LEADING (a) FROM y)",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+        # Guards: string literal + template string still parse.
+        for src in ("TRIM(BOTH 'x' FROM y)", "TRIM(LEADING f'x' FROM y)"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_cte_list_paren_after_non_paren_cte(self):
         # A column-form CTE followed by a CTE whose head token is `(`
         # (paren-wrapped subquery or paren'd expression) must continue

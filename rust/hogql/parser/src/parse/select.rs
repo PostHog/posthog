@@ -528,7 +528,15 @@ impl<'a> Parser<'a> {
         {
             self.bump()?;
             self.bump()?;
-            if self.eat_kw(Kw::All)? {
+            if matches!(self.peek(), TokenKind::Keyword(Kw::All))
+                && self.peek_next_can_terminate_group_by_all()
+            {
+                // `GROUP BY ALL` — all-mode. Bare ALL or followed by a
+                // clause-end token only. Anything postfix-shaped (`.x`,
+                // `[1]`, `()`, `+1`, `::Int`, `,`, …) means cpp's
+                // ALL(*) falls back to `columnExprList` with ALL as a
+                // plain Field.
+                self.bump()?;
                 obj.insert("group_by_mode".into(), Value::String("all".into()));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Cube | Kw::Rollup))
                 && self.peek_next() == TokenKind::LParen
@@ -589,22 +597,38 @@ impl<'a> Parser<'a> {
         // the grammar admits them as independent optionals. The cpp
         // visitor parses but doesn't persist any AST bit here (mode is
         // only set on the GROUP-BY-led form like `GROUP BY CUBE(...)`).
-        // We silently consume to match.
+        // We silently consume to match. cpp grammar:
+        //   `… (WITH (CUBE | ROLLUP))? (WITH TOTALS)?`
+        // — at most one of CUBE / ROLLUP, then optionally TOTALS, in
+        // that order. Track which slots we've filled so a second
+        // `WITH CUBE` / `WITH ROLLUP` / `WITH TOTALS` errors out.
+        let mut saw_cube_or_rollup = false;
+        let mut saw_totals = false;
         loop {
             if !matches!(self.peek(), TokenKind::Keyword(Kw::With)) {
                 break;
             }
-            if matches!(
-                self.peek_next(),
-                TokenKind::Keyword(Kw::Cube)
-                    | TokenKind::Keyword(Kw::Rollup)
-                    | TokenKind::Keyword(Kw::Totals)
-            ) {
-                self.bump()?;
-                self.bump()?;
-                continue;
+            match self.peek_next() {
+                TokenKind::Keyword(Kw::Cube) | TokenKind::Keyword(Kw::Rollup) => {
+                    if saw_cube_or_rollup || saw_totals {
+                        return Err(self.err(
+                            "GROUP BY admits at most one of WITH CUBE / WITH ROLLUP, before WITH TOTALS",
+                        ));
+                    }
+                    saw_cube_or_rollup = true;
+                    self.bump()?;
+                    self.bump()?;
+                }
+                TokenKind::Keyword(Kw::Totals) => {
+                    if saw_totals {
+                        return Err(self.err("duplicate WITH TOTALS"));
+                    }
+                    saw_totals = true;
+                    self.bump()?;
+                    self.bump()?;
+                }
+                _ => break,
             }
-            break;
         }
         if self.eat_kw(Kw::Having)? {
             obj.insert("having".into(), self.parse_expr_bp(0)?);
@@ -722,6 +746,33 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Value::Object(obj))
+    }
+
+    /// Probe: at the GROUP BY position, peek is `ALL`. The peek_next
+    /// token decides whether `ALL` is the all-mode marker (cpp's
+    /// `groupByClause: GROUP BY ALL` alt) or the head of a
+    /// `columnExprList` whose first element is the keyword-as-Field
+    /// `ALL` (`GROUP BY ALL, b`, `GROUP BY ALL.x`, `GROUP BY ALL()`,
+    /// `GROUP BY ALL::Int`, etc.). Return true if peek_next is a
+    /// terminator that closes the GROUP BY (i.e. all-mode wins).
+    fn peek_next_can_terminate_group_by_all(&self) -> bool {
+        matches!(
+            self.peek_next(),
+            TokenKind::Eof
+                | TokenKind::Semicolon
+                | TokenKind::RParen
+                | TokenKind::Keyword(Kw::With)
+                | TokenKind::Keyword(Kw::Having)
+                | TokenKind::Keyword(Kw::Qualify)
+                | TokenKind::Keyword(Kw::Window)
+                | TokenKind::Keyword(Kw::Order)
+                | TokenKind::Keyword(Kw::Limit)
+                | TokenKind::Keyword(Kw::Offset)
+                | TokenKind::Keyword(Kw::Settings)
+                | TokenKind::Keyword(Kw::Union)
+                | TokenKind::Keyword(Kw::Intersect)
+                | TokenKind::Keyword(Kw::Except)
+        )
     }
 
     /// Probe: at the GROUP BY position, peek is `CUBE` or `ROLLUP` and

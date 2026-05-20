@@ -963,6 +963,13 @@ impl<'a> Parser<'a> {
                     let col_expr = self.parse_expr_tuple_or_single(true)?;
                     self.expect_kw(Kw::In, "IN")?;
                     self.expect(TokenKind::LParen, "(")?;
+                    // Grammar: `pivotColumn: columnExprTupleOrSingle IN
+                    // LPAREN columnExprList RPAREN` — the IN list is
+                    // non-empty (`columnExprList: columnExpr (COMMA
+                    // columnExpr)* COMMA?`). cpp rejects empty `IN ()`.
+                    if self.peek() == TokenKind::RParen {
+                        return Err(self.err("PIVOT `IN (…)` list must be non-empty"));
+                    }
                     let values = self.parse_expr_list_until_paren()?;
                     self.expect(TokenKind::RParen, ")")?;
                     columns.push(json!({

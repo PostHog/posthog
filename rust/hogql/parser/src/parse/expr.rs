@@ -1032,10 +1032,19 @@ impl<'a> Parser<'a> {
             // keywords is present, so this branch is unreachable.
             return Err(self.err("expected LEADING / TRAILING / BOTH after TRIM("));
         };
-        // Trim substring: any column expression (string literal, template
-        // string `f'…'`, function call, etc.). The C++ grammar uses
-        // `string` here, but its `string` rule resolves to the columnExpr
-        // family — see TRIM (LEADING f'fi{x}sh' FROM event).
+        // Trim substring: per grammar
+        // `TRIM (LEADING|TRAILING|BOTH string FROM columnExpr)`, where
+        // `string: STRING_LITERAL | templateString`. cpp rejects any
+        // other expression (Field, Call, etc.) here. The earlier comment
+        // claiming `string` resolves to columnExpr was wrong.
+        if !matches!(
+            self.peek(),
+            TokenKind::String | TokenKind::TemplateString,
+        ) {
+            return Err(self.err(
+                "TRIM substring must be a string literal or template string",
+            ));
+        }
         let str_value = self.parse_expr_bp(0)?;
         self.expect_kw(Kw::From, "FROM")?;
         let expr = self.parse_expr_bp(0)?;
