@@ -304,7 +304,9 @@ class Team(UUIDTClassicModel):
         default=generate_random_token_project,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
+    app_urls: ArrayField = field_access_control(
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+    )
     name = models.CharField(
         max_length=200,
         default="Default project",
@@ -493,7 +495,7 @@ class Team(UUIDTClassicModel):
         models.CharField(null=True, blank=True, max_length=24), "project", "admin"
     )
     signup_token = models.CharField(max_length=200, null=True, blank=True)
-    is_demo = models.BooleanField(default=False)
+    is_demo = field_access_control(models.BooleanField(default=False), "project", "admin")
 
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
