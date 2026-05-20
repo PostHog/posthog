@@ -37,7 +37,8 @@ fi
 #   .env.services     - service connection defaults (shared with containers
 #                       and hobby via docker-compose env_file)
 #   .env.development  - dev-mode runtime knobs (DEBUG, OTEL, etc.)
-#   .env.local        - your overrides + 1Password secrets (gitignored)
+#   .env.local        - your overrides + 1Password secrets (gitignored,
+#                       copy .env.local.example to get started)
 #
 # Source env files respecting precedence:
 #   shell env > .env.local > .env.development > .env.services
@@ -54,32 +55,6 @@ if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; t
 fi
 source_env_defaults "$REPOSITORY_ROOT/.env.development"
 source_env_defaults "$REPOSITORY_ROOT/.env.services"
-
-# Enforce 1Password for sensitive vars
-# Check: if a secret var is set, it must have an op:// ref in .env.local
-if [[ -f "$REPOSITORY_ROOT/.env.secrets" ]]; then
-    exposed_secrets=()
-    while IFS='=' read -r name _; do
-        [[ -z "$name" || "$name" == \#* ]] && continue
-        # Is this secret var set in the environment?
-        if [[ -n "${!name:-}" ]]; then
-            # Check if .env.local has an op:// reference for it
-            if ! grep -qE "^${name}=op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
-                exposed_secrets+=("$name")
-            fi
-        fi
-    done < "$REPOSITORY_ROOT/.env.secrets"
-
-    if [[ ${#exposed_secrets[@]} -gt 0 ]]; then
-        echo "🚨 Secrets detected without 1Password:"
-        printf '   %s\n' "${exposed_secrets[@]}"
-        echo ""
-        echo "These vars are listed in .env.secrets and must come from 1Password."
-        echo "Create .env.local with op:// references, e.g.:"
-        echo "   OPENAI_API_KEY=op://Private/OpenAI/api-key"
-        exit 1
-    fi
-fi
 
 # Limit Rust parallel compilation jobs to reduce CPU contention when multiple
 # services start simultaneously via mprocs (they share a build lock anyway)
