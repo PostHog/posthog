@@ -7,9 +7,13 @@ to ClickHouse. It imports the requested migration modules, walks their
 attaches). It is the basis for the CI step that prints the SQL each migration
 will execute under each ``CLOUD_DEPLOYMENT`` value (cloud-gated migrations build
 different ``operations`` lists at import time).
+
+With ``--format markdown`` it instead emits a nested markdown list
+(environment -> node type(s) -> migration -> SQL) suitable for posting as a PR comment.
 """
 
 import importlib
+from collections import OrderedDict
 from textwrap import indent
 
 from django.conf import settings
@@ -31,10 +35,21 @@ class Command(BaseCommand):
             nargs="+",
             help="Migration names or paths (e.g. 0247_foo or posthog/clickhouse/migrations/0247_foo.py).",
         )
+        parser.add_argument(
+            "--format",
+            choices=["text", "markdown"],
+            default="text",
+            help="Output format. 'text' (default) for plain log output; 'markdown' for a nested PR-comment list.",
+        )
 
     def handle(self, *args, **options):
         names = [self._normalize(name) for name in options["migrations"]]
+        if options["format"] == "markdown":
+            self._handle_markdown(names)
+        else:
+            self._handle_text(names)
 
+    def _handle_text(self, names: list[str]) -> None:
         print(f"# CLOUD_DEPLOYMENT={settings.CLOUD_DEPLOYMENT!r}")
         for name in names:
             module = importlib.import_module(f"{MIGRATIONS_PACKAGE_NAME}.{name}")
@@ -53,6 +68,46 @@ class Command(BaseCommand):
                     continue
                 print(f"\n### op #{idx}")
                 print(indent(sql, "    "))
+
+    def _handle_markdown(self, names: list[str]) -> None:
+        env_label = settings.CLOUD_DEPLOYMENT or "<unset>"
+        # node-role label -> list of SQL strings, preserving first-seen order.
+        # PR checks allow only one migration file per PR, so we don't nest by migration.
+        groups: OrderedDict[str, list[str]] = OrderedDict()
+        notes: list[str] = []
+        for name in names:
+            module = importlib.import_module(f"{MIGRATIONS_PACKAGE_NAME}.{name}")
+            operations = getattr(module, "operations", None)
+            if operations is None:
+                notes.append(f"`{name}` — no `operations` attribute")
+                continue
+            if not operations:
+                notes.append(f"`{name}` — operations list is empty under this environment")
+                continue
+            for op in operations:
+                sql = getattr(op, "_sql", None)
+                if sql is None:
+                    continue
+                groups.setdefault(self._node_role_label(op), []).append(sql)
+
+        print(f"- **{env_label}**")
+        if not groups and not notes:
+            print("  - _no SQL operations under this environment_")
+        for note in notes:
+            print(f"  - {note}")
+        for label, sqls in groups.items():
+            print(f"  - **{label}**")
+            for sql in sqls:
+                print("    ```sql")
+                print(indent(sql.strip(), "    "))
+                print("    ```")
+
+    @staticmethod
+    def _node_role_label(op) -> str:
+        roles = getattr(op, "_effective_node_roles", None) or getattr(op, "_node_roles", None)
+        if not roles:
+            return "data (default)"
+        return ", ".join(sorted(getattr(role, "value", str(role)) for role in roles))
 
     @staticmethod
     def _normalize(value: str) -> str:

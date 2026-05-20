@@ -1042,6 +1042,63 @@ jobs:
                       echo "::endgroup::"
                   done
 
+            - name: Build CH migration SQL PR comment
+              # Render the same per-environment SQL as a nested markdown list
+              # (environment -> node type(s) -> SQL) for posting as a PR comment.
+              if: github.event_name == 'pull_request'
+              run: |
+                  CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  {
+                      echo '<!-- ch-migration-sql -->'
+                      echo '## ClickHouse migration SQL per cloud environment'
+                      echo ''
+                  } > ch_migration_sql_comment.md
+                  if [ -z "$CHANGED" ]; then
+                      echo '_No ClickHouse migrations changed in this PR._' >> ch_migration_sql_comment.md
+                  else
+                      for deployment in '' US EU DEV; do
+                          CLOUD_DEPLOYMENT="${deployment}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} >> ch_migration_sql_comment.md || true
+                      done
+                  fi
+
+            - name: Post CH migration SQL PR comment
+              # Sticky comment: find the marker and update in place so pushes don't spam the PR.
+              # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const fs = require('fs');
+                      const marker = '<!-- ch-migration-sql -->';
+                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
+                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
+                      if (body.length > LIMIT) {
+                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
+                      }
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find((c) => c.body.includes(marker));
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body,
+                          });
+                      }
+
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
