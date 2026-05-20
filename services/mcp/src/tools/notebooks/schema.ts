@@ -77,9 +77,12 @@ const TEXT_NODE = 'text'
  *     don't introspect attribute keys — the agent's input is rebuilt from the
  *     original JSON we just parsed, so attrs flow through unchanged.
  */
-export function buildSchemaForDoc(doc: ProseMirrorNodeJSON): Schema {
+export function buildSchemaForDoc(doc: ProseMirrorNodeJSON | ProseMirrorNodeJSON[]): Schema {
     const discovered: DiscoveredTypes = { nodes: new Map(), marks: new Set() }
-    discover(doc, discovered)
+    const roots = Array.isArray(doc) ? doc : [doc]
+    for (const root of roots) {
+        discover(root, discovered)
+    }
 
     // Always ensure foundational types exist even if the doc is degenerate.
     if (!discovered.nodes.has('doc')) {

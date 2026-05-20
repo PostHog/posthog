@@ -23,7 +23,7 @@ const sampleDoc = {
 }
 
 function buildDoc(json: unknown = sampleDoc): { doc: PMNode; schema: ReturnType<typeof buildSchemaForDoc> } {
-    const cast = json as Parameters<typeof buildSchemaForDoc>[0]
+    const cast = json as Parameters<typeof packDocAttrs>[0]
     const schema = buildSchemaForDoc(cast)
     const packed = packDocAttrs(cast)
     const doc = PMNode.fromJSON(schema, packed as Parameters<typeof PMNode.fromJSON>[1])
