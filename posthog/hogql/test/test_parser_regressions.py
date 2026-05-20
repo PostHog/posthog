@@ -1789,6 +1789,35 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_float_subnormal_preserved_not_flattened_to_infinity(self):
+        # cpp's `visitNumberLiteral` used to call `std::stod` (which
+        # throws `out_of_range` for BOTH overflow and underflow) and
+        # mapped any out-of-range exception to `value="Infinity"`,
+        # losing the actual subnormal value. Use `strtod` + errno
+        # inspection so a true overflow still yields Infinity but an
+        # underflow keeps the subnormal value (or `0.0` below the
+        # smallest subnormal). Rust always preserved the value
+        # via `parse::<f64>()` — this test pins both sides.
+        cases_subnormal = (
+            ("1e-310", 1e-310),
+            ("5e-324", 5e-324),
+            ("-1e-310", -1e-310),
+        )
+        for src, expected in cases_subnormal:
+            for backend in ("cpp-json", "rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got.value, expected, msg=f"{backend}: {src!r}")
+        # Below the smallest subnormal → `0.0` on both sides.
+        for src in ("1e-325", "-1e-400"):
+            for backend in ("cpp-json", "rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got.value, 0.0, msg=f"{backend}: {src!r}")
+        # True overflow → `\"Infinity\"` / `\"-Infinity\"` on both.
+        for src, expected in (("1e+400", float("inf")), ("-1e+400", float("-inf"))):
+            for backend in ("cpp-json", "rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got.value, expected, msg=f"{backend}: {src!r}")
+
     def test_stmt_rhs_pratt_recovers_on_infix_rhs_failure(self):
         # cpp's ALL(*) splits `let x := {} * ()` into two declarations
         # because the `* ()` infix would need a valid columnExpr RHS,

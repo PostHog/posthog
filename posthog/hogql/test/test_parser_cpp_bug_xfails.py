@@ -95,29 +95,6 @@ class TestParserCppBugXfails(BaseTest):
         self.assertEqual(cpp_ast, rust_ast)
 
     @unittest.expectedFailure
-    def test_float_subnormal_underflow_emits_infinity(self):
-        """`1e-310` — C++ emits `Constant(value="Infinity", value_type="number")`.
-
-        C++ likely mishandles `errno==ERANGE` from `std::stod`: an
-        underflow result (which `strtod` reports with a valid
-        subnormal return value AND `errno = ERANGE`) is treated the
-        same as overflow, flattened to `"Infinity"`. Rust uses
-        `parse::<f64>()` which never errors on subnormals.
-
-        Boundary observed:
-          - `1e-308` → both: `1e-308`
-          - `1e-310 .. 5e-324` → cpp: `"Infinity"`, rust: actual value
-          - `1e-325` and below → cpp: `"Infinity"`, rust: `0.0`
-          - `1e1000` and overflow → both: `"Infinity"` (matches)
-
-        Same divergence for the negative-exponent (`-1e-400`).
-        """
-        src = "1e-310"
-        cpp_raw = json.loads(cpp.parse_expr_json(src))
-        rust_raw = json.loads(hogql_parser_rs.parse_expr_json(src))
-        self.assertEqual(_strip(cpp_raw), _strip(rust_raw))
-
-    @unittest.expectedFailure
     def test_hog_compound_assignment_op_garbage_recovery(self):
         """`let x := 1; x *= 2;` — C++ silently splits `x *= 2` into
         three nonsensical ExprStatements (`x`, then `* == 2`).

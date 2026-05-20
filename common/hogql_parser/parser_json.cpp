@@ -2,7 +2,10 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cerrno>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -2874,11 +2877,29 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       json["value_type"] = "number";
     } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
-      try {
-        json["value"] = Json(stod(text));  // Float
-      } catch (const std::out_of_range&) {
+      // `stod` throws `out_of_range` for BOTH overflow AND underflow,
+      // and we want to distinguish: overflow → ±Infinity; underflow
+      // → the actual subnormal value `strtod` returned (and zero for
+      // values below the smallest subnormal). Use `strtod` directly
+      // so the magnitude check decides.
+      errno = 0;
+      const char* c_str = text.c_str();
+      char* end = nullptr;
+      double value = std::strtod(c_str, &end);
+      bool consumed_all = end == c_str + text.size();
+      if (!consumed_all) {
+        // strtod didn't consume the whole text — fall back to
+        // throwing the historical SyntaxError via stod, which lets
+        // existing callers/tests keep their behaviour.
+        json["value"] = Json(stod(text));
+      } else if (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL)) {
+        // True overflow.
         json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
         json["value_type"] = "number";
+      } else {
+        // Either no errno, or errno==ERANGE for an underflow (strtod
+        // returned a subnormal or 0). Preserve the value.
+        json["value"] = Json(value);
       }
       return json;
     } else if (is_binary) {
