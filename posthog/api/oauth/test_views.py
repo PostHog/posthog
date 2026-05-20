@@ -2,6 +2,7 @@ import base64
 import hashlib
 from datetime import timedelta
 from typing import Optional, cast
+from unittest.mock import patch
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import pytest
@@ -1047,6 +1048,23 @@ class TestOAuthAPI(APIBaseTest):
         response2 = self.post("/oauth/token/", token_data)
         self.assertEqual(response2.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response2.json()["error"], "invalid_grant")
+
+    def test_token_endpoint_returns_invalid_grant_when_access_token_lookup_misses(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_data = {**self.base_token_body, "code": code}
+
+        with patch(
+            "oauth2_provider.views.base.TokenView.post",
+            side_effect=OAuthAccessToken.DoesNotExist,
+        ):
+            response = self.post("/oauth/token/", token_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["error"], "invalid_grant")
+        self.assertIn("error_description", body)
 
     def test_pkce_code_verifier_validation(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)

@@ -680,18 +680,39 @@ class OAuthTokenView(TokenView):
         grant_type = request.POST.get("grant_type", "unknown")
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
+        redirect_uri = request.POST.get("redirect_uri", "")
         logger.info(
             "oauth_token_request",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
         )
 
-        response = super().post(request, *args, **kwargs)
+        try:
+            response = super().post(request, *args, **kwargs)
+        except OAuthAccessToken.DoesNotExist:
+            # django-oauth-toolkit's token response path re-reads the access token it
+            # just issued; concurrent requests racing on the same authorization code
+            # can surface this as DoesNotExist. Map to the standard 400 invalid_grant.
+            logger.warning(
+                "oauth_token_access_token_missing",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code is invalid or has already been used",
+                },
+                status=400,
+            )
 
         logger.info(
             "oauth_token_response",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
             status=response.status_code,
         )
 
