@@ -77,10 +77,10 @@ class SynthesizeSerializer(serializers.Serializer):
     )
 
 
-def _require_api_key() -> str:
+def _require_api_key(counter: Counter) -> str:
     api_key = settings.ELEVENLABS_API_KEY
     if not api_key:
-        HANDS_FREE_TOKEN_COUNTER.labels(outcome="missing_key").inc()
+        counter.labels(outcome="missing_key").inc()
         logger.warning("max_hands_free_api_key_missing")
         raise HandsFreeNotConfigured()
     return api_key
@@ -106,7 +106,7 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         Never logs the upstream response body — provider error responses can echo PII back and
         we don't want any of that landing in structured logs.
         """
-        api_key = _require_api_key()
+        api_key = _require_api_key(HANDS_FREE_TOKEN_COUNTER)
         try:
             upstream = requests.post(
                 f"{settings.ELEVENLABS_API_BASE_URL}/v1/single-use-token/realtime_scribe",
@@ -123,7 +123,12 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             logger.warning("max_hands_free_token_rejected", status_code=upstream.status_code)
             raise HandsFreeProviderError(f"Hands-free provider returned {upstream.status_code}.")
 
-        token: str = upstream.json().get("token", "")
+        try:
+            token: str = upstream.json().get("token", "")
+        except ValueError:
+            HANDS_FREE_TOKEN_COUNTER.labels(outcome="provider_rejected").inc()
+            logger.warning("max_hands_free_token_malformed_json", status_code=upstream.status_code)
+            raise HandsFreeProviderError("Hands-free provider returned a malformed response.")
         if not token:
             HANDS_FREE_TOKEN_COUNTER.labels(outcome="empty_token").inc()
             logger.warning("max_hands_free_token_empty")
@@ -144,7 +149,7 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer.is_valid(raise_exception=True)
         text = serializer.validated_data["text"]
 
-        api_key = _require_api_key()
+        api_key = _require_api_key(HANDS_FREE_SYNTHESIZE_COUNTER)
         voice_id = settings.ELEVENLABS_VOICE_ID
         try:
             upstream = requests.post(

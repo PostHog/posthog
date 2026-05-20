@@ -303,7 +303,6 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, onCommitted)
             connection.on(RealtimeEvents.CLOSE, onClose)
             connection.on(RealtimeEvents.ERROR, onError)
-            cache.connectionListeners = { onOpen, onSessionStarted, onPartial, onCommitted, onClose, onError }
         },
 
         exitHandsFree: ({ reason }) => {
@@ -323,7 +322,6 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                     // best-effort
                 }
                 cache.connection = undefined
-                cache.connectionListeners = undefined
             }
             actions.setStatus('off')
         },
