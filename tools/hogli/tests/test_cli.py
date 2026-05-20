@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -200,3 +201,66 @@ class TestHelpText:
         lines = result.output.split("\n")
         # Look for section headers (typically uppercase or titled)
         assert len(lines) > 10
+
+
+class TestLoadEnvFile:
+    """Test _load_env_file behavior — esp. graceful handling of op:// refs."""
+
+    def _write_env(self, tmp_path, content: str):
+        env_file = tmp_path / ".env.test"
+        env_file.write_text(content)
+        return env_file
+
+    @pytest.mark.parametrize(
+        "op_line",
+        [
+            "OPENAI_API_KEY=op://General/abc/credential",
+            'OPENAI_API_KEY="op://General/abc/credential"',
+            "OPENAI_API_KEY= op://General/abc/credential",
+        ],
+        ids=["bare", "double-quoted", "leading-space"],
+    )
+    def test_skips_op_refs_so_they_dont_leak_as_literals(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch, op_line: str
+    ) -> None:
+        """op:// values must never be set as literal env vars — they'd break downstream services.
+
+        Covers bare, quoted, and space-padded forms (op run itself accepts all three,
+        so users may write any of them).
+        """
+        from hogli.cli import _load_env_file
+
+        env_file = self._write_env(tmp_path, f"{op_line}\nLITERAL_VAR=actual_value\n")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("LITERAL_VAR", raising=False)
+
+        _load_env_file(env_file)
+
+        assert "OPENAI_API_KEY" not in os.environ
+        assert os.environ["LITERAL_VAR"] == "actual_value"
+
+    def test_missing_file_is_silent(self, tmp_path) -> None:
+        """Missing env files should not raise — caller may pass an optional file."""
+        from hogli.cli import _load_env_file
+
+        _load_env_file(tmp_path / "does_not_exist.env")
+
+    def test_only_if_unset_preserves_shell_env(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from hogli.cli import _load_env_file
+
+        env_file = self._write_env(tmp_path, "MY_VAR=from_file\n")
+        monkeypatch.setenv("MY_VAR", "from_shell")
+
+        _load_env_file(env_file, only_if_unset=True)
+
+        assert os.environ["MY_VAR"] == "from_shell"
+
+    def test_ignores_comments_and_blanks(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from hogli.cli import _load_env_file
+
+        env_file = self._write_env(tmp_path, "# comment\n\nREAL_VAR=42\n# another\n")
+        monkeypatch.delenv("REAL_VAR", raising=False)
+
+        _load_env_file(env_file)
+
+        assert os.environ["REAL_VAR"] == "42"

@@ -33,7 +33,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 (
                     str(checkpoint_write.task_id),
                     checkpoint_write.channel,
-                    self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob)),
+                    self.serde.loads_typed((checkpoint_write.type, bytes(checkpoint_write.blob))),
                 )
                 for checkpoint_write in writes
                 if checkpoint_write.type is not None and checkpoint_write.blob is not None

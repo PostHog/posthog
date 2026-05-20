@@ -32,7 +32,7 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common.common import JobOwners, dagster_tags
+from posthog.dags.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,

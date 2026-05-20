@@ -341,7 +341,7 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
             SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight").inc()
             continue
 
-        content: bytes | None = asset.content
+        content: bytes | None = bytes(asset.content) if asset.content else None
         if not content and asset.content_location:
             try:
                 content = object_storage.read_bytes(asset.content_location, missing_ok=True)

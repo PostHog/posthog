@@ -14,8 +14,11 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
+
+ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
 class VariableInHavingClauseError(ValueError):
@@ -1357,3 +1360,56 @@ class MaterializationTransformer(CloningVisitor):
         if isinstance(node, ast.Call):
             return any(self._expr_contains_variable(arg) for arg in node.args)
         return False
+
+
+def prepare_insight_query_for_endpoint(query: dict) -> dict:
+    """Override breakdown_limit to surface all values; keep breakdown_hide_other_aggregation=False so the
+    'Other' bucket appears in results if the limit is ever exceeded."""
+    breakdown_filter = query.get("breakdownFilter")
+    if not breakdown_filter:
+        return query
+
+    return {
+        **query,
+        "breakdownFilter": {
+            **breakdown_filter,
+            "breakdown_hide_other_aggregation": False,
+            "breakdown_limit": ENDPOINT_BREAKDOWN_LIMIT,
+        },
+    }
+
+
+def replace_breakdown_sentinels_in_query(hogql_query: dict) -> dict:
+    """Strip internal sentinel string literals from HogQL so S3-stored data is clean. The 'other' sentinel
+    is embedded in the HogQL by the query builder (in if() and ORDER BY expressions) regardless of
+    breakdown_hide_other_aggregation, which only affects post-processing."""
+    query_text = hogql_query.get("query")
+    if not query_text or not isinstance(query_text, str):
+        return hogql_query
+
+    replacements = {
+        f"'{BREAKDOWN_NULL_STRING_LABEL}'": "''",
+        f"'{BREAKDOWN_OTHER_STRING_LABEL}'": "'Other'",
+    }
+    for old, new in replacements.items():
+        query_text = query_text.replace(old, new)
+
+    return {**hogql_query, "query": query_text}
+
+
+def build_endpoint_hogql(insight_query: dict, team: Team, bucket_overrides: dict[str, str] | None = None) -> dict:
+    """Run the full endpoint conversion pipeline: prepare → convert insight to HogQL → apply variable
+    materialization plan → strip breakdown sentinels. Pure function; no DB side effects."""
+    mat_query = prepare_insight_query_for_endpoint(insight_query)
+    hogql_query = convert_insight_query_to_hogql(mat_query, team)
+
+    if insight_query.get("variables"):
+        can_materialize, _reason, variable_infos = analyze_variables_for_materialization(
+            insight_query, bucket_overrides=bucket_overrides
+        )
+        if can_materialize and variable_infos:
+            hogql_query = transform_query_for_materialization(
+                hogql_query, variable_infos, team, bucket_overrides=bucket_overrides
+            )
+
+    return replace_breakdown_sentinels_in_query(hogql_query)

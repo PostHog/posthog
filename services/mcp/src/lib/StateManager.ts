@@ -250,7 +250,7 @@ export class StateManager {
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (cached !== undefined && !this.isCacheStale(fetchedAt)) {
+        if (!this.isCacheStale(fetchedAt)) {
             return cached
         }
 
@@ -263,6 +263,7 @@ export class StateManager {
             return data as State[D]
         } catch (error) {
             this._reportException(error, `get_or_fetch_${opts.name}`)
+            await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
     }

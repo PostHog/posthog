@@ -41,8 +41,18 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
+import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import { SchemaConfigurationSection } from './schemaSceneLogic'
+
+// null means "all columns" on either side, so switching to null after a partial list flags
+// every previously-excluded column as added.
+function getAddedColumns(prev: string[] | null, next: string[] | null, available: { name: string }[]): string[] {
+    const allColumns = available.map((c) => c.name)
+    const prevSet = new Set(prev ?? allColumns)
+    const nextSet = new Set(next ?? allColumns)
+    return allColumns.filter((c) => nextSet.has(c) && !prevSet.has(c))
+}
 
 export interface ConfigurationTabProps {
     sourceId: string
@@ -69,6 +79,15 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
             )
         case 'sync-method':
             return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+        case 'columns':
+            return (
+                <ColumnsSection
+                    source={source}
+                    schema={schema}
+                    updateSchema={updateSchema}
+                    resyncSchema={resyncSchema}
+                />
+            )
         case 'schedule':
             return (
                 <ScheduleSection
@@ -387,6 +406,114 @@ function SyncMethodSection({
                     </LemonButton>
                 </div>
             )}
+        </div>
+    )
+}
+
+function ColumnsSection({
+    source,
+    schema,
+    updateSchema,
+    resyncSchema,
+}: {
+    source: ExternalDataSource | null
+    schema: ExternalDataSourceSchema
+    updateSchema: (schema: ExternalDataSourceSchema) => void
+    resyncSchema: (schema: ExternalDataSourceSchema) => void
+}): JSX.Element {
+    const isPostgres = source?.source_type === 'Postgres'
+    const available = schema.available_columns ?? []
+    const synced = schema.enabled_columns
+
+    const alwaysRetained = new Set<string>([
+        ...(schema.primary_key_columns ?? []),
+        ...(schema.incremental_field ? [schema.incremental_field] : []),
+    ])
+    const syncedCount = synced ? new Set([...synced, ...alwaysRetained]).size : available.length
+    const summaryLine = !synced
+        ? `Syncing all ${available.length || 'discovered'} columns`
+        : `Syncing ${syncedCount} of ${available.length} columns`
+
+    const handleSave = (nextSyncedColumns: string[] | null): void => {
+        const syncType = schema.sync_type
+        const added = getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available)
+        const requiresPrompt =
+            !!schema.last_synced_at &&
+            (syncType === 'incremental' || syncType === 'append' || syncType === 'cdc') &&
+            added.length > 0
+
+        if (!requiresPrompt) {
+            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+            lemonToast.success('Columns saved')
+            return
+        }
+
+        LemonDialog.open({
+            title: 'New columns added to a partial-sync table',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <span>
+                        You added {added.length === 1 ? '1 column' : `${added.length} columns`} to a{' '}
+                        <code>{syncType}</code> table. Existing rows will be backfilled with <code>NULL</code> for the
+                        new column(s) unless you full-resync the table.
+                    </span>
+                    {added.length <= 6 && (
+                        <span className="text-xs text-muted">Added: {added.map((c) => `"${c}"`).join(', ')}</span>
+                    )}
+                </div>
+            ),
+            primaryButton: {
+                children: 'Full resync now',
+                onClick: () => {
+                    // Bypass the bulk-update debounce so the Temporal workflow reads the new
+                    // enabled_columns from the DB; firing resync against the queued (but unsent)
+                    // PATCH would otherwise re-sync against the old column selection.
+                    void api.externalDataSchemas
+                        .update(schema.id, { enabled_columns: nextSyncedColumns })
+                        .then(() => {
+                            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                            resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                            lemonToast.success('Columns saved — full resync queued')
+                        })
+                        .catch((e: any) => {
+                            lemonToast.error(e?.message || "Can't save columns at this time")
+                        })
+                },
+            },
+            secondaryButton: {
+                children: 'Sync forward only',
+                onClick: () => {
+                    updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                    lemonToast.success('Columns saved')
+                },
+            },
+        })
+    }
+
+    return (
+        <div>
+            <SectionHeader
+                title="Columns"
+                description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
+            />
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                {!isPostgres ? (
+                    <span className="text-muted">
+                        Per-column selection is currently available for Postgres sources only.
+                    </span>
+                ) : (
+                    <>
+                        <span className="text-sm text-secondary">{summaryLine}</span>
+                        <SourceEditorAction source={source}>
+                            {({ disabledReason }) => (
+                                <fieldset disabled={!!disabledReason}>
+                                    <ColumnSelectionPicker schema={schema} onSave={handleSave} />
+                                </fieldset>
+                            )}
+                        </SourceEditorAction>
+                    </>
+                )}
+            </div>
         </div>
     )
 }
