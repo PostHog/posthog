@@ -60,7 +60,7 @@ export class StreamableMcpHandler {
                 resourceEntries: this._resourceEntries,
             })
             await mcpServer.init()
-            const transport = new WebStandardStreamableHTTPServerTransport({})
+            const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true })
             await mcpServer.server.connect(transport)
             return passThrough(await transport.handleRequest(c.req.raw))
         } catch (error) {
