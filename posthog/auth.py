@@ -755,12 +755,24 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
 
         return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id)
 
-    def authenticate(self, request: Request) -> tuple[Any, Any]:
+    def authenticate(self, request: Request) -> tuple[Any, Any] | None:
         provided_secret = (
             request.headers.get(self.HEADER_NAME)
             or request.headers.get(self.HEADER_NAME.lower())
             or request.headers.get(self.HEADER_NAME.upper())
         )
+
+        # Per DRF convention: when the caller didn't even attempt to authenticate
+        # via this scheme (no header at all), return None so the next auth class
+        # — or the view's permission classes — can decide. Raising here breaks
+        # OpenAPI schema generation, which calls `view.get_permissions()` on
+        # every view and triggers authentication as a side effect; views that
+        # mix this class with PersonalAPIKeyAuthentication would otherwise crash
+        # `/api/schema/` with a 401. Views relying on this class must enforce
+        # `IsAuthenticated` (the DRF default) to reject anonymous traffic.
+        if not provided_secret:
+            return None
+
         configured_secret = settings.INTERNAL_API_SECRET
 
         if not settings.DEBUG and not settings.TEST and configured_secret == LOCAL_DEV_INTERNAL_API_SECRET:
@@ -776,13 +788,6 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
                 extra={"path": request.path, "method": request.method},
             )
             raise AuthenticationFailed("Internal API authentication is not configured.")
-
-        if not provided_secret:
-            logger.warning(
-                "Internal API request missing authentication header",
-                extra={"path": request.path, "method": request.method},
-            )
-            raise AuthenticationFailed("Missing internal API authentication header.")
 
         if not hmac.compare_digest(configured_secret, provided_secret):
             logger.warning(

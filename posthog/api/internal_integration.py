@@ -4,7 +4,7 @@ from typing import Any
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -166,7 +166,12 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [InternalAPIAuthentication]
-    permission_classes = [AllowAny]
+    # InternalAPIAuthentication returns None when the X-Internal-Api-Secret
+    # header is missing (DRF convention), so we rely on IsAuthenticated to
+    # reject anonymous traffic. When the header is present but invalid the
+    # auth class still raises and the request never reaches the permission
+    # check.
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=["internal"],
