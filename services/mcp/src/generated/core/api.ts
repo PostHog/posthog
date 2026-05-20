@@ -635,7 +635,7 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     hide_mcp_hints: zod
         .boolean()
-        .nullish()
+        .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),

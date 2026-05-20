@@ -231,8 +231,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     )
     hide_mcp_hints = models.BooleanField(
         default=False,
-        null=True,
-        blank=True,
+        null=False,
+        blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
 
