@@ -867,7 +867,10 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "GitHubIntegration: list_teams failed"
+        assert (
+            response.json()["detail"]
+            == "Unable to fetch GitHub teams. Please check integration settings and try again."
+        )
 
     @patch("posthog.models.integration.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):
