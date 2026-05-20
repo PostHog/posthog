@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { getDatumTitle } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
@@ -71,22 +71,11 @@ export function FunnelLineGraph({
                 showTrendLines={funnelsFilter?.showTrendLines ?? false}
                 goalLines={goalLines ?? []}
                 tooltip={{
-                    showHeader: false,
-                    hideColorCol: true,
                     renderSeries: (_, datum) => {
-                        if (!indexedSteps?.[0]?.days) {
-                            return 'Trend'
+                        if (datum.breakdown_value !== undefined && !!datum.breakdown_value) {
+                            return <div className="datum-label-column">{getDatumTitle(datum, breakdownFilter)}</div>
                         }
-                        return (
-                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], {
-                                interval,
-                                dateRange: insightData?.resolved_date_range,
-                                timezone: insightData?.timezone,
-                                weekStartDay,
-                            }) +
-                            ' ' +
-                            (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
-                        )
+                        return <div className="datum-label-column">Conversion</div>
                     },
                     renderCount: (count) => {
                         return `${count}%`
