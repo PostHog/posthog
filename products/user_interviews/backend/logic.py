@@ -9,7 +9,7 @@ products must keep going through the facade.
 import re
 from uuid import UUID
 
-from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
+from products.user_interviews.backend.contracts import IntervieweeIdentity
 from products.user_interviews.backend.models import EmailWithDisplayNameValidator, UserInterview
 
 
