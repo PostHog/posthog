@@ -171,6 +171,7 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - YAML-driven developer CLI."""
+    _load_default_env_files()
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
@@ -281,6 +282,20 @@ def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
         if only_if_unset and name in os.environ:
             continue
         os.environ[name] = value
+
+
+def _load_default_env_files() -> None:
+    """Load .env.development and .env.services for every hogli subcommand.
+
+    Mirrors bin/start so commands that shell out to manage.py / bin scripts
+    (dev:reset, migrations:run, etc.) see the same service connection defaults
+    the dev stack uses. Shell vars win; we never overwrite.
+
+    .env.local is intentionally NOT loaded here — it can contain 1Password
+    op:// refs that only `hogli run` knows how to resolve via `op run`.
+    """
+    _load_env_file(REPO_ROOT / ".env.development", only_if_unset=True)
+    _load_env_file(REPO_ROOT / ".env.services", only_if_unset=True)
 
 
 @cli.command(name="run", help="Run a command with resolved environment (1Password + defaults)")
