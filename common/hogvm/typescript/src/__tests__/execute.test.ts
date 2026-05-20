@@ -391,6 +391,16 @@ describe('hogvm execute', () => {
         ).toBe('zero')
     })
 
+    test.each(['hasOwnProperty', 'constructor', '__proto__'])(
+        'async dispatch rejects inherited name %s',
+        async (name) => {
+            const bytecode = ['_h', op.CALL_GLOBAL, name, 0, op.RETURN]
+            await expect(execAsync(bytecode, { asyncFunctions: {} })).rejects.toThrow(
+                `Invalid async function call: ${name}`
+            )
+        }
+    )
+
     test('bytecode variable assignment', async () => {
         const bytecode = ['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS, op.GET_LOCAL, 0, op.RETURN, op.POP]
         expect(execSync(bytecode)).toBe(3)

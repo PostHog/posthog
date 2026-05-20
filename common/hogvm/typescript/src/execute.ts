@@ -703,7 +703,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     checkTimeout()
                     const name = next()
                     temp = next() // args.length
-                    if (name in declaredFunctions && name !== 'toString') {
+                    if (Object.prototype.hasOwnProperty.call(declaredFunctions, name) && name !== 'toString') {
                         // This is for backwards compatibility. We use a closure on the stack with local functions now.
                         const [funcIp, argLen] = declaredFunctions[name]
                         frame.ip += 1 // advance for when we return
